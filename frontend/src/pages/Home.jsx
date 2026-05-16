@@ -7,7 +7,7 @@ import Footer from "../components/consumer/Footer";
 import ProductCard from "../components/consumer/ProductCard";
 import StoreCard from "../components/consumer/StoreCard";
 
-const HERO_IMG = "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/wnvtfjvx_ChatGPT%20Image%20May%2016%2C%202026%2C%2005_49_42%20PM.png"; // Bhilai Globe Chowk landmark (clean)
+const HERO_IMG = "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png"; // Bhilai Globe Chowk — full-bleed 2.4:1
 
 export default function Home() {
   const [categories, setCategories] = useState([]);
@@ -40,12 +40,11 @@ export default function Home() {
       <section data-testid="hero" className="relative">
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-6 md:pt-8">
           <div className="relative rounded-[28px] overflow-hidden bg-[#1A2B4C] min-h-[420px] md:min-h-[520px]">
-            {/* Bhilai Globe Chowk landmark — full-bleed banner. Source PNG has ~30px white margins,
-                so we scale ~7% to push them past the rounded-corner clip. */}
+            {/* Bhilai Globe Chowk landmark — full-bleed 2.4:1 source, no padding */}
             <img
               src={HERO_IMG}
               alt="Bhilai Globe Chowk"
-              className="absolute inset-0 w-full h-full object-cover scale-[1.07] object-[60%_50%] md:object-[55%_50%]"
+              className="absolute inset-0 w-full h-full object-cover object-[60%_50%] md:object-center"
             />
             {/* Cream wash for text legibility (lighter on mobile so landmark is visible) */}
             <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/55 via-[#FDFBF7]/10 to-[#FDFBF7]/0 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
