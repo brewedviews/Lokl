@@ -16,6 +16,7 @@ export default function ConsumerHeader() {
     setCity(c);
     localStorage.setItem("bf_city", c);
     setOpenCity(false);
+    window.dispatchEvent(new CustomEvent("bf-city-changed", { detail: c }));
   };
 
   return (
