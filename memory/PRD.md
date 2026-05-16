@@ -3,6 +3,60 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-11)
+
+### Search (NEW)
+- Backend: `GET /api/search?q=` returns matching products + stores
+- Header: live typeahead (debounced 200ms, min 2 chars) — drop-down shows up to 4 stores + 6 products with thumbnails
+- Clicking a suggestion → store/product page; pressing Enter → `/search?q=…` results page
+- New `/search` page lists matching stores + products + a "Didn't find?" L1 tile grid fallback (same 9 tiles as home)
+
+### Home — Thinner Hero
+- Removed the 4 feature pills (Trusted Stores · Lightning Fast · Try at Your Doorstep · Easy Returns)
+- Hero height reduced (300px desktop vs 520px before) so the Shop-by-category grid is above the fold
+- ETA card retained on desktop right
+
+### Floating Order Strip (NEW)
+- `OrderStatusStrip` component rendered globally by `ConsumerHeader`
+- Polls `/api/customer/{phone}` every 15s for the latest non-final order; sticky bottom-right strip on desktop, full-width on mobile
+- Click → goes to `/orders/{id}`. Hides automatically when nothing is in flight.
+
+### Order Tracking — Stylized SVG Map
+- Hero tile now shows an illustrative SVG "map" with grid background, dashed road, Store + Customer pins and a 🛵 rider marker
+- Rider position animates by status: placed → near store, accepted → at store, on_the_way → mid-route, delivered → hidden
+- Small "illustrative · not GPS" caption keeps it honest
+
+### Storefront — Multi-banner + Store hours
+- `MerchantStorefront` redesigned: upload **up to 5 banner images** (file upload, 5MB cap each — no URL input, no preset gallery)
+- New **Opens at / Closes at** time pickers (defaults 10:00 / 18:00)
+- **30-min buffer** applied automatically: store accepts online orders from 30 min after opens to 30 min before closes
+- Removed "specialties" + Follow button (deferred)
+- Locality is auto-derived from `business_address` first-segment (was free text)
+
+### Store visibility — Open / Offline split
+- `/api/stores` now annotates each store with `is_open` + `next_open_label` and sorts open stores first, offline stores at the bottom
+- Per-store products carry `store_is_open` / `next_open_label` so PDP can show "Out of delivery hours · Opens at 10:00 AM"
+
+### StorePage simplified
+- Removed rating, reviews, Follow button, Specialties chips
+- **Dynamic ETA** computed from `distance_km` (20 + km × 4 minutes, min 15)
+- Area badge taken from `business_address` (or `store.area`)
+- New **banner carousel** (snap-x scroll) when multiple banners are set
+
+### Product page — clickable store name
+- PDP "store_name" eyebrow is now a Link → `/store/{store_id}`
+- New **image carousel** (chevron arrows + dot pagination) when `product.images` has multiple entries (single-image products fall back to the legacy `image`)
+
+### Merchant order privacy
+- `GET /api/merchant/orders` redacts customer PII server-side: only name + pincode + landmark + coarse area (last comma-segment) are exposed. Phone, full street, email are stripped.
+- UI updated accordingly (no `Phone size=11` chip, area-only badge)
+
+### Per-product Go Live + bulk multi-select
+- Each product card gets a checkbox (top-left) + a hover-only **Go live** button (shown only when paused; navy "Live" badge replaces it when published)
+- Sticky bulk-action bar appears when ≥1 selected: Go live · Pause · Delete · Cancel
+- Backend: new `POST /api/merchant/products/bulk-action` (delete/publish/pause)
+- Removed the generic global "Go live" button — replaced with helper banner "None of your products are live yet — hover and click Go live"
+
 ## Latest Iteration (Feb 2026 — Iter-10)
 
 ### Cascade-Delete: Full Merchant Offboarding

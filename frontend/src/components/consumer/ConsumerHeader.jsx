@@ -4,15 +4,36 @@ import { MapPin, Search, ShoppingBag, Store, User, AlertCircle, RefreshCw } from
 import { useCart } from "../../contexts/CartContext";
 import api from "../../lib/api";
 import useHeartbeat from "../../hooks/useHeartbeat";
+import OrderStatusStrip from "./OrderStatusStrip";
 
 export default function ConsumerHeader() {
   const [city] = useState("Bhilai"); // pilot is Bhilai-only
   const [detectedAway, setDetectedAway] = useState(null);
   const [q, setQ] = useState("");
+  const [sug, setSug] = useState({ products: [], stores: [] });
+  const [sugOpen, setSugOpen] = useState(false);
   const { count } = useCart();
   const nav = useNavigate();
   const customerPhone = localStorage.getItem("bf_customer_phone") || null;
   useHeartbeat(customerPhone ? "customer" : "guest", { phone: customerPhone });
+
+  // Debounced typeahead
+  useEffect(() => {
+    if (!q || q.trim().length < 2) { setSug({ products: [], stores: [] }); return; }
+    const t = setTimeout(() => {
+      api.get(`/search?q=${encodeURIComponent(q)}`).then((r) => setSug(r.data || { products: [], stores: [] })).catch(() => {});
+    }, 200);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const submitSearch = (e) => {
+    e?.preventDefault?.();
+    setSugOpen(false);
+    nav(`/search?q=${encodeURIComponent(q)}`);
+  };
+
+  const pickProduct = (p) => { setSugOpen(false); setQ(""); nav(`/p/${p.id}`); };
+  const pickStore = (s) => { setSugOpen(false); setQ(""); nav(`/store/${s.id}`); };
 
   useEffect(() => {
     localStorage.setItem("bf_city", "Bhilai");
@@ -58,34 +79,59 @@ export default function ConsumerHeader() {
           </div>
 
           {/* Desktop search */}
-          <div className="flex-1 hidden md:flex">
+          <form onSubmit={submitSearch} className="flex-1 hidden md:flex relative">
             <div className="flex w-full items-center gap-2 px-4 py-2.5 bg-white border border-[#E5E2DC] rounded-full focus-within:border-[#1A2B4C] transition">
               <Search size={16} className="text-[#595959]" />
               <input
                 data-testid="search-input"
                 value={q}
-                onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && nav(`/c/women?q=${encodeURIComponent(q)}`)}
+                onChange={(e) => { setQ(e.target.value); setSugOpen(true); }}
+                onFocus={() => setSugOpen(true)}
+                onBlur={() => setTimeout(() => setSugOpen(false), 200)}
                 placeholder="Search kurtas, sneakers, boutique stores…"
                 className="bg-transparent flex-1 outline-none text-sm"
               />
             </div>
-          </div>
+            {sugOpen && q.trim().length >= 2 && (sug.products.length || sug.stores.length) > 0 && (
+              <div data-testid="search-suggest" className="absolute left-0 right-0 top-full mt-2 bg-white rounded-2xl shadow-2xl border border-[#E5E2DC] py-2 max-h-[60vh] overflow-y-auto z-50">
+                {sug.stores.slice(0, 4).map((s) => (
+                  <button type="button" key={s.id} onClick={() => pickStore(s)} className="w-full text-left px-4 py-2 hover:bg-[#FDFBF7] flex items-center gap-3" data-testid={`sug-store-${s.id}`}>
+                    <img src={s.banner || s.image} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-[#1A2B4C] truncate">{s.name}</div>
+                      <div className="text-[11px] text-[#595959] truncate">Store · {s.area || ""}</div>
+                    </div>
+                  </button>
+                ))}
+                {sug.products.slice(0, 6).map((p) => (
+                  <button type="button" key={p.id} onClick={() => pickProduct(p)} className="w-full text-left px-4 py-2 hover:bg-[#FDFBF7] flex items-center gap-3" data-testid={`sug-product-${p.id}`}>
+                    <img src={p.image} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-[#1A2B4C] truncate">{p.name}</div>
+                      <div className="text-[11px] text-[#595959] truncate">{p.store_name} · ₹{Number(p.price).toLocaleString()}</div>
+                    </div>
+                  </button>
+                ))}
+                <button type="submit" className="w-full text-left px-4 py-2 hover:bg-[#FDFBF7] text-xs text-[#E68910] font-semibold border-t border-[#E5E2DC] mt-1">
+                  Search all results for "{q}" →
+                </button>
+              </div>
+            )}
+          </form>
 
-          {/* Mobile search (compact) */}
-          <div className="flex-1 md:hidden">
+          {/* Mobile search */}
+          <form onSubmit={submitSearch} className="flex-1 md:hidden">
             <div className="flex w-full items-center gap-2 px-3 py-2 bg-white border border-[#E5E2DC] rounded-full focus-within:border-[#1A2B4C] transition">
               <Search size={14} className="text-[#595959] shrink-0" />
               <input
                 data-testid="search-input-mobile"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && nav(`/c/women?q=${encodeURIComponent(q)}`)}
                 placeholder="Search…"
                 className="bg-transparent flex-1 outline-none text-xs min-w-0"
               />
             </div>
-          </div>
+          </form>
 
           <Link to="/stores" data-testid="nav-stores" className="hidden md:flex items-center gap-1.5 text-sm font-medium hover:text-[#E68910] transition">
             <Store size={16} /> Stores
@@ -114,6 +160,7 @@ export default function ConsumerHeader() {
           </div>
         </div>
       )}
+      <OrderStatusStrip />
     </>
   );
 }

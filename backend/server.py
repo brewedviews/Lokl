@@ -49,13 +49,18 @@ class KycSubmit(BaseModel):
 
 class StorefrontUpdate(BaseModel):
     tagline: str; story: str; banner: str
-    specialties: List[str] = []; locality: Optional[str] = ""; timing: Optional[str] = "10am - 9pm"
+    banners: List[str] = []
+    specialties: List[str] = []; locality: Optional[str] = ""
+    timing: Optional[str] = ""
+    opens_at: Optional[str] = "10:00"
+    closes_at: Optional[str] = "18:00"
 
 class ProductCreate(BaseModel):
     name: str; price: float; mrp: Optional[float] = None
     l1_id: str; l2_id: Optional[str] = ""; gender: Optional[str] = ""
     description: Optional[str] = ""
     sizes: List[str] = []; image: Optional[str] = ""
+    images: List[str] = []
     ai_enhanced: bool = False; try_at_doorstep: bool = False
     stock: Optional[dict] = None
 
@@ -123,6 +128,23 @@ async def list_l2(l1_id: str):
     return await db.subcategories.find({"l1_id": l1_id}, {"_id": 0}).to_list(50)
 
 
+@api.get("/search")
+async def search(q: str = "", limit: int = 20):
+    """Lightweight typeahead. Returns products + stores matching the query."""
+    if not q or len(q.strip()) < 1:
+        return {"products": [], "stores": []}
+    rx = {"$regex": q.strip(), "$options": "i"}
+    products = await db.products.find(
+        {"$and": [{"paused": {"$ne": True}}, {"$or": [{"name": rx}, {"description": rx}]}]},
+        {"_id": 0, "id": 1, "name": 1, "image": 1, "price": 1, "store_id": 1, "store_name": 1, "l1_id": 1}
+    ).limit(limit).to_list(limit)
+    stores = await db.stores.find(
+        {"$and": [{"published": True}, {"paused": {"$ne": True}}, {"product_count": {"$gte": 1}}, {"$or": [{"name": rx}, {"tagline": rx}, {"specialties": rx}]}]},
+        {"_id": 0, "id": 1, "name": 1, "banner": 1, "image": 1, "tagline": 1, "area": 1}
+    ).limit(8).to_list(8)
+    return {"products": products, "stores": stores}
+
+
 # ===== Public catalog =====
 def _visible_store_filter():
     return {"kyc_status": "approved", "published": True, "paused": {"$ne": True}, "product_count": {"$gte": 1}}
@@ -130,17 +152,63 @@ def _visible_store_filter():
 def _visible_product_filter():
     return {"paused": {"$ne": True}}
 
+
+def _is_store_open_now(store: dict) -> tuple[bool, str | None]:
+    """Returns (is_open, next_open_label). 30-min buffer after opens_at and before closes_at.
+
+    If `opens_at` / `closes_at` are missing, the store is treated as always open.
+    Uses local IST clock (UTC+5:30) since the pilot is Bhilai-only.
+    """
+    opens = store.get("opens_at")
+    closes = store.get("closes_at")
+    if not opens or not closes:
+        return True, None
+    try:
+        from datetime import timezone as _tz, timedelta as _td
+        ist = datetime.now(_tz.utc) + _td(hours=5, minutes=30)
+        cur_min = ist.hour * 60 + ist.minute
+        oh, om = [int(x) for x in opens.split(":")[:2]]
+        ch, cm = [int(x) for x in closes.split(":")[:2]]
+        open_min = oh * 60 + om + 30      # +30 buffer after opens
+        close_min = ch * 60 + cm - 30     # -30 buffer before closes
+        if open_min <= cur_min < close_min:
+            return True, None
+        # Compose human-readable next-open label
+        opens_h = oh % 12 or 12
+        opens_ampm = "AM" if oh < 12 else "PM"
+        return False, f"Opens at {opens_h}:{om:02d} {opens_ampm}"
+    except Exception:
+        return True, None
+
+
 @api.get("/stores")
 async def list_stores(city: Optional[str] = None, limit: int = 50):
     q = dict(_visible_store_filter())
     if city: q["city"] = city
-    return await db.stores.find(q, {"_id": 0}).sort("distance_km", 1).to_list(limit)
+    stores = await db.stores.find(q, {"_id": 0}).sort("distance_km", 1).to_list(limit)
+    open_list, offline_list = [], []
+    for s in stores:
+        is_open, next_label = _is_store_open_now(s)
+        s["is_open"] = is_open
+        if not is_open:
+            s["next_open_label"] = next_label
+            offline_list.append(s)
+        else:
+            open_list.append(s)
+    return open_list + offline_list  # open first, offline at the bottom
 
 @api.get("/stores/{store_id}")
 async def get_store(store_id: str):
     s = await db.stores.find_one({"id": store_id, **_visible_store_filter()}, {"_id": 0})
     if not s: raise HTTPException(404, "Store not found")
+    is_open, next_label = _is_store_open_now(s)
+    s["is_open"] = is_open
+    s["next_open_label"] = next_label
     products = await db.products.find({"store_id": store_id, **_visible_product_filter()}, {"_id": 0}).to_list(200)
+    for p in products:
+        p["store_is_open"] = is_open
+        if not is_open:
+            p["next_open_label"] = next_label
     return {"store": s, "products": products}
 
 @api.get("/products")
@@ -222,7 +290,23 @@ async def get_order(order_id: str):
 
 @api.get("/merchant/orders")
 async def merchant_orders(user: dict = Depends(get_current_user)):
-    return await db.orders.find({"merchant_ids": user["sub"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    """Returns this merchant's orders with customer PII redacted (name + pincode + landmark only)."""
+    raw = await db.orders.find({"merchant_ids": user["sub"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    cleaned = []
+    for o in raw:
+        addr = o.get("address") or {}
+        cust = o.get("customer") or {}
+        o["customer"] = {"name": cust.get("name") or addr.get("name") or "Customer"}
+        o["address"] = {
+            "name": addr.get("name", ""),
+            "pincode": addr.get("pincode", ""),
+            "city": addr.get("city", "Bhilai"),
+            "landmark": addr.get("landmark", ""),
+            # Coarse area = last comma-segment of line1 (no house numbers / street)
+            "line1": (addr.get("line1", "").split(",")[-1] or "").strip(),
+        }
+        cleaned.append(o)
+    return cleaned
 
 @api.post("/merchant/orders/{oid}/accept")
 async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)):
@@ -345,19 +429,29 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_
     if not m: raise HTTPException(404, "Not found")
     if m.get("kyc_status") != "approved": raise HTTPException(403, "KYC not approved yet")
     store_id = f"store-m-{user['sub']}"
+    # Derive area from business_address (first comma-segment)
+    biz_addr = m.get("business_address", "") or ""
+    derived_area = (payload.locality or biz_addr.split(",")[0]).strip() or "Bhilai"
     store_doc = {"id": store_id, "merchant_id": user["sub"], "name": m["store_name"],
-        "tagline": payload.tagline, "story": payload.story, "banner": payload.banner, "logo": payload.banner,
-        "city": "Bhilai", "locality": payload.locality or "",
-        "specialties": payload.specialties, "timing": payload.timing,
+        "tagline": payload.tagline, "story": payload.story,
+        "banner": (payload.banners[0] if payload.banners else payload.banner),
+        "banners": payload.banners or ([payload.banner] if payload.banner else []),
+        "logo": (payload.banners[0] if payload.banners else payload.banner),
+        "city": "Bhilai", "area": derived_area, "locality": derived_area,
+        "address": biz_addr,
+        "specialties": payload.specialties,
+        "timing": payload.timing or f"{payload.opens_at} - {payload.closes_at}",
+        "opens_at": payload.opens_at or "10:00",
+        "closes_at": payload.closes_at or "18:00",
         "lat": 21.2147, "lng": 81.3850,
         "distance_km": round(random.uniform(0.8, 4.0), 1),
         "eta_min": random.choice([28, 32, 35, 40, 45]),
-        "rating": 4.6, "reviews": random.randint(20, 80), "trusted": True,
+        "trusted": True,
         "kyc_status": "approved", "published": False, "paused": False, "product_count": 0,
         "created_at": datetime.now(timezone.utc).isoformat()}
     existing = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if existing:
-        for k in ("published", "paused", "product_count", "created_at", "rating", "reviews", "distance_km", "eta_min"):
+        for k in ("published", "paused", "product_count", "created_at", "distance_km", "eta_min"):
             if k in existing: store_doc[k] = existing[k]
     await db.stores.update_one({"id": store_id}, {"$set": store_doc}, upsert=True)
     await db.merchants.update_one({"id": user["sub"]}, {"$set": {"storefront": store_doc}})
@@ -420,6 +514,26 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
     payload.pop("id", None); payload.pop("merchant_id", None)
     await db.products.update_one({"id": pid}, {"$set": payload})
     return await db.products.find_one({"id": pid}, {"_id": 0})
+
+@api.post("/merchant/products/bulk-action")
+async def merchant_products_bulk_action(payload: dict, user: dict = Depends(get_current_user)):
+    """Bulk delete / publish (= unpause) / pause for selected product ids."""
+    ids = payload.get("ids") or []
+    action = (payload.get("action") or "").lower()
+    if not ids: raise HTTPException(400, "No ids")
+    if action == "delete":
+        r = await db.products.delete_many({"id": {"$in": ids}, "merchant_id": user["sub"]})
+        return {"deleted": r.deleted_count}
+    elif action in ("publish", "pause"):
+        new_paused = (action == "pause")
+        r = await db.products.update_many(
+            {"id": {"$in": ids}, "merchant_id": user["sub"]},
+            {"$set": {"paused": new_paused}}
+        )
+        return {"updated": r.modified_count, "paused": new_paused}
+    raise HTTPException(400, "Unknown action")
+
+
 
 @api.post("/merchant/products/bulk")
 async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_current_user)):

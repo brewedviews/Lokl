@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { Star, Bike, MapPin, ShieldCheck, Heart, ShoppingBag, Sparkles, Truck, RefreshCw } from "lucide-react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { Star, Bike, MapPin, ShieldCheck, Heart, ShoppingBag, Sparkles, Truck, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import api from "../lib/api";
 import ConsumerHeader from "../components/consumer/ConsumerHeader";
 import Footer from "../components/consumer/Footer";
@@ -14,11 +14,13 @@ export default function ProductDetail() {
   const { add } = useCart();
   const [data, setData] = useState(null);
   const [size, setSize] = useState(null);
+  const [imgIdx, setImgIdx] = useState(0);
 
   useEffect(() => {
     api.get(`/products/${id}`).then((r) => {
       setData(r.data);
       setSize(r.data.product.sizes?.[0] || null);
+      setImgIdx(0);
     });
   }, [id]);
 
@@ -26,6 +28,7 @@ export default function ProductDetail() {
 
   const { product, similar } = data;
   const discount = product.mrp ? Math.round((1 - product.price / product.mrp) * 100) : 0;
+  const images = (product.images && product.images.length > 0) ? product.images : [product.image].filter(Boolean);
 
   const handleAdd = () => {
     if (product.sizes?.length && !size) return toast.error("Please pick a size");
@@ -44,7 +47,18 @@ export default function ProductDetail() {
       <ConsumerHeader />
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-10 grid md:grid-cols-2 gap-10">
         <div data-testid="pdp-image" className="relative rounded-3xl overflow-hidden bg-white">
-          <img src={product.image} alt={product.name} className="w-full aspect-[4/5] object-cover" />
+          <img src={images[imgIdx]} alt={product.name} className="w-full aspect-[4/5] object-cover" />
+          {images.length > 1 && (
+            <>
+              <button onClick={() => setImgIdx((i) => (i - 1 + images.length) % images.length)} className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white" aria-label="Previous image"><ChevronLeft size={18} /></button>
+              <button onClick={() => setImgIdx((i) => (i + 1) % images.length)} className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white" aria-label="Next image"><ChevronRight size={18} /></button>
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                {images.map((_, i) => (
+                  <button key={i} onClick={() => setImgIdx(i)} className={`w-2 h-2 rounded-full transition ${i === imgIdx ? "bg-[#1A2B4C] w-5" : "bg-white/80 border border-[#1A2B4C]/30"}`} aria-label={`Go to image ${i + 1}`} />
+                ))}
+              </div>
+            </>
+          )}
           {product.ai_enhanced && (
             <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-[#1A2B4C] text-white text-xs font-semibold flex items-center gap-1.5">
               <Sparkles size={12} className="text-[#E68910]" /> AI Enhanced
@@ -53,7 +67,13 @@ export default function ProductDetail() {
         </div>
 
         <div data-testid="pdp-info">
-          <div className="text-xs uppercase tracking-widest text-[#595959]">{product.store_name}</div>
+          {product.store_id ? (
+            <Link to={`/store/${product.store_id}`} data-testid="store-name-link" className="text-xs uppercase tracking-widest text-[#E68910] hover:underline">
+              {product.store_name}
+            </Link>
+          ) : (
+            <div className="text-xs uppercase tracking-widest text-[#595959]">{product.store_name}</div>
+          )}
           <h1 className="display text-3xl md:text-4xl font-bold text-[#1A2B4C] mt-2 leading-tight">{product.name}</h1>
 
           <div className="flex items-center gap-4 mt-4 text-sm">

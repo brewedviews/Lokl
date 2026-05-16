@@ -22,6 +22,35 @@ export default function MerchantProducts() {
   const [form, setForm] = useState(blankForm);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
+  const toggleSel = (id) => {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+  const clearSel = () => setSelectedIds(new Set());
+
+  const bulkAction = async (op) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return toast.error("Pick at least one product");
+    if (op === "delete" && !window.confirm(`Delete ${ids.length} product(s)? This cannot be undone.`)) return;
+    try {
+      await api.post("/merchant/products/bulk-action", { ids, action: op });
+      toast.success(op === "delete" ? "Deleted" : op === "publish" ? "Marked live" : "Paused");
+      clearSel(); load();
+    } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
+  };
+
+  const togglePublish = async (p, to) => {
+    try {
+      await api.put(`/merchant/products/${p.id}`, { paused: to === "live" ? false : true });
+      toast.success(to === "live" ? "Marked live" : "Paused");
+      load();
+    } catch { toast.error("Failed"); }
+  };
 
   const load = () => api.get("/merchant/products").then((r) => setProducts(r.data));
   useEffect(() => { load(); api.get("/categories").then((r) => setCats(r.data)); }, []);
@@ -113,15 +142,30 @@ export default function MerchantProducts() {
               <input data-testid="bulk-csv" type="file" accept=".csv" className="hidden" onChange={(e) => handleBulk(e.target.files?.[0])} />
             </label>
             <button onClick={() => setOpenAdd(true)} data-testid="add-product-btn" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#1A2B4C] text-white text-sm font-semibold hover:bg-[#101D36]"><Plus size={14} /> Add product</button>
-            {hasStorefront && products.length >= 1 && (
-              <button onClick={goLive} data-testid="go-live-btn" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#E68910] text-white text-sm font-semibold hover:bg-[#C9770E]"><Rocket size={14} /> Go live</button>
-            )}
           </div>
         </div>
+
+        {hasStorefront && products.length >= 1 && products.every((p) => p.paused) && (
+          <div className="mb-4 p-3 rounded-xl bg-[#E68910]/10 border border-[#E68910]/30 text-xs text-[#1A2B4C]">
+            None of your products are live yet — hover over a product card and click <strong>Go live</strong>, or use bulk-select.
+          </div>
+        )}
 
         {!hasStorefront && (
           <div className="mb-6 p-4 rounded-2xl bg-[#E68910]/10 border border-[#E68910]/30 text-sm">
             <strong>Set up your storefront first</strong> — open Storefront in the sidebar.
+          </div>
+        )}
+
+        {selectedIds.size > 0 && (
+          <div data-testid="bulk-bar" className="sticky top-4 z-30 mb-3 bg-[#1A2B4C] text-white rounded-2xl px-4 py-3 flex items-center justify-between shadow-lg">
+            <div className="text-sm font-semibold">{selectedIds.size} selected</div>
+            <div className="flex gap-2">
+              <button onClick={() => bulkAction("publish")} data-testid="bulk-publish" className="px-3 py-1.5 rounded-full bg-[#4F7363] text-xs font-semibold">Go live</button>
+              <button onClick={() => bulkAction("pause")} data-testid="bulk-pause" className="px-3 py-1.5 rounded-full bg-white/15 text-xs font-semibold">Pause</button>
+              <button onClick={() => bulkAction("delete")} data-testid="bulk-delete" className="px-3 py-1.5 rounded-full bg-red-500 text-xs font-semibold">Delete</button>
+              <button onClick={clearSel} className="px-3 py-1.5 rounded-full bg-white/10 text-xs">Cancel</button>
+            </div>
           </div>
         )}
 
@@ -135,10 +179,25 @@ export default function MerchantProducts() {
             {products.map((p) => {
               const l1 = cats.find((c) => c.id === p.l1_id);
               const l2 = l1?.l2?.find((s) => s.id === p.l2_id);
+              const isLive = !p.paused;
+              const isSel = selectedIds.has(p.id);
               return (
-                <div key={p.id} data-testid={`mp-${p.id}`} className="bg-white rounded-2xl border border-[#E5E2DC] overflow-hidden">
+                <div key={p.id} data-testid={`mp-${p.id}`} className={`group bg-white rounded-2xl border-2 overflow-hidden relative transition ${isSel ? "border-[#E68910]" : "border-[#E5E2DC]"}`}>
+                  <label className="absolute top-2 left-2 z-10 cursor-pointer">
+                    <input type="checkbox" checked={isSel} onChange={() => toggleSel(p.id)} data-testid={`sel-${p.id}`} className="w-5 h-5 accent-[#E68910]" />
+                  </label>
+                  {!isLive && (
+                    <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold uppercase tracking-wide">paused</span>
+                  )}
                   {p.image ? <img src={p.image} alt={p.name} className="w-full aspect-[4/5] object-cover" /> :
                             <div className="w-full aspect-[4/5] bg-[#FDFBF7] flex items-center justify-center"><Package className="text-[#E5E2DC]" size={36} /></div>}
+                  {/* Per-product hover Go-Live (only when paused) */}
+                  {!isLive && (
+                    <button onClick={() => togglePublish(p, "live")} data-testid={`go-live-${p.id}`}
+                      className="absolute inset-x-3 bottom-3 opacity-0 group-hover:opacity-100 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[#E68910] text-white text-xs font-bold shadow-lg transition">
+                      <Rocket size={12} /> Go live
+                    </button>
+                  )}
                   <div className="p-3">
                     <div className="font-semibold text-sm text-[#1A2B4C] truncate">{p.name}</div>
                     <div className="text-[10px] text-[#595959] uppercase">{l1?.name} {l2 ? `· ${l2.name}` : p.gender ? `· ${p.gender}` : ""}</div>

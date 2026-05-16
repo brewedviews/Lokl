@@ -15,6 +15,7 @@ import Cart from "./pages/Cart";
 import Checkout from "./pages/Checkout";
 import OrderTracking from "./pages/OrderTracking";
 import CustomerAccount from "./pages/CustomerAccount";
+import SearchPage from "./pages/SearchPage";
 
 import MerchantAuth from "./pages/MerchantAuth";
 import MerchantOnboardingStatus from "./pages/MerchantOnboardingStatus";
@@ -59,6 +60,7 @@ function App() {
               <Route path="/checkout" element={<Checkout />} />
               <Route path="/orders/:id" element={<OrderTracking />} />
               <Route path="/account" element={<CustomerAccount />} />
+              <Route path="/search" element={<SearchPage />} />
 
               <Route path="/merchant/login" element={<MerchantAuth mode="login" />} />
               <Route path="/merchant/register" element={<MerchantAuth mode="register" />} />

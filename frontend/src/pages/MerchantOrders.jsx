@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Bell, BellOff, Bike, CheckCircle2, Phone, MapPin } from "lucide-react";
+import { Bell, BellOff, Bike, CheckCircle2, MapPin } from "lucide-react";
 import MerchantLayout from "../components/merchant/MerchantLayout";
 import api from "../lib/api";
 import { toast } from "sonner";
@@ -136,12 +136,12 @@ export default function MerchantOrders() {
               <div className="grid md:grid-cols-2 gap-3 mb-4">
                 <div className="text-sm">
                   <div className="text-[10px] uppercase tracking-widest text-[#595959]">Customer</div>
-                  <div className="font-semibold flex items-center gap-1">{o.customer?.name || o.address?.name}</div>
-                  <div className="flex items-center gap-1 text-xs text-[#595959]"><Phone size={11} /> {o.customer?.phone || o.address?.phone}</div>
+                  <div className="font-semibold">{o.customer?.name || o.address?.name || "Customer"}</div>
+                  <div className="text-[11px] text-[#595959]">Contact details handled by Lokl ops.</div>
                 </div>
                 <div className="text-sm">
-                  <div className="text-[10px] uppercase tracking-widest text-[#595959]">Delivery</div>
-                  <div className="flex items-start gap-1 text-xs"><MapPin size={11} className="mt-0.5 shrink-0" /> {o.address?.line1}, {o.address?.city} - {o.address?.pincode}</div>
+                  <div className="text-[10px] uppercase tracking-widest text-[#595959]">Delivery area</div>
+                  <div className="flex items-start gap-1 text-xs"><MapPin size={11} className="mt-0.5 shrink-0 text-[#E68910]" /> {(o.address?.landmark || o.address?.line1?.split(",").slice(-1)[0] || "Bhilai").trim()} · {o.address?.pincode}</div>
                 </div>
               </div>
               <div className="space-y-1 mb-4 text-sm">
@@ -171,7 +171,7 @@ export default function MerchantOrders() {
                   <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                     <div>
                       <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
-                      <div className="text-xs text-[#595959]">{o.customer?.name || o.address?.name} · {o.address?.line1}</div>
+                      <div className="text-xs text-[#595959]">{o.customer?.name || o.address?.name || "Customer"} · {o.address?.pincode || ""}</div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-center">

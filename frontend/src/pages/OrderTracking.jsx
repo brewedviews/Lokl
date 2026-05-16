@@ -20,10 +20,53 @@ export default function OrderTracking() {
 
   const showOtp = order.status === "on_the_way" && order.otp;
 
+  // Static SVG "map" — rider icon position varies by status
+  const riderX = order.status === "pending_merchant" ? 78
+               : order.status === "accepted"         ? 95
+               : order.status === "on_the_way"       ? 260
+               : order.status === "delivered"        ? 395
+               : 78;
+  const riderY = order.status === "delivered" ? 105 : (order.status === "on_the_way" ? 110 : 100);
+
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
       <ConsumerHeader />
       <div className="max-w-3xl mx-auto px-4 md:px-8 py-10">
+        {/* Stylized static map */}
+        <div className="relative rounded-3xl overflow-hidden border border-[#E5E2DC] bg-gradient-to-br from-[#F4F1EA] via-[#FDFBF7] to-[#EAE6DC] mb-5" data-testid="tracking-map">
+          <svg viewBox="0 0 440 200" className="w-full h-44 md:h-56">
+            <defs>
+              <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#1A2B4C" strokeOpacity="0.06" strokeWidth="1" />
+              </pattern>
+            </defs>
+            <rect width="440" height="200" fill="url(#grid)" />
+            {/* Roads */}
+            <path d="M 30 110 Q 130 60 220 110 T 410 105" stroke="#1A2B4C" strokeOpacity="0.2" strokeWidth="14" strokeLinecap="round" fill="none" />
+            <path d="M 30 110 Q 130 60 220 110 T 410 105" stroke="#FDFBF7" strokeOpacity="0.85" strokeWidth="2" strokeDasharray="6 6" fill="none" />
+            {/* Store pin */}
+            <g transform="translate(60,108)">
+              <circle r="14" fill="#4F7363" />
+              <text x="0" y="4" textAnchor="middle" fontSize="13" fill="white" fontWeight="700">S</text>
+              <text x="0" y="-22" textAnchor="middle" fontSize="10" fill="#1A2B4C" fontWeight="700">Store</text>
+            </g>
+            {/* Destination pin */}
+            <g transform="translate(400,105)">
+              <circle r="14" fill="#E68910" />
+              <text x="0" y="4" textAnchor="middle" fontSize="11" fill="white" fontWeight="700">★</text>
+              <text x="0" y="-22" textAnchor="middle" fontSize="10" fill="#1A2B4C" fontWeight="700">You</text>
+            </g>
+            {/* Rider */}
+            {order.status !== "delivered" && (
+              <g transform={`translate(${riderX},${riderY})`}>
+                <circle r="13" fill="#1A2B4C" />
+                <text x="0" y="4" textAnchor="middle" fontSize="13" fill="#E68910">🛵</text>
+              </g>
+            )}
+          </svg>
+          <div className="absolute bottom-2 right-3 text-[10px] text-[#595959]/80 bg-white/60 px-2 py-0.5 rounded-full">illustrative · not GPS</div>
+        </div>
+
         <div className="bg-white rounded-3xl p-8 border border-[#E5E2DC] text-center">
           <div className="w-16 h-16 mx-auto rounded-full bg-[#4F7363]/10 flex items-center justify-center mb-4">
             <CheckCircle2 size={32} className="text-[#4F7363]" />
