@@ -1,0 +1,87 @@
+{
+  "project_name": "Bharat-First Fashion Commerce OS",
+  "theme": "Light",
+  "archetype": "Organic & Earthy",
+  "typography": {
+    "heading_font": "Clash Display, sans-serif",
+    "body_font": "Satoshi, sans-serif",
+    "font_weights": {
+      "headings": "600, 700",
+      "body": "400, 500"
+    },
+    "guidelines": "Do not use Space Grotesk, Inter, or Roboto. Use Clash Display for large impact headings and Satoshi for legible, clean body text. Headings should have tight letter spacing."
+  },
+  "colors": {
+    "background": "#FDFBF7",
+    "surface": "#FFFFFF",
+    "primary": "#1A2B4C",
+    "primary_hover": "#101D36",
+    "accent": "#E68910",
+    "accent_hover": "#C9770E",
+    "text_primary": "#1C1C1C",
+    "text_secondary": "#595959",
+    "border": "#E5E2DC",
+    "success": "#4F7363",
+    "warning": "#E68910",
+    "glass": "bg-white/70 backdrop-blur-xl border-white/40",
+    "guidelines": "No purple or violet gradients. Stick strictly to this warm, aspirational, organic palette. Use Deep Indigo for CTAs and Marigold for highlights/accents."
+  },
+  "spacing_and_layout": {
+    "padding": "Generous spacing philosophy. Use p-6, p-8, p-12 for containers. Avoid cramped UI.",
+    "grid_strategy": "Use asymmetrical 'bento' layouts for the consumer marketplace. Use strict 3-col 'control room' grid for merchant dashboards.",
+    "radius": "rounded-2xl for primary cards and images, rounded-full for buttons and badges.",
+    "borders": "Use subtle 1px borders (border-[#E5E2DC]) on merchant dashboard cards for crisp definition without shadows."
+  },
+  "components": {
+    "consumer": {
+      "header": "Sticky glassmorphic header (z-50) featuring a Hyperlocal Location Selector (Blinkit style).",
+      "hero_carousel": "Full-width or rounded edge carousel showcasing high-quality lifestyle fashion images. Include subtle noise texture over solids.",
+      "store_card": "Instagram-boutique feel. 4:5 aspect ratio images. Overlay rating, distance (e.g., '1.2 km away'), and store name at the bottom. Minimal UI, high visual impact.",
+      "pdp": "Immersive image gallery. 'AI Enhanced' badge on images. Sticky 'Add to Bag' CTA on mobile."
+    },
+    "merchant": {
+      "dashboard_layout": "Sidebar navigation. Clean white workspace (Solid surface, no glass here).",
+      "ai_catalog_engine": "The 'Wow Moment'. Side-by-side or drag-slider comparison showing the Raw Photo vs AI Transformed Photo. Must use the media assets provided.",
+      "upload_zone": "Large dashed border drag-and-drop zone with a warm gray background."
+    }
+  },
+  "media": {
+    "consumer_hero": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/7eafffce-c685-4839-ad08-06796579c4de/images/2170af8ea48f218e9a710150fe28702a1b95a190e31f2858b88e10d4dde36cc1.png",
+      "description": "Cinematic lifestyle fashion banner for consumer app"
+    },
+    "ai_before_raw": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/7eafffce-c685-4839-ad08-06796579c4de/images/ec5665f39e798be41fe86083e99a5d4c91342b61fdb3c0fed0ac8470b9f5ae30.png",
+      "description": "Raw unedited smartphone photo of garment"
+    },
+    "ai_after_premium": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/7eafffce-c685-4839-ad08-06796579c4de/images/85d2c0f8f4172341be04027aee7a0cdd867b695317ee9a9a01a9e2b11653670e.png",
+      "description": "AI transformed high-end editorial photo"
+    },
+    "store_interiors": [
+      "https://images.unsplash.com/photo-1441986300917-64674bd600d8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTF8MHwxfHNlYXJjaHwxfHxjbG90aGluZyUyMHN0b3JlJTIwYm91dGlxdWUlMjBpbnRlcmlvcnxlbnwwfHx8fDE3Nzg5MTI5OTh8MA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1555529771-835f59fc5efe?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTF8MHwxfHNlYXJjaHwzfHxjbG90aGluZyUyMHN0b3JlJTIwYm91dGlxdWUlMjBpbnRlcmlvcnxlbnwwfHx8fDE3Nzg5MTI5OTh8MA&ixlib=rb-4.1.0&q=85"
+    ],
+    "fashion_lifestyle": [
+      "https://images.unsplash.com/photo-1610189012906-4c0aa9b9781e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHw0fHxpbmRpYW4lMjBmYXNoaW9uJTIwbGlmZXN0eWxlJTIwbW9kZXJufGVufDB8fHx8MTc3ODkxMjk5OHww&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1569810020669-aa9d38003ea7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwyfHxpbmRpYW4lMjBmYXNoaW9uJTIwbGlmZXN0eWxlJTIwbW9kZXJufGVufDB8fHx8MTc3ODkxMjk5OHww&ixlib=rb-4.1.0&q=85"
+    ]
+  },
+  "testing": {
+    "attribute": "data-testid",
+    "rule": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case format (e.g., data-testid='login-button')."
+  },
+  "icons": {
+    "library": "lucide-react",
+    "instructions": "Use lucide-react strictly. Do not use emoji icons."
+  },
+  "instructions_to_main_agent": [
+    "Build a responsive React web app. The platform has two halves: Consumer App and Merchant Dashboard.",
+    "For the Consumer App, use pure HTML/Tailwind styling for an immersive, layout-flexible design. Focus on large imagery, bento grids, and an 'Instagram boutique' visual feed for store listings.",
+    "For the Merchant Dashboard, use Shadcn UI components for complex interactions (Tables, Modals, Forms) but customize them to match the Organic & Earthy palette. No generic 'Vercel-look'.",
+    "Implement the 'AI Catalog Wow Moment' in the merchant dashboard utilizing the exact raw vs premium images provided in the media section to demonstrate the transformation.",
+    "Apply the data-testid attribute consistently across all interactive UI elements.",
+    "Do not use Inter, Roboto, or Space Grotesk. Embed and use Clash Display (Headings) and Satoshi (Body).",
+    "Do not invent new colors outside the defined palette. Never use purple or violet gradients."
+  ]
+}
