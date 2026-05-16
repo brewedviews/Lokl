@@ -140,8 +140,9 @@ export default function Home() {
           <h2 className="display text-2xl md:text-3xl font-bold text-[#1A2B4C]">Trending nearby</h2>
         </div>
         {products.length === 0 ? (
-          <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]">
-            No products live yet — fresh drops will appear here as merchants go live.
+          <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#E68910]/10 text-[#E68910] text-[11px] font-bold uppercase tracking-widest mb-3">Building it</div>
+            <p className="text-sm text-[#595959]">Fresh drops will appear here as Bhilai merchants go live — available soon.</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">

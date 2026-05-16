@@ -78,8 +78,10 @@ export default function CategoryPage() {
         </div>
 
         {products.length === 0 ? (
-          <div className="mt-8 bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center text-sm text-[#595959]">
-            No products in this category yet — check back as merchants go live.
+          <div className="mt-8 bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#E68910]/10 text-[#E68910] text-[11px] font-bold uppercase tracking-widest mb-3">Building it</div>
+            <h3 className="display text-xl md:text-2xl font-bold text-[#1A2B4C]">Coming soon to {l1.name} in Bhilai</h3>
+            <p className="text-sm text-[#595959] mt-2 max-w-md mx-auto">We're onboarding local sellers right now — fresh drops will land here shortly.</p>
           </div>
         ) : (
           <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
