@@ -121,9 +121,23 @@ export default function Home() {
           </div>
           <Link to="/stores" className="text-sm text-[#1A2B4C] font-semibold hover:text-[#E68910]">All stores →</Link>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5">
-          {(cityStores.length ? cityStores : stores).slice(0, 4).map((s) => <StoreCard key={s.id} s={s} />)}
-        </div>
+        {(cityStores.length ? cityStores : stores).length === 0 ? (
+          <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center">
+            <StoreIcon size={36} className="text-[#E68910] mx-auto mb-3" />
+            <h3 className="display text-xl font-bold text-[#1A2B4C]">Boutiques are coming soon to {city}</h3>
+            <p className="text-sm text-[#595959] mt-2 max-w-md mx-auto">
+              We're onboarding local fashion stores in {city} right now. Are you a boutique owner?
+              Join the pilot and be discovered.
+            </p>
+            <Link to="/merchant/register" className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#E68910] text-white text-sm font-semibold hover:bg-[#C9770E]">
+              Become a seller <ArrowRight size={14} />
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5">
+            {(cityStores.length ? cityStores : stores).slice(0, 4).map((s) => <StoreCard key={s.id} s={s} />)}
+          </div>
+        )}
       </section>
 
       {/* TRENDING PRODUCTS */}
@@ -132,9 +146,15 @@ export default function Home() {
           <h2 className="display text-2xl md:text-3xl font-bold text-[#1A2B4C]">Trending nearby</h2>
           <Link to="/shop" className="text-sm text-[#1A2B4C] font-semibold hover:text-[#E68910]">Shop all →</Link>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-          {products.filter((p) => p.store_city === city).concat(products.filter((p) => p.store_city !== city)).slice(0, 8).map((p) => <ProductCard key={p.id} p={p} />)}
-        </div>
+        {products.length === 0 ? (
+          <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]">
+            No products live yet — fresh drops will land here as our pilot merchants go live.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+            {products.filter((p) => p.store_city === city).concat(products.filter((p) => p.store_city !== city)).slice(0, 8).map((p) => <ProductCard key={p.id} p={p} />)}
+          </div>
+        )}
       </section>
 
       {/* THIN MERCHANT STRIP — sits just above footer */}

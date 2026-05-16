@@ -1,46 +1,37 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { MapPin, Search, ShoppingBag, Store, ChevronDown, Sparkles, AlertCircle, Loader2 } from "lucide-react";
+import { MapPin, Search, ShoppingBag, Store, Sparkles, AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { useCart } from "../../contexts/CartContext";
 import api from "../../lib/api";
-import { toast } from "sonner";
-
-const PILOT_CITIES = ["Bhilai", "Raipur"];
 
 export default function ConsumerHeader() {
   const [city, setCity] = useState(localStorage.getItem("bf_city") || "");
-  const [openCity, setOpenCity] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [unsupportedNotice, setUnsupportedNotice] = useState(null);
   const [q, setQ] = useState("");
   const { count } = useCart();
   const nav = useNavigate();
 
-  // Auto-detect city on first load if none chosen
   useEffect(() => {
-    if (city) return;
-    runGeoDetect();
+    // Auto-detect on every load if no city yet — silent
+    if (!city) runGeoDetect(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const applyCity = (c) => {
     setCity(c);
     localStorage.setItem("bf_city", c);
-    setOpenCity(false);
     window.dispatchEvent(new CustomEvent("bf-city-changed", { detail: c }));
   };
 
-  const runGeoDetect = async () => {
+  const runGeoDetect = async (silent = false) => {
     setDetecting(true);
     setUnsupportedNotice(null);
     const callIp = async () => {
       try {
         const { data } = await api.get("/geo/detect");
-        if (data.supported && data.city) {
-          applyCity(data.city);
-          toast.success(`Detected your city: ${data.city}`);
-        } else {
-          // Not in pilot — default to Raipur and show notice
+        if (data.supported && data.city) applyCity(data.city);
+        else {
           applyCity("Raipur");
           setUnsupportedNotice(data.detected_city || "your city");
         }
@@ -54,10 +45,8 @@ export default function ConsumerHeader() {
       async (pos) => {
         try {
           const { data } = await api.get(`/geo/detect?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`);
-          if (data.supported && data.city) {
-            applyCity(data.city);
-            toast.success(`Detected your city: ${data.city}`);
-          } else {
+          if (data.supported && data.city) applyCity(data.city);
+          else {
             applyCity("Raipur");
             setUnsupportedNotice(data.detected_city || "your city");
           }
@@ -81,31 +70,14 @@ export default function ConsumerHeader() {
           </Link>
 
           <button
-            data-testid="city-selector-btn"
-            onClick={() => setOpenCity(!openCity)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white border border-[#E5E2DC] hover:border-[#1A2B4C] transition text-sm relative"
+            data-testid="city-display"
+            onClick={() => runGeoDetect(false)}
+            title="Click to re-detect your location"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white border border-[#E5E2DC] hover:border-[#1A2B4C] transition text-sm"
           >
             {detecting ? <Loader2 size={15} className="animate-spin text-[#E68910]" /> : <MapPin size={15} className="text-[#E68910]" />}
             <span className="font-medium">{city || "Detecting…"}</span>
-            <ChevronDown size={14} />
-            {openCity && (
-              <div className="absolute top-full left-0 mt-2 bg-white border border-[#E5E2DC] rounded-2xl shadow-lg py-2 min-w-[200px] z-50">
-                <div className="px-4 py-1 text-[10px] uppercase tracking-widest text-[#595959] font-semibold">Pilot cities</div>
-                {PILOT_CITIES.map((c) => (
-                  <div key={c} onClick={() => applyCity(c)} data-testid={`city-option-${c.toLowerCase()}`}
-                    className={`px-4 py-2 hover:bg-[#FDFBF7] text-left text-sm cursor-pointer flex items-center justify-between ${city === c ? "text-[#E68910] font-semibold" : ""}`}>
-                    <span>{c}</span>
-                    {city === c && <span className="text-[10px]">●</span>}
-                  </div>
-                ))}
-                <div className="border-t border-[#E5E2DC] mt-1 pt-1">
-                  <div onClick={() => { setOpenCity(false); runGeoDetect(); }} data-testid="redetect-btn"
-                    className="px-4 py-2 hover:bg-[#FDFBF7] text-left text-xs cursor-pointer text-[#1A2B4C] flex items-center gap-1.5">
-                    <MapPin size={12} /> Detect my location
-                  </div>
-                </div>
-              </div>
-            )}
+            <RefreshCw size={11} className="text-[#595959]" />
           </button>
 
           <div className="flex-1 hidden md:flex">
@@ -140,7 +112,7 @@ export default function ConsumerHeader() {
           <div className="max-w-7xl mx-auto px-4 md:px-8 py-2 flex items-center gap-2 flex-wrap">
             <AlertCircle size={14} className="text-[#E68910] shrink-0" />
             <span>
-              We're not live in <strong>{unsupportedNotice}</strong> yet. Currently piloting in <strong>Bhilai</strong> and <strong>Raipur</strong>. Showing Raipur catalog for now.
+              We're not live in <strong>{unsupportedNotice}</strong> yet. Pilot is in <strong>Bhilai</strong> and <strong>Raipur</strong>. Showing Raipur for now.
             </span>
             <button onClick={() => setUnsupportedNotice(null)} className="ml-auto text-[10px] uppercase tracking-widest hover:text-[#E68910]">Dismiss</button>
           </div>

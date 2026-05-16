@@ -75,6 +75,11 @@ export default function MerchantAuth({ mode = "login" }) {
             {isLogin ? (<>New here? <Link to="/merchant/register" className="text-[#E68910] font-semibold">Open a store</Link></>)
                      : (<>Have a store? <Link to="/merchant/login" className="text-[#E68910] font-semibold">Sign in</Link></>)}
           </p>
+          <div className="mt-6 pt-4 border-t border-[#E5E2DC] text-center">
+            <Link to="/admin/login" data-testid="admin-link" className="text-[11px] uppercase tracking-widest text-[#595959] hover:text-[#1A2B4C]">
+              Ops team? Open Admin Console →
+            </Link>
+          </div>
         </form>
       </div>
     </div>

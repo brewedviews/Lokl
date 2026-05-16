@@ -832,19 +832,17 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_seed():
-    count = await db.stores.count_documents({"seeded": True})
-    if count == 0:
-        cats, stores, products = build_seed_docs()
-        if not await db.categories.count_documents({}):
-            await db.categories.insert_many(cats)
-        for s in stores:
-            s["seeded"] = True
-            s["kyc_status"] = "approved"
-            s["published"] = True
-            s["product_count"] = 999
-        await db.stores.insert_many(stores)
-        await db.products.insert_many(products)
-        log.info("Seeded %d stores, %d products", len(stores), len(products))
+    # Categories are still needed for product taxonomy
+    if not await db.categories.count_documents({}):
+        cats, _stores, _products = build_seed_docs()
+        await db.categories.insert_many(cats)
+        log.info("Seeded %d categories", len(cats))
+
+    # Wipe any pre-existing fake seeded stores/products on every boot — pilot is live-merchants only
+    deleted_stores = (await db.stores.delete_many({"seeded": True})).deleted_count
+    deleted_products = (await db.products.delete_many({"merchant_id": {"$exists": False}})).deleted_count
+    if deleted_stores or deleted_products:
+        log.info("Removed %d seeded stores and %d seeded products", deleted_stores, deleted_products)
 
     # Auto-approve the demo merchant so the post-approval flow is demoable
     demo = await db.merchants.find_one({"email": "demo@bharat-os.com"}, {"_id": 0})
@@ -864,7 +862,6 @@ async def startup_seed():
                 "bank_account_number": "1234567890",
                 "bank_ifsc": "SBIN0001234",
                 "account_holder_name": "Demo Owner",
-                "storefront": {"id": store_id},
             }, "$push": {"notifications": {
                 "type": "kyc-approved",
                 "title": "Your KYC is approved",
@@ -872,35 +869,7 @@ async def startup_seed():
                 "time": now,
             }}},
         )
-        # Create the storefront + 1 demo product if missing
-        if not await db.stores.find_one({"id": store_id}):
-            await db.stores.insert_one({
-                "id": store_id, "merchant_id": demo["id"],
-                "name": demo["store_name"], "tagline": "Premium boutique experience",
-                "story": "Curated fashion for the discerning Bharat shopper.",
-                "banner": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1200&auto=format&fit=crop&q=80",
-                "logo": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=240&auto=format&fit=crop&q=80",
-                "city": demo.get("city", "Bhilai"), "locality": "Sector 10",
-                "specialties": ["Festive", "Casual"], "timing": "10am - 9pm",
-                "lat": 21.2147, "lng": 81.3850, "distance_km": 1.5, "eta_min": 38,
-                "rating": 4.7, "reviews": 42, "trusted": True,
-                "seeded": False, "kyc_status": "approved", "published": True, "product_count": 1,
-                "created_at": now,
-            })
-            await db.products.insert_one({
-                "id": f"prod-demo-{demo['id'][:6]}",
-                "merchant_id": demo["id"], "store_id": store_id,
-                "store_name": demo["store_name"], "store_city": demo.get("city", "Bhilai"),
-                "store_distance_km": 1.5, "store_eta_min": 38, "rating": 4.7,
-                "name": "Signature Indigo Kurta", "price": 1899, "mrp": 3499,
-                "category_id": "cat-ethnic",
-                "description": "Demo merchant signature piece — premium hand-block printed kurta.",
-                "sizes": ["S", "M", "L", "XL"],
-                "image": "https://images.unsplash.com/photo-1610189012906-4c0aa9b9781e?w=800&auto=format&fit=crop&q=80",
-                "ai_enhanced": True, "try_at_doorstep": True,
-                "created_at": now,
-            })
-        log.info("Demo merchant auto-approved + storefront seeded")
+        log.info("Demo merchant auto-approved (storefront/products not pre-created — go through the flow)")
 
 
 @app.on_event("shutdown")
