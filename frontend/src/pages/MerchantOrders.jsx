@@ -1,16 +1,46 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Bell, CheckCircle2, XCircle, Bike, Phone, MapPin, Clock } from "lucide-react";
+import { Bell, BellOff, CheckCircle2, XCircle, Phone, MapPin } from "lucide-react";
 import MerchantLayout from "../components/merchant/MerchantLayout";
 import api from "../lib/api";
 import { toast } from "sonner";
 
-// Inline beep so we don't need an audio file
-const BEEP_DATA = "data:audio/wav;base64,UklGRiQEAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAEAACA/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/gP+A/4D/";
+// Web Audio loud-bell ping (no audio file dependency).
+// Plays a 3-pulse two-tone bell at ~0.7 gain (significantly louder than a wav beep).
+function playLoudPing(ctxRef) {
+  try {
+    if (!ctxRef.current) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      ctxRef.current = new AC();
+    }
+    const ctx = ctxRef.current;
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    const bell = (startAt) => {
+      [880, 660].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        const t = startAt + i * 0.18;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.7, t + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.5);
+      });
+    };
+    const now = ctx.currentTime + 0.02;
+    [0, 0.8, 1.6].forEach((d) => bell(now + d));
+  } catch { /* noop */ }
+}
 
 export default function MerchantOrders() {
   const [orders, setOrders] = useState([]);
+  const [muted, setMuted] = useState(() => localStorage.getItem("bf_orders_muted") === "1");
   const seenIds = useRef(new Set());
-  const audioRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const initialLoadDone = useRef(false);
 
   useEffect(() => {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
@@ -19,25 +49,39 @@ export default function MerchantOrders() {
     const load = async () => {
       try {
         const { data } = await api.get("/merchant/orders");
-        // Detect new pending orders
         const news = data.filter((o) => o.status === "pending_merchant" && !seenIds.current.has(o.id));
-        if (news.length > 0 && seenIds.current.size > 0) {
+        // Skip ping on the very first load (avoid blasting on tab open with backlog)
+        if (news.length > 0 && initialLoadDone.current && !muted) {
+          playLoudPing(audioCtxRef);
           news.forEach((o) => {
-            if (audioRef.current) { audioRef.current.currentTime = 0; audioRef.current.play().catch(() => {}); }
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              new Notification("New order on Bharat", { body: `${o.id} · ₹${o.total}` });
+              try { new Notification("New order on Bharat", { body: `${o.id} · ₹${o.total}` }); } catch { /* noop */ }
             }
-            toast.success(`New order ${o.id}!`, { duration: 5000 });
+            toast.success(`New order ${o.id}!`, { duration: 6000 });
           });
         }
         data.forEach((o) => seenIds.current.add(o.id));
         setOrders(data);
-      } catch (e) { /* noop */ }
+        initialLoadDone.current = true;
+      } catch { /* noop */ }
     };
     load();
     const i = setInterval(load, 8000);
     return () => clearInterval(i);
-  }, []);
+  }, [muted]);
+
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    localStorage.setItem("bf_orders_muted", next ? "1" : "0");
+    if (!next) {
+      // Unmute → play a short test bell so merchant knows it works
+      playLoudPing(audioCtxRef);
+    }
+    toast(next ? "Order ping muted" : "Order ping enabled");
+  };
+
+  const testPing = () => playLoudPing(audioCtxRef);
 
   const accept = async (id) => { await api.post(`/merchant/orders/${id}/accept`); toast.success("Order accepted"); refresh(); };
   const reject = async (id) => { await api.post(`/merchant/orders/${id}/reject`); toast.success("Order rejected"); refresh(); };
@@ -48,9 +92,8 @@ export default function MerchantOrders() {
 
   return (
     <MerchantLayout>
-      <audio ref={audioRef} src={BEEP_DATA} preload="auto" />
       <div className="p-6 md:p-10">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
           <div>
             <h1 data-testid="orders-title" className="display text-3xl md:text-4xl font-bold text-[#1A2B4C] flex items-center gap-2">
               <Bell size={24} className={pending.length ? "text-[#E68910] animate-pulse" : "text-[#595959]"} />
@@ -58,7 +101,17 @@ export default function MerchantOrders() {
             </h1>
             <p className="text-[#595959] text-sm mt-1">{pending.length ? `${pending.length} pending — accept fast for happy customers!` : "No new orders right now."}</p>
           </div>
-          {pending.length > 0 && <span className="px-3 py-1.5 rounded-full bg-red-500 text-white text-xs font-bold animate-pulse">{pending.length} NEW</span>}
+          <div className="flex items-center gap-2">
+            {pending.length > 0 && <span className="px-3 py-1.5 rounded-full bg-red-500 text-white text-xs font-bold animate-pulse">{pending.length} NEW</span>}
+            <button
+              onClick={toggleMute}
+              data-testid="toggle-ping-mute"
+              title={muted ? "Order ping is muted — click to enable" : "Order ping is on — click to mute"}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-semibold border ${muted ? "border-[#E5E2DC] bg-white text-[#595959]" : "border-[#1A2B4C] bg-[#1A2B4C] text-white"}`}>
+              {muted ? <BellOff size={13} /> : <Bell size={13} />} {muted ? "Ping muted" : "Ping on"}
+            </button>
+            <button onClick={testPing} data-testid="test-ping" className="text-xs font-semibold text-[#E68910] hover:underline">Test sound</button>
+          </div>
         </div>
 
         <section className="space-y-3 mb-10">

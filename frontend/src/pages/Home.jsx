@@ -40,14 +40,14 @@ export default function Home() {
       <section data-testid="hero" className="relative">
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-6 md:pt-8">
           <div className="relative rounded-[28px] overflow-hidden bg-[#1A2B4C] min-h-[420px] md:min-h-[520px]">
-            {/* Bhilai Globe Chowk landmark — full-bleed banner (stretch to fit) */}
+            {/* Bhilai Globe Chowk landmark — full-bleed banner, focus on globe */}
             <img
               src={HERO_IMG}
               alt="Bhilai Globe Chowk"
-              className="absolute inset-0 w-full h-full object-cover"
+              className="absolute inset-0 w-full h-full object-cover object-[70%_40%] md:object-[55%_35%]"
             />
-            {/* Left-to-right cream-to-transparent wash so text stays legible */}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#FDFBF7]/95 via-[#FDFBF7]/55 to-transparent" />
+            {/* Cream wash for text legibility (lighter on mobile so landmark is visible) */}
+            <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/55 via-[#FDFBF7]/15 to-[#FDFBF7]/0 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
 
             <div className="relative grid md:grid-cols-12 gap-6 items-end md:items-center px-6 md:px-10 lg:px-12 py-8 md:py-12 min-h-[420px] md:min-h-[520px]">
               <div className="md:col-span-7 lg:col-span-6 text-[#1A2B4C] bf-fadeup">

@@ -6,6 +6,23 @@ Premium AI-powered hyperlocal fashion commerce OS for Bharat. **Pilot locked to 
 ## Stack
 React + FastAPI + MongoDB. Emergent LLM key → Claude Sonnet 4.5 (copy) + Gemini Nano Banana (images & try-on with strict-preservation prompt). **AI try-on UI currently hidden** pending prompt overhaul.
 
+## Latest Iteration (Feb 2026 — Iter-5)
+
+### Hero Banner Redesign (Bhilai Globe Chowk)
+- Full-bleed photo of **Bhilai Globe Chowk** landmark fills the entire rounded hero
+- `object-cover object-[70%_40%]` on mobile + `md:object-[55%_35%]` on desktop keeps the globe focal point centered across breakpoints
+- Light cream wash for text legibility (top-to-bottom on mobile, left-to-right on desktop)
+- SERVING BHILAI badge + headline + description + 4 feature pills (Trusted Stores · Lightning Fast · Try at Your Doorstep · Easy Returns) overlaid on left
+- Floating ETA card (Fast delivery / 45 minutes / LIVE) center-right on desktop, in-flow on mobile
+- Shop Now button removed (user request)
+
+### Merchant Loud Order Ping (P1 ✓)
+- Replaced the inline-wav single beep with a **Web Audio API two-tone bell loop** (3 pulses spaced 0.8s apart, gain 0.7 — significantly louder than the prior beep)
+- Persistent **mute toggle** in the header (`data-testid=toggle-ping-mute`, persisted via localStorage `bf_orders_muted`)
+- **Test sound** button so merchants can preview/unlock browser audio permission
+- Initial-load suppression: ping no longer blasts on tab-open with stale backlog — only fires when a genuinely new order arrives after the page is open
+- Browser Notification fires alongside ping; in-app toast lasts 6s
+
 ## Latest Iteration (Feb 2026 — Iter-4)
 
 ### Bhilai-only Locked Pilot
