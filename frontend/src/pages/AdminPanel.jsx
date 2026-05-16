@@ -75,14 +75,17 @@ export function AdminDashboard() {
           ))}
         </div>
 
-        <div className="flex gap-2 mb-5">
-          {[["approvals", "Approvals"], ["stores", "Stores"]].map(([k, l]) => (
+        <div className="flex gap-2 mb-5 flex-wrap">
+          {[["approvals", "Approvals"], ["stores", "Stores"], ["live", "Live orders"], ["delivered", "Delivered"]].map(([k, l]) => (
             <button key={k} data-testid={`admin-tab-${k}`} onClick={() => setTab(k)}
               className={`px-5 py-2 rounded-full text-sm font-semibold transition ${tab === k ? "bg-[#1A2B4C] text-white" : "bg-white border border-[#E5E2DC] text-[#595959]"}`}>{l}</button>
           ))}
         </div>
 
-        {tab === "approvals" ? <ApprovalsTab /> : <StoresTab />}
+        {tab === "approvals" && <ApprovalsTab />}
+        {tab === "stores" && <StoresTab />}
+        {tab === "live" && <OrdersTab kind="live" />}
+        {tab === "delivered" && <OrdersTab kind="delivered" />}
       </div>
     </div>
   );
@@ -342,6 +345,74 @@ function OtpModal({ store, hint, onClose, onSubmit }) {
           <button onClick={onClose} className="flex-1 px-5 py-2.5 rounded-full border border-[#E5E2DC]">Cancel</button>
           <button onClick={() => onSubmit(otp)} data-testid="confirm-delete" className="flex-1 px-5 py-2.5 rounded-full bg-red-500 text-white font-semibold">Delete store</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function OrdersTab({ kind }) {
+  const [orders, setOrders] = useState([]);
+  const [busy, setBusy] = useState(true);
+
+  const load = async () => {
+    setBusy(true);
+    try {
+      const r = await apiFetch(`/admin/orders?status=${kind}`);
+      const data = await r.json();
+      setOrders(Array.isArray(data) ? data : []);
+    } catch { setOrders([]); }
+    setBusy(false);
+  };
+  useEffect(() => { load(); const i = setInterval(load, 12000); return () => clearInterval(i); /* eslint-disable-next-line */ }, [kind]);
+
+  const STATUS_BADGE = {
+    pending_merchant: { l: "Pending merchant", c: "bg-[#E68910]/15 text-[#E68910]" },
+    accepted:         { l: "Accepted",          c: "bg-blue-100 text-blue-700" },
+    preparing:        { l: "Preparing",         c: "bg-amber-100 text-amber-700" },
+    on_the_way:       { l: "On the way",        c: "bg-purple-100 text-purple-700" },
+    delivered:        { l: "Delivered",         c: "bg-[#4F7363]/15 text-[#4F7363]" },
+    rejected:         { l: "Rejected",          c: "bg-red-100 text-red-700" },
+    cancelled:        { l: "Cancelled",         c: "bg-zinc-200 text-zinc-700" },
+  };
+
+  return (
+    <div data-testid={`orders-${kind}`}>
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="display text-xl font-bold text-[#1A2B4C]">
+            {kind === "live" ? "Live orders" : "Delivered orders"}
+          </h2>
+          <p className="text-xs text-[#595959]">{busy ? "Loading…" : `${orders.length} order(s) · auto-refreshes every 12s`}</p>
+        </div>
+        <button onClick={load} data-testid={`refresh-orders-${kind}`} className="text-xs font-semibold text-[#E68910] hover:underline">Refresh</button>
+      </div>
+
+      {!busy && orders.length === 0 && (
+        <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center text-sm text-[#595959]">
+          {kind === "live" ? "No live orders right now." : "No delivered orders yet."}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {orders.map((o) => {
+          const badge = STATUS_BADGE[o.status] || { l: o.status, c: "bg-zinc-200 text-zinc-700" };
+          return (
+            <div key={o.id} data-testid={`order-row-${o.id}`} className="bg-white border border-[#E5E2DC] rounded-2xl p-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{Number(o.total).toLocaleString()}</div>
+                  <div className="text-xs text-[#595959]">
+                    {(o.customer?.name || o.address?.name || "Customer")} · {o.address?.line1} · {o.address?.city || "Bhilai"}
+                  </div>
+                  <div className="text-[11px] text-[#595959] mt-0.5">
+                    Stores: {(o.store_names || []).join(", ") || "—"} · {o.items?.length || 0} item(s) · {o.payment_method || "—"}
+                  </div>
+                </div>
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${badge.c}`}>{badge.l}</span>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

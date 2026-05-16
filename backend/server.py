@@ -687,6 +687,35 @@ async def admin_stores(request: Request):
         s["products"] = await db.products.find({"store_id": s["id"]}, {"_id": 0}).to_list(500)
     return stores
 
+@api.get("/admin/orders")
+async def admin_orders(request: Request, status: Optional[str] = None, limit: int = 200):
+    """Returns orders grouped by lifecycle for admin tracking.
+
+    Query `status` accepts: `live` (anything not delivered/rejected/cancelled),
+    `delivered`, `rejected`, or any specific status. Omit for all orders.
+    """
+    _check_admin(request.headers.get("authorization"))
+    LIVE = ["pending_merchant", "accepted", "preparing", "on_the_way"]
+    q = {}
+    if status == "live":
+        q["status"] = {"$in": LIVE}
+    elif status == "delivered":
+        q["status"] = "delivered"
+    elif status == "rejected":
+        q["status"] = {"$in": ["rejected", "cancelled"]}
+    elif status:
+        q["status"] = status
+    cursor = db.orders.find(q, {"_id": 0}).sort("created_at", -1)
+    orders = await cursor.to_list(limit)
+    # Enrich with store names
+    mids = list({m for o in orders for m in (o.get("merchant_ids") or [])})
+    if mids:
+        mers = await db.merchants.find({"id": {"$in": mids}}, {"_id": 0, "id": 1, "store_name": 1}).to_list(len(mids))
+        name_by_mid = {m["id"]: m["store_name"] for m in mers}
+        for o in orders:
+            o["store_names"] = [name_by_mid.get(m, "—") for m in (o.get("merchant_ids") or [])]
+    return orders
+
 @api.post("/admin/products/{pid}/pause")
 async def admin_pause_product(pid: str, request: Request):
     _check_admin(request.headers.get("authorization"))

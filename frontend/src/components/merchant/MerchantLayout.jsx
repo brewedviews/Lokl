@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Package, Sparkles, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark, Building2 } from "lucide-react";
+import { LayoutDashboard, Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark, Building2 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 
 export default function MerchantLayout({ children }) {
@@ -23,10 +23,7 @@ export default function MerchantLayout({ children }) {
     <div className="min-h-screen bg-white flex">
       <aside data-testid="merchant-sidebar" className="hidden md:flex w-64 border-r border-[#E5E2DC] flex-col bg-[#FDFBF7]">
         <Link to="/" className="p-6 flex items-center gap-2 border-b border-[#E5E2DC]">
-          <div className="w-9 h-9 rounded-full bg-[#1A2B4C] flex items-center justify-center">
-            <Sparkles size={16} className="text-[#E68910]" />
-          </div>
-          <span className="display text-xl font-bold text-[#1A2B4C]">lokl<span className="text-[#E68910]">.</span></span>
+          <span className="display text-2xl font-bold text-[#1A2B4C]">lokl<span className="text-[#E68910]">.</span></span>
         </Link>
         <nav className="flex-1 p-3 space-y-1">
           {links.map((l) => (

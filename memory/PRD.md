@@ -3,6 +3,31 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-8)
+
+### Demo Data — 10 Stores + 55 Products
+- New script `/app/backend/demo_seed.py` (idempotent: wipes & re-seeds only its own docs identified by email `*@lokl.demo` and id prefix `mer-demo-*`)
+- **10 Bhilai stores** across real localities: Sector 1/6/10, Civic Centre, Smriti Nagar, Nehru Nagar, Supela, Power House, Junwani, Kohka
+  - Anjali Boutique (women ethnic), Menscape (men formal/casual), Step & Sole (footwear), Street Bazaar (streetwear), Little Stars (kids), Shringaar Accessories, Glow & Co. (beauty), TechWorld Bhilai (electronics), HomePlus Appliances, Playfield Sports
+- **55 products** covering every L1 with at least 5 each (women 7 · men 6 · footwear 7 · streetwear 5 · kids 5 · accessories 5 · beauty 5 · electronics 11 · sports 6)
+- Each store has KYC approved, storefront published, real lat/lng around Bhilai, ratings 4.2–4.9, ETA 30–50 mins
+- Demo merchant credentials: `<slug>@lokl.demo` / `Demo@2026` (e.g. `menscape@lokl.demo`)
+
+### Brand: Star Icon Removed, Logo Larger
+- Removed the round-blue-Sparkles icon from ConsumerHeader, MerchantLayout sidebar, MerchantAuth (left panel + mobile), Footer
+- "lokl." wordmark is now larger (text-2xl mobile / text-3xl desktop) and always visible — including on mobile (was `hidden sm:inline`)
+
+### Mobile Polish — Header
+- City pill `Bhilai` hidden on mobile (replaced by hero badge)
+- New compact **mobile search input** (`data-testid=search-input-mobile`) sits between logo and account/cart icons
+- All header elements use `shrink-0` to prevent collapse
+
+### Admin Panel — Live + Delivered Tabs
+- New `GET /api/admin/orders?status=live|delivered|rejected|all` enriches orders with store names
+- AdminPanel tab list expanded: **Approvals · Stores · Live orders · Delivered**
+- OrdersTab component (auto-refresh every 12s) renders cards with order id, total, customer, store name(s), payment method, lifecycle-colored status badge
+- Empty-state copy per kind
+
 ## Latest Iteration (Feb 2026 — Iter-7) — REBRAND TO LOKL
 - Frontend logo wordmark `bharat.` → `lokl.` (Consumer header, Footer, Merchant layout, MerchantAuth left panel + form)
 - Page `<title>` → "Lokl · Fashion delivered in minutes"

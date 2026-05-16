@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Sparkles, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 
@@ -29,10 +29,7 @@ export default function MerchantAuth({ mode = "login" }) {
       <div className="hidden md:flex md:w-1/2 bg-[#1A2B4C] text-white p-12 flex-col justify-between relative overflow-hidden">
         <div className="bf-noise absolute inset-0 opacity-40" />
         <Link to="/" className="relative flex items-center gap-2">
-          <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
-            <Sparkles size={20} className="text-[#E68910]" />
-          </div>
-          <span className="display text-2xl font-bold">lokl<span className="text-[#E68910]">.</span></span>
+          <span className="display text-3xl font-bold">lokl<span className="text-[#E68910]">.</span></span>
         </Link>
         <div className="relative">
           <h1 className="display text-5xl font-bold leading-tight">Your boutique. <br /><span className="text-[#E68910]">AI-powered.</span></h1>
@@ -49,8 +46,7 @@ export default function MerchantAuth({ mode = "login" }) {
       <div className="flex-1 flex items-center justify-center p-6 md:p-12">
         <form onSubmit={submit} className="w-full max-w-md" data-testid={isLogin ? "login-form" : "register-form"}>
           <Link to="/" className="md:hidden inline-flex items-center gap-2 mb-8">
-            <Sparkles size={18} className="text-[#E68910]" />
-            <span className="display text-xl font-bold text-[#1A2B4C]">lokl.</span>
+            <span className="display text-2xl font-bold text-[#1A2B4C]">lokl<span className="text-[#E68910]">.</span></span>
           </Link>
           <h2 className="display text-3xl md:text-4xl font-bold text-[#1A2B4C]">{isLogin ? "Welcome back" : "Open your store"}</h2>
           <p className="text-[#595959] mt-2">{isLogin ? "Sign in to your merchant dashboard" : "Launch your AI-powered storefront in minutes"}</p>
