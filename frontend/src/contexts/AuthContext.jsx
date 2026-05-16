@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import api from "../lib/api";
 
 const AuthCtx = createContext(null);
@@ -7,14 +7,25 @@ export const AuthProvider = ({ children }) => {
   const [merchant, setMerchant] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const refresh = useCallback(async () => {
+    const token = localStorage.getItem("bf_token");
+    if (!token) { setMerchant(null); return null; }
+    try {
+      const { data } = await api.get("/auth/me");
+      setMerchant(data);
+      return data;
+    } catch {
+      localStorage.removeItem("bf_token");
+      setMerchant(null);
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     const token = localStorage.getItem("bf_token");
     if (!token) { setLoading(false); return; }
-    api.get("/auth/me")
-      .then((r) => setMerchant(r.data))
-      .catch(() => localStorage.removeItem("bf_token"))
-      .finally(() => setLoading(false));
-  }, []);
+    refresh().finally(() => setLoading(false));
+  }, [refresh]);
 
   const login = async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
@@ -36,7 +47,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthCtx.Provider value={{ merchant, loading, login, register, logout }}>
+    <AuthCtx.Provider value={{ merchant, loading, login, register, logout, refresh }}>
       {children}
     </AuthCtx.Provider>
   );

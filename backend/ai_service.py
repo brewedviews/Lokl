@@ -97,3 +97,35 @@ async def enhance_product_image(image_base64: str, prompt_override: str = "") ->
     except Exception as e:
         print(f"[ai_service] Gemini image enhancement failed: {e}")
     return None
+
+
+async def ai_model_tryon(image_base64: str) -> str | None:
+    """AI try-on: Place the exact garment on a realistic Indian model in a cinematic studio setting,
+    WITHOUT altering the product's design, color, pattern, or fabric."""
+    prompt = (
+        "Take this exact garment/product and place it on a realistic Indian fashion model in a "
+        "cinematic studio setting with editorial lighting. The model should be styled tastefully "
+        "and the photograph should look like a magazine fashion shoot.\n\n"
+        "CRITICAL CONSTRAINT: Do NOT change the product's design, colour, pattern, print, fabric, "
+        "embroidery, neckline, sleeve length, hemline or any visual detail. Reproduce the garment "
+        "pixel-for-pixel faithfully — only show how it looks worn on a real person. The product "
+        "shown must be identical to the input."
+    )
+    chat = LlmChat(
+        api_key=_key(),
+        session_id=f"tryon-{uuid.uuid4()}",
+        system_message="You are a premium fashion photographer creating editorial try-on shots.",
+    ).with_model("gemini", "gemini-2.5-flash-image-preview").with_params(modalities=["image", "text"])
+
+    try:
+        msg = UserMessage(
+            text=prompt,
+            file_contents=[ImageContent(image_base64=image_base64)],
+        )
+        _text, images = await chat.send_message_multimodal_response(msg)
+        if images and len(images) > 0:
+            first = images[0]
+            return first.get("data") or first.get("image_base64") or first.get("b64_json")
+    except Exception as e:
+        print(f"[ai_service] Gemini try-on failed: {e}")
+    return None

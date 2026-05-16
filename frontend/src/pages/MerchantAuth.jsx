@@ -17,8 +17,8 @@ export default function MerchantAuth({ mode = "login" }) {
     try {
       if (isLogin) await login(form.email, form.password);
       else await register(form);
-      toast.success(isLogin ? "Welcome back!" : "Store created!");
-      nav("/merchant/dashboard");
+      toast.success(isLogin ? "Welcome back!" : "Store account created — let's get you verified");
+      nav("/merchant/onboarding");
     } catch (err) {
       toast.error(err.response?.data?.detail || "Auth failed");
     } finally { setBusy(false); }
