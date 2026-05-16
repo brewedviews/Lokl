@@ -17,7 +17,10 @@ export default function ConsumerHeader() {
       const callIp = async () => {
         try {
           const { data } = await api.get("/geo/detect");
-          if (!data.supported) setDetectedAway(data.detected_city || "your city");
+          if (!data.supported) {
+            const c = (data.detected_city || "").trim();
+            setDetectedAway(c && c.toLowerCase() !== "unknown" ? c : "your area");
+          }
         } catch { /* noop */ }
       };
       if (!navigator.geolocation) return callIp();
@@ -25,7 +28,10 @@ export default function ConsumerHeader() {
         async (pos) => {
           try {
             const { data } = await api.get(`/geo/detect?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`);
-            if (!data.supported) setDetectedAway(data.detected_city || "your city");
+            if (!data.supported) {
+              const c = (data.detected_city || "").trim();
+              setDetectedAway(c && c.toLowerCase() !== "unknown" ? c : "your area");
+            }
           } catch { /* noop */ }
         },
         () => callIp(),
