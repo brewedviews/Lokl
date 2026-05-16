@@ -100,6 +100,9 @@ export default function ConsumerHeader() {
           <Link to="/merchant/login" data-testid="nav-merchant" className="hidden md:inline text-sm font-medium hover:text-[#E68910] transition">
             For Merchants
           </Link>
+          <Link to="/account" data-testid="nav-account" className="hidden md:flex items-center gap-1.5 text-sm font-medium hover:text-[#E68910] transition">
+            <Store size={16} style={{ display: "none" }} /> Account
+          </Link>
           <Link to="/cart" data-testid="nav-cart" className="relative flex items-center gap-1 px-3 py-2 rounded-full bg-[#1A2B4C] text-white hover:bg-[#101D36] transition">
             <ShoppingBag size={16} />
             {count > 0 && <span className="text-xs font-semibold">{count}</span>}

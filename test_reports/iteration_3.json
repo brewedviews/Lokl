@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration-3 end-to-end testing of Bharat Fashion OS restructure: 7 L1 + L2/gender taxonomy, product validation, CSV bulk, change-requests + admin approval flow, admin stores tab with pause/unpause/delete + 6-digit OTP, customer phone profile, merchant orders accept/reject, conditional approved-merchant sidebar, locked storefront fields, mobile brand hide, slim footer. Backend: 18/18 pytest pass in 3.3s (test_iter3_flow.py). Previous iteration_2 suites (test_kyc_admin_flow.py + test_backend.py) still apply. Frontend: 8 of 10 automated checks PASS; 2 'FAIL' results are false negatives confirmed by screenshots (phone input present on /account; sidebar correctly omits Onboarding/KYC menu items for approved merchant).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/export/approvals.csv", "issue": "Mongo query dict has duplicate 'kyc_submitted_at' key (lines 617-618) — first {$ne: None} clause is silently overwritten by the date-range clause. Net effect is correct (date-range implies not None), but the code is misleading. Cosmetic cleanup."},
+      {"endpoint": "/api/merchant/storefront", "issue": "Full store doc duplicated inside merchants.storefront (carried over from iter2). Suggest storing only store_id."},
+      {"endpoint": "/api/merchant/analytics", "issue": "demo_mode=true silently returns simulated revenue/orders when merchant has 0 real orders; frontend must display a 'demo data' banner."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ProductCard/AddImages", "issue": "React console error: empty string passed to <img src=''> attribute — emitted repeatedly while browsing /c/women, /c/footwear etc. Render <img> only when URL is non-empty (or pass null).", "selector": "img[src='']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Merchant /merchant/onboarding (post-approval landing)", "issues": ["Page still titled 'Welcome to Bharat Fashion OS' with launch checklist for an approved merchant — consider redirecting approved merchants straight to /merchant/orders or /merchant/products to skip the checklist once KYC=approved and storefront+products exist."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter3_flow.py",
+    "/app/backend/tests/test_kyc_admin_flow.py",
+    "/app/backend/tests/test_backend.py",
+    "/app/test_reports/pytest/results_iter3.xml"
+  ],
+  "action_items": [
+    "Cosmetic: dedupe the kyc_submitted_at clause in /api/admin/export/approvals.csv (use a single {$gte, $lte, $ne: null} dict).",
+    "Cosmetic: avoid <img src=''> renders — emits browser warnings on category pages and product cards.",
+    "Optional UX: for approved merchants with a storefront+products, redirect /merchant/onboarding to /merchant/orders to skip the checklist landing."
+  ],
+  "critical_code_review_comments": [
+    "Admin auth uses hardcoded ADMIN_EMAIL/ADMIN_PASSWORD constants — should move to env vars for production.",
+    "OTP for delete-store is returned in API response as otp_demo for the mocked email flow — clearly flagged as MOCKED. Acceptable for pilot; must be removed before production and replaced with real email send.",
+    "server.py is now 817 lines — past the 700-line guideline. Consider splitting into routers (auth, merchant, admin, catalog, customer, geo).",
+    "Bulk-CSV endpoint /api/merchant/products/bulk silently swallows per-row errors (only returns skipped product names). Consider returning {name, reason} pairs so merchants know WHY a row was skipped (missing L2 vs invalid L1 vs bad numeric).",
+    "_visible_store_filter requires product_count>=1 — meaning an approved+published merchant who deletes their last product instantly disappears from public catalog. Intended behaviour, but worth a merchant warning before delete."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter3_flow.py",
+    "/app/test_reports/iteration_3.json",
+    "/app/test_reports/pytest/results_iter3.xml"
+  ],
+  "success_rate": {"backend": "100% (18/18 iter3 pytest passing; prior 25 + 20 regression suites still in repo)", "frontend": "100% on tested critical flows (mobile brand hide, slim footer, /account phone form, women L2 tiles, footwear gender chips, approved-merchant sidebar omits Onboarding/KYC, storefront name+address locked, Add-product L1 selector, bank change-request page) — 2 automated booleans were false negatives confirmed by screenshots."},
+  "test_credentials": "Demo merchant demo@bharat-os.com / Demo@123 verified auto-approved on startup (kyc_status='approved'). Admin admin@bharat-os.com / Admin@2026 verified via API.",
+  "seed_data_creation": "test_iter3_flow.py creates TEST_-prefixed products (TEST_W_Top, TEST_FW_M, TEST_CSV_OK_W, TEST_CSV_OK_FW) under the demo store, two TEST change-requests (bank+address) and one TEST customer (phone 9988776655 'TEST_Cust'). Demo store remains intact — wrong-OTP delete test does NOT actually delete the store. One real order BFO-* is created for the demo merchant during accept/reject test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/test_iter3_flow.py -v` for the iter-3 regression (~3s, 18 tests). frontend/.env REACT_APP_BACKEND_URL is auto-loaded via dotenv at the top of the test. Critical UI flows verified visually: (1) mobile (390x844) header shows logo-only, no 'bharat' text. (2) Approved-merchant sidebar correctly omits Onboarding/KYC and shows the 6 required items. (3) /merchant/storefront has STORE NAME and BUSINESS ADDRESS as disabled inputs labelled '(LOCKED)'. (4) /c/women shows 9 L2 tiles + 'All in Women' pill; /c/footwear shows 5 gender chips (Everyone/Women/Men/Kids/Unisex) instead of L2 tiles. (5) /merchant/products 'Add product' modal shows cascading L1 dropdown. The merchant /merchant/onboarding landing keeps the checklist UI even after approval — not a bug, just suboptimal UX (already flagged). AI try-on returns null/error when Gemini fails — that's the intended fix (no more wrong-product fallback) and acceptable.",
+  "rca of the issue": "No blocking bugs. Two cosmetic items: (a) /api/admin/export/approvals.csv has a duplicate kyc_submitted_at dict key — net behaviour correct because the date range overwrites the {$ne: null} clause and an inclusive date range already excludes nulls, but the code reads incorrectly; (b) several React renders pass src='' to <img>, producing repeated 'empty string passed to src' warnings on consumer category pages and product cards — fix by conditionally rendering the <img> or passing null/undefined when product.image is empty."
+}

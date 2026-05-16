@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Package, Sparkles, LogOut, Store, BarChart3, FileText, Rocket } from "lucide-react";
+import { LayoutDashboard, Package, Sparkles, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark, Building2 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 
 export default function MerchantLayout({ children }) {
@@ -8,12 +8,15 @@ export default function MerchantLayout({ children }) {
   const nav = useNavigate();
   const isApproved = merchant?.kyc_status === "approved";
 
-  const links = [
+  const links = isApproved ? [
+    { to: "/merchant/orders", label: "Order requests", icon: Bell, ping: true },
+    { to: "/merchant/products", label: "Products", icon: Package },
+    { to: "/merchant/ai-studio", label: "AI Catalog Studio", icon: Sparkles, highlight: true },
+    { to: "/merchant/analytics", label: "Sales analytics", icon: BarChart3 },
+    { to: "/merchant/storefront", label: "Storefront", icon: Store },
+    { to: "/merchant/bank", label: "Bank details", icon: Landmark },
+  ] : [
     { to: "/merchant/onboarding", label: "Onboarding", icon: Rocket },
-    { to: "/merchant/storefront", label: "Storefront", icon: Store, lock: !isApproved },
-    { to: "/merchant/products", label: "Products", icon: Package, lock: !isApproved },
-    { to: "/merchant/ai-studio", label: "AI Catalog Studio", icon: Sparkles, highlight: true, lock: !isApproved },
-    { to: "/merchant/analytics", label: "Sales analytics", icon: BarChart3, lock: !isApproved },
     { to: "/merchant/kyc", label: "KYC details", icon: FileText },
   ];
 
@@ -27,18 +30,14 @@ export default function MerchantLayout({ children }) {
           <span className="display text-xl font-bold text-[#1A2B4C]">bharat<span className="text-[#E68910]">.</span></span>
         </Link>
         <nav className="flex-1 p-3 space-y-1">
-          {links.map((l) => {
-            const onClick = (e) => { if (l.lock) { e.preventDefault(); nav("/merchant/onboarding"); } };
-            return (
-              <NavLink key={l.to} to={l.to} onClick={onClick} data-testid={`nav-${l.label.toLowerCase().replace(/\s/g, "-")}`}
-                className={({ isActive }) => `flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
-                  isActive ? "bg-[#1A2B4C] text-white" : "text-[#1C1C1C] hover:bg-white"} ${l.highlight && !isActive ? "border border-[#E68910]/30" : ""} ${l.lock ? "opacity-50" : ""}`}>
-                <l.icon size={16} className={l.highlight ? "text-[#E68910]" : ""} />
-                <span className="flex-1">{l.label}</span>
-                {l.lock && <span className="text-[9px] uppercase">Locked</span>}
-              </NavLink>
-            );
-          })}
+          {links.map((l) => (
+            <NavLink key={l.to} to={l.to} data-testid={`nav-${l.label.toLowerCase().replace(/\s/g, "-")}`}
+              className={({ isActive }) => `flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
+                isActive ? "bg-[#1A2B4C] text-white" : "text-[#1C1C1C] hover:bg-white"} ${l.highlight && !isActive ? "border border-[#E68910]/30" : ""}`}>
+              <l.icon size={16} className={l.highlight ? "text-[#E68910]" : ""} />
+              <span className="flex-1">{l.label}</span>
+            </NavLink>
+          ))}
         </nav>
         <div className="p-3 border-t border-[#E5E2DC]">
           <div className="px-3 py-2">

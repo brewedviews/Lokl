@@ -21,7 +21,9 @@ export default function Checkout() {
     try {
       const { data } = await api.post("/orders", {
         items, address: addr, total, payment_method: payment,
+        customer: { name: addr.name, phone: addr.phone },
       });
+      localStorage.setItem("bf_customer_phone", addr.phone);
       clear();
       toast.success("Order confirmed!");
       nav(`/orders/${data.id}`);

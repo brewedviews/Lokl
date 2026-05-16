@@ -7,13 +7,14 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { CartProvider } from "./contexts/CartContext";
 
 import Home from "./pages/Home";
-import ProductList from "./pages/ProductList";
+import CategoryPage from "./pages/CategoryPage";
 import ProductDetail from "./pages/ProductDetail";
 import StoreList from "./pages/StoreList";
 import StorePage from "./pages/StorePage";
 import Cart from "./pages/Cart";
 import Checkout from "./pages/Checkout";
 import OrderTracking from "./pages/OrderTracking";
+import CustomerAccount from "./pages/CustomerAccount";
 
 import MerchantAuth from "./pages/MerchantAuth";
 import MerchantOnboardingStatus from "./pages/MerchantOnboardingStatus";
@@ -21,6 +22,8 @@ import MerchantKyc from "./pages/MerchantKyc";
 import MerchantStorefront from "./pages/MerchantStorefront";
 import MerchantProducts from "./pages/MerchantProducts";
 import MerchantAnalytics from "./pages/MerchantAnalytics";
+import MerchantOrders from "./pages/MerchantOrders";
+import MerchantBank from "./pages/MerchantBank";
 import AIStudio from "./pages/AIStudio";
 
 import AdminLogin, { AdminDashboard } from "./pages/AdminPanel";
@@ -31,7 +34,6 @@ function Protected({ children }) {
   if (!merchant) return <Navigate to="/merchant/login" replace />;
   return children;
 }
-
 function ApprovedOnly({ children }) {
   const { merchant, loading } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center text-[#595959]">Loading…</div>;
@@ -49,26 +51,27 @@ function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Home />} />
-              <Route path="/shop" element={<ProductList />} />
+              <Route path="/c/:slug" element={<CategoryPage />} />
               <Route path="/product/:id" element={<ProductDetail />} />
               <Route path="/stores" element={<StoreList />} />
               <Route path="/store/:id" element={<StorePage />} />
               <Route path="/cart" element={<Cart />} />
               <Route path="/checkout" element={<Checkout />} />
               <Route path="/orders/:id" element={<OrderTracking />} />
+              <Route path="/account" element={<CustomerAccount />} />
 
-              {/* Merchant */}
               <Route path="/merchant/login" element={<MerchantAuth mode="login" />} />
               <Route path="/merchant/register" element={<MerchantAuth mode="register" />} />
               <Route path="/merchant/onboarding" element={<Protected><MerchantOnboardingStatus /></Protected>} />
               <Route path="/merchant/kyc" element={<Protected><MerchantKyc /></Protected>} />
               <Route path="/merchant/dashboard" element={<Protected><MerchantOnboardingStatus /></Protected>} />
+              <Route path="/merchant/orders" element={<ApprovedOnly><MerchantOrders /></ApprovedOnly>} />
               <Route path="/merchant/storefront" element={<ApprovedOnly><MerchantStorefront /></ApprovedOnly>} />
+              <Route path="/merchant/bank" element={<ApprovedOnly><MerchantBank /></ApprovedOnly>} />
               <Route path="/merchant/products" element={<ApprovedOnly><MerchantProducts /></ApprovedOnly>} />
               <Route path="/merchant/ai-studio" element={<ApprovedOnly><AIStudio /></ApprovedOnly>} />
               <Route path="/merchant/analytics" element={<ApprovedOnly><MerchantAnalytics /></ApprovedOnly>} />
 
-              {/* Admin */}
               <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/admin" element={<AdminDashboard />} />
             </Routes>
@@ -78,5 +81,4 @@ function App() {
     </div>
   );
 }
-
 export default App;
