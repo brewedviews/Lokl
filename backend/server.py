@@ -1,5 +1,5 @@
 """Bharat Fashion OS — FastAPI backend."""
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -305,6 +305,69 @@ async def seed():
 @api.get("/")
 async def root():
     return {"app": "Bharat Fashion OS", "status": "ok"}
+
+
+# Pilot cities (lat/lng for distance matching from GPS)
+PILOT_CITIES = [
+    {"name": "Bhilai", "lat": 21.2147, "lng": 81.3850},
+    {"name": "Raipur", "lat": 21.2514, "lng": 81.6296},
+]
+
+
+def _nearest_pilot_city(lat: float, lng: float) -> str | None:
+    """Return nearest pilot city if within 50km, else None."""
+    import math
+    best, best_d = None, 1e9
+    for c in PILOT_CITIES:
+        # rough equirectangular
+        dx = (lng - c["lng"]) * math.cos(math.radians((lat + c["lat"]) / 2))
+        dy = lat - c["lat"]
+        d = math.sqrt(dx * dx + dy * dy) * 111.0
+        if d < best_d:
+            best_d, best = d, c["name"]
+    return best if best_d <= 50 else None
+
+
+@api.get("/geo/detect")
+async def geo_detect(lat: Optional[float] = None, lng: Optional[float] = None, request: Request = None):
+    """Detect pilot city from GPS coords or fall back to IP geolocation.
+    Returns: {city: 'Bhilai'|'Raipur'|None, supported: bool, detected_city: str, source: 'gps'|'ip'}
+    """
+    import httpx
+    detected_city = None
+    source = None
+
+    if lat is not None and lng is not None:
+        detected_city = _nearest_pilot_city(lat, lng)
+        source = "gps"
+        if detected_city:
+            return {"city": detected_city, "supported": True, "detected_city": detected_city, "source": source}
+        # fall through to IP if GPS not within pilot
+
+    # IP-based fallback using free service
+    try:
+        client_ip = None
+        if request is not None:
+            # try X-Forwarded-For
+            xff = request.headers.get("x-forwarded-for", "")
+            client_ip = xff.split(",")[0].strip() if xff else request.client.host
+        async with httpx.AsyncClient(timeout=5) as client:
+            url = f"https://ipapi.co/{client_ip}/json/" if client_ip else "https://ipapi.co/json/"
+            r = await client.get(url)
+            data = r.json() if r.status_code == 200 else {}
+        ip_city = (data.get("city") or "").strip()
+        ip_lat = data.get("latitude")
+        ip_lng = data.get("longitude")
+        source = source or "ip"
+        if ip_lat is not None and ip_lng is not None:
+            nearest = _nearest_pilot_city(float(ip_lat), float(ip_lng))
+            if nearest:
+                return {"city": nearest, "supported": True, "detected_city": ip_city or nearest, "source": source}
+        # not within pilot
+        return {"city": None, "supported": False, "detected_city": ip_city or "Unknown", "source": source}
+    except Exception as e:
+        log.warning("Geo detection failed: %s", e)
+        return {"city": None, "supported": False, "detected_city": "Unknown", "source": source or "none"}
 
 
 app.include_router(api)

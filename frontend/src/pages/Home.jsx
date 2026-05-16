@@ -8,28 +8,20 @@ import ProductCard from "../components/consumer/ProductCard";
 import StoreCard from "../components/consumer/StoreCard";
 
 const HERO_BY_CITY = {
-  Jaipur: "https://static.prod-images.emergentagent.com/jobs/7eafffce-c685-4839-ad08-06796579c4de/images/2170af8ea48f218e9a710150fe28702a1b95a190e31f2858b88e10d4dde36cc1.png",
-  Lucknow: "https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=1600&auto=format&fit=crop&q=80",
-  Indore: "https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=1600&auto=format&fit=crop&q=80",
-  Kanpur: "https://images.unsplash.com/photo-1523398002811-999ca8dec234?w=1600&auto=format&fit=crop&q=80",
-  Surat: "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=1600&auto=format&fit=crop&q=80",
-  Nagpur: "https://images.unsplash.com/photo-1617137968427-85924c800a22?w=1600&auto=format&fit=crop&q=80",
+  Bhilai: "https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=1600&auto=format&fit=crop&q=80",
+  Raipur: "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=1600&auto=format&fit=crop&q=80",
 };
 
 const CITY_TAGLINE = {
-  Jaipur: "block-print boutiques",
-  Lucknow: "chikankari ateliers",
-  Indore: "ethnic-modern stores",
-  Kanpur: "leather + streetwear shops",
-  Surat: "silk & saree houses",
-  Nagpur: "festive fashion boutiques",
+  Bhilai: "steel-city style ateliers",
+  Raipur: "Chhattisgarh's finest boutiques",
 };
 
 export default function Home() {
   const [categories, setCategories] = useState([]);
   const [stores, setStores] = useState([]);
   const [products, setProducts] = useState([]);
-  const [city, setCity] = useState(localStorage.getItem("bf_city") || "Jaipur");
+  const [city, setCity] = useState(localStorage.getItem("bf_city") || "Raipur");
 
   useEffect(() => {
     Promise.all([
@@ -41,7 +33,7 @@ export default function Home() {
       setStores(s.data);
       setProducts(p.data);
     }).catch(console.error);
-    const sync = (e) => setCity((e && e.detail) || localStorage.getItem("bf_city") || "Jaipur");
+    const sync = (e) => setCity((e && e.detail) || localStorage.getItem("bf_city") || "Raipur");
     window.addEventListener("storage", sync);
     window.addEventListener("bf-city-changed", sync);
     return () => {
@@ -50,11 +42,12 @@ export default function Home() {
     };
   }, []);
 
-  const heroImg = HERO_BY_CITY[city] || HERO_BY_CITY.Jaipur;
+  const heroImg = HERO_BY_CITY[city] || HERO_BY_CITY.Raipur;
   const cityTag = CITY_TAGLINE[city] || "fashion boutiques";
-  const fastestEta = stores.length
-    ? Math.min(...stores.map((s) => s.eta_min).filter(Boolean))
-    : null;
+  const cityStores = stores.filter((s) => s.city === city);
+  const fastestEta = cityStores.length
+    ? Math.min(...cityStores.map((s) => s.eta_min).filter(Boolean))
+    : (stores.length ? Math.min(...stores.map((s) => s.eta_min).filter(Boolean)) : null);
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
@@ -129,7 +122,7 @@ export default function Home() {
           <Link to="/stores" className="text-sm text-[#1A2B4C] font-semibold hover:text-[#E68910]">All stores →</Link>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5">
-          {stores.slice(0, 4).map((s) => <StoreCard key={s.id} s={s} />)}
+          {(cityStores.length ? cityStores : stores).slice(0, 4).map((s) => <StoreCard key={s.id} s={s} />)}
         </div>
       </section>
 
@@ -140,7 +133,7 @@ export default function Home() {
           <Link to="/shop" className="text-sm text-[#1A2B4C] font-semibold hover:text-[#E68910]">Shop all →</Link>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-          {products.slice(0, 8).map((p) => <ProductCard key={p.id} p={p} />)}
+          {products.filter((p) => p.store_city === city).concat(products.filter((p) => p.store_city !== city)).slice(0, 8).map((p) => <ProductCard key={p.id} p={p} />)}
         </div>
       </section>
 
