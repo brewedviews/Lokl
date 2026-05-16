@@ -9,9 +9,8 @@ export default function MerchantLayout({ children }) {
   const isApproved = merchant?.kyc_status === "approved";
 
   const links = isApproved ? [
-    { to: "/merchant/orders", label: "Order requests", icon: Bell, ping: true },
+    { to: "/merchant/orders", label: "Order requests", icon: Bell },
     { to: "/merchant/products", label: "Products", icon: Package },
-    { to: "/merchant/ai-studio", label: "AI Catalog Studio", icon: Sparkles, highlight: true },
     { to: "/merchant/analytics", label: "Sales analytics", icon: BarChart3 },
     { to: "/merchant/storefront", label: "Storefront", icon: Store },
     { to: "/merchant/bank", label: "Bank details", icon: Landmark },

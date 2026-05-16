@@ -10,12 +10,15 @@ import { toast } from "sonner";
 export default function Checkout() {
   const { items, total, clear } = useCart();
   const nav = useNavigate();
-  const [addr, setAddr] = useState({ name: "", phone: "", line1: "", city: "Jaipur", pincode: "" });
+  const [addr, setAddr] = useState({ name: "", phone: "", line1: "", city: "Bhilai", pincode: "" });
   const [payment, setPayment] = useState("UPI");
   const [placing, setPlacing] = useState(false);
 
   const place = async () => {
     if (!addr.name || !addr.phone || !addr.line1 || !addr.pincode) return toast.error("Please fill address");
+    if ((addr.city || "").trim().toLowerCase() !== "bhilai") {
+      return toast.error("We're only serving Bhilai right now — please update your delivery city.");
+    }
     if (items.length === 0) return toast.error("Cart is empty");
     setPlacing(true);
     try {
@@ -28,7 +31,7 @@ export default function Checkout() {
       toast.success("Order confirmed!");
       nav(`/orders/${data.id}`);
     } catch (e) {
-      toast.error("Order failed");
+      toast.error(e.response?.data?.detail || "Order failed");
     } finally { setPlacing(false); }
   };
 
@@ -43,7 +46,7 @@ export default function Checkout() {
               <input data-testid="addr-name" value={addr.name} onChange={(e) => setAddr({ ...addr, name: e.target.value })} placeholder="Full name" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
               <input data-testid="addr-phone" value={addr.phone} onChange={(e) => setAddr({ ...addr, phone: e.target.value })} placeholder="Phone" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
               <input data-testid="addr-line1" value={addr.line1} onChange={(e) => setAddr({ ...addr, line1: e.target.value })} placeholder="House no, street, locality" className="md:col-span-2 px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-              <input data-testid="addr-city" value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} placeholder="City" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
+              <input data-testid="addr-city" value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} placeholder="City (Bhilai only)" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
               <input data-testid="addr-pin" value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value })} placeholder="Pincode" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
             </div>
           </div>

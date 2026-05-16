@@ -7,20 +7,13 @@ import Footer from "../components/consumer/Footer";
 import ProductCard from "../components/consumer/ProductCard";
 import StoreCard from "../components/consumer/StoreCard";
 
-const HERO_BY_CITY = {
-  Bhilai: "https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=1600&auto=format&fit=crop&q=80",
-  Raipur: "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=1600&auto=format&fit=crop&q=80",
-};
-const CITY_TAGLINE = {
-  Bhilai: "steel-city style ateliers",
-  Raipur: "Chhattisgarh's finest boutiques",
-};
+const HERO_IMG = "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=1600&auto=format&fit=crop&q=80"; // Bhilai-style ethnic boutique fashion
 
 export default function Home() {
   const [categories, setCategories] = useState([]);
   const [stores, setStores] = useState([]);
   const [products, setProducts] = useState([]);
-  const [city, setCity] = useState(localStorage.getItem("bf_city") || "Raipur");
+  const city = "Bhilai";
 
   useEffect(() => {
     Promise.all([
@@ -28,17 +21,10 @@ export default function Home() {
       api.get("/stores"),
       api.get("/products?limit=12"),
     ]).then(([c, s, p]) => { setCategories(c.data); setStores(s.data); setProducts(p.data); }).catch(console.error);
-    const sync = (e) => setCity((e && e.detail) || localStorage.getItem("bf_city") || "Raipur");
-    window.addEventListener("bf-city-changed", sync);
-    return () => window.removeEventListener("bf-city-changed", sync);
   }, []);
 
-  const heroImg = HERO_BY_CITY[city] || HERO_BY_CITY.Raipur;
-  const cityTag = CITY_TAGLINE[city] || "fashion boutiques";
-  const cityStores = stores.filter((s) => s.city === city);
-  const fastestEta = (cityStores.length ? cityStores : stores).length
-    ? Math.min(...(cityStores.length ? cityStores : stores).map((s) => s.eta_min).filter(Boolean))
-    : null;
+  const fastestEta = stores.length ? Math.min(...stores.map((s) => s.eta_min).filter(Boolean)) : null;
+  const cityStores = stores;
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
@@ -47,25 +33,25 @@ export default function Home() {
       <section data-testid="hero" className="relative overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-6 md:pt-8">
           <div className="relative rounded-3xl overflow-hidden bg-[#1A2B4C]">
-            <img key={city} src={heroImg} alt={`Fashion in ${city}`} className="absolute inset-0 w-full h-full object-cover opacity-90 bf-fadeup" />
+            <img src={HERO_IMG} alt="Fashion in Bhilai" className="absolute inset-0 w-full h-full object-cover opacity-90" />
             <div className="absolute inset-0 bg-gradient-to-r from-[#1A2B4C]/85 via-[#1A2B4C]/55 to-transparent" />
             <div className="relative grid md:grid-cols-12 gap-6 items-center px-6 md:px-12 py-8 md:py-10 min-h-[260px]">
               <div className="md:col-span-7 text-white bf-fadeup">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 backdrop-blur text-[11px] font-semibold mb-3">
-                  <MapPin size={11} className="text-[#E68910]" /> LIVE IN {city.toUpperCase()} · {cityTag}
+                  <MapPin size={11} className="text-[#E68910]" /> SERVING BHILAI
                 </div>
                 <h1 className="display text-3xl md:text-5xl font-bold leading-[1.05]">
                   Delivered in minutes from <span className="text-[#E68910]">stores next door.</span>
                 </h1>
                 <p className="mt-3 text-sm md:text-base text-white/80 max-w-xl">
-                  Discover hand-picked fashion from trusted local stores in your city — with doorstep trials and 45-minute delivery.
+                  Discover hand-picked fashion from trusted Bhilai boutiques — with doorstep trials and 45-minute delivery.
                 </p>
               </div>
               <div className="md:col-span-5 flex md:justify-end">
                 <div className="bf-glass rounded-2xl p-3.5 flex items-center gap-3 w-full md:w-auto md:min-w-[280px]">
                   <div className="w-11 h-11 rounded-full bg-[#E68910] flex items-center justify-center shrink-0"><Bike size={18} className="text-white" /></div>
                   <div className="flex-1">
-                    <div className="text-[11px] text-[#1A2B4C]/70">Fastest store nearby</div>
+                    <div className="text-[11px] text-[#1A2B4C]/70">Fastest store in Bhilai</div>
                     <div className="font-bold text-[#1A2B4C] display text-lg" data-testid="hero-fastest-eta">{fastestEta ? `${fastestEta} minutes` : "Coming soon"}</div>
                   </div>
                   <span className="px-2 py-0.5 rounded-full bg-[#1A2B4C] text-white text-[10px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#E68910] animate-pulse" /> LIVE</span>
@@ -104,8 +90,8 @@ export default function Home() {
         {(cityStores.length ? cityStores : stores).length === 0 ? (
           <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center">
             <StoreIcon size={36} className="text-[#E68910] mx-auto mb-3" />
-            <h3 className="display text-xl font-bold text-[#1A2B4C]">Boutiques are coming soon to {city}</h3>
-            <p className="text-sm text-[#595959] mt-2 max-w-md mx-auto">We're onboarding local fashion stores in {city}. Are you a boutique owner? Join the pilot.</p>
+            <h3 className="display text-xl font-bold text-[#1A2B4C]">Boutiques are coming soon to Bhilai</h3>
+            <p className="text-sm text-[#595959] mt-2 max-w-md mx-auto">We're onboarding local fashion stores in Bhilai. Are you a boutique owner? Join us.</p>
             <Link to="/merchant/register" className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#E68910] text-white text-sm font-semibold">Become a seller <ArrowRight size={14} /></Link>
           </div>
         ) : (

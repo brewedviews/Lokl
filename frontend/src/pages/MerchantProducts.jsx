@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Plus, Package, Upload, Sparkles, Wand2, X, ImagePlus, Rocket, Download } from "lucide-react";
+import { Plus, Package, Upload, X, ImagePlus, Rocket, Download } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import MerchantLayout from "../components/merchant/MerchantLayout";
@@ -18,8 +18,10 @@ export default function MerchantProducts() {
   const [cats, setCats] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
   const [openImg, setOpenImg] = useState(null);
-  const [form, setForm] = useState({ name: "", price: "", mrp: "", l1_id: "", l2_id: "", gender: "", description: "", image: "", sizes: "" });
+  const blankForm = { name: "", price: "", mrp: "", l1_id: "", l2_id: "", gender: "", description: "", image: "", stock: {} };
+  const [form, setForm] = useState(blankForm);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
 
   const load = () => api.get("/merchant/products").then((r) => setProducts(r.data));
   useEffect(() => { load(); api.get("/categories").then((r) => setCats(r.data)); }, []);
@@ -28,19 +30,46 @@ export default function MerchantProducts() {
   const needsL2 = selectedL1 && selectedL1.l2 && selectedL1.l2.length > 0;
   const needsGender = selectedL1 && !needsL2;
 
+  // Size catalog depends on category — apparel uses S–XXL, footwear uses numeric.
+  const isFootwear = form.l1_id === "l1-footwear" || form.l2_id?.includes("footwear");
+  const SIZE_OPTIONS = isFootwear ? ["6", "7", "8", "9", "10", "11"] : ["XS", "S", "M", "L", "XL", "XXL"];
+
+  const setStock = (size, qty) => {
+    const next = { ...form.stock };
+    const n = parseInt(qty, 10);
+    if (!qty || isNaN(n) || n <= 0) delete next[size];
+    else next[size] = n;
+    setForm({ ...form, stock: next });
+  };
+
+  const onPickFile = (file) => {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) return toast.error("Image too large (max 5MB)");
+    setImageBusy(true);
+    const r = new FileReader();
+    r.onload = () => { setForm((f) => ({ ...f, image: r.result })); setImageBusy(false); };
+    r.onerror = () => { toast.error("Could not read image"); setImageBusy(false); };
+    r.readAsDataURL(file);
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     if (!form.l1_id) return toast.error("Pick a category");
     if (needsL2 && !form.l2_id) return toast.error("Pick a sub-category");
     if (needsGender && !form.gender) return toast.error("Pick gender for this category");
+    if (!form.image) return toast.error("Upload a product image");
+    const sizes = Object.keys(form.stock);
+    if (sizes.length === 0) return toast.error("Add quantity for at least one size");
     try {
       await api.post("/merchant/products", {
-        ...form, price: Number(form.price), mrp: Number(form.mrp) || null,
-        sizes: form.sizes.split(",").map((s) => s.trim()).filter(Boolean),
+        name: form.name, description: form.description,
+        l1_id: form.l1_id, l2_id: form.l2_id, gender: form.gender,
+        price: Number(form.price), mrp: Number(form.mrp) || null,
+        image: form.image, sizes, stock: form.stock,
       });
       toast.success("Product added");
       setOpenAdd(false);
-      setForm({ name: "", price: "", mrp: "", l1_id: "", l2_id: "", gender: "", description: "", image: "", sizes: "" });
+      setForm(blankForm);
       load();
     } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
   };
@@ -149,12 +178,45 @@ export default function MerchantProducts() {
                   <option value="women">Women</option><option value="men">Men</option><option value="unisex">Unisex</option><option value="kids">Kids</option>
                 </select>
               )}
-              <input placeholder="Image URL (optional)" value={form.image} onChange={(e) => setForm({ ...form, image: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none" />
-              <input placeholder="Sizes (e.g. S, M, L)" value={form.sizes} onChange={(e) => setForm({ ...form, sizes: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none" />
+              {/* Image upload (file → base64) */}
+              <div>
+                <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-1.5">Product image *</div>
+                <div className="flex items-center gap-3">
+                  <div className="w-20 h-24 rounded-xl overflow-hidden bg-[#FDFBF7] border border-dashed border-[#E5E2DC] flex items-center justify-center shrink-0">
+                    {form.image ? <img src={form.image} alt="preview" className="w-full h-full object-cover" /> : <ImagePlus size={20} className="text-[#E5E2DC]" />}
+                  </div>
+                  <label className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#E5E2DC] cursor-pointer hover:border-[#1A2B4C] text-sm">
+                    <Upload size={14} />
+                    <span>{imageBusy ? "Reading…" : form.image ? "Replace image" : "Upload image"}</span>
+                    <input data-testid="prod-add-image" type="file" accept="image/*" className="hidden" onChange={(e) => onPickFile(e.target.files?.[0])} />
+                  </label>
+                </div>
+              </div>
+
+              {/* Size + Quantity grid */}
+              <div>
+                <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-1.5">Sizes & quantity *</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {SIZE_OPTIONS.map((sz) => (
+                    <div key={sz} className="flex items-center gap-2 px-2 py-1.5 rounded-xl border border-[#E5E2DC] bg-white">
+                      <span className="text-xs font-semibold text-[#1A2B4C] w-7">{sz}</span>
+                      <input
+                        type="number" min="0" placeholder="0"
+                        data-testid={`prod-stock-${sz}`}
+                        value={form.stock[sz] ?? ""}
+                        onChange={(e) => setStock(sz, e.target.value)}
+                        className="flex-1 min-w-0 px-1.5 py-1 text-sm rounded-md bg-transparent outline-none border border-transparent focus:border-[#E68910]"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-[#595959] mt-1">Enter quantity for each size you stock. Leave blank for sizes you don't carry.</p>
+              </div>
+
               <textarea placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none" />
               <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => setOpenAdd(false)} className="flex-1 px-5 py-3 rounded-full border border-[#E5E2DC]">Cancel</button>
-                <button type="submit" className="flex-1 px-5 py-3 rounded-full bg-[#E68910] text-white font-semibold">Save</button>
+                <button type="button" onClick={() => { setOpenAdd(false); setForm(blankForm); }} className="flex-1 px-5 py-3 rounded-full border border-[#E5E2DC]">Cancel</button>
+                <button type="submit" data-testid="save-product-btn" className="flex-1 px-5 py-3 rounded-full bg-[#E68910] text-white font-semibold">Save</button>
               </div>
             </form>
           </div>
@@ -168,71 +230,41 @@ export default function MerchantProducts() {
 
 function ImageManager({ product, onClose }) {
   const [image, setImage] = useState(product.image || "");
-  const [tryonImg, setTryonImg] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [file, setFile] = useState(null);
 
   const upload = async (f) => {
     if (!f) return;
-    setFile(f);
+    if (f.size > 5 * 1024 * 1024) return toast.error("Image too large (max 5MB)");
+    setBusy(true);
     const r = new FileReader();
-    r.onload = () => setImage(r.result); r.readAsDataURL(f);
-  };
-
-  const tryOn = async () => {
-    if (!file) return toast.error("Upload a product image file first");
-    setBusy(true); setTryonImg(null);
-    try {
-      const fd = new FormData(); fd.append("file", file);
-      const { data } = await api.post("/merchant/ai/tryon", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      if (data.image_base64) {
-        setTryonImg(`data:image/png;base64,${data.image_base64}`);
-        toast.success("AI model try-on ready");
-      } else {
-        toast.error(data.message || "AI couldn't process this image");
-      }
-    } catch (e) { toast.error("Try-on failed"); }
-    finally { setBusy(false); }
+    r.onload = () => { setImage(r.result); setBusy(false); };
+    r.onerror = () => { toast.error("Could not read image"); setBusy(false); };
+    r.readAsDataURL(f);
   };
 
   const save = async () => {
+    if (!image) return toast.error("Upload an image first");
     try {
-      await api.put(`/merchant/products/${product.id}`, { image: tryonImg || image, ai_enhanced: !!tryonImg });
+      await api.put(`/merchant/products/${product.id}`, { image });
       toast.success("Saved"); onClose();
     } catch { toast.error("Save failed"); }
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl w-full max-w-3xl p-6 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-3xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="display text-xl font-bold text-[#1A2B4C]">{product.name} — Images</h3>
+          <h3 className="display text-xl font-bold text-[#1A2B4C]">{product.name} — Image</h3>
           <button onClick={onClose} className="w-9 h-9 rounded-full border border-[#E5E2DC] flex items-center justify-center"><X size={16} /></button>
         </div>
-        <div className="grid md:grid-cols-2 gap-5">
-          <div>
-            <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">Product image</div>
-            <div className="aspect-[4/5] rounded-2xl overflow-hidden bg-[#FDFBF7] border-2 border-dashed border-[#E5E2DC] flex items-center justify-center">
-              {image ? <img src={image} alt="product" className="w-full h-full object-cover" /> : <Package className="text-[#E5E2DC]" size={48} />}
-            </div>
-            <label className="mt-3 flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#E5E2DC] cursor-pointer hover:border-[#1A2B4C]">
-              <Upload size={14} /> <span className="text-sm">Upload image</span>
-              <input data-testid="prod-image-upload" type="file" accept="image/*" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
-            </label>
-          </div>
-          <div>
-            <div className="text-[11px] uppercase tracking-widest text-[#E68910] font-semibold mb-2">AI model try-on</div>
-            <div className="aspect-[4/5] rounded-2xl overflow-hidden bg-[#1A2B4C] relative">
-              {busy && <div className="absolute inset-0 flex flex-col items-center justify-center text-white"><Sparkles size={28} className="text-[#E68910] animate-spin mb-2" /><div className="text-sm">Composing model shot…</div></div>}
-              {tryonImg && !busy && <img src={tryonImg} alt="tryon" className="w-full h-full object-cover bf-fadeup" />}
-              {!tryonImg && !busy && <div className="absolute inset-0 flex items-center justify-center text-white/40 text-xs px-4 text-center">Upload your product photo, then click "Try on a model"</div>}
-            </div>
-            <button onClick={tryOn} disabled={busy || !file} data-testid="ai-tryon-btn" className="mt-3 w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-[#1A2B4C] text-white text-sm font-semibold disabled:opacity-50">
-              <Wand2 size={14} /> {busy ? "Working…" : "Try on a model"}
-            </button>
-            <p className="text-[10px] text-[#595959] mt-2">AI keeps your product's exact design — only adds a model.</p>
-          </div>
+        <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">Product image</div>
+        <div className="aspect-[4/5] rounded-2xl overflow-hidden bg-[#FDFBF7] border-2 border-dashed border-[#E5E2DC] flex items-center justify-center">
+          {image ? <img src={image} alt="product" className="w-full h-full object-cover" /> : <Package className="text-[#E5E2DC]" size={48} />}
         </div>
+        <label className="mt-3 flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border border-[#E5E2DC] cursor-pointer hover:border-[#1A2B4C]">
+          <Upload size={14} /> <span className="text-sm">{busy ? "Reading…" : image ? "Replace image" : "Upload image"}</span>
+          <input data-testid="prod-image-upload" type="file" accept="image/*" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
+        </label>
         <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-[#E5E2DC]">
           <button onClick={onClose} className="px-5 py-2.5 rounded-full border border-[#E5E2DC]">Close</button>
           <button onClick={save} data-testid="save-images" className="px-5 py-2.5 rounded-full bg-[#E68910] text-white font-semibold">Save</button>

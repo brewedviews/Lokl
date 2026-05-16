@@ -44,12 +44,6 @@ export default function CategoryPage() {
           <>
             <p className="text-[#595959] text-sm mt-1">Browse {l1.name.toLowerCase()} by category</p>
             <div className="mt-6 grid grid-cols-3 md:grid-cols-5 gap-3 md:gap-4">
-              <button onClick={() => setActiveL2(null)} data-testid="l2-all" className={`group ${!activeL2 ? "ring-2 ring-[#E68910] ring-offset-2" : ""} rounded-2xl`}>
-                <div className="aspect-square rounded-2xl overflow-hidden bg-[#1A2B4C] flex items-center justify-center">
-                  <span className="text-white display font-bold text-sm md:text-base">All</span>
-                </div>
-                <div className="text-center mt-2 text-xs font-medium">All in {l1.name}</div>
-              </button>
               {l1.l2.map((s) => (
                 <button key={s.id} onClick={() => setActiveL2(s.id)} data-testid={`l2-${s.slug}`} className={`group ${activeL2 === s.id ? "ring-2 ring-[#E68910] ring-offset-2" : ""} rounded-2xl`}>
                   <div className="aspect-square rounded-2xl overflow-hidden bg-white border border-[#E5E2DC]">

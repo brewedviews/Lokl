@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration-4 testing of new Bharat Fashion OS changes: (1) merchant Add-product modal with FILE UPLOAD + Size/Qty grid, (2) hero label 'SERVING BHILAI', (3) icon-only account button + softer away banner, (4) backend strict Bhilai-only order gate, (5) ProductCreate accepts base64 dataURL image + stock dict. Backend: 15/15 pytest pass in 2.66s (test_iter4_flow.py). Frontend: all UI assertions pass on /merchant/products modal (data-testid prod-add-image is file input, prod-stock-S/M/L/XL/XXL for apparel, prod-stock-6..11 for footwear, no Image URL text input, no comma-separated Sizes input). Home shows SERVING BHILAI, nav-account is icon-only, away banner present with softer wording.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Home away banner", "issues": ["When IP-detected city is unknown, banner reads \"Bharat currently serves Bhilai. We'll let you know when we're in Unknown.\" — the literal word 'Unknown' is shown to users when city detection fails. Consider falling back to softer copy like '...when we expand to your area.'"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter4_flow.py",
+    "/app/backend/tests/test_iter3_flow.py",
+    "/app/backend/tests/test_kyc_admin_flow.py",
+    "/app/backend/tests/test_backend.py",
+    "/app/test_reports/pytest/results_iter4.xml"
+  ],
+  "action_items": [
+    "Optional UX: when geo-detected city is empty/Unknown, replace the literal 'Unknown' token in away-banner with a graceful fallback ('your area')."
+  ],
+  "critical_code_review_comments": [
+    "ProductCreate.image is Optional[str] with no size validation. A 5MB base64 dataURL can be ~6.7MB JSON in a single POST and is stored verbatim in MongoDB on the product doc. Consider (a) enforcing a max length (e.g. 8MB), or (b) decoding the dataURL on save and storing it in GridFS/object storage with only a URL on the product doc. Currently every /api/products list call returns the full base64 strings, which will bloat consumer catalog responses badly once even 20-30 such products exist.",
+    "/api/orders city validation lives only in route handler (server.py:174-176). Consider promoting SERVICEABLE_CITIES to a shared module/env var so it can be consumed by /api/geo/detect and the storefront/merchant city field too (single source of truth).",
+    "Demo merchant auto-approval at startup (server.py:803-816) silently no-ops when the doc is missing. After DB wipes the docs in /app/memory/test_credentials.md become invalid until someone re-runs /api/auth/register for demo@bharat-os.com. Worth adding an idempotent demo merchant create on startup so the documented credentials always work.",
+    "server.py is 820 lines — past the 700-line guideline (flagged previously in iter3). Splitting into routers would also make the Bhilai gate easier to test in isolation."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter4_flow.py",
+    "/app/test_reports/iteration_4.json",
+    "/app/test_reports/pytest/results_iter4.xml"
+  ],
+  "success_rate": {"backend": "100% (15/15 iter4 pytest passing; prior iter3 + kyc + backend suites still in repo)", "frontend": "100% on tested critical flows — Add product modal (file upload + size+qty grid + no URL/no comma text inputs), home hero SERVING BHILAI, icon-only nav-account, away banner soft-wording"},
+  "test_credentials": "Admin admin@bharat-os.com / Admin@2026 verified. Demo merchant (demo@bharat-os.com / Demo@123) does NOT exist after DB wipe — startup only re-approves if doc exists, doesn't recreate it. Iter4 tests register a fresh merchant each session (uitest_<uuid>@bharat-os.com / UITest@2026 used for the UI walk-through). Action: please re-register demo@bharat-os.com so /app/memory/test_credentials.md remains valid.",
+  "seed_data_creation": "test_iter4_flow.py registers a fresh merchant per session (email pattern test_iter4_<uuid>@bharat-os.com), submits + approves KYC, sets up storefront, creates 2 products (TEST_DataURL_Top, TEST_DataURL_Shoe) and 2 valid orders (Bhilai). For UI test, a separate seeded merchant uitest_976dd4e8@bharat-os.com / UITest@2026 was registered+approved+storefront-ready.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/test_iter4_flow.py -v` (~3s, 15 tests). Iter4 focus: base64 dataURL image roundtrip on POST /api/merchant/products and Bhilai-only gate on POST /api/orders (case-insensitive). UI: Add-product modal now uses FILE UPLOAD (data-testid=prod-add-image, type=file) and a SIZE+QTY grid (data-testid prod-stock-XS/S/M/L/XL/XXL for apparel — XS is also rendered though the task listed only S..XXL — and prod-stock-6..11 for footwear). Home hero badge says SERVING BHILAI. The away-banner literally renders the word 'Unknown' when geo detect returns no city — minor copy issue flagged. Demo merchant doc was wiped — startup auto-approval only fires if the doc already exists; main agent should re-seed demo@bharat-os.com if /app/memory/test_credentials.md is to remain accurate.",
+  "rca of the issue": "No blocking bugs. One copy-polish item: ConsumerHeader away-banner interpolates the raw geo-detect string and shows 'Unknown' when the IP city is empty — non-functional, just looks unpolished. Mitigation: guard the rendered city with `detected && detected !== 'Unknown' ? detected : 'your area'`."
+}

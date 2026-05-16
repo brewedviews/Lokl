@@ -31,7 +31,7 @@ log = logging.getLogger("bharat")
 # ===== Models =====
 class MerchantSignup(BaseModel):
     email: EmailStr; password: str; store_name: str; owner_name: str
-    phone: Optional[str] = None; city: Optional[str] = "Raipur"
+    phone: Optional[str] = None; city: Optional[str] = "Bhilai"
 
 class MerchantLogin(BaseModel): email: EmailStr; password: str
 class AdminLogin(BaseModel): email: EmailStr; password: str
@@ -167,8 +167,13 @@ async def get_product(pid: str):
 
 
 # ===== Orders =====
+SERVICEABLE_CITIES = ["bhilai"]
+
 @api.post("/orders")
 async def create_order(payload: OrderCreate):
+    addr_city = (payload.address.get("city") or "").strip().lower()
+    if addr_city not in SERVICEABLE_CITIES:
+        raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
     order_id = f"BFO-{uuid.uuid4().hex[:8].upper()}"
     merchant_ids = []
     for it in payload.items:
@@ -268,10 +273,9 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_
     store_id = f"store-m-{user['sub']}"
     store_doc = {"id": store_id, "merchant_id": user["sub"], "name": m["store_name"],
         "tagline": payload.tagline, "story": payload.story, "banner": payload.banner, "logo": payload.banner,
-        "city": m.get("city", "Raipur"), "locality": payload.locality or "",
+        "city": "Bhilai", "locality": payload.locality or "",
         "specialties": payload.specialties, "timing": payload.timing,
-        "lat": 21.2147 if m.get("city") == "Bhilai" else 21.2514,
-        "lng": 81.3850 if m.get("city") == "Bhilai" else 81.6296,
+        "lat": 21.2147, "lng": 81.3850,
         "distance_km": round(random.uniform(0.8, 4.0), 1),
         "eta_min": random.choice([28, 32, 35, 40, 45]),
         "rating": 4.6, "reviews": random.randint(20, 80), "trusted": True,
@@ -737,8 +741,7 @@ async def get_customer(phone: str):
 
 
 # ===== Geo =====
-PILOT_CITIES = [{"name": "Bhilai", "lat": 21.2147, "lng": 81.3850},
-                {"name": "Raipur", "lat": 21.2514, "lng": 81.6296}]
+PILOT_CITIES = [{"name": "Bhilai", "lat": 21.2147, "lng": 81.3850}]
 
 def _nearest_pilot_city(lat: float, lng: float):
     import math
