@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Bike, Store as StoreIcon, Zap, MapPin } from "lucide-react";
+import { ArrowRight, Bike, Store as StoreIcon, Zap, MapPin, ShieldCheck, Sparkles, Package } from "lucide-react";
 import api from "../lib/api";
 import ConsumerHeader from "../components/consumer/ConsumerHeader";
 import Footer from "../components/consumer/Footer";
 import ProductCard from "../components/consumer/ProductCard";
 import StoreCard from "../components/consumer/StoreCard";
 
-const HERO_IMG = "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=1600&auto=format&fit=crop&q=80"; // Bhilai-style ethnic boutique fashion
+const HERO_IMG = "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/wnvtfjvx_ChatGPT%20Image%20May%2016%2C%202026%2C%2005_49_42%20PM.png"; // Bhilai Globe Chowk landmark (clean)
 
 export default function Home() {
   const [categories, setCategories] = useState([]);
@@ -26,37 +26,71 @@ export default function Home() {
   const fastestEta = stores.length ? Math.min(...stores.map((s) => s.eta_min).filter(Boolean)) : null;
   const cityStores = stores;
 
+  const perks = [
+    { i: ShieldCheck, label: "Trusted Stores" },
+    { i: Zap,         label: "Lightning Fast" },
+    { i: Sparkles,    label: "Try at Your Doorstep" },
+    { i: Package,     label: "Easy Returns" },
+  ];
+
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
       <ConsumerHeader />
 
-      <section data-testid="hero" className="relative overflow-hidden">
+      <section data-testid="hero" className="relative">
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-6 md:pt-8">
-          <div className="relative rounded-3xl overflow-hidden bg-[#1A2B4C]">
-            <img src={HERO_IMG} alt="Fashion in Bhilai" className="absolute inset-0 w-full h-full object-cover opacity-90" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#1A2B4C]/85 via-[#1A2B4C]/55 to-transparent" />
-            <div className="relative grid md:grid-cols-12 gap-6 items-center px-6 md:px-12 py-8 md:py-10 min-h-[260px]">
-              <div className="md:col-span-7 text-white bf-fadeup">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 backdrop-blur text-[11px] font-semibold mb-3">
-                  <MapPin size={11} className="text-[#E68910]" /> SERVING BHILAI
+          <div className="relative rounded-[28px] overflow-hidden bg-[#1A2B4C] min-h-[420px] md:min-h-[520px]">
+            {/* Bhilai Globe Chowk landmark — full-bleed banner (stretch to fit) */}
+            <img
+              src={HERO_IMG}
+              alt="Bhilai Globe Chowk"
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            {/* Left-to-right cream-to-transparent wash so text stays legible */}
+            <div className="absolute inset-0 bg-gradient-to-r from-[#FDFBF7]/95 via-[#FDFBF7]/55 to-transparent" />
+
+            <div className="relative grid md:grid-cols-12 gap-6 items-end md:items-center px-6 md:px-10 lg:px-12 py-8 md:py-12 min-h-[420px] md:min-h-[520px]">
+              <div className="md:col-span-7 lg:col-span-6 text-[#1A2B4C] bf-fadeup">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white shadow-sm text-[11px] font-semibold mb-5">
+                  <MapPin size={12} className="text-[#E68910]" /> SERVING BHILAI
                 </div>
-                <h1 className="display text-3xl md:text-5xl font-bold leading-[1.05]">
+                <h1 className="display text-3xl md:text-4xl lg:text-5xl font-bold leading-[1.05] tracking-tight">
                   Delivered in minutes from <span className="text-[#E68910]">stores next door.</span>
                 </h1>
-                <p className="mt-3 text-sm md:text-base text-white/80 max-w-xl">
+                <p className="mt-5 text-sm md:text-base text-[#595959] max-w-md leading-relaxed">
                   Discover hand-picked fashion from trusted Bhilai boutiques — with doorstep trials and 45-minute delivery.
                 </p>
-              </div>
-              <div className="md:col-span-5 flex md:justify-end">
-                <div className="bf-glass rounded-2xl p-3.5 flex items-center gap-3 w-full md:w-auto md:min-w-[280px]">
-                  <div className="w-11 h-11 rounded-full bg-[#E68910] flex items-center justify-center shrink-0"><Bike size={18} className="text-white" /></div>
-                  <div className="flex-1">
-                    <div className="text-[11px] text-[#1A2B4C]/70">Fastest store in Bhilai</div>
-                    <div className="font-bold text-[#1A2B4C] display text-lg" data-testid="hero-fastest-eta">{fastestEta ? `${fastestEta} minutes` : "Coming soon"}</div>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full bg-[#1A2B4C] text-white text-[10px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#E68910] animate-pulse" /> LIVE</span>
+
+                {/* Feature pills */}
+                <div className="mt-7 flex flex-wrap gap-2 md:gap-2.5">
+                  {perks.map(({ i: Icon, label }) => (
+                    <div key={label} data-testid={`perk-${label.toLowerCase().replace(/\s+/g, "-")}`} className="inline-flex items-center gap-2 px-3 py-1.5 md:px-3.5 md:py-2 rounded-2xl bg-white shadow-sm border border-white/80">
+                      <Icon size={13} className="text-[#E68910]" />
+                      <span className="text-[11px] md:text-[12px] font-semibold text-[#1A2B4C]">{label}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
+              <div className="md:col-span-5 lg:col-span-6" /> {/* spacer */}
+            </div>
+
+            {/* Floating ETA card — middle-right over the photo */}
+            <div className="hidden md:flex absolute top-1/2 right-6 lg:right-10 -translate-y-1/2 bf-glass rounded-2xl p-3.5 items-center gap-3 min-w-[260px] shadow-xl">
+              <div className="w-11 h-11 rounded-full bg-[#E68910] flex items-center justify-center shrink-0"><Bike size={18} className="text-white" /></div>
+              <div className="flex-1">
+                <div className="text-[11px] text-[#1A2B4C]/70">Fast delivery in Bhilai</div>
+                <div className="font-bold text-[#1A2B4C] display text-lg" data-testid="hero-fastest-eta">{fastestEta ? `${fastestEta} minutes` : "45 minutes"}</div>
+              </div>
+              <span className="px-2 py-0.5 rounded-full bg-[#1A2B4C] text-white text-[10px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#E68910] animate-pulse" /> LIVE</span>
+            </div>
+            {/* Mobile ETA card (in-flow) */}
+            <div className="md:hidden mx-6 mb-6 bf-glass rounded-2xl p-3.5 flex items-center gap-3 shadow">
+              <div className="w-10 h-10 rounded-full bg-[#E68910] flex items-center justify-center shrink-0"><Bike size={16} className="text-white" /></div>
+              <div className="flex-1">
+                <div className="text-[10px] text-[#1A2B4C]/70">Fast delivery in Bhilai</div>
+                <div className="font-bold text-[#1A2B4C] display text-base" data-testid="hero-fastest-eta-m">{fastestEta ? `${fastestEta} minutes` : "45 minutes"}</div>
+              </div>
+              <span className="px-2 py-0.5 rounded-full bg-[#1A2B4C] text-white text-[10px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#E68910] animate-pulse" /> LIVE</span>
             </div>
           </div>
         </div>
