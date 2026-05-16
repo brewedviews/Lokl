@@ -1,71 +1,54 @@
-# Bharat Fashion OS — Product Requirements (PRD)
+# Bharat Fashion OS — PRD
 
 ## Vision
-"The future operating system for hyperlocal fashion commerce in Bharat." Premium AI-powered marketplace combining Myntra discovery + Nykaa visuals + Blinkit hyperlocal + Instagram boutiques + Shopify merchant tooling — pilot launch in **Bhilai & Raipur (Chhattisgarh)**.
+Premium AI-powered hyperlocal fashion commerce OS for Bharat. Pilot in **Bhilai & Raipur (Chhattisgarh)**.
 
-## Personas
-- **Consumer** (Tier-2/3 Gen-Z + millennial): hyperlocal fashion + fast delivery
-- **Merchant** (offline fashion store): AI-powered storefront in minutes; KYC → approval → publish
-- **Ops/Admin**: manual KYC review/approval inside `/admin` console
-- **Rider** (Phase 2): deferred
+## Stack
+React + FastAPI + MongoDB. Emergent LLM key → Claude Sonnet 4.5 (copy) + Gemini Nano Banana (images & try-on with strict-preservation prompt).
 
-## Pilot Cities
-**Bhilai** (3 boutiques) and **Raipur** (3 boutiques) only. Geo-detection: browser GPS → IP fallback (ipapi.co). Other cities show friendly "we're not live here yet" banner.
-
-## Tech Stack
-- Frontend: React 19 + Tailwind + Sonner + Lucide. Fonts: Clash Display + Satoshi (Fontshare).
-- Backend: FastAPI + Motor (MongoDB). JWT auth (PyJWT + bcrypt).
-- AI: Emergent Universal LLM Key → Claude Sonnet 4.5 (copy) + Gemini Nano Banana (images & try-on).
-
-## What's Implemented
+## Latest Iteration (Feb 2026)
 
 ### Consumer Marketplace
-- Compact city-customised hero (image + tagline + dynamic "fastest store ETA" pill)
-- Shop by Category (8) → Stores in your neighborhood (filtered by city) → Trending nearby → thin merchant strip → footer
-- Store detail (Instagram-boutique feel), PLP, PDP with sizes/AI badge, cart, mock checkout (UPI/Card/COD), order tracking timeline
-- Geo-detect endpoint (`/api/geo/detect`) with GPS + IP fallback
+- Compact city-customised hero, auto geo-detect (no manual selector) — pill is read-only with ↻ re-detect
+- **L1 categories (fixed 7)**: Women, Men, Footwear, Streetwear, Kids, Accessories, Beauty
+- **L2 sub-categories** for Women (9) and Men (9). Other L1s use gender filter (women/men/unisex/kids)
+- `/c/:slug` Category page: shows L2 tile grid for Women/Men OR gender chips for others, then filtered listings
+- Products require `l1_id` + (`l2_id` for W/M, `gender` for others) — enforced server-side
+- Stores+products visible iff `kyc_status=approved AND published=true AND paused=false AND product_count ≥ 1`
+- Empty states everywhere when no live merchants in the city
+- `/account` — phone-based customer profile (name, age, email, address) + past orders by phone
+- Checkout captures customer into profile silently
+- **Slim footer** + mobile hides brand text (logo only)
 
-### Merchant SaaS (Complete Onboarding Flow)
-1. **Signup** (`/merchant/register`) → lands on `/merchant/onboarding`
-2. **KYC wizard** (`/merchant/kyc`) — 3 steps:
-   - Business: PAN, GST, registered name, category, type, address, PAN/GST doc uploads (base64)
-   - Bank: account holder, account #, IFSC, cancelled cheque upload
-   - Review & submit
-3. **Pending state**: status card + in-app notification feed (mocked email/WhatsApp — toasted on screen)
-4. **Admin Console** (`/admin/login`, hardcoded `admin@bharat-os.com / Admin@2026`): Pending/Approved/Rejected tabs, view full merchant docs, **Approve** or **Reject with reason** — fires notification to merchant
-5. **Storefront setup** (`/merchant/storefront`) — tagline, story, locality, timing, specialties, banner picker
-6. **Products** (`/merchant/products`):
-   - Add single product
-   - **CSV bulk upload** (`name, description, category, mrp, price, sizes, stock_per_size`) + sample CSV download
-   - Per-product image manager with **AI Model Try-On** (Gemini Nano Banana — strict prompt: "do not change design/colour/pattern, only show worn by model")
-7. **Go Live** — requires storefront + ≥1 product. Sets `published=true`, returns 1-hour propagation ETA, pushes "going live" notification.
-8. **Sales Analytics** (`/merchant/analytics`) — periods Yesterday/7d/30d/Quarter, revenue/orders/AOV/repeat KPIs, bar chart, top products, **CSV report download**. Demo data shown until real orders flow in.
+### Merchant SaaS
+- After register → `/merchant/onboarding` → 3-step KYC wizard (Business → Bank → Review)
+- **Sidebar reshapes after approval**: Order Requests · Products · AI Studio · Sales Analytics · Storefront · Bank (Onboarding+KYC hidden)
+- **Storefront**: tagline/story/banner/specialties editable. **Store name & business address LOCKED** — changes require a `change-request` → admin approval
+- **Bank tab**: any update needs a new cancelled-cheque upload → `change-request` → admin verifies
+- **Products**: cascading L1 → L2/gender selector enforced; CSV bulk import (`name,description,l1,l2,gender,mrp,price,sizes,stock_per_size`); per-product image manager with **AI Try-On** (strict prompt: don't alter design)
+- **AI Catalog Studio** (`/merchant/ai-studio`): strict-preservation enhance + Claude copy generation. Failed AI calls now show clear error (no misleading fallback image)
+- **Order Requests** page: pending order cards with Accept/Reject + Web Audio beep + Notification API on new orders (polls every 8s)
+- **Sales Analytics** with periods + CSV report download; demo data shown until real orders flow
 
-### AI Catalog Studio (`/merchant/ai-studio`)
-- Gemini Nano Banana raw-photo enhancement
-- Claude Sonnet 4.5 product copy (title, description, tags, highlights, SEO meta, campaign hook)
-
-### Visibility Rule
-Stores are publicly visible iff `seeded=true` OR (`kyc_status='approved'` AND `published=true` AND `product_count ≥ 1`).
+### Admin Console (`/admin/login`: admin@bharat-os.com / Admin@2026)
+- **Approvals tab** with sub-tabs KYC + Bank/Address changes, period dropdown (yesterday/7d/30d/quarter), **CSV/Excel export** of approvals history. Modal shows all uploaded docs (PAN/GST/cheque/change docs) for review.
+- **Stores tab**: every onboarded store + drill-down products. Pause/Unpause/Delete per product. Pause/Unpause store. **Delete store** → 6-digit OTP "emailed" to admin@bharat-os.com (mocked → shown in modal). Cascade-deletes products on confirmation.
 
 ## Test Credentials
-- Demo merchant (auto-approved on startup): `demo@bharat-os.com / Demo@123`
-- Admin: `admin@bharat-os.com / Admin@2026`
+- Demo merchant (auto-approved on startup): `demo@bharat-os.com` / `Demo@123`
+- Admin: `admin@bharat-os.com` / `Admin@2026`
 
-## Status
-✅ All features tested. Backend: 25/25 pytest passing. Frontend: full onboarding flow + admin approve/reject + storefront + bulk + analytics verified by testing agent.
+## Mocked (pilot scope)
+- Approval notifications: in-app only (no real email/WhatsApp/SMS)
+- Delete-store OTP: shown in modal + logged (no real email)
+- KYC docs stored as base64 in Mongo (no object storage yet)
+- Sales analytics: demo trend for new merchants
+- "1-hour propagation" on publish flips immediately
 
 ## Backlog
-### P0
-- Real email/WhatsApp via Resend/Twilio for approval notifications
-- Object storage (Cloudinary) for KYC docs instead of base64 in Mongo (current is fine for pilot scale)
-### P1
-- Real geo-IP via paid service for higher accuracy
-- Rider operational app (pickup/navigation/OTP)
-- Razorpay live integration
-- Store-side merchant chat with consumer
-### P2
-- Live rider tracking
-- Influencer partnerships
-- WhatsApp campaign builder
-- Multi-warehouse stock per merchant
+- P0: Real email/WhatsApp via Resend/Twilio · Cloudinary for docs
+- P1: Real-time order push via WebSocket · Razorpay live · Rider app
+- P2: Live rider tracking · Influencer partnerships · WA campaigns
+
+## Status
+✅ Backend 18/18 pytest passing · all frontend flows verified by testing agent (iteration_3.json)
