@@ -38,7 +38,7 @@ export default function MerchantAnalytics() {
           <div>
             <h1 data-testid="analytics-title" className="display text-3xl md:text-4xl font-bold text-[#1A2B4C]">Sales analytics</h1>
             <p className="text-[#595959] text-sm mt-1">
-              {stats.demo_mode ? "Showing illustrative data — real metrics appear once you receive orders." : "Real-time data from your live orders."}
+              {stats.orders === 0 ? "No revenue yet — your first delivered order will show up here." : "Real-time data from your delivered orders."}
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">

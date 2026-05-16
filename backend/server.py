@@ -195,7 +195,7 @@ async def create_order(payload: OrderCreate):
            "created_at": now,
            "timeline": [{"label": "Order placed", "time": now},
                         {"label": "Merchant accepted", "time": None},
-                        {"label": "Handed to rider", "time": None},
+                        {"label": "Order on the way", "time": None},
                         {"label": "Delivered", "time": None}]}
     await db.orders.insert_one(doc)
     # Upsert customer profile silently
@@ -252,7 +252,7 @@ async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_us
     now = datetime.now(timezone.utc).isoformat()
     tl = o.get("timeline", [])
     for t in tl:
-        if t["label"] == "Handed to rider" and not t["time"]:
+        if t["label"] in ("Order on the way", "Handed to rider", "Rider on the way") and not t["time"]:
             t["time"] = now; break
     await db.orders.update_one({"id": oid}, {"$set": {"status": "on_the_way", "timeline": tl}})
     # WhatsApp customer with the OTP — they will match with rider on arrival
@@ -532,63 +532,50 @@ def _period_window(period: str):
 @api.get("/merchant/analytics")
 async def merchant_analytics(period: str = "30d", user: dict = Depends(get_current_user)):
     start, end = _period_window(period)
-    orders = await db.orders.find({"merchant_ids": user["sub"],
-        "created_at": {"$gte": start.isoformat(), "$lte": end.isoformat()}}, {"_id": 0}).to_list(1000)
-    revenue = sum(float(o.get("total", 0)) for o in orders); count = len(orders)
+    # Revenue is only counted for delivered orders — pre-revenue merchants see zeros.
+    orders = await db.orders.find({
+        "merchant_ids": user["sub"],
+        "status": "delivered",
+        "created_at": {"$gte": start.isoformat(), "$lte": end.isoformat()},
+    }, {"_id": 0}).to_list(1000)
+    revenue = sum(float(o.get("total", 0)) for o in orders)
+    count = len(orders)
     by_day = {}
     for o in orders:
         try: d = datetime.fromisoformat(o["created_at"]).date().isoformat()
         except Exception: continue
         by_day[d] = by_day.get(d, 0) + float(o.get("total", 0))
-    demo_mode = count == 0
-    if demo_mode:
-        days = max(1, int((end - start).total_seconds() / 86400))
-        for i in range(min(days, 30)):
-            d = (end - timedelta(days=i)).date().isoformat()
-            by_day[d] = round(random.uniform(2400, 18500), 2)
-        revenue = sum(by_day.values())
-        count = max(8, int(revenue / 1800))
-    repeat_rate = 34 if demo_mode else min(58, int(count * 0.42)) if count >= 4 else 0
-    if not demo_mode:
-        agg = {}
-        for o in orders:
-            for it in o.get("items", []):
-                key = it.get("id") or it.get("name")
-                if not key: continue
-                agg.setdefault(key, {"name": it.get("name", "Product"), "sold": 0, "revenue": 0})
-                agg[key]["sold"] += int(it.get("qty", 1))
-                agg[key]["revenue"] += float(it.get("price", 0)) * int(it.get("qty", 1))
-        top = sorted(agg.values(), key=lambda x: x["revenue"], reverse=True)[:5]
-    else:
-        top = [{"name": "Sample Top Wear", "sold": 48, "revenue": 91152},
-               {"name": "Sample Ethnic", "sold": 22, "revenue": 94578},
-               {"name": "Sample Footwear", "sold": 16, "revenue": 87984}]
+    repeat_rate = min(58, int(count * 0.42)) if count >= 4 else 0
+    agg = {}
+    for o in orders:
+        for it in o.get("items", []):
+            key = it.get("id") or it.get("name")
+            if not key: continue
+            agg.setdefault(key, {"name": it.get("name", "Product"), "sold": 0, "revenue": 0})
+            agg[key]["sold"] += int(it.get("qty", 1))
+            agg[key]["revenue"] += float(it.get("price", 0)) * int(it.get("qty", 1))
+    top = sorted(agg.values(), key=lambda x: x["revenue"], reverse=True)[:5]
     return {"period": period, "revenue": round(revenue, 2), "orders": count,
         "avg_order_value": round(revenue / count, 2) if count else 0,
-        "repeat_rate": repeat_rate, "conversion": 4.2,
+        "repeat_rate": repeat_rate, "conversion": 0,
         "trend": [{"date": d, "revenue": by_day[d]} for d in sorted(by_day.keys())[-14:]],
-        "top_products": top, "demo_mode": demo_mode}
+        "top_products": top, "demo_mode": False}
 
 @api.get("/merchant/analytics/report.csv")
 async def merchant_report_csv(period: str = "30d", user: dict = Depends(get_current_user)):
     start, end = _period_window(period)
-    orders = await db.orders.find({"merchant_ids": user["sub"],
-        "created_at": {"$gte": start.isoformat(), "$lte": end.isoformat()}}, {"_id": 0}).to_list(2000)
+    orders = await db.orders.find({
+        "merchant_ids": user["sub"],
+        "status": "delivered",
+        "created_at": {"$gte": start.isoformat(), "$lte": end.isoformat()},
+    }, {"_id": 0}).to_list(2000)
     rows = []
-    if not orders:
-        for i in range(20):
-            day = (end - timedelta(days=random.randint(0, 28))).date().isoformat()
-            rows.append({"date": day, "order_id": f"BFO-DEMO-{i+1:03d}",
-                "product": random.choice(["Sample Top", "Sample Ethnic", "Sample Co-ord"]),
-                "qty": random.randint(1, 3), "amount": round(random.uniform(900, 5400), 2),
-                "payment": random.choice(["UPI", "COD", "Card"])})
-    else:
-        for o in orders:
-            for it in o.get("items", []):
-                rows.append({"date": o.get("created_at", "")[:10], "order_id": o.get("id"),
-                    "product": it.get("name"), "qty": it.get("qty"),
-                    "amount": float(it.get("price", 0)) * int(it.get("qty", 1)),
-                    "payment": o.get("payment_method")})
+    for o in orders:
+        for it in o.get("items", []):
+            rows.append({"date": o.get("created_at", "")[:10], "order_id": o.get("id"),
+                "product": it.get("name"), "qty": it.get("qty"),
+                "amount": float(it.get("price", 0)) * int(it.get("qty", 1)),
+                "payment": o.get("payment_method")})
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=["date", "order_id", "product", "qty", "amount", "payment"])
     w.writeheader(); w.writerows(rows); buf.seek(0)
@@ -837,6 +824,14 @@ async def admin_delete_store(sid: str, request: Request, body: OtpVerifyDelete):
         pass
     await db.products.delete_many({"store_id": sid})
     await db.stores.delete_one({"id": sid})
+    # Full merchant offboarding: wipe merchant doc + orders + change-requests
+    # so the email/phone can be re-used as a brand-new merchant signup.
+    s = await db.stores.find_one({"id": sid}, {"_id": 0}) or {}
+    mid = s.get("merchant_id") or sid.replace("store-m-", "")
+    if mid:
+        await db.merchants.delete_one({"id": mid})
+        await db.orders.delete_many({"merchant_ids": mid})
+        await db.change_requests.delete_many({"merchant_id": mid})
     await db.admin_otps.delete_one({"sid": sid})
     return {"ok": True}
 
@@ -846,8 +841,31 @@ async def _upsert_customer(customer: dict, address: dict | None = None):
     phone = customer.get("phone")
     if not phone: return
     upd = {k: v for k, v in customer.items() if v is not None and v != ""}
-    if address: upd["last_address"] = address
     upd["updated_at"] = datetime.now(timezone.utc).isoformat()
+    # Persist address book (de-dup by line1+pincode)
+    if address and address.get("line1"):
+        existing = await db.customers.find_one({"phone": phone}, {"addresses": 1, "_id": 0})
+        addresses = (existing or {}).get("addresses") or []
+        key = (address.get("line1", "").strip().lower(), str(address.get("pincode", "")).strip())
+        already = any(
+            (a.get("line1", "").strip().lower(), str(a.get("pincode", "")).strip()) == key
+            for a in addresses
+        )
+        if not already:
+            new_addr = {
+                "id": f"addr-{uuid.uuid4().hex[:8]}",
+                "name": address.get("name", customer.get("name", "")),
+                "phone": address.get("phone", phone),
+                "line1": address.get("line1", ""),
+                "landmark": address.get("landmark", ""),
+                "city": address.get("city", "Bhilai"),
+                "pincode": str(address.get("pincode", "")),
+                "label": address.get("label", "Home"),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            addresses = addresses + [new_addr]
+            upd["addresses"] = addresses
+        upd["last_address"] = address
     await db.customers.update_one({"phone": phone}, {"$set": upd}, upsert=True)
 
 @api.post("/customer/upsert")
@@ -861,6 +879,96 @@ async def get_customer(phone: str):
     c = await db.customers.find_one({"phone": phone}, {"_id": 0})
     if not c: raise HTTPException(404, "Not found")
     orders = await db.orders.find({"customer.phone": phone}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return {"customer": c, "orders": orders}
+
+
+# Customer address book CRUD
+@api.post("/customer/{phone}/addresses")
+async def add_customer_address(phone: str, payload: dict):
+    if not payload.get("line1") or not payload.get("pincode"):
+        raise HTTPException(400, "line1 and pincode required")
+    addr = {
+        "id": f"addr-{uuid.uuid4().hex[:8]}",
+        "name": payload.get("name", ""),
+        "phone": payload.get("phone", phone),
+        "line1": payload.get("line1", "").strip(),
+        "landmark": payload.get("landmark", "").strip(),
+        "city": payload.get("city", "Bhilai"),
+        "pincode": str(payload.get("pincode", "")).strip(),
+        "label": payload.get("label", "Home"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.customers.update_one(
+        {"phone": phone},
+        {"$push": {"addresses": addr}, "$set": {"updated_at": addr["created_at"]}},
+        upsert=True,
+    )
+    return addr
+
+@api.delete("/customer/{phone}/addresses/{aid}")
+async def delete_customer_address(phone: str, aid: str):
+    await db.customers.update_one({"phone": phone}, {"$pull": {"addresses": {"id": aid}}})
+    return {"ok": True}
+
+
+# ===== Admin: Live users + Customers directory =====
+@api.post("/heartbeat")
+async def heartbeat(payload: dict):
+    """Lightweight presence ping. Called by frontend every 30s while user has tab open.
+
+    Payload: {sid: client-session-id, role: customer|merchant|guest, phone?: str, mid?: str, path?: str}
+    """
+    sid = (payload.get("sid") or "").strip()
+    if not sid: return {"ok": False}
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "sid": sid,
+        "role": payload.get("role", "guest"),
+        "phone": payload.get("phone"),
+        "mid": payload.get("mid"),
+        "path": payload.get("path"),
+        "last_seen": now,
+    }
+    await db.live_sessions.update_one({"sid": sid}, {"$set": doc, "$setOnInsert": {"first_seen": now}}, upsert=True)
+    return {"ok": True}
+
+@api.get("/admin/live-users")
+async def admin_live_users(request: Request):
+    """Sessions seen in the last 2 minutes."""
+    _check_admin(request.headers.get("authorization"))
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    sessions = await db.live_sessions.find({"last_seen": {"$gte": cutoff}}, {"_id": 0}).sort("last_seen", -1).to_list(500)
+    by_role = {}
+    for s in sessions:
+        by_role.setdefault(s.get("role", "guest"), 0)
+        by_role[s["role"]] = by_role.get(s["role"], 0) + 1
+    return {"sessions": sessions, "count": len(sessions), "by_role": by_role}
+
+@api.get("/admin/customers")
+async def admin_customers(request: Request, q: Optional[str] = None, limit: int = 200):
+    _check_admin(request.headers.get("authorization"))
+    query = {}
+    if q:
+        query = {"$or": [
+            {"phone": {"$regex": q, "$options": "i"}},
+            {"name": {"$regex": q, "$options": "i"}},
+            {"email": {"$regex": q, "$options": "i"}},
+        ]}
+    customers = await db.customers.find(query, {"_id": 0}).sort("updated_at", -1).to_list(limit)
+    # Enrich with order count + total spend
+    for c in customers:
+        phone = c.get("phone")
+        orders = await db.orders.find({"customer.phone": phone}, {"_id": 0, "id": 1, "total": 1, "status": 1, "created_at": 1}).to_list(200)
+        c["order_count"] = len(orders)
+        c["total_spend"] = sum(float(o.get("total", 0)) for o in orders if o.get("status") == "delivered")
+    return customers
+
+@api.get("/admin/customers/{phone}")
+async def admin_customer_detail(phone: str, request: Request):
+    _check_admin(request.headers.get("authorization"))
+    c = await db.customers.find_one({"phone": phone}, {"_id": 0})
+    if not c: raise HTTPException(404, "Not found")
+    orders = await db.orders.find({"customer.phone": phone}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return {"customer": c, "orders": orders}
 
 

@@ -3,6 +3,40 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-10)
+
+### Cascade-Delete: Full Merchant Offboarding
+- When admin deletes a store (OTP-verified) the system now wipes: `stores`, `products`, `merchants`, `orders` (by merchant_id), `change_requests`, `admin_otps`
+- Same email/phone can register again → treated as a brand-new merchant with fresh KYC draft
+- Verified end-to-end via curl: deleted merchant `m-d05355751c` → re-registered same email/phone → new `m-d5a950309d` with `kyc_status: draft`
+
+### Admin Dashboard — 2 new tabs
+- **Live users** (`/api/admin/live-users`): shows sessions seen in the last 2 minutes, grouped by role (customer/merchant/guest) with role counts + per-session detail (path, last ping). Auto-refreshes every 15s.
+- **Customers** (`/api/admin/customers?q=`): searchable directory by phone/name/email. Click a customer row → modal with profile, address count, order count, **lifetime delivered spend**, and full order history.
+- Backend uses a new `live_sessions` collection populated by `POST /api/heartbeat` from a `useHeartbeat` hook on Consumer + Merchant pages (30s ping interval).
+
+### Merchant Analytics — Pre-revenue Mode
+- Revenue / orders / AOV / top products now count **only delivered** orders (was: all orders)
+- No more synthetic illustrative data for new merchants — they see real zeros with copy "No revenue yet — your first delivered order will show up here."
+- CSV export likewise only includes delivered orders
+
+### Customer Timeline Rename
+- "Handed to rider" → "**Order on the way**" in order timeline shown to customers
+- Backward-compatible: `/handed-to-rider` endpoint still flips the new label OR legacy label, whichever exists on the order doc
+
+### /account — Multi-address & UX Cleanup
+- Removed the dead "View account" button (was a no-op after phone entry)
+- Phone-entry → Continue flow (one-time, cached in localStorage)
+- New **Saved addresses** section with Add/Remove buttons
+- Address form includes **Label** (Home/Office/Other), Name, Address line, **Landmark (optional)**, City, Pincode, Phone
+- Backend: `POST/DELETE /api/customer/{phone}/addresses[/{aid}]` for CRUD; `_upsert_customer` also auto-saves the address from checkout (de-duped by line1+pincode)
+
+### Checkout — Pre-fill from saved addresses
+- Returning customers see their saved addresses listed at the top with radio-style selection
+- "Use a new address" button switches to a blank form
+- New address gets auto-saved to the customer profile on order placement (no extra click needed)
+- All addresses (saved + new) include a **Landmark** field
+
 ## Latest Iteration (Feb 2026 — Iter-9) — OTP-based Rider Handoff
 
 ### Order lifecycle (NEW)

@@ -2,11 +2,13 @@ import React from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { LayoutDashboard, Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark, Building2 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
+import useHeartbeat from "../../hooks/useHeartbeat";
 
 export default function MerchantLayout({ children }) {
   const { merchant, logout } = useAuth();
   const nav = useNavigate();
   const isApproved = merchant?.kyc_status === "approved";
+  useHeartbeat("merchant", { mid: merchant?.id });
 
   const links = isApproved ? [
     { to: "/merchant/orders", label: "Order requests", icon: Bell },

@@ -76,7 +76,7 @@ export function AdminDashboard() {
         </div>
 
         <div className="flex gap-2 mb-5 flex-wrap">
-          {[["approvals", "Approvals"], ["stores", "Stores"], ["live", "Live orders"], ["delivered", "Delivered"]].map(([k, l]) => (
+          {[["approvals", "Approvals"], ["stores", "Stores"], ["live", "Live orders"], ["delivered", "Delivered"], ["liveusers", "Live users"], ["customers", "Customers"]].map(([k, l]) => (
             <button key={k} data-testid={`admin-tab-${k}`} onClick={() => setTab(k)}
               className={`px-5 py-2 rounded-full text-sm font-semibold transition ${tab === k ? "bg-[#1A2B4C] text-white" : "bg-white border border-[#E5E2DC] text-[#595959]"}`}>{l}</button>
           ))}
@@ -86,6 +86,8 @@ export function AdminDashboard() {
         {tab === "stores" && <StoresTab />}
         {tab === "live" && <OrdersTab kind="live" />}
         {tab === "delivered" && <OrdersTab kind="delivered" />}
+        {tab === "liveusers" && <LiveUsersTab />}
+        {tab === "customers" && <CustomersTab />}
       </div>
     </div>
   );
@@ -452,6 +454,181 @@ function OrdersTab({ kind }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function LiveUsersTab() {
+  const [data, setData] = useState({ sessions: [], count: 0, by_role: {} });
+  const [busy, setBusy] = useState(true);
+  const load = async () => {
+    setBusy(true);
+    try {
+      const r = await apiFetch("/admin/live-users");
+      const j = await r.json();
+      setData(j || { sessions: [], count: 0, by_role: {} });
+    } catch { /* noop */ }
+    setBusy(false);
+  };
+  useEffect(() => { load(); const i = setInterval(load, 15_000); return () => clearInterval(i); }, []);
+
+  return (
+    <div data-testid="live-users">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="display text-xl font-bold text-[#1A2B4C]">Live users</h2>
+          <p className="text-xs text-[#595959]">{busy ? "Loading…" : `${data.count} active in the last 2 min · auto-refreshes every 15s`}</p>
+        </div>
+        <button onClick={load} className="text-xs font-semibold text-[#E68910] hover:underline">Refresh</button>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        {[["customer", "Customers", "bg-[#E68910]/10 text-[#E68910]"], ["merchant", "Merchants", "bg-[#1A2B4C]/10 text-[#1A2B4C]"], ["guest", "Guests", "bg-zinc-100 text-zinc-700"]].map(([k, l, c]) => (
+          <div key={k} className="bg-white border border-[#E5E2DC] rounded-2xl p-4">
+            <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${c}`}>{l}</div>
+            <div className="display text-3xl font-bold text-[#1A2B4C] mt-2">{data.by_role[k] || 0}</div>
+          </div>
+        ))}
+      </div>
+      {!busy && data.sessions.length === 0 && (
+        <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]">
+          No one is online right now.
+        </div>
+      )}
+      <div className="space-y-2">
+        {data.sessions.map((s) => (
+          <div key={s.sid} className="bg-white border border-[#E5E2DC] rounded-2xl p-3 flex items-center justify-between gap-3" data-testid={`live-${s.sid}`}>
+            <div>
+              <div className="text-sm font-semibold text-[#1A2B4C]">
+                {s.role === "merchant" ? `Merchant ${(s.mid || "—").slice(-8)}`
+                  : s.role === "customer" ? `Customer ${s.phone || "—"}`
+                  : "Guest"}
+              </div>
+              <div className="text-[11px] text-[#595959]">on {s.path || "/"} · last ping {new Date(s.last_seen).toLocaleTimeString()}</div>
+            </div>
+            <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-green-100 text-green-700">Online</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CustomersTab() {
+  const [list, setList] = useState([]);
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(true);
+  const [open, setOpen] = useState(null); // selected customer detail
+
+  const load = async (term = "") => {
+    setBusy(true);
+    try {
+      const r = await apiFetch(`/admin/customers${term ? `?q=${encodeURIComponent(term)}` : ""}`);
+      const data = await r.json();
+      setList(Array.isArray(data) ? data : []);
+    } catch { setList([]); }
+    setBusy(false);
+  };
+  useEffect(() => { load(""); }, []);
+
+  const openDetail = async (phone) => {
+    try {
+      const r = await apiFetch(`/admin/customers/${phone}`);
+      const data = await r.json();
+      setOpen(data);
+    } catch { toast.error("Failed to load"); }
+  };
+
+  return (
+    <div data-testid="customers">
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <div>
+          <h2 className="display text-xl font-bold text-[#1A2B4C]">Customers directory</h2>
+          <p className="text-xs text-[#595959]">{busy ? "Loading…" : `${list.length} customers`}</p>
+        </div>
+        <div className="flex items-center gap-2 flex-1 md:max-w-sm">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && load(q)}
+            placeholder="Search by phone, name, email…"
+            data-testid="customer-search"
+            className="flex-1 px-4 py-2 rounded-full bg-white border border-[#E5E2DC] outline-none text-sm focus:border-[#1A2B4C]"
+          />
+          <button onClick={() => load(q)} className="px-4 py-2 rounded-full bg-[#1A2B4C] text-white text-xs font-semibold">Search</button>
+        </div>
+      </div>
+
+      {!busy && list.length === 0 && (
+        <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]">
+          No customers yet — they'll appear here after they place their first order.
+        </div>
+      )}
+
+      <div className="grid gap-2">
+        {list.map((c) => (
+          <button
+            key={c.phone}
+            onClick={() => openDetail(c.phone)}
+            data-testid={`customer-${c.phone}`}
+            className="text-left bg-white border border-[#E5E2DC] hover:border-[#1A2B4C] rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3"
+          >
+            <div>
+              <div className="font-semibold text-[#1A2B4C]">{c.name || "Unnamed"} · {c.phone}</div>
+              <div className="text-[11px] text-[#595959]">{c.email || "no email"} · {(c.addresses || []).length} address(es)</div>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-widest text-[#595959]">Orders / spend</div>
+              <div className="font-bold text-[#1A2B4C]">{c.order_count || 0} · ₹{Number(c.total_spend || 0).toLocaleString()}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {open && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-4" onClick={() => setOpen(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="display text-2xl font-bold text-[#1A2B4C]">{open.customer.name || "Customer"}</h3>
+                <div className="text-sm text-[#595959]">{open.customer.phone} · {open.customer.email || "no email"}</div>
+              </div>
+              <button onClick={() => setOpen(null)} className="w-9 h-9 rounded-full border border-[#E5E2DC] flex items-center justify-center"><XCircle size={16} /></button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              <div className="bg-[#FDFBF7] rounded-xl p-3">
+                <div className="text-[10px] uppercase text-[#595959]">Orders</div>
+                <div className="display text-xl font-bold text-[#1A2B4C]">{open.orders.length}</div>
+              </div>
+              <div className="bg-[#FDFBF7] rounded-xl p-3">
+                <div className="text-[10px] uppercase text-[#595959]">Delivered spend</div>
+                <div className="display text-xl font-bold text-[#1A2B4C]">₹{open.orders.filter((o) => o.status === "delivered").reduce((s, o) => s + Number(o.total || 0), 0).toLocaleString()}</div>
+              </div>
+              <div className="bg-[#FDFBF7] rounded-xl p-3">
+                <div className="text-[10px] uppercase text-[#595959]">Addresses</div>
+                <div className="display text-xl font-bold text-[#1A2B4C]">{(open.customer.addresses || []).length}</div>
+              </div>
+            </div>
+
+            <h4 className="text-xs uppercase tracking-widest text-[#595959] mb-2">Order history</h4>
+            {open.orders.length === 0 ? (
+              <p className="text-sm text-[#595959]">No orders yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {open.orders.map((o) => (
+                  <div key={o.id} className="bg-[#FDFBF7] rounded-xl p-3 flex items-center justify-between flex-wrap gap-2 text-sm">
+                    <div>
+                      <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{Number(o.total).toLocaleString()}</div>
+                      <div className="text-[11px] text-[#595959]">{(o.items || []).length} item(s) · {(o.created_at || "").slice(0, 10)} · {o.payment_method}</div>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-white border border-[#E5E2DC] text-[#595959]">{o.status}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

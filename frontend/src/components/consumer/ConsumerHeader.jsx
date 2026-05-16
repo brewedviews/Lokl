@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { MapPin, Search, ShoppingBag, Store, User, AlertCircle, RefreshCw } from "lucide-react";
 import { useCart } from "../../contexts/CartContext";
 import api from "../../lib/api";
+import useHeartbeat from "../../hooks/useHeartbeat";
 
 export default function ConsumerHeader() {
   const [city] = useState("Bhilai"); // pilot is Bhilai-only
@@ -10,6 +11,8 @@ export default function ConsumerHeader() {
   const [q, setQ] = useState("");
   const { count } = useCart();
   const nav = useNavigate();
+  const customerPhone = localStorage.getItem("bf_customer_phone") || null;
+  useHeartbeat(customerPhone ? "customer" : "guest", { phone: customerPhone });
 
   useEffect(() => {
     localStorage.setItem("bf_city", "Bhilai");
