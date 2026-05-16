@@ -110,6 +110,25 @@ def notify_order_rejected(customer_phone: str, order_id: str) -> None:
     send_whatsapp(customer_phone, body)
 
 
+def notify_rider_pickup(rider_phone: str, *, order_id: str, otp: str, customer_name: str,
+                        customer_phone: str, pickup: str, drop: str, items: list[dict]) -> None:
+    """Notify the registered rider when a merchant accepts an order."""
+    item_lines = "\n".join(
+        f"  • {it.get('qty', 1)}× {it.get('name', 'Item')}" for it in (items or [])
+    ) or "  (see app)"
+    body = (
+        f"🛵 New pickup on Lokl\n"
+        f"Order: *{order_id}*\n"
+        f"OTP: *{otp}*\n\n"
+        f"Pickup: {pickup}\n"
+        f"Drop:   {drop}\n\n"
+        f"Customer: {customer_name} · {customer_phone}\n\n"
+        f"Items:\n{item_lines}\n\n"
+        f"Reply *{otp} - Delivered* once the customer hands the OTP back to you."
+    )
+    send_whatsapp(rider_phone, body)
+
+
 def notify_order_on_the_way(customer_phone: str, order_id: str, otp: str) -> None:
     body = (
         f"🛵 Lokl: Order *{order_id}* is on the way!\n"

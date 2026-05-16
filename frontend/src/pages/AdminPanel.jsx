@@ -308,7 +308,45 @@ function StoresTab() {
               <button onClick={() => requestDeleteOtp(s)} data-testid={`delete-store-${s.id}`} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full border border-red-300 text-red-500 text-xs font-semibold hover:bg-red-50"><Trash2 size={11} /> Delete</button>
             </div>
             {expanded === s.id && (
-              <div className="border-t border-[#E5E2DC] p-4">
+              <div className="border-t border-[#E5E2DC] p-4 space-y-5">
+                {/* Merchant / KYC / Bank details */}
+                {s.merchant && (
+                  <div className="grid md:grid-cols-3 gap-3 text-xs">
+                    <div className="bg-[#FDFBF7] rounded-xl p-3">
+                      <div className="text-[10px] uppercase tracking-widest text-[#595959] mb-1">Merchant</div>
+                      <div className="font-semibold text-[#1A2B4C]">{s.merchant.store_name}</div>
+                      <div>{s.merchant.owner_name}</div>
+                      <div className="text-[#595959]">{s.merchant.email}</div>
+                      <div className="text-[#595959]">{s.merchant.phone}</div>
+                      <div className="text-[#595959] mt-1">{s.merchant.business_address}</div>
+                    </div>
+                    <div className="bg-[#FDFBF7] rounded-xl p-3">
+                      <div className="text-[10px] uppercase tracking-widest text-[#595959] mb-1">KYC</div>
+                      <div><span className="text-[#595959]">PAN:</span> <span className="font-mono">{s.merchant.pan_number || "—"}</span></div>
+                      <div><span className="text-[#595959]">GST:</span> <span className="font-mono">{s.merchant.gst_number || "—"}</span></div>
+                      <div><span className="text-[#595959]">Type:</span> {s.merchant.business_type || "—"}</div>
+                      <div><span className="text-[#595959]">Category:</span> {s.merchant.business_category || "—"}</div>
+                      <div className="mt-1"><span className="text-[#595959]">Status:</span> <span className="font-semibold">{s.merchant.kyc_status}</span></div>
+                    </div>
+                    <div className="bg-[#FDFBF7] rounded-xl p-3">
+                      <div className="text-[10px] uppercase tracking-widest text-[#595959] mb-1">Bank</div>
+                      <div><span className="text-[#595959]">A/c:</span> <span className="font-mono">{s.merchant.bank_account_number || "—"}</span></div>
+                      <div><span className="text-[#595959]">IFSC:</span> <span className="font-mono">{s.merchant.bank_ifsc || "—"}</span></div>
+                      <div><span className="text-[#595959]">Holder:</span> {s.merchant.account_holder_name || "—"}</div>
+                    </div>
+                  </div>
+                )}
+                {/* Uploaded KYC docs */}
+                {s.merchant?.kyc_docs && Object.keys(s.merchant.kyc_docs).length > 0 && (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest text-[#595959] mb-2">Uploaded documents</div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      {Object.entries(s.merchant.kyc_docs).map(([k, v]) => <DocPreview key={k} label={k} data={v} />)}
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest text-[#595959] mb-2">Products ({(s.products || []).length})</div>
                 {(s.products || []).length === 0 ? <div className="text-sm text-[#595959]">No products yet</div> :
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {s.products.map((p) => (
@@ -325,6 +363,7 @@ function StoresTab() {
                       </div>
                     ))}
                   </div>}
+                </div>
               </div>
             )}
           </div>

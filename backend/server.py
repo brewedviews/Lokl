@@ -1,5 +1,5 @@
 """Lokl — FastAPI backend (full feature set)."""
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Request, Response
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -16,7 +16,7 @@ from seed_data import build_seed_docs, L1_CATEGORIES, L2_BY_L1, GENDERS
 from notifications import (
     notify_order_placed, notify_merchant_new_order,
     notify_order_accepted, notify_order_rejected, notify_order_delivered,
-    notify_order_on_the_way, notify_order_cancelled,
+    notify_order_on_the_way, notify_order_cancelled, notify_rider_pickup,
 )
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -323,6 +323,21 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0, "store_name": 1})
     if cust_phone:
         try: notify_order_accepted(cust_phone, oid, (m or {}).get("store_name", "your store"))
+        except Exception: pass
+    # Notify the registered rider via WhatsApp with order details + OTP
+    rider_phone = os.environ.get("RIDER_PHONE", "").strip()
+    if rider_phone:
+        try:
+            addr = o.get("address") or {}
+            pickup = (m or {}).get("store_name", "Store") + " · " + (m or {}).get("business_address", "Bhilai")
+            drop_parts = [addr.get("line1", ""), addr.get("landmark", ""), addr.get("city", "Bhilai"), addr.get("pincode", "")]
+            drop = ", ".join([p for p in drop_parts if p])
+            notify_rider_pickup(
+                rider_phone, order_id=oid, otp=o.get("otp", ""),
+                customer_name=(o.get("customer") or {}).get("name") or addr.get("name", "Customer"),
+                customer_phone=cust_phone or addr.get("phone", ""),
+                pickup=pickup, drop=drop, items=o.get("items", []),
+            )
         except Exception: pass
     return {"ok": True, "otp": o.get("otp")}
 
@@ -758,7 +773,36 @@ async def admin_reject(mid: str, request: Request, body: dict = None):
             "body": reason, "time": now}}})
     return {"ok": True}
 
-@api.get("/admin/change-requests")
+@api.post("/admin/merchants/{mid}/hold")
+async def admin_hold(mid: str, request: Request, body: dict = None):
+    """Admin puts a KYC submission on hold with a remediation comment. The merchant
+    sees the comment in their dashboard and can fix the issue and resubmit."""
+    _check_admin(request.headers.get("authorization"))
+    comment = (body or {}).get("comment", "").strip()
+    if not comment:
+        raise HTTPException(400, "Comment required so the merchant knows what to fix")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.merchants.update_one({"id": mid}, {"$set": {
+        "kyc_status": "on_hold", "hold_comment": comment, "hold_at": now,
+    }, "$push": {"notifications": {"type": "kyc-on-hold", "title": "KYC on hold — action needed",
+            "body": comment, "time": now}}})
+    return {"ok": True}
+
+@api.post("/merchant/kyc/resubmit")
+async def merchant_kyc_resubmit(user: dict = Depends(get_current_user)):
+    """Merchant clicks 'I have fixed the issue' — flips kyc_status back to `submitted` for re-review."""
+    m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
+    if not m: raise HTTPException(404, "Not found")
+    if m.get("kyc_status") != "on_hold":
+        raise HTTPException(400, "Only on-hold submissions can be resubmitted")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.merchants.update_one({"id": user["sub"]}, {
+        "$set": {"kyc_status": "submitted", "kyc_submitted_at": now,
+                 "hold_comment": None, "hold_at": None},
+    })
+    return {"ok": True}
+
+
 async def admin_change_requests(request: Request, status: Optional[str] = None,
                                 period: Optional[str] = None):
     _check_admin(request.headers.get("authorization"))
@@ -838,6 +882,29 @@ async def admin_stores(request: Request):
     stores = await db.stores.find({}, {"_id": 0}).to_list(500)
     for s in stores:
         s["products"] = await db.products.find({"store_id": s["id"]}, {"_id": 0}).to_list(500)
+        # Enrich with merchant KYC + bank details (PII for admin only)
+        m = await db.merchants.find_one({"id": s.get("merchant_id")}, {"_id": 0, "password_hash": 0}) if s.get("merchant_id") else None
+        if m:
+            s["merchant"] = {
+                "id": m.get("id"),
+                "email": m.get("email"),
+                "phone": m.get("phone"),
+                "owner_name": m.get("owner_name"),
+                "store_name": m.get("store_name"),
+                "city": m.get("city"),
+                "business_address": m.get("business_address"),
+                "business_category": m.get("business_category"),
+                "business_type": m.get("business_type"),
+                "pan_number": m.get("pan_number"),
+                "gst_number": m.get("gst_number"),
+                "kyc_status": m.get("kyc_status"),
+                "kyc_submitted_at": m.get("kyc_submitted_at"),
+                "approved_at": m.get("approved_at"),
+                "bank_account_number": m.get("bank_account_number"),
+                "bank_ifsc": m.get("bank_ifsc"),
+                "account_holder_name": m.get("account_holder_name"),
+                "kyc_docs": m.get("kyc_docs", {}),
+            }
     return stores
 
 @api.get("/admin/orders")
@@ -950,7 +1017,60 @@ async def admin_delete_store(sid: str, request: Request, body: OtpVerifyDelete):
     return {"ok": True}
 
 
-# ===== Customer profile (lightweight, phone-based) =====
+@api.post("/twilio/inbound")
+async def twilio_inbound(request: Request):
+    """Twilio WhatsApp inbound webhook.
+
+    Twilio POSTs `application/x-www-form-urlencoded` with `From`, `Body` etc.
+    If a registered rider replies with `<OTP> - Delivered` (case-insensitive),
+    we find the matching live order and mark it delivered.
+
+    Configure this URL in Twilio Console → Messaging → Try it out → WhatsApp
+    Sandbox Settings → "When a message comes in" → POST to:
+        {REACT_APP_BACKEND_URL}/api/twilio/inbound
+    """
+    form = await request.form()
+    body = (form.get("Body") or "").strip()
+    from_addr = (form.get("From") or "").strip()  # e.g. whatsapp:+919XXXXXXXXX
+    log.info("[Twilio inbound] from=%s body=%r", from_addr, body[:80])
+
+    # Parse `<4-digit OTP> - Delivered` (also accepts ":" / variants)
+    import re as _re
+    m = _re.search(r"\b(\d{4})\b[\s\-:]*delivered\b", body, _re.IGNORECASE)
+    twiml_empty = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+    if not m:
+        return Response(content=twiml_empty, media_type="application/xml")
+
+    otp = m.group(1)
+    # Restrict to RIDER_PHONE if configured (so random WhatsApp messages can't trigger)
+    rider_env = (os.environ.get("RIDER_PHONE") or "").replace("+", "").replace(" ", "")
+    if rider_env:
+        sender = from_addr.replace("whatsapp:", "").replace("+", "").replace(" ", "")
+        if not sender.endswith(rider_env[-10:]):
+            log.warning("[Twilio inbound] OTP from non-rider %s", from_addr)
+            return Response(content=twiml_empty, media_type="application/xml")
+
+    o = await db.orders.find_one({"otp": otp, "status": {"$in": ["accepted", "on_the_way"]}}, {"_id": 0})
+    if not o:
+        log.warning("[Twilio inbound] no matching live order for OTP %s", otp)
+        return Response(content=twiml_empty, media_type="application/xml")
+
+    now = datetime.now(timezone.utc).isoformat()
+    tl = o.get("timeline", [])
+    for t in tl:
+        if t["label"] == "Delivered" and not t["time"]:
+            t["time"] = now; break
+    await db.orders.update_one({"id": o["id"]}, {"$set": {"status": "delivered", "timeline": tl, "delivered_via": "rider-whatsapp"}})
+    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    if cust_phone:
+        try: notify_order_delivered(cust_phone, o["id"])
+        except Exception: pass
+    log.info("[Twilio inbound] marked %s as delivered via rider WhatsApp", o["id"])
+    reply = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>✅ Lokl: Order {o["id"]} marked delivered. Thank you!</Message></Response>'
+    return Response(content=reply, media_type="application/xml")
+
+
+
 async def _upsert_customer(customer: dict, address: dict | None = None):
     phone = customer.get("phone")
     if not phone: return
