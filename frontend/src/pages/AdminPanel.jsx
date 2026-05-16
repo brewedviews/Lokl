@@ -10,7 +10,7 @@ const apiFetch = (path, opts = {}) =>
 
 export default function AdminLogin() {
   const nav = useNavigate();
-  const [form, setForm] = useState({ email: "admin@bharat-os.com", password: "" });
+  const [form, setForm] = useState({ email: "admin@lokl.in", password: "" });
   const [busy, setBusy] = useState(false);
   const submit = async (e) => {
     e.preventDefault(); setBusy(true);
@@ -27,7 +27,7 @@ export default function AdminLogin() {
       <form onSubmit={submit} className="relative bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl">
         <div className="flex items-center gap-2 mb-6">
           <div className="w-10 h-10 rounded-full bg-[#1A2B4C] flex items-center justify-center"><Shield size={18} className="text-[#E68910]" /></div>
-          <div><div className="display text-xl font-bold text-[#1A2B4C]">Admin Console</div><div className="text-xs text-[#595959]">Bharat Fashion OS · Operations</div></div>
+          <div><div className="display text-xl font-bold text-[#1A2B4C]">Admin Console</div><div className="text-xs text-[#595959]">Lokl · Operations</div></div>
         </div>
         <input data-testid="admin-email" required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] mb-3" />
         <input data-testid="admin-password" required type="password" placeholder="Admin password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] mb-4" />
@@ -54,7 +54,7 @@ export function AdminDashboard() {
         <div className="max-w-7xl mx-auto px-6 md:px-10 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Shield size={20} className="text-[#E68910]" />
-            <div><div className="display font-bold">Bharat OS · Admin Console</div><div className="text-[10px] text-white/60">Operations dashboard</div></div>
+            <div><div className="display font-bold">Lokl · Admin Console</div><div className="text-[10px] text-white/60">Operations dashboard</div></div>
           </div>
           <button onClick={() => { localStorage.removeItem("bf_admin_token"); nav("/admin/login"); }} data-testid="admin-logout" className="text-sm flex items-center gap-1 hover:text-[#E68910]"><LogOut size={14} /> Sign out</button>
         </div>
@@ -335,7 +335,7 @@ function OtpModal({ store, hint, onClose, onSubmit }) {
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl w-full max-w-md p-6">
         <div className="flex items-center gap-2 mb-3"><AlertTriangle size={22} className="text-red-500" /><h2 className="display text-xl font-bold text-[#1A2B4C]">Delete {store.name}?</h2></div>
-        <p className="text-sm text-[#595959] mb-4">This permanently removes the store and all its products. Enter the 6-digit OTP sent to <strong>admin@bharat-os.com</strong>.</p>
+        <p className="text-sm text-[#595959] mb-4">This permanently removes the store and all its products. Enter the 6-digit OTP sent to <strong>admin@lokl.in</strong>.</p>
         {hint && <div className="text-xs bg-[#E68910]/10 text-[#E68910] rounded-xl p-2 mb-3"><strong>Demo OTP (mocked email):</strong> {hint}</div>}
         <input data-testid="delete-otp-input" value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="6-digit OTP" maxLength={6} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none tracking-widest text-center text-lg" />
         <div className="flex gap-2 mt-4">

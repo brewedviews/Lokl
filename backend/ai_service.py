@@ -19,7 +19,7 @@ def _key():
 async def generate_product_copy(product_name: str, category: str = "", raw_notes: str = "") -> dict:
     system = (
         "You are an elite fashion copywriter for an Indian Gen-Z hyperlocal commerce platform. "
-        "You craft premium, aspirational, Bharat-first product copy. Return ONLY valid JSON."
+        "You craft premium, aspirational, Lokl-first product copy. Return ONLY valid JSON."
     )
     user_prompt = f"""Generate fashion catalog copy for this product.
 

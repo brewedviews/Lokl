@@ -1,7 +1,21 @@
-# Bharat Fashion OS — PRD
+# Lokl — PRD
 
 ## Vision
-Premium AI-powered hyperlocal fashion commerce OS for Bharat. **Pilot locked to Bhilai (Chhattisgarh)**.
+Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
+
+## Latest Iteration (Feb 2026 — Iter-7) — REBRAND TO LOKL
+- Frontend logo wordmark `bharat.` → `lokl.` (Consumer header, Footer, Merchant layout, MerchantAuth left panel + form)
+- Page `<title>` → "Lokl · Fashion delivered in minutes"
+- Home: "Sell on Bharat." → "Sell on Lokl."
+- Merchant Onboarding welcome → "Welcome to Lokl"
+- Order push notification copy → "New order on Lokl"
+- Backend API root response `{app: "Lokl", status: "ok"}`, FastAPI title, logger name (`lokl`, `lokl.notify`)
+- WhatsApp templates updated to use "Lokl" instead of "Bharat"; tracking URL → `lokl.in/orders/{id}`
+- AI copy system prompt: "Lokl-first product copy"
+- Admin email migrated `admin@bharat-os.com` → `admin@lokl.in` (server.py constants + UI default)
+- CSV export filenames → `lokl-sales-{period}.csv`, `lokl-products-sample.csv`
+- Demo merchant notification body → "Welcome to Lokl!"
+- **Kept intentionally**: "Hyperlocal fashion for Bharat" + "Trusted by 2,400+ stores across Bharat" (Bharat = country, not brand)
 
 ## Stack
 React + FastAPI + MongoDB. Emergent LLM key → Claude Sonnet 4.5 (copy) + Gemini Nano Banana (images & try-on with strict-preservation prompt). **AI try-on UI currently hidden** pending prompt overhaul.

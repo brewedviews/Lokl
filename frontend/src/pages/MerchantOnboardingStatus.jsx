@@ -34,7 +34,7 @@ export default function MerchantOnboardingStatus() {
   return (
     <MerchantLayout>
       <div className="p-6 md:p-10 max-w-4xl">
-        <h1 className="display text-3xl md:text-4xl font-bold text-[#1A2B4C]">Welcome to Bharat Fashion OS</h1>
+        <h1 className="display text-3xl md:text-4xl font-bold text-[#1A2B4C]">Welcome to Lokl</h1>
         <p className="text-[#595959] mt-1">A few quick steps and your store goes live.</p>
 
         <div data-testid="kyc-status-card" className={`mt-6 rounded-3xl p-6 border-2 ${

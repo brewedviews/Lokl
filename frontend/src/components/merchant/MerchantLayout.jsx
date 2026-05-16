@@ -26,7 +26,7 @@ export default function MerchantLayout({ children }) {
           <div className="w-9 h-9 rounded-full bg-[#1A2B4C] flex items-center justify-center">
             <Sparkles size={16} className="text-[#E68910]" />
           </div>
-          <span className="display text-xl font-bold text-[#1A2B4C]">bharat<span className="text-[#E68910]">.</span></span>
+          <span className="display text-xl font-bold text-[#1A2B4C]">lokl<span className="text-[#E68910]">.</span></span>
         </Link>
         <nav className="flex-1 p-3 space-y-1">
           {links.map((l) => (

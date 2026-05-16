@@ -12,7 +12,7 @@ import os
 import re
 from typing import Optional
 
-log = logging.getLogger("bharat.notify")
+log = logging.getLogger("lokl.notify")
 
 _twilio_client = None  # lazy-init
 
@@ -77,17 +77,17 @@ def send_whatsapp(phone: str, body: str) -> bool:
 
 def notify_order_placed(customer_phone: str, order_id: str, total: float, eta_min: int = 45) -> None:
     body = (
-        f"🎉 Bharat: Order *{order_id}* confirmed!\n"
+        f"🎉 Lokl: Order *{order_id}* confirmed!\n"
         f"Amount: ₹{total:,.0f}\n"
         f"Your boutique is preparing it. ETA ~{eta_min} mins.\n"
-        f"Track: bharat-fashion-os.preview.emergentagent.com/orders/{order_id}"
+        f"Track: lokl.in/orders/{order_id}"
     )
     send_whatsapp(customer_phone, body)
 
 
 def notify_merchant_new_order(merchant_phone: str, order_id: str, total: float, items_count: int) -> None:
     body = (
-        f"🔔 NEW ORDER on Bharat — *{order_id}*\n"
+        f"🔔 NEW ORDER on Lokl — *{order_id}*\n"
         f"{items_count} item(s) · ₹{total:,.0f}\n"
         f"Open your dashboard to accept fast!"
     )
@@ -96,7 +96,7 @@ def notify_merchant_new_order(merchant_phone: str, order_id: str, total: float, 
 
 def notify_order_accepted(customer_phone: str, order_id: str, store_name: str) -> None:
     body = (
-        f"✅ Bharat: Your order *{order_id}* was accepted by {store_name}.\n"
+        f"✅ Lokl: Your order *{order_id}* was accepted by {store_name}.\n"
         f"Rider will pick up shortly."
     )
     send_whatsapp(customer_phone, body)
@@ -104,7 +104,7 @@ def notify_order_accepted(customer_phone: str, order_id: str, store_name: str) -
 
 def notify_order_rejected(customer_phone: str, order_id: str) -> None:
     body = (
-        f"😔 Bharat: Order *{order_id}* could not be fulfilled this time.\n"
+        f"😔 Lokl: Order *{order_id}* could not be fulfilled this time.\n"
         f"If paid online, refund is auto-initiated (3-5 working days)."
     )
     send_whatsapp(customer_phone, body)
@@ -112,7 +112,7 @@ def notify_order_rejected(customer_phone: str, order_id: str) -> None:
 
 def notify_order_delivered(customer_phone: str, order_id: str) -> None:
     body = (
-        f"📦 Bharat: Order *{order_id}* has been delivered.\n"
+        f"📦 Lokl: Order *{order_id}* has been delivered.\n"
         f"Loved it? Rate your boutique in 1 tap."
     )
     send_whatsapp(customer_phone, body)

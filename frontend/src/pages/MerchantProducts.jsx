@@ -88,7 +88,7 @@ export default function MerchantProducts() {
 
   const downloadSample = () => {
     const blob = new Blob([SAMPLE_CSV], { type: "text/csv" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "bharat-products-sample.csv"; a.click();
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "lokl-products-sample.csv"; a.click();
   };
 
   const goLive = async () => {

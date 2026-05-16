@@ -49,7 +49,7 @@ export default function ConsumerHeader() {
             <div className="w-9 h-9 rounded-full bg-[#1A2B4C] flex items-center justify-center">
               <Sparkles size={18} className="text-[#E68910]" />
             </div>
-            <span className="display text-xl md:text-2xl font-bold tracking-tight text-[#1A2B4C] hidden sm:inline">bharat<span className="text-[#E68910]">.</span></span>
+            <span className="display text-xl md:text-2xl font-bold tracking-tight text-[#1A2B4C] hidden sm:inline">lokl<span className="text-[#E68910]">.</span></span>
           </Link>
 
           <div data-testid="city-display" className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white border border-[#E5E2DC] text-sm">
@@ -92,7 +92,7 @@ export default function ConsumerHeader() {
           <div className="max-w-7xl mx-auto px-4 md:px-8 py-2 flex items-center gap-2 flex-wrap">
             <AlertCircle size={14} className="text-[#E68910] shrink-0" />
             <span>
-              Bharat currently serves <strong>Bhilai</strong>. We'll let you know when we're in <strong>{detectedAway}</strong>.
+              Lokl currently serves <strong>Bhilai</strong>. We'll let you know when we're in <strong>{detectedAway}</strong>.
             </span>
             <button onClick={() => setDetectedAway(null)} className="ml-auto text-[10px] uppercase tracking-widest hover:text-[#E68910]">Dismiss</button>
           </div>

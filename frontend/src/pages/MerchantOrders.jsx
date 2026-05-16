@@ -55,7 +55,7 @@ export default function MerchantOrders() {
           playLoudPing(audioCtxRef);
           news.forEach((o) => {
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              try { new Notification("New order on Bharat", { body: `${o.id} · ₹${o.total}` }); } catch { /* noop */ }
+              try { new Notification("New order on Lokl", { body: `${o.id} · ₹${o.total}` }); } catch { /* noop */ }
             }
             toast.success(`New order ${o.id}!`, { duration: 6000 });
           });

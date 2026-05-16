@@ -23,7 +23,7 @@ export default function MerchantAnalytics() {
     }).then((r) => r.blob()).then((blob) => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url; a.download = `bharat-sales-${period}.csv`; a.click();
+      a.href = url; a.download = `lokl-sales-${period}.csv`; a.click();
     });
   };
 

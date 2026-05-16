@@ -1,4 +1,4 @@
-"""Bharat Fashion OS — FastAPI backend (full feature set)."""
+"""Lokl — FastAPI backend (full feature set)."""
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Request
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
@@ -23,13 +23,13 @@ load_dotenv(Path(__file__).parent / ".env")
 client = AsyncIOMotorClient(os.environ["MONGO_URL"])
 db = client[os.environ["DB_NAME"]]
 
-ADMIN_EMAIL = "admin@bharat-os.com"
+ADMIN_EMAIL = "admin@lokl.in"
 ADMIN_PASSWORD = "Admin@2026"
 
-app = FastAPI(title="Bharat Fashion OS")
+app = FastAPI(title="Lokl")
 api = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("bharat")
+log = logging.getLogger("lokl")
 
 
 # ===== Models =====
@@ -345,7 +345,7 @@ async def merchant_publish(user: dict = Depends(get_current_user)):
                   "live_at": datetime.now(timezone.utc).isoformat()}})
     await db.merchants.update_one({"id": user["sub"]}, {"$push": {"notifications": {
         "type": "go-live", "title": "Your store is going live",
-        "body": "Your storefront will be live across Bharat Fashion OS within 1 hour.",
+        "body": "Your storefront will be live across Lokl within 1 hour.",
         "time": datetime.now(timezone.utc).isoformat()}}})
     return {"ok": True, "go_live_eta_minutes": 60}
 
@@ -541,7 +541,7 @@ async def merchant_report_csv(period: str = "30d", user: dict = Depends(get_curr
     w = csv.DictWriter(buf, fieldnames=["date", "order_id", "product", "qty", "amount", "payment"])
     w.writeheader(); w.writerows(rows); buf.seek(0)
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="bharat-sales-{period}.csv"'})
+        headers={"Content-Disposition": f'attachment; filename="lokl-sales-{period}.csv"'})
 
 
 # ===== Admin =====
@@ -824,7 +824,7 @@ async def geo_detect(lat: Optional[float] = None, lng: Optional[float] = None, r
 
 # ===== Root =====
 @api.get("/")
-async def root(): return {"app": "Bharat Fashion OS", "status": "ok"}
+async def root(): return {"app": "Lokl", "status": "ok"}
 
 app.include_router(api)
 app.add_middleware(CORSMiddleware, allow_credentials=True,
@@ -855,7 +855,7 @@ async def startup_seed():
             "account_holder_name": "Demo Owner"},
             "$push": {"notifications": {"type": "kyc-approved",
                 "title": "Your KYC is approved",
-                "body": "Welcome to Bharat Fashion OS!", "time": now}}})
+                "body": "Welcome to Lokl!", "time": now}}})
         log.info("Demo merchant auto-approved")
 
 @app.on_event("shutdown")
