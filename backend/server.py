@@ -13,6 +13,10 @@ from datetime import datetime, timezone, timedelta
 from auth import hash_password, verify_password, create_token, get_current_user, decode_token
 from ai_service import generate_product_copy, enhance_product_image, ai_model_tryon
 from seed_data import build_seed_docs, L1_CATEGORIES, L2_BY_L1, GENDERS
+from notifications import (
+    notify_order_placed, notify_merchant_new_order,
+    notify_order_accepted, notify_order_rejected, notify_order_delivered,
+)
 
 load_dotenv(Path(__file__).parent / ".env")
 
@@ -193,6 +197,16 @@ async def create_order(payload: OrderCreate):
     # Upsert customer profile silently
     if payload.customer and payload.customer.get("phone"):
         await _upsert_customer(payload.customer, payload.address)
+    # Fire-and-forget WhatsApp notifications
+    cust_phone = (payload.customer or {}).get("phone") or (payload.address or {}).get("phone")
+    if cust_phone:
+        try: notify_order_placed(cust_phone, order_id, float(payload.total))
+        except Exception: pass
+    for mid in set(merchant_ids):
+        m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1})
+        if m and m.get("phone"):
+            try: notify_merchant_new_order(m["phone"], order_id, float(payload.total), len(payload.items))
+            except Exception: pass
     doc.pop("_id", None)
     return doc
 
@@ -216,12 +230,41 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
         if t["label"] == "Merchant accepted" and not t["time"]:
             t["time"] = now; break
     await db.orders.update_one({"id": oid}, {"$set": {"status": "accepted", "timeline": tl}})
+    # WhatsApp customer
+    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0, "store_name": 1})
+    if cust_phone:
+        try: notify_order_accepted(cust_phone, oid, (m or {}).get("store_name", "your store"))
+        except Exception: pass
     return {"ok": True}
 
 @api.post("/merchant/orders/{oid}/reject")
 async def merchant_reject_order(oid: str, user: dict = Depends(get_current_user)):
+    o = await db.orders.find_one({"id": oid, "merchant_ids": user["sub"]}, {"_id": 0})
     await db.orders.update_one({"id": oid, "merchant_ids": user["sub"]},
                                {"$set": {"status": "rejected"}})
+    if o:
+        cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+        if cust_phone:
+            try: notify_order_rejected(cust_phone, oid)
+            except Exception: pass
+    return {"ok": True}
+
+
+@api.post("/merchant/orders/{oid}/delivered")
+async def merchant_mark_delivered(oid: str, user: dict = Depends(get_current_user)):
+    o = await db.orders.find_one({"id": oid, "merchant_ids": user["sub"]}, {"_id": 0})
+    if not o: raise HTTPException(404, "Order not found")
+    now = datetime.now(timezone.utc).isoformat()
+    tl = o.get("timeline", [])
+    for t in tl:
+        if t["label"] == "Delivered" and not t["time"]:
+            t["time"] = now; break
+    await db.orders.update_one({"id": oid}, {"$set": {"status": "delivered", "timeline": tl}})
+    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    if cust_phone:
+        try: notify_order_delivered(cust_phone, oid)
+        except Exception: pass
     return {"ok": True}
 
 

@@ -1,0 +1,118 @@
+"""External notification helpers (WhatsApp via Twilio).
+
+All functions are no-ops when the relevant env vars are missing or when the
+recipient phone is invalid — they log a warning and return False rather than
+raising, so they can be safely called from any route handler without
+breaking the primary flow if the 3rd-party is down.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import re
+from typing import Optional
+
+log = logging.getLogger("bharat.notify")
+
+_twilio_client = None  # lazy-init
+
+
+def _get_twilio():
+    global _twilio_client
+    if _twilio_client is not None:
+        return _twilio_client
+    sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    tok = os.environ.get("TWILIO_AUTH_TOKEN")
+    if not sid or not tok:
+        return None
+    try:
+        from twilio.rest import Client
+        _twilio_client = Client(sid, tok)
+        return _twilio_client
+    except Exception as e:  # pragma: no cover
+        log.warning("Twilio init failed: %s", e)
+        return None
+
+
+def _to_whatsapp_addr(phone: str) -> Optional[str]:
+    """Normalize a phone string to `whatsapp:+91XXXXXXXXXX`. Returns None if invalid."""
+    if not phone:
+        return None
+    digits = re.sub(r"\D", "", phone)
+    if len(digits) == 10:
+        digits = f"91{digits}"
+    elif digits.startswith("0") and len(digits) == 11:
+        digits = f"91{digits[1:]}"
+    if not digits.startswith("91") or len(digits) != 12:
+        return None
+    return f"whatsapp:+{digits}"
+
+
+def send_whatsapp(phone: str, body: str) -> bool:
+    """Send a WhatsApp message via Twilio. Returns True on success.
+
+    Twilio sandbox requires the recipient to first send `join <code>` to the
+    sandbox number — for un-joined numbers Twilio returns a 4xx error which we
+    log and swallow so the order flow is unaffected.
+    """
+    cli = _get_twilio()
+    if cli is None:
+        log.info("[WA mock] %s -> %s", phone, body[:80])
+        return False
+    to_addr = _to_whatsapp_addr(phone)
+    if not to_addr:
+        log.warning("[WA] invalid phone: %r", phone)
+        return False
+    sender = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
+    try:
+        msg = cli.messages.create(from_=sender, to=to_addr, body=body)
+        log.info("[WA] %s sent (sid=%s)", to_addr, msg.sid)
+        return True
+    except Exception as e:
+        log.warning("[WA] send to %s failed: %s", to_addr, e)
+        return False
+
+
+# ===== Domain-specific templates =====
+
+def notify_order_placed(customer_phone: str, order_id: str, total: float, eta_min: int = 45) -> None:
+    body = (
+        f"🎉 Bharat: Order *{order_id}* confirmed!\n"
+        f"Amount: ₹{total:,.0f}\n"
+        f"Your boutique is preparing it. ETA ~{eta_min} mins.\n"
+        f"Track: bharat-fashion-os.preview.emergentagent.com/orders/{order_id}"
+    )
+    send_whatsapp(customer_phone, body)
+
+
+def notify_merchant_new_order(merchant_phone: str, order_id: str, total: float, items_count: int) -> None:
+    body = (
+        f"🔔 NEW ORDER on Bharat — *{order_id}*\n"
+        f"{items_count} item(s) · ₹{total:,.0f}\n"
+        f"Open your dashboard to accept fast!"
+    )
+    send_whatsapp(merchant_phone, body)
+
+
+def notify_order_accepted(customer_phone: str, order_id: str, store_name: str) -> None:
+    body = (
+        f"✅ Bharat: Your order *{order_id}* was accepted by {store_name}.\n"
+        f"Rider will pick up shortly."
+    )
+    send_whatsapp(customer_phone, body)
+
+
+def notify_order_rejected(customer_phone: str, order_id: str) -> None:
+    body = (
+        f"😔 Bharat: Order *{order_id}* could not be fulfilled this time.\n"
+        f"If paid online, refund is auto-initiated (3-5 working days)."
+    )
+    send_whatsapp(customer_phone, body)
+
+
+def notify_order_delivered(customer_phone: str, order_id: str) -> None:
+    body = (
+        f"📦 Bharat: Order *{order_id}* has been delivered.\n"
+        f"Loved it? Rate your boutique in 1 tap."
+    )
+    send_whatsapp(customer_phone, body)

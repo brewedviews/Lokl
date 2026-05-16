@@ -6,6 +6,31 @@ Premium AI-powered hyperlocal fashion commerce OS for Bharat. **Pilot locked to 
 ## Stack
 React + FastAPI + MongoDB. Emergent LLM key → Claude Sonnet 4.5 (copy) + Gemini Nano Banana (images & try-on with strict-preservation prompt). **AI try-on UI currently hidden** pending prompt overhaul.
 
+## Latest Iteration (Feb 2026 — Iter-6)
+
+### New L1 Categories
+- **Electronics** (12 L2): Mobiles & Tablets · Laptops · Audio · Wearables · Cameras · TV · Large/Kitchen/Small/Personal-Care Appliances · Mobile-Computer Accessories · Gaming
+- **Sports** (10 L2): Fitness · Yoga · Cricket · Football · Badminton & Tennis · Cycling · Running · Outdoor · Swimming · Sports Nutrition
+- Total: **9 L1 + 40 L2** categories
+
+### UI Polish
+- Hero: full-bleed Bhilai Globe Chowk landmark stretched to fill entire curved tile
+- Empty-state copy: "Building it — coming soon" badge + reassuring message
+- **Admin link removed** from `/merchant/login` page — admin console (`/admin/login`) is now a private URL only known to ops
+- Accessories tile: working Unsplash photo
+
+### Twilio WhatsApp Integration ✅ LIVE
+- New `notifications.py` module with helpers: `notify_order_placed`, `notify_merchant_new_order`, `notify_order_accepted`, `notify_order_rejected`, `notify_order_delivered`
+- Wired into `POST /api/orders` (notifies customer + merchant), `POST /merchant/orders/{oid}/accept`, `/reject`, `/delivered`
+- New endpoint **`POST /merchant/orders/{oid}/delivered`** + UI "Mark delivered" button on accepted orders
+- Phone normalization: accepts 10-digit or +91-prefixed numbers, converts to `whatsapp:+91XXXXXXXXXX`
+- Fire-and-forget: if Twilio is down or recipient hasn't joined sandbox, order flow is unaffected (logged warning, no error)
+- **Tested**: Order BFO-18108C2D placed → both customer + merchant WhatsApp messages accepted by Twilio (SID returned)
+
+### Twilio Sandbox Notice
+- Phone numbers must first send `join <sandbox-code>` to `+1 415 523 8886` to receive messages
+- Sandbox code visible in Twilio Console → Messaging → Try it out → Send a WhatsApp message
+
 ## Latest Iteration (Feb 2026 — Iter-5)
 
 ### Hero Banner Redesign (Bhilai Globe Chowk)

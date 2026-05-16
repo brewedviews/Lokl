@@ -85,10 +85,12 @@ export default function MerchantOrders() {
 
   const accept = async (id) => { await api.post(`/merchant/orders/${id}/accept`); toast.success("Order accepted"); refresh(); };
   const reject = async (id) => { await api.post(`/merchant/orders/${id}/reject`); toast.success("Order rejected"); refresh(); };
+  const markDelivered = async (id) => { await api.post(`/merchant/orders/${id}/delivered`); toast.success("Marked delivered"); refresh(); };
   const refresh = async () => { const { data } = await api.get("/merchant/orders"); setOrders(data); };
 
   const pending = orders.filter((o) => o.status === "pending_merchant");
-  const history = orders.filter((o) => o.status !== "pending_merchant");
+  const accepted = orders.filter((o) => o.status === "accepted");
+  const history = orders.filter((o) => o.status !== "pending_merchant" && o.status !== "accepted");
 
   return (
     <MerchantLayout>
@@ -158,6 +160,25 @@ export default function MerchantOrders() {
             </div>
           ))}
         </section>
+
+        {accepted.length > 0 && (
+          <section className="mb-10">
+            <h2 className="display text-xl font-bold text-[#1A2B4C] mb-3">In flight</h2>
+            <div className="space-y-2">
+              {accepted.map((o) => (
+                <div key={o.id} className="bg-white border border-[#4F7363]/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3" data-testid={`accepted-${o.id}`}>
+                  <div>
+                    <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
+                    <div className="text-xs text-[#595959]">{o.customer?.name || o.address?.name} · {o.address?.line1}</div>
+                  </div>
+                  <button onClick={() => markDelivered(o.id)} data-testid={`delivered-${o.id}`} className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#4F7363] text-white text-xs font-semibold hover:bg-[#3a5a4d]">
+                    <CheckCircle2 size={13} /> Mark delivered
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {history.length > 0 && (
           <section>
