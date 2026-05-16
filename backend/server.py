@@ -16,6 +16,7 @@ from seed_data import build_seed_docs, L1_CATEGORIES, L2_BY_L1, GENDERS
 from notifications import (
     notify_order_placed, notify_merchant_new_order,
     notify_order_accepted, notify_order_rejected, notify_order_delivered,
+    notify_order_on_the_way, notify_order_cancelled,
 )
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -184,14 +185,17 @@ async def create_order(payload: OrderCreate):
         p = await db.products.find_one({"id": it.get("id")}, {"merchant_id": 1, "_id": 0})
         if p and p.get("merchant_id"): merchant_ids.append(p["merchant_id"])
     now = datetime.now(timezone.utc).isoformat()
+    # 4-digit OTP shared across customer / admin / merchant for rider handoff verification
+    otp = f"{random.randint(1000, 9999)}"
     doc = {"id": order_id, "items": payload.items, "address": payload.address,
            "total": payload.total, "payment_method": payload.payment_method,
            "customer": payload.customer or {},
            "status": "pending_merchant", "merchant_ids": list(set(merchant_ids)),
+           "otp": otp,
            "created_at": now,
            "timeline": [{"label": "Order placed", "time": now},
                         {"label": "Merchant accepted", "time": None},
-                        {"label": "Rider on the way", "time": None},
+                        {"label": "Handed to rider", "time": None},
                         {"label": "Delivered", "time": None}]}
     await db.orders.insert_one(doc)
     # Upsert customer profile silently
@@ -230,31 +234,43 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
         if t["label"] == "Merchant accepted" and not t["time"]:
             t["time"] = now; break
     await db.orders.update_one({"id": oid}, {"$set": {"status": "accepted", "timeline": tl}})
-    # WhatsApp customer
+    # WhatsApp customer (no OTP yet — only after handoff)
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0, "store_name": 1})
     if cust_phone:
         try: notify_order_accepted(cust_phone, oid, (m or {}).get("store_name", "your store"))
         except Exception: pass
-    return {"ok": True}
+    return {"ok": True, "otp": o.get("otp")}
 
-@api.post("/merchant/orders/{oid}/reject")
-async def merchant_reject_order(oid: str, user: dict = Depends(get_current_user)):
-    o = await db.orders.find_one({"id": oid, "merchant_ids": user["sub"]}, {"_id": 0})
-    await db.orders.update_one({"id": oid, "merchant_ids": user["sub"]},
-                               {"$set": {"status": "rejected"}})
-    if o:
-        cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
-        if cust_phone:
-            try: notify_order_rejected(cust_phone, oid)
-            except Exception: pass
-    return {"ok": True}
-
-
-@api.post("/merchant/orders/{oid}/delivered")
-async def merchant_mark_delivered(oid: str, user: dict = Depends(get_current_user)):
+@api.post("/merchant/orders/{oid}/handed-to-rider")
+async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_user)):
+    """Merchant confirms the rider has been handed the package after matching OTP."""
     o = await db.orders.find_one({"id": oid, "merchant_ids": user["sub"]}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
+    if o.get("status") != "accepted":
+        raise HTTPException(400, "Order must be accepted before handoff")
+    now = datetime.now(timezone.utc).isoformat()
+    tl = o.get("timeline", [])
+    for t in tl:
+        if t["label"] == "Handed to rider" and not t["time"]:
+            t["time"] = now; break
+    await db.orders.update_one({"id": oid}, {"$set": {"status": "on_the_way", "timeline": tl}})
+    # WhatsApp customer with the OTP — they will match with rider on arrival
+    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    if cust_phone:
+        try: notify_order_on_the_way(cust_phone, oid, o.get("otp", ""))
+        except Exception: pass
+    return {"ok": True}
+
+
+# ===== Admin order management =====
+@api.post("/admin/orders/{oid}/mark-delivered")
+async def admin_mark_delivered(oid: str, request: Request):
+    _check_admin(request.headers.get("authorization"))
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not o: raise HTTPException(404, "Order not found")
+    if o.get("status") in ("delivered", "cancelled"):
+        raise HTTPException(400, "Order already finalized")
     now = datetime.now(timezone.utc).isoformat()
     tl = o.get("timeline", [])
     for t in tl:
@@ -264,6 +280,21 @@ async def merchant_mark_delivered(oid: str, user: dict = Depends(get_current_use
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     if cust_phone:
         try: notify_order_delivered(cust_phone, oid)
+        except Exception: pass
+    return {"ok": True}
+
+@api.post("/admin/orders/{oid}/cancel")
+async def admin_cancel_order(oid: str, request: Request, payload: Optional[dict] = None):
+    _check_admin(request.headers.get("authorization"))
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not o: raise HTTPException(404, "Order not found")
+    if o.get("status") == "delivered":
+        raise HTTPException(400, "Cannot cancel a delivered order")
+    reason = (payload or {}).get("reason") or "Cancelled by admin"
+    await db.orders.update_one({"id": oid}, {"$set": {"status": "cancelled", "cancel_reason": reason}})
+    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    if cust_phone:
+        try: notify_order_cancelled(cust_phone, oid, reason)
         except Exception: pass
     return {"ok": True}
 
@@ -392,7 +423,10 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
 
 @api.post("/merchant/products/bulk")
 async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    """CSV columns: name, description, l1, l2, gender, mrp, price, sizes (semicolon-separated), stock_per_size"""
+    """CSV columns: name, description, l1, l2, gender, mrp, price,
+    sizes (semicolon-separated, e.g. `S;M;L`),
+    stock_per_size (semicolon-separated counts matching sizes, e.g. `50;100;39`).
+    A single integer in stock_per_size means "same qty for every size"."""
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
     if m.get("kyc_status") != "approved": raise HTTPException(403, "KYC not approved")
     raw = (await file.read()).decode("utf-8", errors="ignore")
@@ -423,8 +457,26 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
         except ValueError: price = 0
         try: mrp = float(row.get("mrp") or 0)
         except ValueError: mrp = 0
-        try: stock = int(row.get("stock_per_size") or row.get("stock") or 0)
-        except ValueError: stock = 0
+        # stock_per_size: semicolon-separated counts matching sizes positionally.
+        # Backwards compat: a single integer means "same qty for every size".
+        stock_raw = (row.get("stock_per_size") or row.get("stock") or "").strip()
+        stock_dict = {}
+        if stock_raw:
+            parts = [p.strip() for p in stock_raw.replace("|", ";").split(";") if p.strip() != ""]
+            if len(parts) == len(sizes) and sizes:
+                for sz, n in zip(sizes, parts):
+                    try: stock_dict[sz] = int(float(n))
+                    except ValueError: stock_dict[sz] = 0
+            elif len(parts) == 1 and sizes:
+                try: only = int(float(parts[0]))
+                except ValueError: only = 0
+                stock_dict = {sz: only for sz in sizes}
+            elif not sizes:
+                try: stock_dict = {"default": int(float(parts[0]))}
+                except ValueError: stock_dict = {"default": 0}
+            else:
+                # Mismatched count → skip row to avoid silent corruption
+                skipped.append(name); continue
         pid = f"prod-{uuid.uuid4().hex[:10]}"
         await db.products.insert_one({"id": pid, "merchant_id": user["sub"], "store_id": store_id,
             "store_name": m["store_name"], "store_city": m.get("city", ""),
@@ -433,7 +485,7 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
             "mrp": mrp or None, "l1_id": l1_id, "l2_id": l2_id, "gender": gender,
             "description": (row.get("description") or "").strip(),
             "sizes": sizes, "image": "", "ai_enhanced": False, "try_at_doorstep": False,
-            "stock": {s: stock for s in sizes} if sizes else {"default": stock},
+            "stock": stock_dict or {"default": 0},
             "created_at": datetime.now(timezone.utc).isoformat()})
         created.append(name)
     cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})

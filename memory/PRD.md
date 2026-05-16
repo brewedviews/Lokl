@@ -3,6 +3,51 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-9) — OTP-based Rider Handoff
+
+### Order lifecycle (NEW)
+`pending_merchant` → `accepted` → `on_the_way` → `delivered` · `cancelled`
+- **4-digit OTP** generated at `POST /api/orders` and stored on the order doc — the SAME OTP is the source of truth for all three parties (admin/merchant/customer)
+- Merchant *cannot* reject from UI anymore (gives customer bad UX) — `POST /merchant/orders/{oid}/reject` removed
+- Merchant *cannot* mark delivered — `POST /merchant/orders/{oid}/delivered` removed
+- New **`POST /merchant/orders/{oid}/handed-to-rider`** → flips status to `on_the_way`, sends WhatsApp w/ OTP to customer
+- New **`POST /admin/orders/{oid}/mark-delivered`** + **`POST /admin/orders/{oid}/cancel`** (with reason)
+
+### Merchant UI (`/merchant/orders`)
+- Pending orders: **Accept** only (no Reject). Helper copy: "Can't fulfil? Call our ops team — Lokl will cancel it for you."
+- **"Awaiting rider pickup"** section after accept: shows large 4-digit OTP (orange display font, tracking-[0.2em]) + **"Handed to rider"** button
+- **"On the way"** section after handoff: read-only row with OTP recap (no actions)
+
+### Admin UI (`/admin/login` → Live orders)
+- Each live order shows the OTP prominently with copy "Rider OTP (share with rider)" — admin will WhatsApp this to the rider manually
+- **Mark delivered** + **Cancel order** buttons on every active order
+- Cancel prompts for a reason → stored on `cancel_reason` field → WhatsApp'd to customer
+
+### Customer UI (`/orders/:id`)
+- Polls every 8s for status updates
+- When status reaches `on_the_way`, a navy hero card shows the same 4-digit OTP (text-5xl) — "Share this OTP with the rider on arrival"
+- Cancelled state shows reason + refund disclaimer
+
+### WhatsApp templates (new)
+- `notify_order_on_the_way` — includes OTP
+- `notify_order_cancelled` — includes reason
+- (Twilio sandbox still — recipient must `join <code>` first)
+
+### CSV bulk-upload — Per-size stock
+- `stock_per_size` now accepts semicolon-separated counts matching `sizes` positionally
+- Example: `sizes=S;M;L;XL` + `stock_per_size=50;100;39;10` → `{S:50, M:100, L:39, XL:10}`
+- Backwards-compatible: a single integer still means "same qty for every size"
+- Mismatched counts → row skipped (no silent corruption)
+
+### Verified end-to-end (curl)
+- Order placed `BFO-1CBEDF19` → OTP `6819`
+- Admin sees same OTP in live tab
+- Merchant accept returns OTP `6819`
+- Merchant handed-to-rider → status `on_the_way`
+- Customer endpoint exposes OTP `6819`
+- Admin mark-delivered → `delivered`
+- Admin cancel-order with reason → `cancelled` + `cancel_reason` saved
+
 ## Latest Iteration (Feb 2026 — Iter-8)
 
 ### Demo Data — 10 Stores + 55 Products

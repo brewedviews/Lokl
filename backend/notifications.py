@@ -110,6 +110,24 @@ def notify_order_rejected(customer_phone: str, order_id: str) -> None:
     send_whatsapp(customer_phone, body)
 
 
+def notify_order_on_the_way(customer_phone: str, order_id: str, otp: str) -> None:
+    body = (
+        f"🛵 Lokl: Order *{order_id}* is on the way!\n"
+        f"Share this OTP with the rider on arrival: *{otp}*\n"
+        f"Track: lokl.in/orders/{order_id}"
+    )
+    send_whatsapp(customer_phone, body)
+
+
+def notify_order_cancelled(customer_phone: str, order_id: str, reason: str) -> None:
+    body = (
+        f"😔 Lokl: Order *{order_id}* was cancelled.\n"
+        f"Reason: {reason}\n"
+        f"If paid online, refund is auto-initiated (3-5 working days)."
+    )
+    send_whatsapp(customer_phone, body)
+
+
 def notify_order_delivered(customer_phone: str, order_id: str) -> None:
     body = (
         f"📦 Lokl: Order *{order_id}* has been delivered.\n"

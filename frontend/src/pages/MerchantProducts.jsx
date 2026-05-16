@@ -7,9 +7,9 @@ import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 
 const SAMPLE_CSV = `name,description,l1,l2,gender,mrp,price,sizes,stock_per_size
-Indigo Block-Print Kurta,Pure cotton hand-block,Women,Ethnic wear,,3499,1899,S;M;L;XL,10
-Oversized Tee,240GSM oversized graphic tee,Men,T-shirts,,1499,899,M;L;XL,15
-White Court Sneakers,Classic low-top court sneakers,Footwear,,women,4999,3499,7;8;9;10,8`;
+Indigo Block-Print Kurta,Pure cotton hand-block,Women,Ethnic wear,,3499,1899,S;M;L;XL,50;100;39;10
+Oversized Tee,240GSM oversized graphic tee,Men,T-shirts,,1499,899,M;L;XL,30;45;20
+White Court Sneakers,Classic low-top court sneakers,Footwear,,women,4999,3499,7;8;9;10,8;12;10;6`;
 
 export default function MerchantProducts() {
   const { merchant } = useAuth();
@@ -107,7 +107,7 @@ export default function MerchantProducts() {
             <p className="text-[#595959] text-sm mt-1">{products.length} product{products.length !== 1 ? "s" : ""}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={downloadSample} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#E5E2DC] text-sm font-semibold hover:border-[#1A2B4C]"><Download size={14} /> Sample CSV</button>
+            <button onClick={downloadSample} title="CSV format: sizes=S;M;L  stock_per_size=50;100;39" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#E5E2DC] text-sm font-semibold hover:border-[#1A2B4C]"><Download size={14} /> Sample CSV</button>
             <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#E5E2DC] text-sm font-semibold hover:border-[#1A2B4C] cursor-pointer">
               <Upload size={14} /> {bulkBusy ? "Importing…" : "Bulk upload CSV"}
               <input data-testid="bulk-csv" type="file" accept=".csv" className="hidden" onChange={(e) => handleBulk(e.target.files?.[0])} />

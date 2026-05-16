@@ -365,11 +365,27 @@ function OrdersTab({ kind }) {
   };
   useEffect(() => { load(); const i = setInterval(load, 12000); return () => clearInterval(i); /* eslint-disable-next-line */ }, [kind]);
 
+  const markDelivered = async (oid) => {
+    const r = await apiFetch(`/admin/orders/${oid}/mark-delivered`, { method: "POST" });
+    if (r.ok) { toast.success("Marked delivered"); load(); }
+    else { toast.error("Failed"); }
+  };
+  const cancel = async (oid) => {
+    const reason = window.prompt("Reason for cancelling this order? (will be sent to customer)") || "";
+    if (!reason.trim()) return;
+    const r = await apiFetch(`/admin/orders/${oid}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason.trim() }),
+    });
+    if (r.ok) { toast.success("Order cancelled"); load(); }
+    else { toast.error("Failed"); }
+  };
+
   const STATUS_BADGE = {
     pending_merchant: { l: "Pending merchant", c: "bg-[#E68910]/15 text-[#E68910]" },
-    accepted:         { l: "Accepted",          c: "bg-blue-100 text-blue-700" },
-    preparing:        { l: "Preparing",         c: "bg-amber-100 text-amber-700" },
-    on_the_way:       { l: "On the way",        c: "bg-purple-100 text-purple-700" },
+    accepted:         { l: "Accepted · awaiting rider", c: "bg-blue-100 text-blue-700" },
+    on_the_way:       { l: "On the way",                c: "bg-purple-100 text-purple-700" },
     delivered:        { l: "Delivered",         c: "bg-[#4F7363]/15 text-[#4F7363]" },
     rejected:         { l: "Rejected",          c: "bg-red-100 text-red-700" },
     cancelled:        { l: "Cancelled",         c: "bg-zinc-200 text-zinc-700" },
@@ -393,23 +409,45 @@ function OrdersTab({ kind }) {
         </div>
       )}
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         {orders.map((o) => {
           const badge = STATUS_BADGE[o.status] || { l: o.status, c: "bg-zinc-200 text-zinc-700" };
+          const canFinalize = ["pending_merchant", "accepted", "on_the_way"].includes(o.status);
           return (
             <div key={o.id} data-testid={`order-row-${o.id}`} className="bg-white border border-[#E5E2DC] rounded-2xl p-4">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div>
+              <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
+                <div className="flex-1 min-w-[240px]">
                   <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{Number(o.total).toLocaleString()}</div>
                   <div className="text-xs text-[#595959]">
-                    {(o.customer?.name || o.address?.name || "Customer")} · {o.address?.line1} · {o.address?.city || "Bhilai"}
+                    {(o.customer?.name || o.address?.name || "Customer")} · {o.address?.phone || "—"} · {o.address?.line1}, {o.address?.city || "Bhilai"}
                   </div>
                   <div className="text-[11px] text-[#595959] mt-0.5">
                     Stores: {(o.store_names || []).join(", ") || "—"} · {o.items?.length || 0} item(s) · {o.payment_method || "—"}
                   </div>
                 </div>
-                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${badge.c}`}>{badge.l}</span>
+                <div className="flex flex-col items-end gap-2">
+                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${badge.c}`}>{badge.l}</span>
+                  {o.otp && kind === "live" && (
+                    <div className="text-right">
+                      <div className="text-[9px] uppercase tracking-widest text-[#595959]">Rider OTP (share with rider)</div>
+                      <div data-testid={`admin-otp-${o.id}`} className="display text-2xl font-bold text-[#E68910] tracking-[0.2em] tabular-nums">{o.otp}</div>
+                    </div>
+                  )}
+                </div>
               </div>
+              {canFinalize && (
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-[#E5E2DC]">
+                  <button onClick={() => markDelivered(o.id)} data-testid={`admin-deliver-${o.id}`} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#4F7363] text-white text-xs font-semibold hover:bg-[#3a5a4d]">
+                    <CheckCircle2 size={13} /> Mark delivered
+                  </button>
+                  <button onClick={() => cancel(o.id)} data-testid={`admin-cancel-${o.id}`} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-red-300 text-red-600 text-xs font-semibold hover:bg-red-50">
+                    <XCircle size={13} /> Cancel order
+                  </button>
+                </div>
+              )}
+              {o.status === "cancelled" && o.cancel_reason && (
+                <div className="mt-2 text-[11px] text-red-600">Reason: {o.cancel_reason}</div>
+              )}
             </div>
           );
         })}

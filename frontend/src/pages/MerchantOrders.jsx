@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Bell, BellOff, CheckCircle2, XCircle, Phone, MapPin } from "lucide-react";
+import { Bell, BellOff, Bike, CheckCircle2, Phone, MapPin } from "lucide-react";
 import MerchantLayout from "../components/merchant/MerchantLayout";
 import api from "../lib/api";
 import { toast } from "sonner";
@@ -83,14 +83,14 @@ export default function MerchantOrders() {
 
   const testPing = () => playLoudPing(audioCtxRef);
 
-  const accept = async (id) => { await api.post(`/merchant/orders/${id}/accept`); toast.success("Order accepted"); refresh(); };
-  const reject = async (id) => { await api.post(`/merchant/orders/${id}/reject`); toast.success("Order rejected"); refresh(); };
-  const markDelivered = async (id) => { await api.post(`/merchant/orders/${id}/delivered`); toast.success("Marked delivered"); refresh(); };
+  const accept = async (id) => { await api.post(`/merchant/orders/${id}/accept`); toast.success("Order accepted — waiting for rider"); refresh(); };
+  const handToRider = async (id) => { await api.post(`/merchant/orders/${id}/handed-to-rider`); toast.success("Handed to rider · on the way"); refresh(); };
   const refresh = async () => { const { data } = await api.get("/merchant/orders"); setOrders(data); };
 
   const pending = orders.filter((o) => o.status === "pending_merchant");
   const accepted = orders.filter((o) => o.status === "accepted");
-  const history = orders.filter((o) => o.status !== "pending_merchant" && o.status !== "accepted");
+  const onWay = orders.filter((o) => o.status === "on_the_way");
+  const history = orders.filter((o) => !["pending_merchant", "accepted", "on_the_way"].includes(o.status));
 
   return (
     <MerchantLayout>
@@ -150,30 +150,56 @@ export default function MerchantOrders() {
                 ))}
               </div>
               <div className="flex gap-2">
-                <button onClick={() => reject(o.id)} data-testid={`reject-${o.id}`} className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full border border-red-300 text-red-500 font-semibold hover:bg-red-50">
-                  <XCircle size={14} /> Reject
-                </button>
-                <button onClick={() => accept(o.id)} data-testid={`accept-${o.id}`} className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-[#4F7363] text-white font-semibold hover:bg-[#3a5a4d]">
+                <button onClick={() => accept(o.id)} data-testid={`accept-${o.id}`} className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#4F7363] text-white font-semibold hover:bg-[#3a5a4d]">
                   <CheckCircle2 size={14} /> Accept order
                 </button>
               </div>
+              <p className="text-[11px] text-[#595959] mt-3 text-center">
+                Can't fulfil this order? Call our ops team — Lokl will cancel it on your behalf so the customer's refund is auto-initiated.
+              </p>
             </div>
           ))}
         </section>
 
         {accepted.length > 0 && (
           <section className="mb-10">
-            <h2 className="display text-xl font-bold text-[#1A2B4C] mb-3">In flight</h2>
-            <div className="space-y-2">
+            <h2 className="display text-xl font-bold text-[#1A2B4C] mb-3">Awaiting rider pickup</h2>
+            <p className="text-xs text-[#595959] mb-3">Match the 4-digit OTP with the rider before handing the package over. Same OTP will be shared with the customer for final delivery.</p>
+            <div className="space-y-3">
               {accepted.map((o) => (
-                <div key={o.id} className="bg-white border border-[#4F7363]/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3" data-testid={`accepted-${o.id}`}>
+                <div key={o.id} className="bg-white border-2 border-[#E68910]/40 rounded-2xl p-4" data-testid={`accepted-${o.id}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                    <div>
+                      <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
+                      <div className="text-xs text-[#595959]">{o.customer?.name || o.address?.name} · {o.address?.line1}</div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-center">
+                        <div className="text-[9px] uppercase tracking-widest text-[#595959]">Rider OTP</div>
+                        <div data-testid={`otp-${o.id}`} className="display text-3xl font-bold text-[#E68910] tracking-[0.2em] tabular-nums">{o.otp || "----"}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={() => handToRider(o.id)} data-testid={`hand-rider-${o.id}`} className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#1A2B4C] text-white text-sm font-semibold hover:bg-[#101D36]">
+                    <Bike size={14} /> Handed to rider
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {onWay.length > 0 && (
+          <section className="mb-10">
+            <h2 className="display text-xl font-bold text-[#1A2B4C] mb-3">On the way</h2>
+            <div className="space-y-2">
+              {onWay.map((o) => (
+                <div key={o.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3" data-testid={`onway-${o.id}`}>
                   <div>
                     <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
-                    <div className="text-xs text-[#595959]">{o.customer?.name || o.address?.name} · {o.address?.line1}</div>
+                    <div className="text-xs text-[#595959]">Rider en-route to customer · OTP {o.otp}</div>
                   </div>
-                  <button onClick={() => markDelivered(o.id)} data-testid={`delivered-${o.id}`} className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#4F7363] text-white text-xs font-semibold hover:bg-[#3a5a4d]">
-                    <CheckCircle2 size={13} /> Mark delivered
-                  </button>
+                  <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">On the way</span>
                 </div>
               ))}
             </div>
