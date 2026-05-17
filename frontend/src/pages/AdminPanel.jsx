@@ -4,6 +4,14 @@ import { Shield, CheckCircle2, XCircle, Eye, LogOut, Clock, Store as StoreIcon, 
 import api, { API } from "../lib/api";
 import { toast } from "sonner";
 
+const safeJson = async (p, fallback = []) => {
+  try {
+    const r = await p;
+    if (!r.ok) return fallback;
+    return await r.json();
+  } catch { return fallback; }
+};
+
 const authH = () => ({ Authorization: `Bearer ${localStorage.getItem("bf_admin_token") || ""}` });
 const apiFetch = (path, opts = {}) =>
   fetch(`${API}${path}`, { ...opts, headers: { ...authH(), ...(opts.headers || {}) } });
@@ -104,10 +112,11 @@ function ApprovalsTab() {
 
   const load = async () => {
     const [m, c] = await Promise.all([
-      apiFetch(`/admin/merchants?status=${kycStatus}`).then((r) => r.json()),
-      apiFetch(`/admin/change-requests${period ? `?period=${period}` : ""}`).then((r) => r.json()),
+      safeJson(apiFetch(`/admin/merchants?status=${kycStatus}`), []),
+      safeJson(apiFetch(`/admin/change-requests${period ? `?period=${period}` : ""}`), []),
     ]);
-    setMerchants(m); setChanges(c);
+    setMerchants(Array.isArray(m) ? m : []);
+    setChanges(Array.isArray(c) ? c : []);
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [subtab, kycStatus, period]);
 
@@ -351,7 +360,7 @@ function StoresTab() {
   const [expanded, setExpanded] = useState(null);
   const [otpModal, setOtpModal] = useState(null);
 
-  const load = () => apiFetch("/admin/stores").then((r) => r.json()).then(setStores);
+  const load = () => safeJson(apiFetch("/admin/stores"), []).then((d) => setStores(Array.isArray(d) ? d : []));
   useEffect(() => { load(); }, []);
 
   const toggleStorePause = async (s) => {

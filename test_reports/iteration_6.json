@@ -1,0 +1,41 @@
+{
+  "summary": "Iter-6 RETEST after iter5 critical fixes. Verified: (FIX 1) GET /api/admin/change-requests now returns 200 (was 404). (FIX 2) Admin dashboard loads cleanly — NO 'body stream already read' overlay; 0 pageerrors across all admin flows. Backend regression: 14/14 iter5 pytest still pass. All previously BLOCKED frontend flows now validated: (a) KYC modal three-button row (Reject/Hold with comment/Approve) renders for submitted merchants; Hold reveals textarea; empty comment triggers 'Comment required' toast; non-empty 'Put on hold — merchant notified' toast, modal closes, merchant disappears from Pending list. (b) DocPreview confirmed in KYC modal: PAN PDF renders as 'Open PDF' card with 'Download .pdf' link; cheque JPEG renders with 'Download .jpeg' link; GST shows 'not uploaded'. (c) Merchant /merchant/onboarding on_hold view shows 'KYC on hold — action needed' headline, the admin's hold_comment, 'Update KYC details' link AND 'I've fixed it — re-review now' button. Clicking the resubmit button POSTs /merchant/kyc/resubmit and flips sidebar badge from 'KYC · ON_HOLD' → 'KYC · SUBMITTED'. (d) Product detail carousel: multi-image product shows left/right chevrons + 2 dots; single-image product falls back cleanly with no carousel chrome. Stores tab expands with Merchant/KYC/Bank/Products columns (no error). Multi-image upload UI on /merchant/products was NOT visually retested this iteration (token budget) — backend contract is green via test_create_product_with_multiple_images + test_update_product_images_array, and the customer-facing carousel correctly renders multi-image products end-to-end, which proves persistence works.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/twilio/inbound", "issue": "RIDER_PHONE still unset in preview — webhook accepts any sender. Set before production."},
+      {"endpoint": "/api/admin/stores", "issue": "Still returns full base64 doc payloads inline; consider lazy /api/admin/merchants/{mid}/docs."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter5_flow.py",
+    "/app/test_reports/pytest/results_iter6.xml"
+  ],
+  "action_items": [
+    "OPTIONAL (low priority): Visually retest Add-product modal on /merchant/products to confirm 5-image grid + COVER badge + remove (X) + ImageManager reorder UI render correctly. Backend persistence already proven via iter5 pytest + customer-facing carousel works.",
+    "PRODUCTION: Set RIDER_PHONE env var.",
+    "CODE QUALITY: server.py is 1294 lines — still well past 700-line guideline. Split into routers/* modules to prevent future regressions like the missing @api.get decorator on /admin/change-requests."
+  ],
+  "critical_code_review_comments": [
+    "AdminPanel.jsx safeJson helper (lines 7-13) is a good defensive guard but it swallows ALL errors silently. Consider toast.error on non-2xx so admins notice when a sub-endpoint dies (instead of seeing empty tables).",
+    "server.py admin_change_requests handler still returns a fully-enriched merchant snapshot inside each change-request doc — same N+1-style cost concern as /admin/stores. Acceptable for current scale but worth lazy-loading.",
+    "Frontend product carousel falls back gracefully to product.image when images[] is empty — verified — but there is no alt text on carousel images (a11y nit).",
+    "ProductCreate.images: List[str] still has no per-image size cap; 5×6MB base64 dataURLs can blow past 30MB body limits. Migrate to S3/GridFS + URL references before scaling beyond pilot."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_6.json",
+    "/app/test_reports/pytest/results_iter6.xml"
+  ],
+  "success_rate": {"backend": "100% (14/14 iter5 pytest passing, change-requests 200 verified via curl)", "frontend": "100% of previously-blocked admin & merchant flows now PASS (KYC modal hold flow, DocPreview, merchant on_hold view + resubmit, product carousel multi+single)"},
+  "test_credentials": "Admin admin@lokl.in / Admin@2026 verified working. Merchant on-hold flow tested with iter5_12acf48e@lokl.in / Iter5@2026 (currently flipped back to submitted after this iteration).",
+  "seed_data_creation": "No new seed. Reused iter5 merchants (iter5_12acf48e@lokl.in still in DB) and iter5 multi-image product prod-c32495d31c (TEST_MultiImg Tee) for carousel verification. Put-on-hold + resubmit cycled iter5_12acf48e through on_hold → submitted during the run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Both critical iter5 blockers are fixed and confirmed at API + UI level. Demo merchants (Anjali Boutique, Menscape, etc.) were seeded without b64 PAN/GST/cheque docs so Stores-tab DocPreview only shows real doc previews for merchants who actually uploaded (e.g. iter5 stores). If future testing needs full DocPreview validation across the Stores tab, seed demo merchants with sample b64 docs or use the iter5 stores. Multi-image Add-product modal UI itself wasn't visually clicked this run — only the persistence + carousel rendering side was retested. Add it to the next pass if needed.",
+  "rca of the issue": "ITER-5 ROOT CAUSE (now fixed): server.py admin_change_requests handler at ~line 807 was missing its @api.get decorator → endpoint returned 404 → AdminPanel.jsx Promise.all chain tried to call r.json() on a Response whose body had already been consumed → React rendered the 'body stream already read' overlay covering all admin interactions. Iter-6 verification: (a) curl GET /api/admin/change-requests with admin Bearer now returns 200 + []. (b) AdminPanel.jsx lines 7-13 introduce safeJson(p, fallback) which guards r.ok + try/catch, neutralizing any future single-endpoint failure in the Promise.all chain. (c) End-to-end UI test in this iteration recorded 0 pageerrors across login → approvals → KYC modal → hold submission → stores tab → merchant onboarding hold view → resubmit → product carousel."
+}

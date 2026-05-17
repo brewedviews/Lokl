@@ -805,6 +805,7 @@ async def merchant_kyc_resubmit(user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
+@api.get("/admin/change-requests")
 async def admin_change_requests(request: Request, status: Optional[str] = None,
                                 period: Optional[str] = None):
     _check_admin(request.headers.get("authorization"))
