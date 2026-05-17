@@ -3,6 +3,44 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-12) — Deferred Batch Cleanup
+
+### AdminPanel Build Repair (P0)
+- The previous fork left `/app/frontend/src/pages/AdminPanel.jsx` with a missing `</div>` (the expanded store row's wrapper). Repaired — admin console compiles cleanly again.
+- **Critical regression fixed**: `admin_change_requests` handler in `server.py` had lost its `@api.get` decorator → endpoint returned 404 → AdminPanel Promise.all surfaced a "body stream already read" overlay that blocked every admin interaction. Decorator restored.
+- New `safeJson(promise, fallback)` helper in AdminPanel.jsx defensively guards `r.ok` + try/catch around every `Promise.all` fetch chain so a single failing sub-endpoint can never crash the admin UI again.
+
+### Admin KYC "Hold with comment" (NEW)
+- KycModal now shows three buttons for `submitted` / `on_hold` merchants: **Reject** · **Hold with comment** · **Approve**
+- "Hold with comment" reveals a textarea; empty comment triggers a "Comment required" toast; non-empty `POST /api/admin/merchants/{mid}/hold` flips `kyc_status` to `on_hold`, stores `hold_comment`/`hold_at`, and pushes a `kyc-on-hold` notification to the merchant
+- "On hold" added to the Approvals status filter
+- On-hold merchants are visible in the same KycModal with an orange "Currently on hold" banner showing the prior hold reason
+
+### Merchant Onboarding — On-Hold View (NEW)
+- `MerchantOnboardingStatus.jsx` recognises `kyc_status === "on_hold"` with a dedicated card: orange `PauseCircle` icon, "KYC on hold — action needed" headline, the admin's hold_comment surfaced verbatim
+- Two CTAs: **Update KYC details** (link to `/merchant/kyc` to re-upload) and **I've fixed it — re-review now** (POSTs `/merchant/kyc/resubmit`, flips status back to `submitted`)
+- Re-submitting via `/merchant/kyc/submit` (full form) also clears `hold_comment` + `hold_at` server-side
+
+### PDF Document Download Fix (P1)
+- New `decodeDocMime(b64)` helper sniffs base64 magic bytes to detect mime: PDF (`JVBER…`) / PNG (`iVBOR…`) / JPEG (`/9j/…`) / WebP / GIF, with fallback to `image/jpeg`
+- New `DocPreview` component renders images inline and PDFs as a clickable "Open PDF" card that opens in a new tab. Download link uses correct extension (`.pdf`, `.jpg`, `.png`)
+- Used in **both** Approvals KYC modal AND Stores tab's expanded merchant card
+- `/api/admin/stores` enriched merchant snapshot now exposes `hold_comment`, `hold_at`, `pan_doc_b64`, `gst_doc_b64`, `cancelled_cheque_b64`
+
+### Multi-Image Product Upload (NEW)
+- Merchant **Add product** modal supports up to **5 images** per product (file picker, 5 MB cap each, no URL input)
+- Thumbnails render with COVER badge on the first; X-button removes individual images; submit sends both `image` (first) and `images: [...]` array for backwards-compat
+- `ImageManager` modal rewritten: add/remove + ★ "Make cover" reorder. Saves via `PUT /merchant/products/{pid}` with `image: images[0], images: [...]`
+- Product detail carousel (`/product/{id}`) already supported `product.images` (chevrons + dot pagination) — verified no regression for single-image products
+
+### Twilio Inbound Webhook (existed, now validated)
+- `POST /api/twilio/inbound` accepts Twilio's form-encoded webhook. Regex parses `<4-digit OTP> - Delivered` from message body, finds matching live order, flips status to `delivered` with `delivered_via=rider-whatsapp`, fires WhatsApp delivery confirmation to customer
+- Production-safety: optionally restricts sender via `RIDER_PHONE` env var (unset in preview → accepts any sender — set before production launch)
+
+### Test Coverage
+- New backend regression suite `/app/backend/tests/test_iter5_flow.py` — 14/14 pytest passing
+- E2E UI flows validated by testing_agent_v3_fork (iteration_6.json) — 0 pageerrors across admin + merchant flows
+
 ## Latest Iteration (Feb 2026 — Iter-11)
 
 ### Search (NEW)
@@ -12,284 +50,75 @@ Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot lock
 - New `/search` page lists matching stores + products + a "Didn't find?" L1 tile grid fallback (same 9 tiles as home)
 
 ### Home — Thinner Hero
-- Removed the 4 feature pills (Trusted Stores · Lightning Fast · Try at Your Doorstep · Easy Returns)
-- Hero height reduced (300px desktop vs 520px before) so the Shop-by-category grid is above the fold
+- Removed the 4 feature pills; reduced hero height (300px desktop) so Shop-by-category is above the fold
 - ETA card retained on desktop right
 
 ### Floating Order Strip (NEW)
-- `OrderStatusStrip` component rendered globally by `ConsumerHeader`
-- Polls `/api/customer/{phone}` every 15s for the latest non-final order; sticky bottom-right strip on desktop, full-width on mobile
-- Click → goes to `/orders/{id}`. Hides automatically when nothing is in flight.
+- `OrderStatusStrip` rendered globally by `ConsumerHeader`. Polls `/api/customer/{phone}` every 15s for the latest non-final order. Sticky bottom-right on desktop, full-width on mobile. Hides when nothing is in flight.
 
 ### Order Tracking — Stylized SVG Map
-- Hero tile now shows an illustrative SVG "map" with grid background, dashed road, Store + Customer pins and a 🛵 rider marker
-- Rider position animates by status: placed → near store, accepted → at store, on_the_way → mid-route, delivered → hidden
-- Small "illustrative · not GPS" caption keeps it honest
+- Hero tile shows illustrative SVG "map" with dashed road, Store + Customer pins, animated 🛵 rider marker by status. "illustrative · not GPS" caption.
 
 ### Storefront — Multi-banner + Store hours
-- `MerchantStorefront` redesigned: upload **up to 5 banner images** (file upload, 5MB cap each — no URL input, no preset gallery)
-- New **Opens at / Closes at** time pickers (defaults 10:00 / 18:00)
-- **30-min buffer** applied automatically: store accepts online orders from 30 min after opens to 30 min before closes
-- Removed "specialties" + Follow button (deferred)
-- Locality is auto-derived from `business_address` first-segment (was free text)
+- Up to 5 banner uploads (5 MB cap each, file-only). Opens-at / Closes-at time pickers with 30-min buffer. Locality auto-derived from `business_address` first segment.
 
 ### Store visibility — Open / Offline split
-- `/api/stores` now annotates each store with `is_open` + `next_open_label` and sorts open stores first, offline stores at the bottom
-- Per-store products carry `store_is_open` / `next_open_label` so PDP can show "Out of delivery hours · Opens at 10:00 AM"
+- `/api/stores` returns `is_open` + `next_open_label`. Sorts open first. PDP shows "Out of delivery hours · Opens at HH:MM AM" when offline.
 
-### StorePage simplified
-- Removed rating, reviews, Follow button, Specialties chips
-- **Dynamic ETA** computed from `distance_km` (20 + km × 4 minutes, min 15)
-- Area badge taken from `business_address` (or `store.area`)
-- New **banner carousel** (snap-x scroll) when multiple banners are set
+### StorePage simplified + banner carousel
+- Removed rating/reviews/Follow/Specialties chips. ETA computed from `distance_km`. Snap-x banner carousel.
 
-### Product page — clickable store name
-- PDP "store_name" eyebrow is now a Link → `/store/{store_id}`
-- New **image carousel** (chevron arrows + dot pagination) when `product.images` has multiple entries (single-image products fall back to the legacy `image`)
+### Per-product Go Live + Bulk multi-select
+- Checkbox + hover-only "Go live" pill on each card. Sticky bulk-action bar (Go live / Pause / Delete / Cancel) when ≥1 selected. New `POST /api/merchant/products/bulk-action`.
 
 ### Merchant order privacy
-- `GET /api/merchant/orders` redacts customer PII server-side: only name + pincode + landmark + coarse area (last comma-segment) are exposed. Phone, full street, email are stripped.
-- UI updated accordingly (no `Phone size=11` chip, area-only badge)
+- `GET /api/merchant/orders` redacts customer PII server-side (name + pincode + landmark + coarse area only).
 
-### Per-product Go Live + bulk multi-select
-- Each product card gets a checkbox (top-left) + a hover-only **Go live** button (shown only when paused; navy "Live" badge replaces it when published)
-- Sticky bulk-action bar appears when ≥1 selected: Go live · Pause · Delete · Cancel
-- Backend: new `POST /api/merchant/products/bulk-action` (delete/publish/pause)
-- Removed the generic global "Go live" button — replaced with helper banner "None of your products are live yet — hover and click Go live"
-
-## Latest Iteration (Feb 2026 — Iter-10)
-
-### Cascade-Delete: Full Merchant Offboarding
-- When admin deletes a store (OTP-verified) the system now wipes: `stores`, `products`, `merchants`, `orders` (by merchant_id), `change_requests`, `admin_otps`
-- Same email/phone can register again → treated as a brand-new merchant with fresh KYC draft
-- Verified end-to-end via curl: deleted merchant `m-d05355751c` → re-registered same email/phone → new `m-d5a950309d` with `kyc_status: draft`
-
-### Admin Dashboard — 2 new tabs
-- **Live users** (`/api/admin/live-users`): shows sessions seen in the last 2 minutes, grouped by role (customer/merchant/guest) with role counts + per-session detail (path, last ping). Auto-refreshes every 15s.
-- **Customers** (`/api/admin/customers?q=`): searchable directory by phone/name/email. Click a customer row → modal with profile, address count, order count, **lifetime delivered spend**, and full order history.
-- Backend uses a new `live_sessions` collection populated by `POST /api/heartbeat` from a `useHeartbeat` hook on Consumer + Merchant pages (30s ping interval).
-
-### Merchant Analytics — Pre-revenue Mode
-- Revenue / orders / AOV / top products now count **only delivered** orders (was: all orders)
-- No more synthetic illustrative data for new merchants — they see real zeros with copy "No revenue yet — your first delivered order will show up here."
-- CSV export likewise only includes delivered orders
-
-### Customer Timeline Rename
-- "Handed to rider" → "**Order on the way**" in order timeline shown to customers
-- Backward-compatible: `/handed-to-rider` endpoint still flips the new label OR legacy label, whichever exists on the order doc
-
-### /account — Multi-address & UX Cleanup
-- Removed the dead "View account" button (was a no-op after phone entry)
-- Phone-entry → Continue flow (one-time, cached in localStorage)
-- New **Saved addresses** section with Add/Remove buttons
-- Address form includes **Label** (Home/Office/Other), Name, Address line, **Landmark (optional)**, City, Pincode, Phone
-- Backend: `POST/DELETE /api/customer/{phone}/addresses[/{aid}]` for CRUD; `_upsert_customer` also auto-saves the address from checkout (de-duped by line1+pincode)
-
-### Checkout — Pre-fill from saved addresses
-- Returning customers see their saved addresses listed at the top with radio-style selection
-- "Use a new address" button switches to a blank form
-- New address gets auto-saved to the customer profile on order placement (no extra click needed)
-- All addresses (saved + new) include a **Landmark** field
+## Latest Iteration (Feb 2026 — Iter-10) — Cascade Delete + Live Users
+- Admin deleting a store wipes stores+products+merchants+orders+change_requests+admin_otps. Same email can re-register fresh.
+- New Admin tabs: **Live users** (`/api/admin/live-users` via heartbeat) and **Customers** (`/api/admin/customers?q=` searchable directory, click-through to lifetime spend + order history).
+- Merchant Analytics revenue/AOV now only counts delivered orders.
+- `/account` Multi-address: Add/Remove saved addresses with Label + Landmark; checkout pre-fills.
 
 ## Latest Iteration (Feb 2026 — Iter-9) — OTP-based Rider Handoff
+- New lifecycle: `pending_merchant` → `accepted` → `on_the_way` → `delivered` · `cancelled`
+- 4-digit OTP generated on `POST /api/orders` — same OTP across admin/merchant/customer
+- Merchant cannot reject or mark delivered any more — only Accept + Handed-to-rider
+- Admin: Mark delivered + Cancel (with reason)
+- Customer: large OTP card when `on_the_way`
+- CSV bulk: per-size stock via `S;M;L;XL` + `50;100;39;10`
 
-### Order lifecycle (NEW)
-`pending_merchant` → `accepted` → `on_the_way` → `delivered` · `cancelled`
-- **4-digit OTP** generated at `POST /api/orders` and stored on the order doc — the SAME OTP is the source of truth for all three parties (admin/merchant/customer)
-- Merchant *cannot* reject from UI anymore (gives customer bad UX) — `POST /merchant/orders/{oid}/reject` removed
-- Merchant *cannot* mark delivered — `POST /merchant/orders/{oid}/delivered` removed
-- New **`POST /merchant/orders/{oid}/handed-to-rider`** → flips status to `on_the_way`, sends WhatsApp w/ OTP to customer
-- New **`POST /admin/orders/{oid}/mark-delivered`** + **`POST /admin/orders/{oid}/cancel`** (with reason)
-
-### Merchant UI (`/merchant/orders`)
-- Pending orders: **Accept** only (no Reject). Helper copy: "Can't fulfil? Call our ops team — Lokl will cancel it for you."
-- **"Awaiting rider pickup"** section after accept: shows large 4-digit OTP (orange display font, tracking-[0.2em]) + **"Handed to rider"** button
-- **"On the way"** section after handoff: read-only row with OTP recap (no actions)
-
-### Admin UI (`/admin/login` → Live orders)
-- Each live order shows the OTP prominently with copy "Rider OTP (share with rider)" — admin will WhatsApp this to the rider manually
-- **Mark delivered** + **Cancel order** buttons on every active order
-- Cancel prompts for a reason → stored on `cancel_reason` field → WhatsApp'd to customer
-
-### Customer UI (`/orders/:id`)
-- Polls every 8s for status updates
-- When status reaches `on_the_way`, a navy hero card shows the same 4-digit OTP (text-5xl) — "Share this OTP with the rider on arrival"
-- Cancelled state shows reason + refund disclaimer
-
-### WhatsApp templates (new)
-- `notify_order_on_the_way` — includes OTP
-- `notify_order_cancelled` — includes reason
-- (Twilio sandbox still — recipient must `join <code>` first)
-
-### CSV bulk-upload — Per-size stock
-- `stock_per_size` now accepts semicolon-separated counts matching `sizes` positionally
-- Example: `sizes=S;M;L;XL` + `stock_per_size=50;100;39;10` → `{S:50, M:100, L:39, XL:10}`
-- Backwards-compatible: a single integer still means "same qty for every size"
-- Mismatched counts → row skipped (no silent corruption)
-
-### Verified end-to-end (curl)
-- Order placed `BFO-1CBEDF19` → OTP `6819`
-- Admin sees same OTP in live tab
-- Merchant accept returns OTP `6819`
-- Merchant handed-to-rider → status `on_the_way`
-- Customer endpoint exposes OTP `6819`
-- Admin mark-delivered → `delivered`
-- Admin cancel-order with reason → `cancelled` + `cancel_reason` saved
-
-## Latest Iteration (Feb 2026 — Iter-8)
-
-### Demo Data — 10 Stores + 55 Products
-- New script `/app/backend/demo_seed.py` (idempotent: wipes & re-seeds only its own docs identified by email `*@lokl.demo` and id prefix `mer-demo-*`)
-- **10 Bhilai stores** across real localities: Sector 1/6/10, Civic Centre, Smriti Nagar, Nehru Nagar, Supela, Power House, Junwani, Kohka
-  - Anjali Boutique (women ethnic), Menscape (men formal/casual), Step & Sole (footwear), Street Bazaar (streetwear), Little Stars (kids), Shringaar Accessories, Glow & Co. (beauty), TechWorld Bhilai (electronics), HomePlus Appliances, Playfield Sports
-- **55 products** covering every L1 with at least 5 each (women 7 · men 6 · footwear 7 · streetwear 5 · kids 5 · accessories 5 · beauty 5 · electronics 11 · sports 6)
-- Each store has KYC approved, storefront published, real lat/lng around Bhilai, ratings 4.2–4.9, ETA 30–50 mins
-- Demo merchant credentials: `<slug>@lokl.demo` / `Demo@2026` (e.g. `menscape@lokl.demo`)
-
-### Brand: Star Icon Removed, Logo Larger
-- Removed the round-blue-Sparkles icon from ConsumerHeader, MerchantLayout sidebar, MerchantAuth (left panel + mobile), Footer
-- "lokl." wordmark is now larger (text-2xl mobile / text-3xl desktop) and always visible — including on mobile (was `hidden sm:inline`)
-
-### Mobile Polish — Header
-- City pill `Bhilai` hidden on mobile (replaced by hero badge)
-- New compact **mobile search input** (`data-testid=search-input-mobile`) sits between logo and account/cart icons
-- All header elements use `shrink-0` to prevent collapse
-
-### Admin Panel — Live + Delivered Tabs
-- New `GET /api/admin/orders?status=live|delivered|rejected|all` enriches orders with store names
-- AdminPanel tab list expanded: **Approvals · Stores · Live orders · Delivered**
-- OrdersTab component (auto-refresh every 12s) renders cards with order id, total, customer, store name(s), payment method, lifecycle-colored status badge
-- Empty-state copy per kind
+## Latest Iteration (Feb 2026 — Iter-8) — Demo Data + Star Removed
+- 10 Bhilai demo stores (all approved + published) + 55 products. Demo creds: `<slug>@lokl.demo` / `Demo@2026`.
+- Star/Sparkles icon removed everywhere; "lokl." wordmark sized up (text-2xl / text-3xl).
+- Admin tabs: Approvals · Stores · Live orders · Delivered (auto-refresh 12s).
 
 ## Latest Iteration (Feb 2026 — Iter-7) — REBRAND TO LOKL
-- Frontend logo wordmark `bharat.` → `lokl.` (Consumer header, Footer, Merchant layout, MerchantAuth left panel + form)
-- Page `<title>` → "Lokl · Fashion delivered in minutes"
-- Home: "Sell on Bharat." → "Sell on Lokl."
-- Merchant Onboarding welcome → "Welcome to Lokl"
-- Order push notification copy → "New order on Lokl"
-- Backend API root response `{app: "Lokl", status: "ok"}`, FastAPI title, logger name (`lokl`, `lokl.notify`)
-- WhatsApp templates updated to use "Lokl" instead of "Bharat"; tracking URL → `lokl.in/orders/{id}`
-- AI copy system prompt: "Lokl-first product copy"
-- Admin email migrated `admin@bharat-os.com` → `admin@lokl.in` (server.py constants + UI default)
-- CSV export filenames → `lokl-sales-{period}.csv`, `lokl-products-sample.csv`
-- Demo merchant notification body → "Welcome to Lokl!"
-- **Kept intentionally**: "Hyperlocal fashion for Bharat" + "Trusted by 2,400+ stores across Bharat" (Bharat = country, not brand)
+- All `bharat.` wordmarks → `lokl.`; admin email migrated to `admin@lokl.in`; WhatsApp/AI copy now Lokl-branded.
+- Intentionally kept: "Hyperlocal fashion for Bharat" (Bharat = country, not brand).
 
 ## Stack
-React + FastAPI + MongoDB. Emergent LLM key → Claude Sonnet 4.5 (copy) + Gemini Nano Banana (images & try-on with strict-preservation prompt). **AI try-on UI currently hidden** pending prompt overhaul.
-
-## Latest Iteration (Feb 2026 — Iter-6)
-
-### New L1 Categories
-- **Electronics** (12 L2): Mobiles & Tablets · Laptops · Audio · Wearables · Cameras · TV · Large/Kitchen/Small/Personal-Care Appliances · Mobile-Computer Accessories · Gaming
-- **Sports** (10 L2): Fitness · Yoga · Cricket · Football · Badminton & Tennis · Cycling · Running · Outdoor · Swimming · Sports Nutrition
-- Total: **9 L1 + 40 L2** categories
-
-### UI Polish
-- Hero: full-bleed Bhilai Globe Chowk landmark stretched to fill entire curved tile
-- Empty-state copy: "Building it — coming soon" badge + reassuring message
-- **Admin link removed** from `/merchant/login` page — admin console (`/admin/login`) is now a private URL only known to ops
-- Accessories tile: working Unsplash photo
-
-### Twilio WhatsApp Integration ✅ LIVE
-- New `notifications.py` module with helpers: `notify_order_placed`, `notify_merchant_new_order`, `notify_order_accepted`, `notify_order_rejected`, `notify_order_delivered`
-- Wired into `POST /api/orders` (notifies customer + merchant), `POST /merchant/orders/{oid}/accept`, `/reject`, `/delivered`
-- New endpoint **`POST /merchant/orders/{oid}/delivered`** + UI "Mark delivered" button on accepted orders
-- Phone normalization: accepts 10-digit or +91-prefixed numbers, converts to `whatsapp:+91XXXXXXXXXX`
-- Fire-and-forget: if Twilio is down or recipient hasn't joined sandbox, order flow is unaffected (logged warning, no error)
-- **Tested**: Order BFO-18108C2D placed → both customer + merchant WhatsApp messages accepted by Twilio (SID returned)
-
-### Twilio Sandbox Notice
-- Phone numbers must first send `join <sandbox-code>` to `+1 415 523 8886` to receive messages
-- Sandbox code visible in Twilio Console → Messaging → Try it out → Send a WhatsApp message
-
-## Latest Iteration (Feb 2026 — Iter-5)
-
-### Hero Banner Redesign (Bhilai Globe Chowk)
-- Full-bleed photo of **Bhilai Globe Chowk** landmark fills the entire rounded hero
-- `object-cover object-[70%_40%]` on mobile + `md:object-[55%_35%]` on desktop keeps the globe focal point centered across breakpoints
-- Light cream wash for text legibility (top-to-bottom on mobile, left-to-right on desktop)
-- SERVING BHILAI badge + headline + description + 4 feature pills (Trusted Stores · Lightning Fast · Try at Your Doorstep · Easy Returns) overlaid on left
-- Floating ETA card (Fast delivery / 45 minutes / LIVE) center-right on desktop, in-flow on mobile
-- Shop Now button removed (user request)
-
-### Merchant Loud Order Ping (P1 ✓)
-- Replaced the inline-wav single beep with a **Web Audio API two-tone bell loop** (3 pulses spaced 0.8s apart, gain 0.7 — significantly louder than the prior beep)
-- Persistent **mute toggle** in the header (`data-testid=toggle-ping-mute`, persisted via localStorage `bf_orders_muted`)
-- **Test sound** button so merchants can preview/unlock browser audio permission
-- Initial-load suppression: ping no longer blasts on tab-open with stale backlog — only fires when a genuinely new order arrives after the page is open
-- Browser Notification fires alongside ping; in-app toast lasts 6s
-
-## Latest Iteration (Feb 2026 — Iter-4)
-
-### Bhilai-only Locked Pilot
-- Hero badge shortened to **SERVING BHILAI** (pilot "coming soon to your city" copy removed from hero)
-- Backend `POST /api/orders` strictly rejects non-Bhilai addresses (HTTP 400)
-- Frontend Checkout guards with toast before API call
-- Away-banner softened: "Bharat currently serves Bhilai. We'll let you know when we're in {city}." Falls back to "your area" when geo detection returns Unknown.
-
-### Merchant Add Product — Reworked
-- **File upload** (FileReader → base64 data URL) instead of URL text input
-- **Size + Quantity grid**: apparel uses XS/S/M/L/XL/XXL, footwear uses 6–11. Each cell collects a per-size quantity → sent to backend as `stock: {S: 5, M: 3, …}` dict
-- Image preview thumbnail inline in modal; 5MB client-side limit
-
-### Consumer header / Home
-- Account became an **icon-only button** (User icon, no "Account" text)
-- Single hero badge: **SERVING BHILAI**
-- L2 category page: no "All" option (Women/Men show 9 L2 tiles only)
-
-### AI Try-On Hidden
-- ImageManager modal no longer renders AI try-on panel — only plain upload + save
-- AI backend endpoints (`/api/merchant/ai/tryon`, `/enhance-image`, `/copy`) still exist but UI-decoupled
+React + FastAPI + MongoDB. Emergent LLM key → Claude Sonnet 4.5 (copy) + Gemini Nano Banana (images, currently hidden due to garment-preservation issues). Twilio WhatsApp (outbound order updates + inbound rider-delivery webhook).
 
 ## Test Credentials
-- Admin: `admin@bharat-os.com` / `Admin@2026` (pre-seeded constant)
-- Demo merchant `demo@bharat-os.com` was wiped — startup only re-approves if doc exists. See `/app/memory/test_credentials.md`.
-
-## Latest Iteration (Pre-Iter-4)
-
-### Consumer Marketplace
-- Compact city-customised hero, auto geo-detect (no manual selector) — pill is read-only with ↻ re-detect
-- **L1 categories (fixed 7)**: Women, Men, Footwear, Streetwear, Kids, Accessories, Beauty
-- **L2 sub-categories** for Women (9) and Men (9). Other L1s use gender filter (women/men/unisex/kids)
-- `/c/:slug` Category page: shows L2 tile grid for Women/Men OR gender chips for others, then filtered listings
-- Products require `l1_id` + (`l2_id` for W/M, `gender` for others) — enforced server-side
-- Stores+products visible iff `kyc_status=approved AND published=true AND paused=false AND product_count ≥ 1`
-- Empty states everywhere when no live merchants in the city
-- `/account` — phone-based customer profile (name, age, email, address) + past orders by phone
-- Checkout captures customer into profile silently
-- **Slim footer** + mobile hides brand text (logo only)
-
-### Merchant SaaS
-- After register → `/merchant/onboarding` → 3-step KYC wizard (Business → Bank → Review)
-- **Sidebar reshapes after approval**: Order Requests · Products · AI Studio · Sales Analytics · Storefront · Bank (Onboarding+KYC hidden)
-- **Storefront**: tagline/story/banner/specialties editable. **Store name & business address LOCKED** — changes require a `change-request` → admin approval
-- **Bank tab**: any update needs a new cancelled-cheque upload → `change-request` → admin verifies
-- **Products**: cascading L1 → L2/gender selector enforced; CSV bulk import (`name,description,l1,l2,gender,mrp,price,sizes,stock_per_size`); per-product image manager
-- **Order Requests** page: pending order cards with Accept/Reject + Web Audio beep + Notification API on new orders (polls every 8s)
-- **Sales Analytics** with periods + CSV report download; demo data shown until real orders flow
-
-### Admin Console
-- **Approvals tab** with sub-tabs KYC + Bank/Address changes, period dropdown, **CSV/Excel export** of approvals history. Modal shows all uploaded docs for review.
-- **Stores tab**: every onboarded store + drill-down products. Pause/Unpause/Delete per product. Pause/Unpause store. **Delete store** → 6-digit OTP (mocked email — shown in modal).
+See `/app/memory/test_credentials.md`.
 
 ## Mocked (pilot scope)
-- Approval notifications: in-app only (no real email/WhatsApp/SMS)
-- Delete-store OTP: shown in modal + logged (no real email)
-- KYC docs + product images stored as base64 in Mongo (no object storage yet — Cloudinary backlog)
-- Sales analytics: demo trend for new merchants
+- KYC docs + product images stored as base64 in Mongo (Cloudinary still on backlog)
+- Sales analytics shows real data only after delivered orders
 - "1-hour propagation" on publish flips immediately
 
-## Backlog
-- **P1**: Merchant order "loud ping" audio (Future Task 1 from handoff)
-- **P1**: Admin approvals Excel download (.xlsx) on top of CSV
-- **P2**: Merchant sales report Excel download
-- **P2**: Fix + re-enable AI try-on (Gemini prompt overhaul to preserve original garment)
-- **P2**: Cloudinary/object storage for product & KYC images (base64 in Mongo will bloat as catalog grows)
-- **P2**: Real email/WhatsApp via Resend/Twilio
-- **P2**: Split server.py (820 lines) into routers (auth, merchant, admin, catalog, customer, geo)
-- **P3**: Real-time order push via WebSocket · Razorpay live · Rider app
-- P2: Live rider tracking · Influencer partnerships · WA campaigns
+## Backlog (priority order)
+- **P1**: Cloudinary/object storage migration (base64 in Mongo will bloat as catalog grows past 5 imgs × N products)
+- **P1**: Production: set `RIDER_PHONE` env so Twilio inbound webhook rejects non-rider senders
+- **P1**: Lazy-load admin doc previews — `/api/admin/merchants/{mid}/docs` instead of inlining b64 in every `/admin/stores` response
+- **P2**: Split `server.py` (1294 lines) into routers/*: auth, admin, merchant, customer, twilio, geo — prevents missing-decorator regressions
+- **P2**: Real OTP/Google auth integration (currently password-based for merchants, phone-only for customers)
+- **P2**: Fix + re-enable AI Try-on (Gemini garment-preservation prompt overhaul)
+- **P2**: Real-time order push via WebSocket
+- **P2**: `toast.error` on safeJson failures so admins notice silently-dying endpoints
+- **P3**: Razorpay live · independent rider app · live GPS tracking · influencer partnerships · WhatsApp campaigns
 
 ## Status
-✅ Backend 18/18 pytest passing · all frontend flows verified by testing agent (iteration_3.json)
+✅ Backend regression: 14/14 iter5 pytest + curl smoke for change-requests=200 + twilio/inbound TwiML response verified
+✅ Frontend: all iter5-blocked admin/merchant flows now pass (iter6.json — 0 pageerrors)
