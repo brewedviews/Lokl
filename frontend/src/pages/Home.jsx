@@ -31,27 +31,41 @@ export default function Home() {
       <ConsumerHeader />
 
       <section data-testid="hero" className="relative">
-        <div className="max-w-7xl mx-auto px-4 md:px-8 pt-6 md:pt-8">
-          <div className="relative rounded-[28px] overflow-hidden bg-[#1A2B4C] min-h-[280px] md:min-h-[300px]">
+        <div className="max-w-7xl mx-auto px-4 md:px-8 pt-4 md:pt-8">
+          <div className="relative rounded-[24px] md:rounded-[28px] overflow-hidden bg-[#1A2B4C] min-h-[340px] md:min-h-[300px]">
             <img
               src={HERO_IMG}
               alt="Bhilai Globe Chowk"
-              className="absolute inset-0 w-full h-full object-cover object-[60%_50%] md:object-center"
+              className="absolute inset-0 w-full h-full object-cover object-[60%_45%] md:object-center"
             />
-            <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/55 via-[#FDFBF7]/10 to-[#FDFBF7]/0 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
+            {/* Mobile: strong cream wash from top → fades to ~30% bottom so categories don't get clipped. Desktop: left-anchored wash. */}
+            <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/95 via-[#FDFBF7]/80 to-[#FDFBF7]/30 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
 
-            <div className="relative px-6 md:px-10 lg:px-12 py-7 md:py-10 min-h-[280px] md:min-h-[300px] flex flex-col justify-center max-w-2xl">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white shadow-sm text-[11px] font-semibold mb-4 self-start">
-                <MapPin size={12} className="text-[#E68910]" /> SERVING BHILAI
+            <div className="relative px-5 md:px-10 lg:px-12 py-6 md:py-10 min-h-[340px] md:min-h-[300px] flex flex-col justify-between md:justify-center max-w-2xl">
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white shadow-sm text-[11px] font-semibold mb-3 md:mb-4 self-start">
+                  <MapPin size={12} className="text-[#E68910]" /> SERVING BHILAI
+                </div>
+                <h1 className="display text-[28px] leading-[1.1] md:text-4xl lg:text-5xl font-bold tracking-tight text-[#1A2B4C]">
+                  Delivered in minutes from <span className="text-[#E68910]">stores next door.</span>
+                </h1>
+                <p className="mt-2.5 md:mt-3 text-[13px] md:text-base text-[#1A2B4C]/75 md:text-[#595959] max-w-md leading-relaxed">
+                  Hand-picked fashion from trusted Bhilai boutiques · 45-minute delivery.
+                </p>
               </div>
-              <h1 className="display text-3xl md:text-4xl lg:text-5xl font-bold leading-[1.05] tracking-tight text-[#1A2B4C]">
-                Delivered in minutes from <span className="text-[#E68910]">stores next door.</span>
-              </h1>
-              <p className="mt-3 text-sm md:text-base text-[#595959] max-w-md leading-relaxed">
-                Hand-picked fashion from trusted Bhilai boutiques · 45-minute delivery.
-              </p>
+
+              {/* Mobile-only inline ETA chip — sits at bottom of hero, semi-transparent so it doesn't crowd the image */}
+              <div className="md:hidden mt-4 inline-flex items-center gap-2.5 self-start px-3 py-2 rounded-2xl bg-white/95 backdrop-blur-sm shadow-md">
+                <div className="w-8 h-8 rounded-full bg-[#E68910] flex items-center justify-center shrink-0"><Bike size={14} className="text-white" /></div>
+                <div className="leading-tight">
+                  <div className="text-[10px] text-[#1A2B4C]/70 font-medium">Fast delivery</div>
+                  <div className="font-bold text-[#1A2B4C] display text-sm" data-testid="hero-fastest-eta-mobile">{fastestEta ? `${fastestEta} minutes` : "45 minutes"}</div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full bg-[#1A2B4C] text-white text-[9px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#E68910] animate-pulse" /> LIVE</span>
+              </div>
             </div>
 
+            {/* Desktop floating ETA card */}
             <div className="hidden md:flex absolute top-1/2 right-6 lg:right-10 -translate-y-1/2 bf-glass rounded-2xl p-3.5 items-center gap-3 min-w-[260px] shadow-xl">
               <div className="w-11 h-11 rounded-full bg-[#E68910] flex items-center justify-center shrink-0"><Bike size={18} className="text-white" /></div>
               <div className="flex-1">
