@@ -401,10 +401,12 @@ async def admin_cancel_order(oid: str, request: Request, payload: Optional[dict]
 # ===== Merchant KYC =====
 @api.post("/merchant/kyc/submit")
 async def kyc_submit(payload: KycSubmit, user: dict = Depends(get_current_user)):
+    # Re-submitting clears any prior hold so admins see it as a fresh review.
     await db.merchants.update_one({"id": user["sub"]}, {"$set": {
         **payload.model_dump(),
         "kyc_status": "submitted",
-        "kyc_submitted_at": datetime.now(timezone.utc).isoformat()}})
+        "kyc_submitted_at": datetime.now(timezone.utc).isoformat(),
+        "hold_comment": None, "hold_at": None}})
     return {"ok": True, "kyc_status": "submitted"}
 
 @api.get("/merchant/kyc/status")
@@ -900,10 +902,15 @@ async def admin_stores(request: Request):
                 "kyc_status": m.get("kyc_status"),
                 "kyc_submitted_at": m.get("kyc_submitted_at"),
                 "approved_at": m.get("approved_at"),
+                "hold_comment": m.get("hold_comment"),
+                "hold_at": m.get("hold_at"),
                 "bank_account_number": m.get("bank_account_number"),
                 "bank_ifsc": m.get("bank_ifsc"),
                 "account_holder_name": m.get("account_holder_name"),
                 "kyc_docs": m.get("kyc_docs", {}),
+                "pan_doc_b64": m.get("pan_doc_b64"),
+                "gst_doc_b64": m.get("gst_doc_b64"),
+                "cancelled_cheque_b64": m.get("cancelled_cheque_b64"),
             }
     return stores
 

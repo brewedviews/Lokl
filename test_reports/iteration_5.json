@@ -1,0 +1,51 @@
+{
+  "summary": "Iter-5 testing of (a) admin KYC Hold-with-comment + merchant resubmit, (b) Twilio inbound webhook, (c) /admin/stores merchant snapshot enrichment, (d) merchant multi-image product upload, (e) AdminPanel JSX compile fix. Backend: 14/14 pytest pass (test_iter5_flow.py) covering all listed endpoints. Frontend: AdminPanel.jsx now compiles and renders (no React syntax crash), 'On hold' option present in Approvals status dropdown — BUT a CRITICAL runtime-error overlay ('Failed to execute json on Response: body stream already read') blocks every admin interaction (KYC modal Hold flow, Stores tab DocPreview, Approvals load). RCA: backend /api/admin/change-requests function in server.py (line ~807-809) is MISSING the @api.get decorator → 404 → AdminPanel.jsx Promise.all at line 106-109 then calls r.json() twice on the failed Response. Merchant onboarding /merchant/onboarding hold UI and multi-image upload UI could not be visually validated because admin approval pipeline is unreachable while the overlay is up, but their backend contracts pass.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/admin/change-requests (GET)", "issue": "Handler `async def admin_change_requests` in server.py ~line 807 has NO @api.get decorator. Endpoint returns 404 in production, breaking AdminPanel Approvals load() which expects this JSON to render Bank/Address change requests AND triggers a runtime-error overlay in the entire admin UI. Add `@api.get(\"/admin/change-requests\")` decorator immediately above the function.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "/api/twilio/inbound", "issue": "Webhook accepts any sender phone because RIDER_PHONE is unset in this preview (per task brief). Before production, set RIDER_PHONE env var so random WhatsApp users can't mark orders delivered."},
+      {"endpoint": "/api/admin/stores", "issue": "Returns full base64 PAN/GST/cheque docs in every list call — payload grows with merchant count. Consider lazy-loading docs from a /api/admin/merchants/{mid}/docs endpoint."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AdminPanel ApprovalsTab.load()", "issue": "Runtime error overlay 'Failed to execute json on Response: body stream already read' covers entire admin UI on every admin route. Caused by /admin/change-requests returning 404 (see backend critical) — Promise.all branch calls .json() on a Response whose body was already consumed by apiFetch error handler. Fix backend route AND/OR guard with .then(r => r.ok ? r.json() : []).catch(()=>[]) inside Promise.all so a single failing fetch doesn't crash the page.", "selector": "AdminPanel.jsx:106-109", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [
+      {"flow": "Admin → Approvals → KYC modal → Hold-with-comment", "issue": "Could not validate end-to-end because runtime-error overlay blocks click events. KYC button text ('Approve', 'Reject') is rendered in DOM but the body-stream-read overlay intercepts pointer events. Once the backend route is fixed, please retest hold/textarea/empty-comment-toast flow.", "affected_selectors": ["AdminPanel KycModal", "Hold-with-comment button", "Hold comment textarea"]},
+      {"flow": "Admin → Stores tab → DocPreview", "issue": "Could not visually confirm PDF 'Open PDF' card vs JPEG render due to same overlay. Backend `/api/admin/stores` correctly exposes hold_comment/hold_at/pan_doc_b64/gst_doc_b64/cancelled_cheque_b64 (verified in pytest)."},
+      {"flow": "Merchant /merchant/onboarding hold view, Merchant /merchant/products Add-product multi-image modal, Product Detail carousel", "issue": "Not visually validated this iteration (focus blocked by admin overlay + token budget). Backend contract for multi-image create/update is green (test_iter5_flow.py)."}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter5_flow.py",
+    "/app/test_reports/pytest/results_iter5.xml"
+  ],
+  "action_items": [
+    "BACKEND (CRITICAL): Add `@api.get(\"/admin/change-requests\")` decorator above admin_change_requests in /app/backend/server.py around line 807 — endpoint is currently unrouted (404).",
+    "FRONTEND (CRITICAL): In /app/frontend/src/pages/AdminPanel.jsx lines 106-109, wrap each .then((r) => r.json()) with `.then(r => r.ok ? r.json() : []).catch(() => [])` so a single failing endpoint doesn't break the whole admin page and trigger the body-stream-already-read overlay.",
+    "After both fixes above, RE-RUN the frontend playwright validation for: (1) KYC modal three-button layout + Hold-with-comment textarea + empty-comment toast + non-empty hold succeeds, (2) Stores tab DocPreview PDF vs JPEG rendering, (3) Merchant /merchant/onboarding on_hold card with admin comment + Update KYC details + I've fixed it buttons, (4) Add-product modal 5-image grid + COVER badge + ImageManager edit modal, (5) Product detail carousel chevrons + dots when product has multiple images.",
+    "PRODUCTION: Set RIDER_PHONE env var so /api/twilio/inbound rejects non-rider senders."
+  ],
+  "critical_code_review_comments": [
+    "server.py:807-809 — admin_change_requests is undecorated. This is a regression from prior iterations where the same handler was reachable. Either restore the decorator or remove the handler.",
+    "AdminPanel.jsx:106-109 — Promise.all chain calls .then((r) => r.json()) with no error guard. Any single 4xx/5xx response will surface as 'body stream already read' because apiFetch likely already consumed the body. Switch to per-promise try/catch or guard with `r.ok ? r.json() : fallback`.",
+    "server.py is now 1293 lines — well past the 700-line guideline. Split into routers (auth/admin/merchant/customer/twilio/geo) to make missing-decorator regressions like the one above harder to introduce.",
+    "ProductCreate.images: List[str] has no per-image size cap. With 5 images × ~6 MB base64 dataURLs, a single POST/PUT can exceed typical 30 MB upload budgets and bloat every /api/products list response. Consider storing images in GridFS / object storage and persisting only URLs on the product doc."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter5_flow.py",
+    "/app/test_reports/iteration_5.json",
+    "/app/test_reports/pytest/results_iter5.xml"
+  ],
+  "success_rate": {"backend": "100% (14/14 iter5 pytest passing)", "frontend": "Admin/login + status dropdown PASS; KYC modal hold flow, Stores DocPreview, Merchant onboarding hold view, Multi-image upload UI NOT VALIDATED due to blocking runtime-error overlay"},
+  "test_credentials": "Admin admin@lokl.in / Admin@2026 verified. Iter5 pytest creates 2 fresh merchants per run (iter5_<uuid>@lokl.in / Iter5@2026 for hold flow, iter5p_<uuid>@lokl.in for multi-image + Twilio).",
+  "seed_data_creation": "test_iter5_flow.py creates: fresh merchant + KYC submit (used for hold/resubmit), separate fresh merchant + KYC approved + storefront + published + 1 product (TEST_MultiImg Tee) + 1 live accepted order whose OTP is then used to validate /api/twilio/inbound delivery flip.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/test_iter5_flow.py -v` (~10s, 14 tests). For frontend, the BLOCKER is the /api/admin/change-requests 404 — once the missing @api.get decorator is restored AND AdminPanel.jsx load() guards .json() with r.ok check, retest: (1) admin KYC modal three-button row (Reject/Hold with comment/Approve), (2) Hold textarea + empty-comment toast + non-empty hold success flow, (3) Stores tab DocPreview (PDF → 'Open PDF' card, JPEG/PNG → image render, correct download extension), (4) Merchant /merchant/onboarding on_hold card with hold_comment + 'Update KYC details' link + 'I've fixed it — re-review now' button, (5) /merchant/products Add-product modal multi-image (5 thumbs, COVER badge on first, remove individual), (6) ImageManager edit modal add/remove/reorder, (7) /product/{id} carousel chevrons + dots with multiple images.",
+  "rca of the issue": "Symptom: After admin login, full-screen red 'Uncaught runtime errors: Failed to execute json on Response: body stream already read' overlay blocks every click. RCA: /app/backend/server.py defines `async def admin_change_requests(...)` at ~line 807 but the `@api.get(\"/admin/change-requests\")` decorator was lost in a prior edit. The endpoint now returns 404. /app/frontend/src/pages/AdminPanel.jsx ApprovalsTab.load() runs `Promise.all([fetch('/admin/merchants?...').then(r=>r.json()), fetch('/admin/change-requests...').then(r=>r.json())])`. apiFetch likely reads the body of the 404 response once for error logging, then the .then(r=>r.json()) tries to read it again → 'body stream already read'. Mitigation: (a) restore decorator on backend handler, (b) defensively wrap each promise with r.ok ? r.json() : []."
+}

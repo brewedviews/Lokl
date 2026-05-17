@@ -18,11 +18,13 @@ export default function MerchantProducts() {
   const [cats, setCats] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
   const [openImg, setOpenImg] = useState(null);
-  const blankForm = { name: "", price: "", mrp: "", l1_id: "", l2_id: "", gender: "", description: "", image: "", stock: {} };
+  const blankForm = { name: "", price: "", mrp: "", l1_id: "", l2_id: "", gender: "", description: "", images: [], stock: {} };
   const [form, setForm] = useState(blankForm);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+
+  const MAX_IMAGES = 5;
 
   const toggleSel = (id) => {
     setSelectedIds((prev) => {
@@ -74,19 +76,22 @@ export default function MerchantProducts() {
   const onPickFile = (file) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) return toast.error("Image too large (max 5MB)");
+    if (form.images.length >= MAX_IMAGES) return toast.error(`Max ${MAX_IMAGES} images per product`);
     setImageBusy(true);
     const r = new FileReader();
-    r.onload = () => { setForm((f) => ({ ...f, image: r.result })); setImageBusy(false); };
+    r.onload = () => { setForm((f) => ({ ...f, images: [...f.images, r.result] })); setImageBusy(false); };
     r.onerror = () => { toast.error("Could not read image"); setImageBusy(false); };
     r.readAsDataURL(file);
   };
+
+  const removeImage = (idx) => setForm((f) => ({ ...f, images: f.images.filter((_, i) => i !== idx) }));
 
   const submit = async (e) => {
     e.preventDefault();
     if (!form.l1_id) return toast.error("Pick a category");
     if (needsL2 && !form.l2_id) return toast.error("Pick a sub-category");
     if (needsGender && !form.gender) return toast.error("Pick gender for this category");
-    if (!form.image) return toast.error("Upload a product image");
+    if (!form.images.length) return toast.error("Upload at least one product image");
     const sizes = Object.keys(form.stock);
     if (sizes.length === 0) return toast.error("Add quantity for at least one size");
     try {
@@ -94,7 +99,7 @@ export default function MerchantProducts() {
         name: form.name, description: form.description,
         l1_id: form.l1_id, l2_id: form.l2_id, gender: form.gender,
         price: Number(form.price), mrp: Number(form.mrp) || null,
-        image: form.image, sizes, stock: form.stock,
+        image: form.images[0], images: form.images, sizes, stock: form.stock,
       });
       toast.success("Product added");
       setOpenAdd(false);
@@ -237,19 +242,28 @@ export default function MerchantProducts() {
                   <option value="women">Women</option><option value="men">Men</option><option value="unisex">Unisex</option><option value="kids">Kids</option>
                 </select>
               )}
-              {/* Image upload (file → base64) */}
+              {/* Image upload — up to 5 images, file → base64 */}
               <div>
-                <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-1.5">Product image *</div>
-                <div className="flex items-center gap-3">
-                  <div className="w-20 h-24 rounded-xl overflow-hidden bg-[#FDFBF7] border border-dashed border-[#E5E2DC] flex items-center justify-center shrink-0">
-                    {form.image ? <img src={form.image} alt="preview" className="w-full h-full object-cover" /> : <ImagePlus size={20} className="text-[#E5E2DC]" />}
-                  </div>
-                  <label className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#E5E2DC] cursor-pointer hover:border-[#1A2B4C] text-sm">
-                    <Upload size={14} />
-                    <span>{imageBusy ? "Reading…" : form.image ? "Replace image" : "Upload image"}</span>
-                    <input data-testid="prod-add-image" type="file" accept="image/*" className="hidden" onChange={(e) => onPickFile(e.target.files?.[0])} />
-                  </label>
+                <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-1.5">Product images * <span className="text-[#595959] normal-case tracking-normal">({form.images.length}/{MAX_IMAGES})</span></div>
+                <div className="flex flex-wrap gap-2 items-start">
+                  {form.images.map((src, i) => (
+                    <div key={i} className="relative w-20 h-24 rounded-xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC]" data-testid={`prod-image-thumb-${i}`}>
+                      <img src={src} alt={`preview-${i}`} className="w-full h-full object-cover" />
+                      {i === 0 && <span className="absolute bottom-0 left-0 right-0 text-[9px] font-bold text-white bg-[#1A2B4C]/80 text-center py-0.5">COVER</span>}
+                      <button type="button" onClick={() => removeImage(i)} aria-label={`Remove image ${i + 1}`} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white/95 shadow flex items-center justify-center hover:bg-red-100">
+                        <X size={11} className="text-red-500" />
+                      </button>
+                    </div>
+                  ))}
+                  {form.images.length < MAX_IMAGES && (
+                    <label className="w-20 h-24 rounded-xl bg-[#FDFBF7] border border-dashed border-[#E5E2DC] flex flex-col items-center justify-center cursor-pointer hover:border-[#1A2B4C] text-[10px] text-[#595959] gap-1">
+                      <ImagePlus size={18} className="text-[#E5E2DC]" />
+                      <span>{imageBusy ? "Reading…" : "Add"}</span>
+                      <input data-testid="prod-add-image" type="file" accept="image/*" className="hidden" onChange={(e) => { onPickFile(e.target.files?.[0]); e.target.value = ""; }} />
+                    </label>
+                  )}
                 </div>
+                <p className="text-[10px] text-[#595959] mt-1">First image becomes the cover. Customers see all images as a carousel on the product page.</p>
               </div>
 
               {/* Size + Quantity grid */}
@@ -288,23 +302,34 @@ export default function MerchantProducts() {
 }
 
 function ImageManager({ product, onClose }) {
-  const [image, setImage] = useState(product.image || "");
+  const initial = (product.images && product.images.length > 0)
+    ? product.images
+    : (product.image ? [product.image] : []);
+  const [images, setImages] = useState(initial);
   const [busy, setBusy] = useState(false);
+  const MAX = 5;
 
   const upload = async (f) => {
     if (!f) return;
     if (f.size > 5 * 1024 * 1024) return toast.error("Image too large (max 5MB)");
+    if (images.length >= MAX) return toast.error(`Max ${MAX} images per product`);
     setBusy(true);
     const r = new FileReader();
-    r.onload = () => { setImage(r.result); setBusy(false); };
+    r.onload = () => { setImages((arr) => [...arr, r.result]); setBusy(false); };
     r.onerror = () => { toast.error("Could not read image"); setBusy(false); };
     r.readAsDataURL(f);
   };
 
+  const removeAt = (idx) => setImages((arr) => arr.filter((_, i) => i !== idx));
+  const moveToFront = (idx) => setImages((arr) => {
+    if (idx === 0) return arr;
+    const next = arr.slice(); const [it] = next.splice(idx, 1); next.unshift(it); return next;
+  });
+
   const save = async () => {
-    if (!image) return toast.error("Upload an image first");
+    if (!images.length) return toast.error("Add at least one image");
     try {
-      await api.put(`/merchant/products/${product.id}`, { image });
+      await api.put(`/merchant/products/${product.id}`, { image: images[0], images });
       toast.success("Saved"); onClose();
     } catch { toast.error("Save failed"); }
   };
@@ -313,17 +338,36 @@ function ImageManager({ product, onClose }) {
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="display text-xl font-bold text-[#1A2B4C]">{product.name} — Image</h3>
+          <h3 className="display text-xl font-bold text-[#1A2B4C]">{product.name} — Images <span className="text-xs font-normal text-[#595959]">({images.length}/{MAX})</span></h3>
           <button onClick={onClose} className="w-9 h-9 rounded-full border border-[#E5E2DC] flex items-center justify-center"><X size={16} /></button>
         </div>
-        <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">Product image</div>
-        <div className="aspect-[4/5] rounded-2xl overflow-hidden bg-[#FDFBF7] border-2 border-dashed border-[#E5E2DC] flex items-center justify-center">
-          {image ? <img src={image} alt="product" className="w-full h-full object-cover" /> : <Package className="text-[#E5E2DC]" size={48} />}
-        </div>
-        <label className="mt-3 flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border border-[#E5E2DC] cursor-pointer hover:border-[#1A2B4C]">
-          <Upload size={14} /> <span className="text-sm">{busy ? "Reading…" : image ? "Replace image" : "Upload image"}</span>
-          <input data-testid="prod-image-upload" type="file" accept="image/*" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
-        </label>
+        <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">Carousel preview (first = cover)</div>
+        {images.length > 0 ? (
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {images.map((src, i) => (
+              <div key={i} data-testid={`mgr-thumb-${i}`} className={`relative aspect-square rounded-xl overflow-hidden border-2 ${i === 0 ? "border-[#1A2B4C]" : "border-[#E5E2DC]"}`}>
+                <img src={src} alt={`img-${i}`} className="w-full h-full object-cover" />
+                {i === 0 && <span className="absolute bottom-0 left-0 right-0 text-[9px] font-bold text-white bg-[#1A2B4C]/80 text-center py-0.5">COVER</span>}
+                <div className="absolute top-1 right-1 flex flex-col gap-1">
+                  <button type="button" onClick={() => removeAt(i)} aria-label="Remove" className="w-6 h-6 rounded-full bg-white/95 shadow flex items-center justify-center hover:bg-red-100"><X size={12} className="text-red-500" /></button>
+                  {i !== 0 && (
+                    <button type="button" onClick={() => moveToFront(i)} aria-label="Make cover" data-testid={`mgr-cover-${i}`} className="w-6 h-6 rounded-full bg-white/95 shadow flex items-center justify-center text-[#1A2B4C] text-[10px] font-bold hover:bg-[#E68910] hover:text-white">★</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="aspect-[4/5] rounded-2xl overflow-hidden bg-[#FDFBF7] border-2 border-dashed border-[#E5E2DC] flex items-center justify-center mb-3">
+            <Package className="text-[#E5E2DC]" size={48} />
+          </div>
+        )}
+        {images.length < MAX && (
+          <label className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-full border border-[#E5E2DC] cursor-pointer hover:border-[#1A2B4C]">
+            <Upload size={14} /> <span className="text-sm">{busy ? "Reading…" : "Add image"}</span>
+            <input data-testid="prod-image-upload" type="file" accept="image/*" className="hidden" onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ""; }} />
+          </label>
+        )}
         <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-[#E5E2DC]">
           <button onClick={onClose} className="px-5 py-2.5 rounded-full border border-[#E5E2DC]">Close</button>
           <button onClick={save} data-testid="save-images" className="px-5 py-2.5 rounded-full bg-[#E68910] text-white font-semibold">Save</button>

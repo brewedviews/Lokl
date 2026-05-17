@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Shield, CheckCircle2, XCircle, Eye, LogOut, Clock, Store as StoreIcon, Pause, Play, Trash2, Download, Sparkles, AlertTriangle } from "lucide-react";
+import { Shield, CheckCircle2, XCircle, Eye, LogOut, Clock, Store as StoreIcon, Pause, Play, Trash2, Download, Sparkles, AlertTriangle, PauseCircle, FileText } from "lucide-react";
 import api, { API } from "../lib/api";
 import { toast } from "sonner";
 
@@ -118,6 +118,12 @@ function ApprovalsTab() {
     await apiFetch(`/admin/merchants/${mid}/reject`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
     toast.success("Rejected"); setSelected(null); load();
   };
+  const hold = async (mid, comment) => {
+    if (!comment || !comment.trim()) { toast.error("Comment required so the merchant knows what to fix"); return; }
+    const r = await apiFetch(`/admin/merchants/${mid}/hold`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ comment: comment.trim() }) });
+    if (r.ok) { toast.success("Put on hold — merchant notified"); setSelected(null); load(); }
+    else { const e = await r.json().catch(() => ({})); toast.error(e.detail || "Failed to hold"); }
+  };
   const approveCR = async (cid) => { await apiFetch(`/admin/change-requests/${cid}/approve`, { method: "POST" }); toast.success("Change approved"); setSelectedCR(null); load(); };
   const rejectCR = async (cid) => {
     const reason = window.prompt("Reason?", "Please re-submit with clearer documents.");
@@ -146,8 +152,11 @@ function ApprovalsTab() {
             <option value="30d">Last 30d</option><option value="quarter">Last quarter</option>
           </select>
           {subtab === "kyc" && (
-            <select value={kycStatus} onChange={(e) => setKycStatus(e.target.value)} className="px-3 py-2 rounded-full bg-white border border-[#E5E2DC] text-xs">
-              <option value="submitted">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option>
+            <select value={kycStatus} onChange={(e) => setKycStatus(e.target.value)} data-testid="admin-kyc-status" className="px-3 py-2 rounded-full bg-white border border-[#E5E2DC] text-xs">
+              <option value="submitted">Pending</option>
+              <option value="on_hold">On hold</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
             </select>
           )}
           <button onClick={download} data-testid="export-csv" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#E68910] text-white text-xs font-semibold"><Download size={12} /> Excel</button>
@@ -196,20 +205,81 @@ function ApprovalsTab() {
         )}
       </div>
 
-      {selected && <KycModal merchant={selected} onClose={() => setSelected(null)} onApprove={approve} onReject={reject} />}
+      {selected && <KycModal merchant={selected} onClose={() => setSelected(null)} onApprove={approve} onReject={reject} onHold={hold} />}
       {selectedCR && <ChangeModal cr={selectedCR} onClose={() => setSelectedCR(null)} onApprove={approveCR} onReject={rejectCR} />}
     </div>
   );
 }
 
-function KycModal({ merchant, onClose, onApprove, onReject }) {
+// Sniff base64 to figure out the file kind. Stored docs lack mime metadata so
+// we peek at the first few base64 chars (each char = 6 bits of the binary
+// signature) to recognise PDF / JPG / PNG / WebP. Falls back to JPEG for legacy
+// uploads that have neither prefix nor magic header.
+function decodeDocMime(b64) {
+  if (!b64) return { mime: "application/octet-stream", ext: "bin", isPdf: false, isImg: false };
+  // Some stored docs may already carry a `data:...;base64,` prefix
+  if (b64.startsWith("data:")) {
+    const m = /^data:([^;]+);base64,(.*)$/i.exec(b64);
+    if (m) {
+      const mime = m[1];
+      return {
+        mime,
+        ext: mime === "application/pdf" ? "pdf" : mime.split("/")[1] || "bin",
+        b64: m[2],
+        isPdf: mime === "application/pdf",
+        isImg: mime.startsWith("image/"),
+      };
+    }
+  }
+  const head = b64.slice(0, 8);
+  if (head.startsWith("JVBER")) return { mime: "application/pdf", ext: "pdf", b64, isPdf: true, isImg: false };
+  if (head.startsWith("iVBOR")) return { mime: "image/png", ext: "png", b64, isPdf: false, isImg: true };
+  if (head.startsWith("R0lGOD")) return { mime: "image/gif", ext: "gif", b64, isPdf: false, isImg: true };
+  if (head.startsWith("UklGR")) return { mime: "image/webp", ext: "webp", b64, isPdf: false, isImg: true };
+  if (head.startsWith("/9j/")) return { mime: "image/jpeg", ext: "jpg", b64, isPdf: false, isImg: true };
+  return { mime: "image/jpeg", ext: "jpg", b64, isPdf: false, isImg: true };
+}
+
+function DocPreview({ label, data, filename }) {
+  const { mime, ext, b64, isPdf, isImg } = decodeDocMime(data);
+  const dl = `${(filename || label).toString().toLowerCase().replace(/\s+/g, "-")}.${ext}`;
+  if (!data) return <div className="bg-[#FDFBF7] rounded-xl p-3 text-xs text-[#595959]">{label}: not uploaded</div>;
+  return (
+    <div className="bg-[#FDFBF7] rounded-xl p-2" data-testid={`doc-${label}`}>
+      <div className="text-[10px] uppercase text-[#595959] mb-1 flex items-center gap-1">{isPdf && <FileText size={11} />}{label}</div>
+      {isImg && <img src={`data:${mime};base64,${b64}`} alt={label} className="w-full h-32 object-cover rounded" onError={(e) => { e.target.style.display = "none"; }} />}
+      {isPdf && (
+        <a href={`data:${mime};base64,${b64}`} target="_blank" rel="noopener noreferrer" className="block w-full h-32 rounded bg-white border border-[#E5E2DC] flex items-center justify-center text-xs font-semibold text-[#1A2B4C] hover:border-[#E68910]">
+          <FileText size={20} className="mr-1.5" /> Open PDF
+        </a>
+      )}
+      <a href={`data:${mime};base64,${b64}`} download={dl} className="text-[10px] text-[#E68910] hover:underline mt-1 inline-block">Download .{ext}</a>
+    </div>
+  );
+}
+
+function KycModal({ merchant, onClose, onApprove, onReject, onHold }) {
+  const [holdComment, setHoldComment] = useState("");
+  const [showHoldBox, setShowHoldBox] = useState(false);
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl w-full max-w-3xl p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <div><h2 className="display text-2xl font-bold text-[#1A2B4C]">{merchant.store_name}</h2><p className="text-sm text-[#595959]">{merchant.owner_name} · {merchant.email}</p></div>
+          <div>
+            <h2 className="display text-2xl font-bold text-[#1A2B4C]">{merchant.store_name}</h2>
+            <p className="text-sm text-[#595959]">{merchant.owner_name} · {merchant.email}</p>
+          </div>
           <button onClick={onClose}><XCircle size={20} /></button>
         </div>
+
+        {merchant.kyc_status === "on_hold" && merchant.hold_comment && (
+          <div data-testid="hold-banner" className="mb-4 p-3 rounded-2xl bg-[#E68910]/10 border border-[#E68910]/30">
+            <div className="text-[10px] uppercase tracking-widest text-[#E68910] font-bold mb-1 flex items-center gap-1"><PauseCircle size={12} /> Currently on hold</div>
+            <div className="text-sm text-[#1C1C1C]">{merchant.hold_comment}</div>
+            {merchant.hold_at && <div className="text-[10px] text-[#595959] mt-1">Sent {new Date(merchant.hold_at).toLocaleString()}</div>}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3 text-sm mb-4">
           {[["Business name", merchant.business_name], ["Type", merchant.business_type], ["Category", merchant.business_category],
             ["Address", merchant.business_address], ["PAN", merchant.pan_number], ["GST", merchant.gst_number],
@@ -218,17 +288,33 @@ function KycModal({ merchant, onClose, onApprove, onReject }) {
           ))}
         </div>
         <div className="grid grid-cols-3 gap-2 mb-4">
-          {[["PAN", merchant.pan_doc_b64], ["GST", merchant.gst_doc_b64], ["Cheque", merchant.cancelled_cheque_b64]].map(([label, b64]) => b64 ? (
-            <div key={label} className="bg-[#FDFBF7] rounded-xl p-2">
-              <div className="text-[10px] uppercase text-[#595959] mb-1">{label}</div>
-              <img src={`data:image/*;base64,${b64}`} alt={label} className="w-full h-32 object-cover rounded" onError={(e) => { e.target.style.display = "none"; }} />
-              <a href={`data:application/octet-stream;base64,${b64}`} download={`${merchant.id}-${label.toLowerCase()}.bin`} className="text-[10px] text-[#E68910] hover:underline">Download</a>
-            </div>
-          ) : <div key={label} className="bg-[#FDFBF7] rounded-xl p-3 text-xs text-[#595959]">{label}: not uploaded</div>)}
+          <DocPreview label="PAN" data={merchant.pan_doc_b64} filename={`${merchant.id}-pan`} />
+          <DocPreview label="GST" data={merchant.gst_doc_b64} filename={`${merchant.id}-gst`} />
+          <DocPreview label="Cheque" data={merchant.cancelled_cheque_b64} filename={`${merchant.id}-cheque`} />
         </div>
-        {merchant.kyc_status === "submitted" && (
-          <div className="flex gap-2 pt-4 border-t border-[#E5E2DC] justify-end">
+
+        {showHoldBox && (
+          <div className="mb-3 p-3 rounded-2xl bg-[#E68910]/5 border border-[#E68910]/30">
+            <div className="text-[10px] uppercase tracking-widest text-[#E68910] font-bold mb-2">What does the merchant need to fix?</div>
+            <textarea
+              data-testid={`hold-comment-${merchant.id}`}
+              value={holdComment}
+              onChange={(e) => setHoldComment(e.target.value)}
+              rows={3}
+              placeholder="e.g. The PAN photo is blurry — please re-upload a clearer copy."
+              className="w-full px-3 py-2 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#E68910] text-sm"
+            />
+            <div className="flex gap-2 mt-2 justify-end">
+              <button onClick={() => { setShowHoldBox(false); setHoldComment(""); }} className="px-4 py-2 rounded-full border border-[#E5E2DC] text-xs">Cancel</button>
+              <button data-testid={`confirm-hold-${merchant.id}`} onClick={() => onHold(merchant.id, holdComment)} className="px-4 py-2 rounded-full bg-[#E68910] text-white text-xs font-semibold">Send hold message</button>
+            </div>
+          </div>
+        )}
+
+        {(merchant.kyc_status === "submitted" || merchant.kyc_status === "on_hold") && !showHoldBox && (
+          <div className="flex gap-2 pt-4 border-t border-[#E5E2DC] justify-end flex-wrap">
             <button data-testid={`reject-${merchant.id}`} onClick={() => onReject(merchant.id)} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-red-300 text-red-500 font-semibold hover:bg-red-50"><XCircle size={14} /> Reject</button>
+            <button data-testid={`hold-${merchant.id}`} onClick={() => setShowHoldBox(true)} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-[#E68910] text-[#E68910] font-semibold hover:bg-[#E68910]/10"><PauseCircle size={14} /> Hold with comment</button>
             <button data-testid={`approve-${merchant.id}`} onClick={() => onApprove(merchant.id)} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#4F7363] text-white font-semibold"><CheckCircle2 size={14} /> Approve</button>
           </div>
         )}
@@ -336,12 +422,15 @@ function StoresTab() {
                     </div>
                   </div>
                 )}
-                {/* Uploaded KYC docs */}
-                {s.merchant?.kyc_docs && Object.keys(s.merchant.kyc_docs).length > 0 && (
+                {/* Uploaded KYC docs (PAN / GST / Cheque + any legacy kyc_docs map) */}
+                {(s.merchant?.pan_doc_b64 || s.merchant?.gst_doc_b64 || s.merchant?.cancelled_cheque_b64 || (s.merchant?.kyc_docs && Object.keys(s.merchant.kyc_docs).length > 0)) && (
                   <div>
                     <div className="text-[10px] uppercase tracking-widest text-[#595959] mb-2">Uploaded documents</div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                      {Object.entries(s.merchant.kyc_docs).map(([k, v]) => <DocPreview key={k} label={k} data={v} />)}
+                      {s.merchant.pan_doc_b64 && <DocPreview label="PAN" data={s.merchant.pan_doc_b64} filename={`${s.merchant.id}-pan`} />}
+                      {s.merchant.gst_doc_b64 && <DocPreview label="GST" data={s.merchant.gst_doc_b64} filename={`${s.merchant.id}-gst`} />}
+                      {s.merchant.cancelled_cheque_b64 && <DocPreview label="Cheque" data={s.merchant.cancelled_cheque_b64} filename={`${s.merchant.id}-cheque`} />}
+                      {Object.entries(s.merchant.kyc_docs || {}).map(([k, v]) => <DocPreview key={k} label={k} data={v} filename={`${s.merchant.id}-${k}`} />)}
                     </div>
                   </div>
                 )}
