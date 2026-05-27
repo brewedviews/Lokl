@@ -84,7 +84,7 @@ export function AdminDashboard() {
         </div>
 
         <div className="flex gap-2 mb-5 flex-wrap">
-          {[["approvals", "Approvals"], ["stores", "Stores"], ["live", "Live orders"], ["delivered", "Delivered"], ["liveusers", "Live users"], ["customers", "Customers"]].map(([k, l]) => (
+          {[["approvals", "Approvals"], ["stores", "Stores"], ["live", "Live orders"], ["delivered", "Delivered"], ["returns", "Returns"], ["complaints", "Complaints"], ["liveusers", "Live users"], ["customers", "Customers"]].map(([k, l]) => (
             <button key={k} data-testid={`admin-tab-${k}`} onClick={() => setTab(k)}
               className={`px-5 py-2 rounded-full text-sm font-semibold transition ${tab === k ? "bg-[#1A2B4C] text-white" : "bg-white border border-[#E5E2DC] text-[#595959]"}`}>{l}</button>
           ))}
@@ -94,6 +94,8 @@ export function AdminDashboard() {
         {tab === "stores" && <StoresTab />}
         {tab === "live" && <OrdersTab kind="live" />}
         {tab === "delivered" && <OrdersTab kind="delivered" />}
+        {tab === "returns" && <ReturnsTab />}
+        {tab === "complaints" && <ComplaintsTab />}
         {tab === "liveusers" && <LiveUsersTab />}
         {tab === "customers" && <CustomersTab />}
       </div>
@@ -649,6 +651,189 @@ function LiveUsersTab() {
     </div>
   );
 }
+
+const RETURN_STATUS_PILLS = {
+  requested: { l: "Requested", c: "bg-[#E68910]/15 text-[#E68910]" },
+  pickup_assigned: { l: "Pickup assigned", c: "bg-[#1A2B4C]/15 text-[#1A2B4C]" },
+  arriving: { l: "Arriving", c: "bg-purple-100 text-purple-700" },
+  picked_up: { l: "Picked up", c: "bg-blue-100 text-blue-700" },
+  completed: { l: "Completed", c: "bg-green-100 text-green-700" },
+};
+const NEXT_ACTION = {
+  requested: { key: "assign", label: "Assign pickup" },
+  pickup_assigned: { key: "arriving", label: "Mark arriving" },
+  arriving: { key: "picked_up", label: "Mark picked up" },
+  picked_up: { key: "complete", label: "Mark completed" },
+};
+
+function ReturnsTab() {
+  const [returns, setReturns] = useState([]);
+  const [analytics, setAnalytics] = useState({ total: 0, by_reason: [], by_merchant: [], by_status: [] });
+  const [statusFilter, setStatusFilter] = useState("");
+  const [busy, setBusy] = useState(true);
+
+  const load = async () => {
+    setBusy(true);
+    const [rs, an] = await Promise.all([
+      safeJson(apiFetch(`/admin/returns${statusFilter ? `?status=${statusFilter}` : ""}`), []),
+      safeJson(apiFetch("/admin/returns/analytics"), { total: 0, by_reason: [], by_merchant: [], by_status: [] }),
+    ]);
+    setReturns(Array.isArray(rs) ? rs : []);
+    setAnalytics(an && typeof an === "object" && !Array.isArray(an) ? an : { total: 0, by_reason: [], by_merchant: [], by_status: [] });
+    setBusy(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter]);
+
+  const advance = async (rid, actionKey) => {
+    const r = await apiFetch(`/admin/returns/${rid}/${actionKey}`, { method: "POST" });
+    if (r.ok) { toast.success("Updated"); load(); }
+    else { const e = await r.json().catch(() => ({})); toast.error(e.detail || "Failed"); }
+  };
+
+  return (
+    <div data-testid="returns-tab">
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div>
+          <h2 className="display text-xl font-bold text-[#1A2B4C]">Returns</h2>
+          <p className="text-xs text-[#595959]">{analytics.total} return requests total · refresh every action</p>
+        </div>
+        <select data-testid="returns-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-full bg-white border border-[#E5E2DC] text-xs">
+          <option value="">All statuses</option>
+          {Object.entries(RETURN_STATUS_PILLS).map(([k, v]) => <option key={k} value={k}>{v.l}</option>)}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+        {(analytics.by_status || []).map((s) => {
+          const meta = RETURN_STATUS_PILLS[s.status] || { l: s.status, c: "bg-zinc-100 text-zinc-700" };
+          return (
+            <div key={s.status} className="bg-white border border-[#E5E2DC] rounded-2xl p-3" data-testid={`returns-stat-${s.status}`}>
+              <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${meta.c}`}>{meta.l}</div>
+              <div className="display text-2xl font-bold text-[#1A2B4C] mt-1.5">{s.count}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-3 mb-5">
+        <div className="bg-white border border-[#E5E2DC] rounded-2xl p-4">
+          <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">Reasons</div>
+          {(analytics.by_reason || []).length === 0 ? <div className="text-xs text-[#595959]">No data yet.</div> :
+            <div className="space-y-1.5">
+              {analytics.by_reason.map((r) => (
+                <div key={r.reason} className="flex items-center gap-2 text-sm" data-testid={`reason-row-${r.reason}`}>
+                  <div className="flex-1 truncate text-[#1A2B4C]">{r.reason}</div>
+                  <div className="font-semibold text-[#1A2B4C] tabular-nums">{r.count}</div>
+                </div>
+              ))}
+            </div>}
+        </div>
+        <div className="bg-white border border-[#E5E2DC] rounded-2xl p-4">
+          <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">By merchant</div>
+          {(analytics.by_merchant || []).length === 0 ? <div className="text-xs text-[#595959]">No data yet.</div> :
+            <div className="space-y-1.5">
+              {analytics.by_merchant.slice(0, 8).map((m) => (
+                <div key={m.merchant_id} className="flex items-center gap-2 text-sm">
+                  <div className="flex-1 truncate text-[#1A2B4C]">{m.store_name}</div>
+                  <div className="font-semibold text-[#1A2B4C] tabular-nums">{m.count}</div>
+                </div>
+              ))}
+            </div>}
+        </div>
+      </div>
+
+      {busy ? <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]">Loading…</div>
+        : returns.length === 0 ? <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]">No return requests for this filter.</div>
+        : <div className="space-y-2">
+            {returns.map((r) => {
+              const meta = RETURN_STATUS_PILLS[r.status] || { l: r.status, c: "bg-zinc-100 text-zinc-700" };
+              const next = NEXT_ACTION[r.status];
+              return (
+                <div key={r.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4" data-testid={`return-row-${r.id}`}>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <div className="font-semibold text-[#1A2B4C]">{r.id} <span className="text-xs text-[#595959] font-normal">· order {r.order_id}</span></div>
+                      <div className="text-[11px] text-[#595959]">{new Date(r.created_at).toLocaleString()} · {r.reason} · {(r.items || []).length} item(s) · OTP {r.otp}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] uppercase font-bold px-2.5 py-1 rounded-full ${meta.c}`}>{meta.l}</span>
+                      {next && <button data-testid={`advance-${next.key}-${r.id}`} onClick={() => advance(r.id, next.key)} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-[#E68910] text-white hover:bg-[#cc7a0a]">{next.label}</button>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>}
+    </div>
+  );
+}
+
+const COMPLAINT_TYPE_LABEL = {
+  return: "Return",
+  missing_item: "Missing item",
+  damaged_item: "Damaged item",
+  delivery_issue: "Delivery issue",
+  general: "General",
+};
+
+function ComplaintsTab() {
+  const [list, setList] = useState([]);
+  const [statusFilter, setStatusFilter] = useState("open");
+  const [busy, setBusy] = useState(true);
+
+  const load = async () => {
+    setBusy(true);
+    const d = await safeJson(apiFetch(`/admin/complaints${statusFilter ? `?status=${statusFilter}` : ""}`), []);
+    setList(Array.isArray(d) ? d : []);
+    setBusy(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter]);
+
+  const resolve = async (cid) => {
+    const note = window.prompt("Resolution note (optional)", "") || "";
+    const r = await apiFetch(`/admin/complaints/${cid}/resolve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note }) });
+    if (r.ok) { toast.success("Resolved"); load(); }
+  };
+
+  return (
+    <div data-testid="complaints-tab">
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div>
+          <h2 className="display text-xl font-bold text-[#1A2B4C]">Complaints</h2>
+          <p className="text-xs text-[#595959]">{list.length} complaint(s) in this filter</p>
+        </div>
+        <select data-testid="complaints-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-full bg-white border border-[#E5E2DC] text-xs">
+          <option value="open">Open</option>
+          <option value="resolved">Resolved</option>
+          <option value="">All</option>
+        </select>
+      </div>
+
+      {busy ? <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]">Loading…</div>
+        : list.length === 0 ? <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]">No complaints in this filter.</div>
+        : <div className="space-y-2">
+            {list.map((c) => (
+              <div key={c.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4" data-testid={`complaint-row-${c.id}`}>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="font-semibold text-[#1A2B4C]">{c.id} <span className="text-xs text-[#595959] font-normal">· order {c.order_id}</span></div>
+                    <div className="text-[11px] text-[#595959]">{new Date(c.created_at).toLocaleString()} · {COMPLAINT_TYPE_LABEL[c.type] || c.type} · {c.customer_phone}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] uppercase font-bold px-2.5 py-1 rounded-full ${c.status === "resolved" ? "bg-green-100 text-green-700" : "bg-[#E68910]/15 text-[#E68910]"}`}>{c.status}</span>
+                    {c.status !== "resolved" && <button data-testid={`resolve-${c.id}`} onClick={() => resolve(c.id)} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-[#1A2B4C] text-white hover:bg-[#101D36]">Resolve</button>}
+                  </div>
+                </div>
+                <p className="text-sm text-[#1A2B4C] mt-2 whitespace-pre-wrap">{c.message}</p>
+                {c.resolution_note && <p className="text-[11px] text-[#595959] mt-1">Resolution: {c.resolution_note}</p>}
+              </div>
+            ))}
+          </div>}
+    </div>
+  );
+}
+
+
 
 function CustomersTab() {
   const [list, setList] = useState([]);

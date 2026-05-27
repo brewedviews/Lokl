@@ -19,6 +19,7 @@ from notifications import (
     notify_order_on_the_way, notify_order_cancelled, notify_rider_pickup,
     notify_rider_return_pickup, notify_return_status,
 )
+from ai_enhance import enhance_product_images
 
 load_dotenv(Path(__file__).parent / ".env")
 
@@ -538,6 +539,25 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
     payload.pop("id", None); payload.pop("merchant_id", None)
     await db.products.update_one({"id": pid}, {"$set": payload})
     return await db.products.find_one({"id": pid}, {"_id": 0})
+
+@api.post("/merchant/ai/enhance-image")
+async def merchant_ai_enhance_image(payload: dict, user: dict = Depends(get_current_user)):
+    """Generate 4 standalone catalog-grade images from a raw product photo.
+
+    Payload: {image: base64 (data-URL or bare)}
+    Response: {outputs: [{kind, ok, image}, …]}  -- 4 entries in order: outdoor_1, outdoor_2, studio_1, studio_2
+    """
+    ref = (payload or {}).get("image") or ""
+    if not ref:
+        raise HTTPException(400, "Reference image required")
+    try:
+        result = await enhance_product_images(ref)
+    except Exception as exc:
+        log.exception("[ai_enhance] failure for merchant=%s", user["sub"])
+        raise HTTPException(500, f"AI enhancement failed: {exc}")
+    return result
+
+
 
 @api.post("/merchant/products/bulk-action")
 async def merchant_products_bulk_action(payload: dict, user: dict = Depends(get_current_user)):
@@ -1365,6 +1385,49 @@ async def merchant_returns(user: dict = Depends(get_current_user)):
     for r in rs:
         r["customer_phone"] = "(hidden)"
     return rs
+
+
+@api.get("/merchant/analytics/returns")
+async def merchant_returns_analytics(user: dict = Depends(get_current_user)):
+    """Returns rate + reason histogram for the calling merchant."""
+    mid = user["sub"]
+    delivered_count = await db.orders.count_documents({"merchant_ids": mid, "status": {"$in": ["delivered", "returned"]}})
+    returns = await db.returns.find({"merchant_ids": mid}, {"_id": 0, "reason": 1, "status": 1}).to_list(2000)
+    by_reason = {}
+    for r in returns:
+        k = r.get("reason") or "Other"
+        by_reason[k] = by_reason.get(k, 0) + 1
+    return {
+        "delivered_count": delivered_count,
+        "returns_total": len(returns),
+        "returns_rate_pct": round((len(returns) / delivered_count * 100), 1) if delivered_count > 0 else 0.0,
+        "by_reason": [{"reason": k, "count": v} for k, v in sorted(by_reason.items(), key=lambda x: -x[1])],
+    }
+
+
+@api.get("/admin/returns/analytics")
+async def admin_returns_analytics(request: Request):
+    """Merchant-wise + reason-wise returns aggregation for admin Returns tab."""
+    _check_admin(request.headers.get("authorization"))
+    returns = await db.returns.find({}, {"_id": 0}).to_list(5000)
+    by_reason, by_merchant = {}, {}
+    for r in returns:
+        rk = r.get("reason") or "Other"
+        by_reason[rk] = by_reason.get(rk, 0) + 1
+        for mid in (r.get("merchant_ids") or []):
+            by_merchant[mid] = by_merchant.get(mid, 0) + 1
+    # Decorate merchant ids with store names
+    mids = list(by_merchant.keys())
+    merchants = await db.merchants.find({"id": {"$in": mids}}, {"_id": 0, "id": 1, "store_name": 1}).to_list(1000) if mids else []
+    name_by_id = {m["id"]: m.get("store_name") for m in merchants}
+    return {
+        "total": len(returns),
+        "by_reason": [{"reason": k, "count": v} for k, v in sorted(by_reason.items(), key=lambda x: -x[1])],
+        "by_merchant": [{"merchant_id": k, "store_name": name_by_id.get(k, "—"), "count": v}
+                        for k, v in sorted(by_merchant.items(), key=lambda x: -x[1])],
+        "by_status": [{"status": s, "count": sum(1 for r in returns if r.get("status") == s)}
+                      for s in ["requested", "pickup_assigned", "arriving", "picked_up", "completed"]],
+    }
 
 
 # ===== Complaints =====

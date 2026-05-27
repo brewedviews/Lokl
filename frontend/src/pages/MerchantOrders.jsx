@@ -90,7 +90,9 @@ export default function MerchantOrders() {
   const pending = orders.filter((o) => o.status === "pending_merchant");
   const accepted = orders.filter((o) => o.status === "accepted");
   const onWay = orders.filter((o) => o.status === "on_the_way");
-  const history = orders.filter((o) => !["pending_merchant", "accepted", "on_the_way"].includes(o.status));
+  const returning = orders.filter((o) => o.return_status && o.return_status !== "completed");
+  const returned = orders.filter((o) => o.status === "returned");
+  const history = orders.filter((o) => !["pending_merchant", "accepted", "on_the_way", "returned"].includes(o.status) && !o.return_status);
 
   return (
     <MerchantLayout>
@@ -200,6 +202,42 @@ export default function MerchantOrders() {
                     <div className="text-xs text-[#595959]">Rider en-route to customer · OTP {o.otp}</div>
                   </div>
                   <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">On the way</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {returning.length > 0 && (
+          <section className="mb-10" data-testid="merchant-returning">
+            <h2 className="display text-xl font-bold text-[#1A2B4C] mb-3 flex items-center gap-2">Returning <span className="text-xs font-normal text-[#595959]">({returning.length})</span></h2>
+            <div className="space-y-2">
+              {returning.map((o) => (
+                <div key={o.id} className="bg-white border border-[#E68910]/30 rounded-2xl p-4" data-testid={`returning-${o.id}`}>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
+                      <div className="text-[11px] text-[#595959]">{new Date(o.created_at).toLocaleString()} · {o.items.length} item(s)</div>
+                    </div>
+                    <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-[#E68910]/15 text-[#E68910]">Return: {(o.return_status || "").replace(/_/g, " ")}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {returned.length > 0 && (
+          <section className="mb-10" data-testid="merchant-returned">
+            <h2 className="display text-xl font-bold text-[#1A2B4C] mb-3 flex items-center gap-2">Returned <span className="text-xs font-normal text-[#595959]">({returned.length})</span></h2>
+            <div className="space-y-2">
+              {returned.map((o) => (
+                <div key={o.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 flex items-center justify-between gap-3 flex-wrap" data-testid={`returned-${o.id}`}>
+                  <div>
+                    <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
+                    <div className="text-[11px] text-[#595959]">{new Date(o.created_at).toLocaleString()} · {o.items.length} item(s)</div>
+                  </div>
+                  <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-700">Returned</span>
                 </div>
               ))}
             </div>

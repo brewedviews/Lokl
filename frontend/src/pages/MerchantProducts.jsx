@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { Plus, Package, Upload, X, ImagePlus, Rocket, Download } from "lucide-react";
+import { Plus, Package, Upload, X, ImagePlus, Rocket, Download, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import MerchantLayout from "../components/merchant/MerchantLayout";
+import AIEnhanceModal from "../components/merchant/AIEnhanceModal";
 import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -18,6 +19,7 @@ export default function MerchantProducts() {
   const [cats, setCats] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
   const [openImg, setOpenImg] = useState(null);
+  const [openAi, setOpenAi] = useState(null);
   const blankForm = { name: "", price: "", mrp: "", l1_id: "", l2_id: "", gender: "", description: "", images: [], stock: {}, return_eligible: false };
   const [form, setForm] = useState(blankForm);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -211,6 +213,9 @@ export default function MerchantProducts() {
                     <button onClick={() => setOpenImg(p)} className="mt-2 w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-semibold border border-[#E68910]/40 text-[#E68910] hover:bg-[#E68910]/10">
                       <ImagePlus size={11} /> {p.image ? "Edit images" : "Add images"}
                     </button>
+                    <button onClick={() => setOpenAi(p)} data-testid={`ai-enhance-btn-${p.id}`} disabled={!p.image && !(p.images && p.images[0])} className="mt-1.5 w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-semibold border border-[#1A2B4C]/40 text-[#1A2B4C] hover:bg-[#1A2B4C]/5 disabled:opacity-40">
+                      <Sparkles size={11} /> AI catalog images
+                    </button>
                   </div>
                 </div>
               );
@@ -306,6 +311,7 @@ export default function MerchantProducts() {
         )}
 
         {openImg && <ImageManager product={openImg} onClose={() => { setOpenImg(null); load(); }} />}
+        {openAi && <AIEnhanceModal product={openAi} onClose={() => setOpenAi(null)} onApplied={load} />}
       </div>
     </MerchantLayout>
   );

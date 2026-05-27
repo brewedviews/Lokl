@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Download, TrendingUp, ShoppingBag, Users, Package, IndianRupee } from "lucide-react";
+import { Download, TrendingUp, ShoppingBag, Users, Package, IndianRupee, RotateCcw } from "lucide-react";
 import MerchantLayout from "../components/merchant/MerchantLayout";
 import api, { API } from "../lib/api";
 
@@ -13,8 +13,15 @@ const PERIODS = [
 export default function MerchantAnalytics() {
   const [period, setPeriod] = useState("30d");
   const [stats, setStats] = useState(null);
+  const [returnsStats, setReturnsStats] = useState(null);
 
-  useEffect(() => { api.get(`/merchant/analytics?period=${period}`).then((r) => setStats(r.data)); }, [period]);
+  useEffect(() => {
+    api.get(`/merchant/analytics?period=${period}`).then((r) => setStats(r.data));
+  }, [period]);
+
+  useEffect(() => {
+    api.get("/merchant/analytics/returns").then((r) => setReturnsStats(r.data)).catch(() => setReturnsStats(null));
+  }, []);
 
   const download = () => {
     const token = localStorage.getItem("bf_token");
@@ -100,6 +107,40 @@ export default function MerchantAnalytics() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+
+        {/* Returns rate widget — across all-time delivered orders, not period-filtered, so the signal is stable for low-volume merchants */}
+        <div className="mt-6 grid lg:grid-cols-3 gap-5">
+          <div className="bg-white border border-[#E5E2DC] rounded-2xl p-6" data-testid="returns-rate-card">
+            <h3 className="display text-lg font-bold text-[#1A2B4C] mb-4 flex items-center gap-2"><RotateCcw size={16} /> Returns rate</h3>
+            {!returnsStats ? <div className="text-xs text-[#595959]">Loading…</div> : (
+              <>
+                <div className="display text-4xl font-bold text-[#1A2B4C]" data-testid="returns-rate-pct">{returnsStats.returns_rate_pct}%</div>
+                <div className="text-xs text-[#595959] mt-1">{returnsStats.returns_total} returns / {returnsStats.delivered_count} delivered</div>
+                <p className="text-[11px] text-[#595959] mt-3 leading-snug">Lower is better — under 5% is excellent for fashion. If higher, the histogram on the right tells you exactly where to look.</p>
+              </>
+            )}
+          </div>
+          <div className="lg:col-span-2 bg-white border border-[#E5E2DC] rounded-2xl p-6">
+            <h3 className="display text-lg font-bold text-[#1A2B4C] mb-4">Returns by reason</h3>
+            {!returnsStats || (returnsStats.by_reason || []).length === 0 ? <div className="text-xs text-[#595959]">No returns yet — keep it that way 🤞</div> :
+              (() => {
+                const max = Math.max(1, ...returnsStats.by_reason.map((r) => r.count));
+                return (
+                  <div className="space-y-3" data-testid="returns-reason-histogram">
+                    {returnsStats.by_reason.map((r) => (
+                      <div key={r.reason} className="flex items-center gap-3">
+                        <div className="w-32 shrink-0 text-xs text-[#1A2B4C] truncate">{r.reason}</div>
+                        <div className="flex-1 h-3 bg-[#FDFBF7] rounded-full overflow-hidden">
+                          <div className="h-full bg-[#E68910] rounded-full" style={{ width: `${(r.count / max) * 100}%` }} />
+                        </div>
+                        <div className="w-8 text-right text-sm font-semibold tabular-nums text-[#1A2B4C]">{r.count}</div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
           </div>
         </div>
       </div>
