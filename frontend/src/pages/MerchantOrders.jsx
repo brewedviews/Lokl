@@ -1,8 +1,23 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Bell, BellOff, Bike, CheckCircle2, MapPin } from "lucide-react";
+import { Bell, BellOff, Bike, CheckCircle2, MapPin, RotateCcw, MessageSquareWarning } from "lucide-react";
 import MerchantLayout from "../components/merchant/MerchantLayout";
 import api from "../lib/api";
 import { toast } from "sonner";
+
+const RETURN_PILL = {
+  requested: { l: "Return requested", c: "bg-[#E68910]/15 text-[#E68910]" },
+  pickup_assigned: { l: "Pickup assigned", c: "bg-[#1A2B4C]/15 text-[#1A2B4C]" },
+  arriving: { l: "Pickup arriving", c: "bg-purple-100 text-purple-700" },
+  picked_up: { l: "Picked up", c: "bg-blue-100 text-blue-700" },
+  completed: { l: "Return completed", c: "bg-green-100 text-green-700" },
+};
+const COMPLAINT_TYPE = {
+  return: "Return",
+  missing_item: "Missing item",
+  damaged_item: "Damaged item",
+  delivery_issue: "Delivery issue",
+  general: "General",
+};
 
 // Web Audio loud-bell ping (no audio file dependency).
 // Plays a 3-pulse two-tone bell at ~0.7 gain (significantly louder than a wav beep).
@@ -37,6 +52,8 @@ function playLoudPing(ctxRef) {
 
 export default function MerchantOrders() {
   const [orders, setOrders] = useState([]);
+  const [returns, setReturns] = useState([]);
+  const [complaints, setComplaints] = useState([]);
   const [muted, setMuted] = useState(() => localStorage.getItem("bf_orders_muted") === "1");
   const seenIds = useRef(new Set());
   const audioCtxRef = useRef(null);
@@ -63,6 +80,14 @@ export default function MerchantOrders() {
         data.forEach((o) => seenIds.current.add(o.id));
         setOrders(data);
         initialLoadDone.current = true;
+      } catch { /* noop */ }
+      try {
+        const [{ data: rs }, { data: cs }] = await Promise.all([
+          api.get("/merchant/returns"),
+          api.get("/merchant/complaints"),
+        ]);
+        setReturns(Array.isArray(rs) ? rs : []);
+        setComplaints(Array.isArray(cs) ? cs : []);
       } catch { /* noop */ }
     };
     load();
@@ -210,19 +235,43 @@ export default function MerchantOrders() {
 
         {returning.length > 0 && (
           <section className="mb-10" data-testid="merchant-returning">
-            <h2 className="display text-xl font-bold text-[#1A2B4C] mb-3 flex items-center gap-2">Returning <span className="text-xs font-normal text-[#595959]">({returning.length})</span></h2>
+            <h2 className="display text-xl font-bold text-[#1A2B4C] mb-3 flex items-center gap-2"><RotateCcw size={18} className="text-[#E68910]" /> Returning <span className="text-xs font-normal text-[#595959]">({returning.length})</span></h2>
             <div className="space-y-2">
-              {returning.map((o) => (
-                <div key={o.id} className="bg-white border border-[#E68910]/30 rounded-2xl p-4" data-testid={`returning-${o.id}`}>
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div>
-                      <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
-                      <div className="text-[11px] text-[#595959]">{new Date(o.created_at).toLocaleString()} · {o.items.length} item(s)</div>
+              {returning.map((o) => {
+                const ret = returns.find((r) => r.order_id === o.id);
+                const meta = RETURN_PILL[o.return_status] || { l: o.return_status || "—", c: "bg-zinc-100 text-zinc-700" };
+                return (
+                  <div key={o.id} className="bg-white border border-[#E68910]/30 rounded-2xl p-4" data-testid={`returning-${o.id}`}>
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div>
+                        <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
+                        <div className="text-[11px] text-[#595959]">{new Date(o.created_at).toLocaleString()} · {o.items.length} item(s)</div>
+                      </div>
+                      <span className={`text-[10px] uppercase font-bold px-2.5 py-1 rounded-full ${meta.c}`}>{meta.l}</span>
                     </div>
-                    <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-[#E68910]/15 text-[#E68910]">Return: {(o.return_status || "").replace(/_/g, " ")}</span>
+                    {ret && (
+                      <div className="mt-3 pt-3 border-t border-dashed border-[#E5E2DC] grid sm:grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <div className="text-[10px] uppercase tracking-widest text-[#595959]">Reason</div>
+                          <div className="text-[#1A2B4C] font-medium" data-testid={`return-reason-${o.id}`}>{ret.reason}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] uppercase tracking-widest text-[#595959]">Return ID · Pickup OTP</div>
+                          <div className="text-[#1A2B4C] font-medium">{ret.id} · <span className="tabular-nums tracking-widest">{ret.otp}</span></div>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <div className="text-[10px] uppercase tracking-widest text-[#595959] mb-0.5">Items to be returned</div>
+                          <div className="space-y-0.5">
+                            {(ret.items || []).map((it, i) => (
+                              <div key={i} className="text-[#1A2B4C]">• {it.name} × {it.qty}{it.size ? ` (${it.size})` : ""}</div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         )}
@@ -231,13 +280,38 @@ export default function MerchantOrders() {
           <section className="mb-10" data-testid="merchant-returned">
             <h2 className="display text-xl font-bold text-[#1A2B4C] mb-3 flex items-center gap-2">Returned <span className="text-xs font-normal text-[#595959]">({returned.length})</span></h2>
             <div className="space-y-2">
-              {returned.map((o) => (
-                <div key={o.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 flex items-center justify-between gap-3 flex-wrap" data-testid={`returned-${o.id}`}>
-                  <div>
-                    <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
-                    <div className="text-[11px] text-[#595959]">{new Date(o.created_at).toLocaleString()} · {o.items.length} item(s)</div>
+              {returned.map((o) => {
+                const ret = returns.find((r) => r.order_id === o.id);
+                return (
+                  <div key={o.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 flex items-center justify-between gap-3 flex-wrap" data-testid={`returned-${o.id}`}>
+                    <div>
+                      <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
+                      <div className="text-[11px] text-[#595959]">{new Date(o.created_at).toLocaleString()} · {o.items.length} item(s){ret?.reason ? ` · ${ret.reason}` : ""}</div>
+                    </div>
+                    <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-700">Returned</span>
                   </div>
-                  <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-700">Returned</span>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {complaints.length > 0 && (
+          <section className="mb-10" data-testid="merchant-complaints">
+            <h2 className="display text-xl font-bold text-[#1A2B4C] mb-3 flex items-center gap-2"><MessageSquareWarning size={18} className="text-[#E68910]" /> Customer complaints <span className="text-xs font-normal text-[#595959]">({complaints.length})</span></h2>
+            <p className="text-[11px] text-[#595959] mb-3">Lokl ops will reach out for resolution. These are shared here so you have visibility into customer feedback against your orders.</p>
+            <div className="space-y-2">
+              {complaints.slice(0, 20).map((c) => (
+                <div key={c.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4" data-testid={`complaint-${c.id}`}>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <div className="font-semibold text-[#1A2B4C]">{c.id} <span className="text-xs text-[#595959] font-normal">· order {c.order_id}</span></div>
+                      <div className="text-[11px] text-[#595959]">{new Date(c.created_at).toLocaleString()} · {COMPLAINT_TYPE[c.type] || c.type}</div>
+                    </div>
+                    <span className={`text-[10px] uppercase font-bold px-2.5 py-1 rounded-full ${c.status === "resolved" ? "bg-green-100 text-green-700" : "bg-[#E68910]/15 text-[#E68910]"}`}>{c.status}</span>
+                  </div>
+                  <p className="text-sm text-[#1A2B4C] mt-2 whitespace-pre-wrap">{c.message}</p>
+                  {c.resolution_note && <p className="text-[11px] text-[#595959] mt-1">Resolution: {c.resolution_note}</p>}
                 </div>
               ))}
             </div>
