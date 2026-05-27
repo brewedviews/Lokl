@@ -3,6 +3,22 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-14) — Phase 2 of 3 (Returns & Complaints Dashboards)
+
+### Admin Console (NEW tabs)
+- **Returns tab** (`data-testid="admin-tab-returns"`): paginated list of all return requests with status pills, status filter dropdown, by-status stat cards, **Reasons** + **By merchant** breakdown. Each row has next-action button driving the state machine (Assign pickup → Mark arriving → Mark picked up → Mark completed). On completion, parent order is auto-flipped to `status='returned'` and Twilio notifications fire to customer + rider where applicable.
+- **Complaints tab** (`data-testid="admin-tab-complaints"`): Open/Resolved/All filter; Resolve action with optional note prompt. Server stores `resolution_note` + `resolved_at`.
+
+### Merchant Orders (enhanced)
+- **Returning** section now shows return reason, Return ID, pickup OTP, and the exact items being returned (per-order, fetched from `/api/merchant/returns`).
+- **Returned** section displays reason inline next to each completed-return order.
+- **Customer complaints** section (new, `data-testid="merchant-complaints"`) lists customer complaints raised against the merchant's orders. Customer phone is **redacted server-side** to `(hidden)`.
+
+### Test coverage
+- `/app/backend/tests/test_phase2_returns_dashboard.py` — 9 new tests (state-machine progression, status flip to `returned`, complaint resolve, merchant redaction).
+- Phase 1 regression (`test_phase1_returns.py`) — 5/5 still pass.
+- Frontend E2E validated by `testing_agent_v3_fork` (iteration_8.json) — 0 console errors, admin state-machine drove a return end-to-end via UI clicks, merchant phone redaction confirmed.
+
 ## Latest Iteration (Feb 2026 — Iter-13) — Phase 1 of 3 (Returns + Complaints + UX polish)
 
 ### Returns flow (NEW)
@@ -138,6 +154,7 @@ React + FastAPI + MongoDB. Emergent LLM key → Claude Sonnet 4.5 (copy) + Gemin
 
 ## Test Credentials
 See `/app/memory/test_credentials.md`.
+A seeded Phase 2 merchant (with delivered order + open return + complaint) is created on demand via `/app/tests/seed_phase2.py` (artefacts dumped to `/tmp/phase2_seed.json`).
 
 ## Mocked (pilot scope)
 - KYC docs + product images stored as base64 in Mongo (Cloudinary still on backlog)
