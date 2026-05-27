@@ -153,3 +153,32 @@ def notify_order_delivered(customer_phone: str, order_id: str) -> None:
         f"Loved it? Rate your boutique in 1 tap."
     )
     send_whatsapp(customer_phone, body)
+
+
+def notify_rider_return_pickup(rider_phone: str, *, return_id: str, order_id: str, otp: str,
+                                customer_name: str, pickup_addr: str, items: list[dict],
+                                reason: str = "") -> None:
+    """Notify the rider for a return pickup (reverse pickup flow)."""
+    item_lines = "\n".join(
+        f"  • {it.get('qty', 1)}× {it.get('name', 'Item')}" for it in (items or [])
+    ) or "  (see app)"
+    body = (
+        f"↩️ RETURN pickup on Lokl\n"
+        f"Return: *{return_id}*\n"
+        f"For order: {order_id}\n"
+        f"OTP: *{otp}*\n\n"
+        f"Pickup from: {customer_name}\n"
+        f"Address: {pickup_addr}\n"
+        + (f"Reason: {reason}\n" if reason else "")
+        + f"\nItems to collect:\n{item_lines}\n\n"
+        f"Reply *{otp} - Picked Up* once the customer hands over the items."
+    )
+    send_whatsapp(rider_phone, body)
+
+
+def notify_return_status(customer_phone: str, return_id: str, status_label: str) -> None:
+    body = (
+        f"↩️ Lokl: Return *{return_id}* update — {status_label}.\n"
+        f"Track at lokl.in/returns/{return_id}"
+    )
+    send_whatsapp(customer_phone, body)

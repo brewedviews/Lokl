@@ -18,7 +18,7 @@ export default function MerchantProducts() {
   const [cats, setCats] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
   const [openImg, setOpenImg] = useState(null);
-  const blankForm = { name: "", price: "", mrp: "", l1_id: "", l2_id: "", gender: "", description: "", images: [], stock: {} };
+  const blankForm = { name: "", price: "", mrp: "", l1_id: "", l2_id: "", gender: "", description: "", images: [], stock: {}, return_eligible: false };
   const [form, setForm] = useState(blankForm);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
@@ -100,6 +100,7 @@ export default function MerchantProducts() {
         l1_id: form.l1_id, l2_id: form.l2_id, gender: form.gender,
         price: Number(form.price), mrp: Number(form.mrp) || null,
         image: form.images[0], images: form.images, sizes, stock: form.stock,
+        return_eligible: !!form.return_eligible,
       });
       toast.success("Product added");
       setOpenAdd(false);
@@ -287,6 +288,15 @@ export default function MerchantProducts() {
               </div>
 
               <textarea placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none" />
+
+              <label className="flex items-start gap-3 p-3 rounded-xl bg-[#FDFBF7] border border-[#E5E2DC] cursor-pointer">
+                <input type="checkbox" data-testid="prod-return-eligible" checked={!!form.return_eligible} onChange={(e) => setForm({ ...form, return_eligible: e.target.checked })} className="mt-0.5 w-4 h-4 accent-[#E68910]" />
+                <div className="flex-1">
+                  <div className="text-sm font-semibold text-[#1A2B4C]">Return-eligible</div>
+                  <div className="text-[11px] text-[#595959]">Customers can request a return within 24 hours of delivery. Leave off for non-returnable items (e.g. innerwear, perishables).</div>
+                </div>
+              </label>
+
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => { setOpenAdd(false); setForm(blankForm); }} className="flex-1 px-5 py-3 rounded-full border border-[#E5E2DC]">Cancel</button>
                 <button type="submit" data-testid="save-product-btn" className="flex-1 px-5 py-3 rounded-full bg-[#E68910] text-white font-semibold">Save</button>

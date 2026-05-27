@@ -138,12 +138,36 @@ export default function CustomerAccount() {
             <div className="mt-6 bg-white border border-[#E5E2DC] rounded-3xl p-6">
               <h2 className="display text-xl font-bold text-[#1A2B4C] mb-4 flex items-center gap-2"><Package size={18} /> Past orders</h2>
               {orders.length === 0 ? <div className="text-sm text-[#595959]">No orders yet.</div> :
-                <div className="space-y-2 text-sm">
+                <div className="space-y-3 text-sm">
                   {orders.map((o) => (
-                    <Link key={o.id} to={`/orders/${o.id}`} className="flex items-center justify-between p-3 bg-[#FDFBF7] rounded-xl hover:bg-[#FAF7EE]">
-                      <div><div className="font-semibold">{o.id}</div><div className="text-xs text-[#595959]">{new Date(o.created_at).toLocaleString()} · {o.status}</div></div>
-                      <div className="font-semibold text-[#1A2B4C]">₹{o.total.toLocaleString()}</div>
-                    </Link>
+                    <div key={o.id} className="bg-[#FDFBF7] rounded-xl p-3" data-testid={`past-order-${o.id}`}>
+                      <Link to={`/orders/${o.id}`} className="flex items-center justify-between hover:opacity-90">
+                        <div>
+                          <div className="font-semibold">{o.id}</div>
+                          <div className="text-xs text-[#595959]">{new Date(o.created_at).toLocaleString()} · {o.return_status ? `return: ${o.return_status.replace(/_/g, " ")}` : o.status}</div>
+                        </div>
+                        <div className="font-semibold text-[#1A2B4C]">₹{o.total.toLocaleString()}</div>
+                      </Link>
+                      {(o.items || []).length > 0 && (
+                        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                          {o.items.slice(0, 5).map((it) => (
+                            it.id ? (
+                              <Link key={it.key || it.id} to={`/p/${it.id}`} data-testid={`order-item-pdp-${it.id}`}
+                                title={it.name}
+                                className="shrink-0 flex items-center gap-1.5 bg-white border border-[#E5E2DC] rounded-lg px-1.5 py-1 hover:border-[#1A2B4C]">
+                                <img src={it.image} alt={it.name} className="w-7 h-9 rounded object-cover" />
+                                <span className="text-[11px] text-[#1A2B4C] max-w-[110px] truncate">{it.name}</span>
+                              </Link>
+                            ) : (
+                              <div key={it.key || it.id} className="shrink-0 flex items-center gap-1.5 bg-white border border-[#E5E2DC] rounded-lg px-1.5 py-1">
+                                <img src={it.image} alt={it.name} className="w-7 h-9 rounded object-cover" />
+                                <span className="text-[11px] text-[#1A2B4C] max-w-[110px] truncate">{it.name}</span>
+                              </div>
+                            )
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>}
             </div>

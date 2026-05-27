@@ -286,8 +286,9 @@ def test_twilio_inbound_wrong_otp_empty_twiml(live_order):
 
 def test_twilio_inbound_correct_otp_delivers(live_order):
     body = f"{live_order['otp']} - Delivered"
+    # Sender must be RIDER_PHONE (+917719052107) per env var. Non-rider senders are silently dropped.
     r = requests.post(f"{API}/twilio/inbound",
-                      data={"Body": body, "From": "whatsapp:+919999900099"}, timeout=10)
+                      data={"Body": body, "From": "whatsapp:+917719052107"}, timeout=10)
     assert r.status_code == 200
     assert "marked delivered" in r.text.lower()
     # Verify in DB

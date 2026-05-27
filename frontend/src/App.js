@@ -14,6 +14,7 @@ import StorePage from "./pages/StorePage";
 import Cart from "./pages/Cart";
 import Checkout from "./pages/Checkout";
 import OrderTracking from "./pages/OrderTracking";
+import ReturnTracking from "./pages/ReturnTracking";
 import CustomerAccount from "./pages/CustomerAccount";
 import SearchPage from "./pages/SearchPage";
 
@@ -59,6 +60,7 @@ function App() {
               <Route path="/cart" element={<Cart />} />
               <Route path="/checkout" element={<Checkout />} />
               <Route path="/orders/:id" element={<OrderTracking />} />
+              <Route path="/returns/:id" element={<ReturnTracking />} />
               <Route path="/account" element={<CustomerAccount />} />
               <Route path="/search" element={<SearchPage />} />
 

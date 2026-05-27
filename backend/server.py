@@ -17,6 +17,7 @@ from notifications import (
     notify_order_placed, notify_merchant_new_order,
     notify_order_accepted, notify_order_rejected, notify_order_delivered,
     notify_order_on_the_way, notify_order_cancelled, notify_rider_pickup,
+    notify_rider_return_pickup, notify_return_status,
 )
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -62,6 +63,7 @@ class ProductCreate(BaseModel):
     sizes: List[str] = []; image: Optional[str] = ""
     images: List[str] = []
     ai_enhanced: bool = False; try_at_doorstep: bool = False
+    return_eligible: bool = False  # if True, customer can return within 24h of delivery
     stock: Optional[dict] = None
 
 class OrderCreate(BaseModel):
@@ -249,13 +251,18 @@ async def create_order(payload: OrderCreate):
         raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
     order_id = f"BFO-{uuid.uuid4().hex[:8].upper()}"
     merchant_ids = []
+    # Snapshot per-item return_eligible at order time so later product edits don't change history
+    items_snap = []
     for it in payload.items:
-        p = await db.products.find_one({"id": it.get("id")}, {"merchant_id": 1, "_id": 0})
-        if p and p.get("merchant_id"): merchant_ids.append(p["merchant_id"])
+        p = await db.products.find_one({"id": it.get("id")}, {"merchant_id": 1, "return_eligible": 1, "_id": 0}) or {}
+        if p.get("merchant_id"): merchant_ids.append(p["merchant_id"])
+        new_it = dict(it)
+        new_it["return_eligible"] = bool(p.get("return_eligible", False))
+        items_snap.append(new_it)
     now = datetime.now(timezone.utc).isoformat()
     # 4-digit OTP shared across customer / admin / merchant for rider handoff verification
     otp = f"{random.randint(1000, 9999)}"
-    doc = {"id": order_id, "items": payload.items, "address": payload.address,
+    doc = {"id": order_id, "items": items_snap, "address": payload.address,
            "total": payload.total, "payment_method": payload.payment_method,
            "customer": payload.customer or {},
            "status": "pending_merchant", "merchant_ids": list(set(merchant_ids)),
@@ -375,7 +382,7 @@ async def admin_mark_delivered(oid: str, request: Request):
     for t in tl:
         if t["label"] == "Delivered" and not t["time"]:
             t["time"] = now; break
-    await db.orders.update_one({"id": oid}, {"$set": {"status": "delivered", "timeline": tl}})
+    await db.orders.update_one({"id": oid}, {"$set": {"status": "delivered", "timeline": tl, "delivered_at": now}})
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     if cust_phone:
         try: notify_order_delivered(cust_phone, oid)
@@ -1042,14 +1049,14 @@ async def twilio_inbound(request: Request):
     from_addr = (form.get("From") or "").strip()  # e.g. whatsapp:+919XXXXXXXXX
     log.info("[Twilio inbound] from=%s body=%r", from_addr, body[:80])
 
-    # Parse `<4-digit OTP> - Delivered` (also accepts ":" / variants)
+    # Parse `<4-digit OTP> - Delivered` OR `<4-digit OTP> - Picked Up` (case-insensitive, dash/colon/spaces optional)
     import re as _re
-    m = _re.search(r"\b(\d{4})\b[\s\-:]*delivered\b", body, _re.IGNORECASE)
     twiml_empty = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
-    if not m:
+    m_del = _re.search(r"\b(\d{4})\b[\s\-:]*delivered\b", body, _re.IGNORECASE)
+    m_ret = _re.search(r"\b(\d{4})\b[\s\-:]*picked[\s\-]?up\b", body, _re.IGNORECASE)
+    if not m_del and not m_ret:
         return Response(content=twiml_empty, media_type="application/xml")
 
-    otp = m.group(1)
     # Restrict to RIDER_PHONE if configured (so random WhatsApp messages can't trigger)
     rider_env = (os.environ.get("RIDER_PHONE") or "").replace("+", "").replace(" ", "")
     if rider_env:
@@ -1058,6 +1065,22 @@ async def twilio_inbound(request: Request):
             log.warning("[Twilio inbound] OTP from non-rider %s", from_addr)
             return Response(content=twiml_empty, media_type="application/xml")
 
+    if m_ret:
+        # Return-pickup confirmation
+        otp = m_ret.group(1)
+        r = await db.returns.find_one({"otp": otp, "status": {"$in": ["pickup_assigned", "arriving"]}}, {"_id": 0})
+        if not r:
+            log.warning("[Twilio inbound] no matching live return for picked-up OTP %s", otp)
+            return Response(content=twiml_empty, media_type="application/xml")
+        tl, _, _ = _advance_return(r, "picked_up")
+        await db.returns.update_one({"id": r["id"]}, {"$set": {"status": "picked_up", "timeline": tl, "picked_via": "rider-whatsapp"}})
+        await db.orders.update_one({"id": r["order_id"]}, {"$set": {"return_status": "picked_up"}})
+        log.info("[Twilio inbound] marked return %s as picked_up via rider WhatsApp", r["id"])
+        reply = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>✅ Lokl: Return {r["id"]} marked picked up. Drop at warehouse.</Message></Response>'
+        return Response(content=reply, media_type="application/xml")
+
+    # Otherwise — delivery confirmation
+    otp = m_del.group(1)
     o = await db.orders.find_one({"otp": otp, "status": {"$in": ["accepted", "on_the_way"]}}, {"_id": 0})
     if not o:
         log.warning("[Twilio inbound] no matching live order for OTP %s", otp)
@@ -1068,7 +1091,7 @@ async def twilio_inbound(request: Request):
     for t in tl:
         if t["label"] == "Delivered" and not t["time"]:
             t["time"] = now; break
-    await db.orders.update_one({"id": o["id"]}, {"$set": {"status": "delivered", "timeline": tl, "delivered_via": "rider-whatsapp"}})
+    await db.orders.update_one({"id": o["id"]}, {"$set": {"status": "delivered", "timeline": tl, "delivered_via": "rider-whatsapp", "delivered_at": now}})
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     if cust_phone:
         try: notify_order_delivered(cust_phone, o["id"])
@@ -1151,6 +1174,265 @@ async def add_customer_address(phone: str, payload: dict):
 async def delete_customer_address(phone: str, aid: str):
     await db.customers.update_one({"phone": phone}, {"$pull": {"addresses": {"id": aid}}})
     return {"ok": True}
+
+
+
+# ===== Returns =====
+RETURN_WINDOW_HOURS = 24
+RETURN_STATUS_FLOW = ["requested", "pickup_assigned", "arriving", "picked_up", "completed"]
+
+def _now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+async def _can_return_order(order: dict):
+    """Returns (ok, reason). Order must be delivered, have at least 1 return_eligible item, and be within 24h window."""
+    if not order:
+        return False, "Order not found"
+    if order.get("status") != "delivered":
+        return False, "Only delivered orders can be returned"
+    delivered_at_str = order.get("delivered_at")
+    if not delivered_at_str:
+        # Fall back to the timeline 'Delivered' entry if delivered_at wasn't set (older orders)
+        for t in order.get("timeline", []):
+            if t.get("label") == "Delivered" and t.get("time"):
+                delivered_at_str = t["time"]
+                break
+    if not delivered_at_str:
+        return False, "Delivery time not recorded — please contact customer care"
+    try:
+        delivered_at = datetime.fromisoformat(delivered_at_str.replace("Z", "+00:00"))
+    except ValueError:
+        return False, "Invalid delivery timestamp"
+    if datetime.now(timezone.utc) > delivered_at + timedelta(hours=RETURN_WINDOW_HOURS):
+        return False, f"Return window of {RETURN_WINDOW_HOURS}h has expired"
+    eligible_items = [it for it in (order.get("items") or []) if it.get("return_eligible")]
+    if not eligible_items:
+        return False, "None of the items in this order are return-eligible"
+    return True, None
+
+
+@api.post("/orders/{oid}/returns")
+async def create_return(oid: str, payload: dict):
+    """Customer initiates a return. Payload: {item_ids: [str], reason: str, customer_phone: str}"""
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not o: raise HTTPException(404, "Order not found")
+    ok, reason = await _can_return_order(o)
+    if not ok: raise HTTPException(400, reason)
+    item_ids = payload.get("item_ids") or []
+    ret_reason = (payload.get("reason") or "").strip()
+    if not ret_reason:
+        raise HTTPException(400, "Reason required")
+    # Filter to only return-eligible items in this order
+    elig_ids = {it.get("id") for it in (o.get("items") or []) if it.get("return_eligible")}
+    chosen = [iid for iid in item_ids if iid in elig_ids]
+    if not chosen:
+        # Default: include all eligible items
+        chosen = list(elig_ids)
+    cust_phone = (payload.get("customer_phone")
+                  or (o.get("customer") or {}).get("phone")
+                  or (o.get("address") or {}).get("phone"))
+    rid = f"RET-{uuid.uuid4().hex[:8].upper()}"
+    otp = f"{random.randint(1000, 9999)}"
+    now = _now_iso()
+    doc = {
+        "id": rid,
+        "order_id": oid,
+        "customer_phone": cust_phone,
+        "merchant_ids": o.get("merchant_ids", []),
+        "items": [it for it in (o.get("items") or []) if it.get("id") in chosen],
+        "reason": ret_reason,
+        "status": "requested",
+        "otp": otp,
+        "created_at": now,
+        "timeline": [
+            {"label": "Return requested", "time": now},
+            {"label": "Pickup partner assigned", "time": None},
+            {"label": "Pickup partner arriving", "time": None},
+            {"label": "Product picked up", "time": None},
+            {"label": "Return completed", "time": None},
+        ],
+    }
+    await db.returns.insert_one(doc)
+    # Flag the order so UI can show return state
+    await db.orders.update_one({"id": oid}, {"$set": {"return_status": "requested", "return_id": rid}})
+    doc.pop("_id", None)
+    return doc
+
+
+@api.get("/returns/{rid}")
+async def get_return(rid: str):
+    r = await db.returns.find_one({"id": rid}, {"_id": 0})
+    if not r: raise HTTPException(404, "Return not found")
+    return r
+
+
+@api.get("/customer/{phone}/returns")
+async def customer_returns(phone: str):
+    rs = await db.returns.find({"customer_phone": phone}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return rs
+
+
+def _advance_return(r: dict, target_status: str):
+    """Advance timeline + status. Returns updated tl, status, and any failure reason."""
+    if target_status not in RETURN_STATUS_FLOW:
+        return None, None, "Invalid status"
+    cur_idx = RETURN_STATUS_FLOW.index(r.get("status", "requested"))
+    new_idx = RETURN_STATUS_FLOW.index(target_status)
+    if new_idx <= cur_idx:
+        return None, None, f"Return is already at or past '{r.get('status')}'"
+    label_for = {
+        "requested": "Return requested",
+        "pickup_assigned": "Pickup partner assigned",
+        "arriving": "Pickup partner arriving",
+        "picked_up": "Product picked up",
+        "completed": "Return completed",
+    }[target_status]
+    now = _now_iso()
+    tl = r.get("timeline") or []
+    for t in tl:
+        if t.get("label") == label_for and not t.get("time"):
+            t["time"] = now
+            break
+    return tl, target_status, None
+
+
+@api.post("/admin/returns/{rid}/{action}")
+async def admin_return_action(rid: str, action: str, request: Request):
+    """action ∈ {assign, arriving, picked_up, complete}"""
+    _check_admin(request.headers.get("authorization"))
+    r = await db.returns.find_one({"id": rid}, {"_id": 0})
+    if not r: raise HTTPException(404, "Return not found")
+    action_to_status = {
+        "assign": "pickup_assigned",
+        "arriving": "arriving",
+        "picked_up": "picked_up",
+        "complete": "completed",
+    }
+    target = action_to_status.get(action)
+    if not target: raise HTTPException(400, "Unknown action")
+    tl, status, err = _advance_return(r, target)
+    if err: raise HTTPException(400, err)
+    update = {"status": status, "timeline": tl}
+    await db.returns.update_one({"id": rid}, {"$set": update})
+    if status == "completed":
+        await db.orders.update_one({"id": r["order_id"]}, {"$set": {"return_status": "completed", "status": "returned"}})
+    else:
+        await db.orders.update_one({"id": r["order_id"]}, {"$set": {"return_status": status}})
+    # Outbound notifications (fire-and-forget)
+    if status == "pickup_assigned":
+        rider_phone = os.environ.get("RIDER_PHONE", "").strip()
+        if rider_phone:
+            try:
+                o = await db.orders.find_one({"id": r["order_id"]}, {"_id": 0}) or {}
+                addr = o.get("address") or {}
+                pickup_addr = ", ".join([p for p in [addr.get("line1", ""), addr.get("landmark", ""), addr.get("city", "Bhilai"), addr.get("pincode", "")] if p])
+                notify_rider_return_pickup(
+                    rider_phone,
+                    return_id=rid, order_id=r["order_id"], otp=r.get("otp", ""),
+                    customer_name=(o.get("customer") or {}).get("name") or addr.get("name", "Customer"),
+                    pickup_addr=pickup_addr,
+                    items=r.get("items", []),
+                    reason=r.get("reason", ""),
+                )
+            except Exception: pass
+    if r.get("customer_phone"):
+        label_map = {
+            "pickup_assigned": "pickup partner assigned",
+            "arriving": "pickup partner arriving",
+            "picked_up": "product picked up",
+            "completed": "return completed",
+        }
+        if status in label_map:
+            try: notify_return_status(r["customer_phone"], rid, label_map[status])
+            except Exception: pass
+    return {"ok": True, "status": status}
+
+
+@api.get("/admin/returns")
+async def admin_returns_list(request: Request, status: Optional[str] = None):
+    _check_admin(request.headers.get("authorization"))
+    q = {}
+    if status: q["status"] = status
+    rs = await db.returns.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return rs
+
+
+@api.get("/merchant/returns")
+async def merchant_returns(user: dict = Depends(get_current_user)):
+    """Merchant view: return requests for orders that include their items, with customer PII redacted."""
+    rs = await db.returns.find({"merchant_ids": user["sub"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    # Redact customer phone like merchant_orders does
+    for r in rs:
+        r["customer_phone"] = "(hidden)"
+    return rs
+
+
+# ===== Complaints =====
+COMPLAINT_TYPES = ["return", "missing_item", "damaged_item", "delivery_issue", "general"]
+
+
+@api.post("/orders/{oid}/complaints")
+async def create_complaint(oid: str, payload: dict):
+    """Customer raises a complaint for an order. Payload: {type, message, customer_phone}"""
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not o: raise HTTPException(404, "Order not found")
+    ctype = payload.get("type") or "general"
+    if ctype not in COMPLAINT_TYPES:
+        raise HTTPException(400, "Invalid complaint type")
+    msg = (payload.get("message") or "").strip()
+    if not msg:
+        raise HTTPException(400, "Message required")
+    cust_phone = (payload.get("customer_phone")
+                  or (o.get("customer") or {}).get("phone")
+                  or (o.get("address") or {}).get("phone"))
+    cid = f"CMP-{uuid.uuid4().hex[:8].upper()}"
+    now = _now_iso()
+    doc = {
+        "id": cid,
+        "order_id": oid,
+        "merchant_ids": o.get("merchant_ids", []),
+        "customer_phone": cust_phone,
+        "type": ctype,
+        "message": msg,
+        "status": "open",
+        "created_at": now,
+    }
+    await db.complaints.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.get("/admin/complaints")
+async def admin_complaints(request: Request, status: Optional[str] = None):
+    _check_admin(request.headers.get("authorization"))
+    q = {}
+    if status: q["status"] = status
+    docs = await db.complaints.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return docs
+
+
+@api.post("/admin/complaints/{cid}/resolve")
+async def admin_resolve_complaint(cid: str, request: Request, payload: Optional[dict] = None):
+    _check_admin(request.headers.get("authorization"))
+    note = (payload or {}).get("note", "")
+    await db.complaints.update_one({"id": cid}, {"$set": {"status": "resolved", "resolved_at": _now_iso(), "resolution_note": note}})
+    return {"ok": True}
+
+
+@api.get("/customer/{phone}/complaints")
+async def customer_complaints(phone: str):
+    docs = await db.complaints.find({"customer_phone": phone}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return docs
+
+
+@api.get("/merchant/complaints")
+async def merchant_complaints(user: dict = Depends(get_current_user)):
+    docs = await db.complaints.find({"merchant_ids": user["sub"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    for d in docs:
+        d["customer_phone"] = "(hidden)"
+    return docs
+
+
 
 
 # ===== Admin: Live users + Customers directory =====
