@@ -557,6 +557,12 @@ async def merchant_ai_enhance_image(payload: dict, user: dict = Depends(get_curr
     except Exception as exc:
         log.exception("[ai_enhance] failure for merchant=%s", user["sub"])
         raise HTTPException(500, f"AI enhancement failed: {exc}")
+    ok_count = sum(1 for o in result.get("outputs", []) if o.get("ok"))
+    if ok_count == 0:
+        raise HTTPException(
+            422,
+            "AI couldn't generate any images from this photo. Please try a clearer, well-lit garment photo (JPEG/PNG, < 5 MB)."
+        )
     return result
 
 

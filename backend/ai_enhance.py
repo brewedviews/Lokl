@@ -12,6 +12,8 @@ import re
 import uuid
 from typing import Any
 
+import httpx
+
 log = logging.getLogger("lokl.ai_enhance")
 
 
@@ -21,6 +23,20 @@ def _strip_data_url(b64: str) -> str:
         return ""
     m = re.match(r"^data:image/[^;]+;base64,(.*)$", b64)
     return m.group(1) if m else b64
+
+
+async def _resolve_to_b64(src: str) -> str:
+    """Resolve an arbitrary `image` input (URL, data: URI, or bare base64) to bare base64."""
+    if not src:
+        return ""
+    s = src.strip()
+    if s.startswith(("http://", "https://")):
+        # Fetch the bytes and encode them — Gemini's inline_data expects raw base64.
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            r = await client.get(s)
+            r.raise_for_status()
+            return base64.b64encode(r.content).decode()
+    return _strip_data_url(s)
 
 
 # ---------- Prompt scaffolding ----------
@@ -147,13 +163,17 @@ async def enhance_product_images(reference_b64: str, *, model_id: str = "gemini-
     api_key = os.environ.get("EMERGENT_LLM_KEY", "").strip()
     if not api_key:
         raise RuntimeError("EMERGENT_LLM_KEY not configured")
-    ref = _strip_data_url(reference_b64)
+    ref = await _resolve_to_b64(reference_b64)
     if not ref:
         raise ValueError("Reference image is empty")
 
     async def _one(kind: str, prompt: str):
+        # One single-shot retry per kind to absorb transient Gemini failures (rate-limits, blips).
         sid = f"lokl-aienh-{uuid.uuid4().hex[:8]}"
         data = await _generate_one(api_key, model_id, ref, prompt, sid)
+        if not data:
+            sid2 = f"lokl-aienh-{uuid.uuid4().hex[:8]}"
+            data = await _generate_one(api_key, model_id, ref, prompt, sid2)
         return {
             "kind": kind,
             "ok": bool(data),
