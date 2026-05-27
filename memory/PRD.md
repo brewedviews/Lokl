@@ -3,6 +3,42 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-13) — Phase 1 of 3 (Returns + Complaints + UX polish)
+
+### Returns flow (NEW)
+- **Backend**: `POST /api/orders/{oid}/returns` enforces order=delivered, ≥1 `return_eligible` item, within 24h of `delivered_at`, reason required. Generates 4-digit `otp` + 5-step `timeline` (`requested → pickup_assigned → arriving → picked_up → completed`).
+- **Item snapshot**: each order item snapshots `return_eligible` at order time so future product edits don't change historical eligibility.
+- **Admin state machine**: `POST /api/admin/returns/{rid}/{action}` (action ∈ `assign|arriving|picked_up|complete`). On `complete`, parent order is marked `status='returned'` AND `return_status='completed'`.
+- **Twilio inbound webhook** extended: `<OTP> - Picked Up` from `RIDER_PHONE` flips a `pickup_assigned`/`arriving` return to `picked_up` (mirrors existing `<OTP> - Delivered` for deliveries). Non-rider senders silently dropped.
+- **Rider notification** `notify_rider_return_pickup` sends a structured WhatsApp with return ID, OTP, customer name, pickup address, items, reason.
+- **Customer notification** `notify_return_status` pings the customer on every state transition.
+
+### Complaints (NEW)
+- Types: `return`, `missing_item`, `damaged_item`, `delivery_issue`, `general`.
+- `POST /api/orders/{oid}/complaints` (customer), `GET /api/admin/complaints` (admin queue), `GET /api/merchant/complaints` (merchant view with customer_phone redacted), `GET /api/customer/{phone}/complaints` (customer's own list).
+- Admin `POST /api/admin/complaints/{cid}/resolve` closes with note.
+
+### Customer UX
+- **OrderTracking page** rewritten: REMOVED the static SVG rider map; status pills + timeline + OTP card retained. New "Need help with this order?" card with three states:
+  - Within 24h + has return-eligible items + no return in progress → **Return product** CTA (opens `ReturnModal` with reason chips).
+  - Past 24h with return-eligible items → "Return window has expired. Please reach out to Customer Care…" message.
+  - No return-eligible items → "None of the items in this order are return-eligible."
+  - Always shows **Contact Customer Care** CTA (opens `ComplaintModal`).
+- **Return tracking page** `/returns/{rid}` — mirror of order tracking with 5-step timeline + navy OTP card when status ∈ {`pickup_assigned`, `arriving`}.
+- **Customer Account → Past orders** — each row now shows up to 5 item thumbnails. Clicking any thumbnail navigates to PDP (`/p/{product_id}` with route alias added).
+- **OrderTracking bag items** — clickable links to PDP for active/delivered/returned orders.
+
+### Merchant UX
+- `MerchantProducts` Add modal now has a **Return-eligible** checkbox (`data-testid="prod-return-eligible"`). Persists to product. Listing endpoint surfaces it via `GET /api/merchant/products`.
+
+### Routing
+- **`/p/:id` alias** added next to existing `/product/:id` so spec-mandated short PDP links work without breaking existing components.
+
+### Test coverage
+- `/app/backend/tests/test_phase1_returns.py` — 5/5 tests pass (order snapshot, can't-return-non-delivered, full state machine, Twilio inbound picked-up, complaint create + admin resolve).
+- `/app/backend/tests/test_iter5_flow.py` regression — 14/14 still pass.
+- Frontend E2E validated by `testing_agent_v3_fork` (iteration_7.json) — 1 critical routing bug found + immediately fixed (`/p/:id` route alias).
+
 ## Latest Iteration (Feb 2026 — Iter-12) — Deferred Batch Cleanup
 
 ### AdminPanel Build Repair (P0)
