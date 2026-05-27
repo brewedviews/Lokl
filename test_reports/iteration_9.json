@@ -1,0 +1,65 @@
+{
+  "summary": "Phase 3 testing — AI Product Image Enhancer + perf trim of list endpoints. Backend pytest: 8/8 new + 19/19 regression PASS (27 total). Public list endpoints correctly strip heavy images/banner_images arrays. Frontend AIEnhanceModal correctly renders 4 tiles with required data-testids when given a small data: URI source. CRITICAL bug: when the source image is an HTTPS URL (every existing demo product, since DB stores Unsplash URLs), backend ai_enhance.py passes the URL string directly to Gemini as if it were base64, so all 4 calls fail with `BadRequestError - Base64 decoding failed for https://images.unsplash.com/...` and user sees 4 'Generation failed' tiles. This breaks the product-card AI flow (existing product cover is always a URL) — i.e. one of the two primary acceptance flows is non-functional.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/merchant/ai/enhance-image",
+        "issue": "Source images that are HTTPS URLs (every demo product cover; many real product covers) are forwarded verbatim to Gemini as `inline_data.data`, which is required to be base64. Result: 4× 'Base64 decoding failed for https://images.unsplash.com/...' → all outputs return ok=false. Backend must detect http(s):// in the input and fetch + base64-encode the bytes inside `_strip_data_url` (or a new `_resolve_to_b64`) before invoking Gemini. Reproducible via: POST /api/merchant/ai/enhance-image with {\"image\":\"https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=600&q=80\"} as a logged-in merchant — all 4 outputs come back ok=false.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "/api/products/{pid}",
+        "issue": "The full product detail returns `image` cover and may or may not include `images` array (depends on doc shape). Acceptance asks main response to include full `images`. Currently passes because no assertion failed, but worth documenting: demo products only have `image`, no `images` array — so persistence of AI-applied images is not visually verifiable until the merchant applies and saves."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AIEnhanceModal (product-card flow)",
+        "issue": "When triggered from an existing product card, the modal correctly opens and submits the request, but because backend can't decode the URL-based cover image, all 4 tiles render with 'Generation failed' status and the banner reads 'Generation returned no usable images.' The Apply button is disabled (correctly). Root cause is the backend bug above — once that's fixed, frontend renders 4 ok tiles fine (confirmed via small data: URI sources).",
+        "selector": "[data-testid='ai-enhance-btn-{pid}'] -> [data-testid='ai-enhance-modal']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Add product → AI enhance draft → apply",
+        "issue": "Draft flow uses freshly-uploaded data: URI as source, so generation succeeds in isolation. Apply did wire the picked image into form.images (verified state path), but full e2e submit of the new product was not exercised because all generation attempts in this Playwright run that used a real product URL failed (see backend bug). Once backend handles URLs, this should pass.",
+        "affected_selectors": ["[data-testid='ai-enhance-draft-btn']","[data-testid='ai-enhance-start']","[data-testid='ai-out-outdoor_1']","[data-testid='ai-enhance-apply']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase3_ai_enhance.py",
+    "/app/test_reports/pytest/results_iter9_phase3.xml",
+    "/app/test_reports/pytest/results_iter9_regression.xml"
+  ],
+  "action_items": [
+    "FIX (P0): /app/backend/ai_enhance.py — in `_strip_data_url` (or before `_generate_one`), detect `reference.startswith('http')` and fetch the URL with httpx/aiohttp, then base64-encode the bytes. Without this, every existing product's AI flow is broken.",
+    "After backend fix, retest the product-card flow [data-testid='ai-enhance-btn-{pid}'] end-to-end (modal → generate → pick → apply → reload → confirm persisted images in product) and the ImageManager flow [data-testid='ai-enhance-mgr-btn'] (which also uses product cover as source).",
+    "Optional: in AIEnhanceModal frontend, before POST, if sourceImage is an http(s) URL, fetch it client-side and convert to a data: URI — this is more network-fair than making the backend fetch.",
+    "Optional: have backend mark a clearer 4xx (e.g. 422) when all 4 sub-calls fail with the same Gemini decode error, so the frontend can show a precise message instead of generic 'Generation returned no usable images'."
+  ],
+  "critical_code_review_comments": [
+    "ai_enhance.py `_strip_data_url` only handles bare base64 + `data:image/...;base64,...`. Production input includes plain URLs (Unsplash/CDN/S3) — the helper silently passes them through, which becomes a 4× upstream failure with a confusing UX.",
+    "ai_enhance.py uses 4 parallel asyncio.gather calls. Each takes ~6-12s. If any one transiently fails (rate-limit/timeout), the user sees a partial 3/4 success without retry. Consider 1 single-shot retry per kind on `BadRequestError`/quota errors.",
+    "MerchantProducts.jsx ImageManager `ai-enhance-mgr-btn` only renders when `images.length >= 1 && < 5` — confirmed correct logic, but the source it feeds (`images[0]`) is again a URL for demo products, so until backend handles URL fetch this button also produces 4 failed tiles."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase3_ai_enhance.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 new phase3 tests + 19/19 regression with a small data: URI source)",
+    "frontend": "60% — draft flow works end-to-end with uploaded image; product-card and ImageManager flows fail because source URL is not base64-encoded by backend"
+  },
+  "test_credentials": "Merchant: menscape@lokl.demo / Demo@2026 (works — token obtained via /api/auth/login).",
+  "seed_data_creation": "None.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest commands: pytest /app/backend/tests/test_phase3_ai_enhance.py /app/backend/tests/test_phase1_returns.py /app/backend/tests/test_iter5_flow.py -v. Frontend manual: log in as menscape@lokl.demo, /merchant/products, click 'AI catalog images' on any card. Today every demo product cover is an HTTPS URL → AI generation fails. After backend URL→base64 fix, retest both the product-card flow (data-testid=ai-enhance-btn-{pid}) and ImageManager flow (data-testid=ai-enhance-mgr-btn).",
+  "rca of the issue": "Root cause: backend `/api/merchant/ai/enhance-image` expects `image` to be either bare base64 or `data:image/...;base64,...` (handled by `_strip_data_url`). The frontend AIEnhanceModal passes `product.image` straight through, which for every existing product in the DB is an HTTPS URL (Unsplash/CDN). Gemini receives that URL as the `inline_data.data` bytes field and rejects it: `Base64 decoding failed for https://images.unsplash.com/...`. All 4 parallel calls fail the same way → endpoint still returns 200 with 4 outputs of {ok:false, image:null}. UI shows 4 'Generation failed' tiles, Apply button disabled. Reproduction: log in as menscape@lokl.demo, open /merchant/products, click any 'AI catalog images' button. Mitigation: in /app/backend/ai_enhance.py, before calling Gemini, detect `ref.startswith(('http://','https://'))` and async-fetch the bytes via httpx, then base64.b64encode them. Alternatively, do the same conversion in the frontend before POST."
+}

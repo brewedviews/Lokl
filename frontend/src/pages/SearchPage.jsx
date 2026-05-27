@@ -46,7 +46,7 @@ export default function SearchPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {data.stores.map((s) => (
                 <Link key={s.id} to={`/store/${s.id}`} data-testid={`search-store-${s.id}`} className="bg-white rounded-2xl overflow-hidden border border-[#E5E2DC] hover:border-[#1A2B4C] transition">
-                  <div className="aspect-[4/3] bg-[#FDFBF7]"><img src={s.banner || s.image} alt={s.name} className="w-full h-full object-cover" /></div>
+                  <div className="aspect-[4/3] bg-[#FDFBF7]"><img src={s.banner || s.image} alt={s.name} loading="lazy" className="w-full h-full object-cover" /></div>
                   <div className="p-3">
                     <div className="font-semibold text-[#1A2B4C] truncate">{s.name}</div>
                     {s.tagline && <div className="text-[11px] text-[#595959] truncate">{s.tagline}</div>}
@@ -80,7 +80,7 @@ export default function SearchPage() {
             {cats.map((c) => (
               <Link key={c.id} to={`/c/${c.slug}`} data-testid={`search-cat-${c.slug}`} className="group">
                 <div className="aspect-square rounded-2xl overflow-hidden bg-white border border-[#E5E2DC]">
-                  <img src={c.image} alt={c.name} className="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
+                  <img src={c.image} alt={c.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
                 </div>
                 <div className="text-center mt-2 text-xs md:text-sm font-medium text-[#1C1C1C]">{c.name}</div>
               </Link>

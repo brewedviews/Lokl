@@ -6,7 +6,7 @@ export default function StoreCard({ s }) {
   return (
     <Link to={`/store/${s.id}`} data-testid={`store-card-${s.id}`} className="group block">
       <div className="relative overflow-hidden rounded-2xl aspect-[4/5] mb-3">
-        <img src={s.banner} alt={s.name}
+        <img src={s.banner} alt={s.name} loading="lazy"
              className="w-full h-full object-cover group-hover:scale-[1.05] transition duration-700" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
         {s.trusted && (

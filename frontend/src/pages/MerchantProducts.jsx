@@ -25,6 +25,7 @@ export default function MerchantProducts() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [aiOpenDraft, setAiOpenDraft] = useState(false);
 
   const MAX_IMAGES = 5;
 
@@ -270,6 +271,16 @@ export default function MerchantProducts() {
                   )}
                 </div>
                 <p className="text-[10px] text-[#595959] mt-1">First image becomes the cover. Customers see all images as a carousel on the product page.</p>
+                {form.images.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAiOpenDraft(true)}
+                    data-testid="ai-enhance-draft-btn"
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#1A2B4C]/40 text-[#1A2B4C] text-[11px] font-semibold hover:bg-[#1A2B4C]/5"
+                  >
+                    <Sparkles size={12} className="text-[#E68910]" /> AI: generate 4 catalog images from cover
+                  </button>
+                )}
               </div>
 
               {/* Size + Quantity grid */}
@@ -312,6 +323,16 @@ export default function MerchantProducts() {
 
         {openImg && <ImageManager product={openImg} onClose={() => { setOpenImg(null); load(); }} />}
         {openAi && <AIEnhanceModal product={openAi} onClose={() => setOpenAi(null)} onApplied={load} />}
+        {aiOpenDraft && (
+          <AIEnhanceModal
+            sourceImage={form.images[0]}
+            onSelect={(picked) => {
+              setForm((f) => ({ ...f, images: [...f.images, ...picked].slice(0, MAX_IMAGES) }));
+              toast.success(`Added ${picked.length} AI image(s) to draft`);
+            }}
+            onClose={() => setAiOpenDraft(false)}
+          />
+        )}
       </div>
     </MerchantLayout>
   );
@@ -323,6 +344,7 @@ function ImageManager({ product, onClose }) {
     : (product.image ? [product.image] : []);
   const [images, setImages] = useState(initial);
   const [busy, setBusy] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const MAX = 5;
 
   const upload = async (f) => {
@@ -384,11 +406,31 @@ function ImageManager({ product, onClose }) {
             <input data-testid="prod-image-upload" type="file" accept="image/*" className="hidden" onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ""; }} />
           </label>
         )}
+        {images.length > 0 && images.length < MAX && (
+          <button
+            type="button"
+            onClick={() => setAiOpen(true)}
+            data-testid="ai-enhance-mgr-btn"
+            className="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full border border-[#1A2B4C]/40 text-[#1A2B4C] text-sm font-semibold hover:bg-[#1A2B4C]/5"
+          >
+            <Sparkles size={14} className="text-[#E68910]" /> AI: generate 4 catalog images from cover
+          </button>
+        )}
         <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-[#E5E2DC]">
           <button onClick={onClose} className="px-5 py-2.5 rounded-full border border-[#E5E2DC]">Close</button>
           <button onClick={save} data-testid="save-images" className="px-5 py-2.5 rounded-full bg-[#E68910] text-white font-semibold">Save</button>
         </div>
       </div>
+      {aiOpen && (
+        <AIEnhanceModal
+          sourceImage={images[0]}
+          onSelect={(picked) => {
+            setImages((arr) => [...arr, ...picked].slice(0, MAX));
+            toast.success(`Added ${picked.length} AI image(s)`);
+          }}
+          onClose={() => setAiOpen(false)}
+        />
+      )}
     </div>
   );
 }

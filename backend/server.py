@@ -188,7 +188,8 @@ def _is_store_open_now(store: dict) -> tuple[bool, str | None]:
 async def list_stores(city: Optional[str] = None, limit: int = 50):
     q = dict(_visible_store_filter())
     if city: q["city"] = city
-    stores = await db.stores.find(q, {"_id": 0}).sort("distance_km", 1).to_list(limit)
+    # Strip heavy multi-banner array from list view (only cover `banner` is needed for cards)
+    stores = await db.stores.find(q, {"_id": 0, "banner_images": 0}).sort("distance_km", 1).to_list(limit)
     open_list, offline_list = [], []
     for s in stores:
         is_open, next_label = _is_store_open_now(s)
@@ -207,7 +208,7 @@ async def get_store(store_id: str):
     is_open, next_label = _is_store_open_now(s)
     s["is_open"] = is_open
     s["next_open_label"] = next_label
-    products = await db.products.find({"store_id": store_id, **_visible_product_filter()}, {"_id": 0}).to_list(200)
+    products = await db.products.find({"store_id": store_id, **_visible_product_filter()}, {"_id": 0, "images": 0}).to_list(200)
     for p in products:
         p["store_is_open"] = is_open
         if not is_open:
@@ -225,7 +226,8 @@ async def list_products(l1: Optional[str] = None, l2: Optional[str] = None,
     if l2: q["l2_id"] = l2
     if gender: q["gender"] = gender
     if store: q["store_id"] = store
-    cursor = db.products.find(q, {"_id": 0})
+    # Strip heavy `images` carousel array from list responses (full array fetched on PDP via /products/{pid}).
+    cursor = db.products.find(q, {"_id": 0, "images": 0})
     if sort == "price_asc": cursor = cursor.sort("price", 1)
     elif sort == "price_desc": cursor = cursor.sort("price", -1)
     elif sort == "rating": cursor = cursor.sort("rating", -1)
@@ -238,7 +240,7 @@ async def get_product(pid: str):
     similar_q = {"id": {"$ne": pid}, **_visible_product_filter()}
     if p.get("l2_id"): similar_q["l2_id"] = p["l2_id"]
     elif p.get("l1_id"): similar_q["l1_id"] = p["l1_id"]
-    similar = await db.products.find(similar_q, {"_id": 0}).limit(8).to_list(8)
+    similar = await db.products.find(similar_q, {"_id": 0, "images": 0}).limit(8).to_list(8)
     return {"product": p, "similar": similar}
 
 
@@ -656,15 +658,6 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
 async def merchant_ai_copy(payload: AICopyRequest, user: dict = Depends(get_current_user)):
     try: return await generate_product_copy(payload.product_name, payload.category or "", payload.notes or "")
     except Exception as e: raise HTTPException(500, f"AI copy generation failed: {e}")
-
-@api.post("/merchant/ai/enhance-image")
-async def merchant_ai_enhance(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    b64 = base64.b64encode(await file.read()).decode()
-    enhanced = await enhance_product_image(b64)
-    if enhanced:
-        return {"enhanced_base64": enhanced, "source": "gemini-nano-banana"}
-    return {"enhanced_base64": None, "source": "failed",
-            "message": "AI couldn't process this image. Try uploading a clear, well-lit product photo."}
 
 @api.post("/merchant/ai/tryon")
 async def merchant_ai_tryon(file: UploadFile = File(...), user: dict = Depends(get_current_user)):

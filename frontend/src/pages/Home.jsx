@@ -87,7 +87,7 @@ export default function Home() {
           {categories.map((c) => (
             <Link key={c.id} to={`/c/${c.slug}`} data-testid={`category-${c.slug}`} className="group">
               <div className="aspect-square rounded-2xl overflow-hidden bg-white border border-[#E5E2DC]">
-                <img src={c.image} alt={c.name} className="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
+                <img src={c.image} alt={c.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
               </div>
               <div className="text-center mt-2 text-xs md:text-sm font-medium text-[#1C1C1C]">{c.name}</div>
             </Link>

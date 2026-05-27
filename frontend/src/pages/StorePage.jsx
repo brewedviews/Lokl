@@ -35,7 +35,7 @@ export default function StorePage() {
         {banners.length > 1 ? (
           <div className="flex h-full overflow-x-auto snap-x snap-mandatory no-scrollbar">
             {banners.map((b, i) => (
-              <img key={i} src={b} alt={`${store.name} ${i + 1}`} className="w-full h-full object-cover snap-center shrink-0" />
+              <img key={i} src={b} alt={`${store.name} ${i + 1}`} loading="lazy" className="w-full h-full object-cover snap-center shrink-0" />
             ))}
           </div>
         ) : (

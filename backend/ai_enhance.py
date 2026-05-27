@@ -26,70 +26,82 @@ def _strip_data_url(b64: str) -> str:
 # ---------- Prompt scaffolding ----------
 PRESERVATION_RULES = (
     "STRICT PRESERVATION RULES — non-negotiable:\n"
-    "- Use the uploaded product image as the EXACT reference. The product's shape, "
-    "colour, texture, branding, material, proportions, and build must be reproduced "
-    "identically. Do NOT modify, recolour, restyle, or re-brand the product.\n"
-    "- Do NOT hallucinate or add non-existent product elements, logos, prints, or "
-    "accessories that are not visible on the reference.\n"
-    "- This is a SINGLE STANDALONE image. Absolutely NO collages, grids, splits, "
-    "multi-panel layouts, or combined multi-angle compositions.\n"
-    "- Intelligently detect the product category, use-case, and target audience from "
-    "the reference image to decide the model's age, gender presentation, styling, and "
-    "scene context — but the product itself must remain unchanged.\n"
-    "- High-end D2C brand aesthetic: professional lighting, crisp focus, realistic "
-    "textures and shadows, accurate product proportions.\n"
-    "- Aspect ratio 4:5 (portrait) or 1:1 (square). Ultra-high resolution. Optimised for "
-    "e-commerce listings, ads, and social commerce."
+    "- The uploaded image is the EXACT reference. The garment's shape, colour, "
+    "print, pattern, texture, fabric, neckline, sleeves, length, hemline, "
+    "stitching, branding and proportions MUST be reproduced identically. "
+    "Do NOT modify, recolour, restyle, re-brand, redesign or re-cut the garment.\n"
+    "- Do NOT hallucinate or add elements that are not on the reference garment: "
+    "no extra prints, logos, embellishments, buttons, pockets, embroidery, "
+    "accessories, jewellery, bags, or props.\n"
+    "- Model rule: If the reference image already contains a human model, you "
+    "may keep a human wearing the garment. If the reference image does NOT "
+    "contain a person, do NOT fabricate a model or face — present the garment "
+    "alone (ghost-mannequin / flat-lay / on a clean hanger).\n"
+    "- This is ONE SINGLE STANDALONE image. Absolutely NO collages, grids, "
+    "splits, multi-panel layouts, side-by-side comparisons, or text overlays. "
+    "No watermarks. No captions.\n"
+    "- Aspect ratio 4:5 (portrait) or 1:1 (square). Ultra-high resolution. "
+    "Premium D2C e-commerce catalog quality."
 )
 
 
 def _outdoor_prompt(variant: int) -> str:
-    """One of two outdoor lifestyle prompts. variant ∈ {1, 2}."""
+    """One of two outdoor prompts. variant ∈ {1, 2}. Natural daylight, neutral backdrop."""
     base = (
-        "Generate a premium e-commerce outdoor lifestyle photograph of a realistic "
-        "human model naturally using or wearing the product from the reference image. "
-        "The setting should feel natural, premium, and commercially aesthetic — like a "
-        "high-end D2C campaign."
+        "Generate a single premium e-commerce OUTDOOR product photograph of the "
+        "garment from the reference image, shot in soft natural daylight on a "
+        "neutral, uncluttered outdoor backdrop. The garment is the clear hero of "
+        "the frame, sharply detailed and fully visible."
     )
     if variant == 1:
         scene = (
-            "Composition: front-three-quarter angle, model in a confident relaxed pose, "
-            "soft golden-hour light, urban-meets-nature setting (clean street, sunlit "
-            "courtyard, or tasteful outdoor terrace). The product is the clear hero of "
-            "the frame."
+            "Composition: front-facing or front-three-quarter view. Soft diffused "
+            "natural daylight (overcast or open-shade quality). Background is a "
+            "calm neutral outdoor surface — clean stone wall, weathered concrete, "
+            "warm sand, or pale plaster — with no distracting objects, signage, "
+            "or props. If the reference has no model, present the garment on a "
+            "ghost-mannequin / invisible mannequin or laid flat on a neutral "
+            "outdoor surface. If the reference has a model, keep the model and "
+            "use a relaxed, natural pose."
         )
     else:
         scene = (
-            "Composition: a different angle and pose from the first outdoor shot — "
-            "consider a candid mid-action moment, a side or back-three-quarter framing, "
-            "and a contrasting environment (e.g. modern architectural backdrop, beach "
-            "boardwalk, café exterior, or open landscape). Keep the product clearly "
-            "visible and uncropped at its key features."
+            "Composition: distinct angle from the first outdoor shot — side, "
+            "back-three-quarter, or slight low-angle view. Soft golden-hour "
+            "natural daylight. Background is a different but still neutral "
+            "outdoor surface — sun-warmed stone, gentle dune, or muted sandy "
+            "courtyard. No props, no other people. If the reference has no "
+            "model, keep the garment alone (ghost-mannequin or styled flat-lay). "
+            "If the reference has a model, change the pose but preserve "
+            "the same person and outfit fit."
         )
     return f"{base}\n\n{scene}\n\n{PRESERVATION_RULES}"
 
 
 def _studio_prompt(variant: int) -> str:
-    """One of two studio prompts. variant ∈ {1, 2}."""
+    """One of two studio prompts. variant ∈ {1, 2}. White seamless / soft grey."""
     base = (
-        "Generate a premium e-commerce STUDIO product photograph on a clean, professional "
-        "studio background. No model — product only. The image should resemble premium "
-        "marketplace catalog photography: sharp detailing, realistic shadows, accurate "
-        "proportions, no distractions."
+        "Generate a single premium STUDIO e-commerce product photograph of the "
+        "garment from the reference image. Professional studio lighting, crisp "
+        "focus, accurate fabric texture, true-to-source colour."
     )
     if variant == 1:
         scene = (
-            "Composition: hero front-facing or straight-on angle on a clean seamless "
-            "white or warm-neutral studio background. Soft directional lighting that "
-            "sculpts the product's form. Subtle natural floor shadow."
+            "Composition: hero straight-on / front-facing view on a clean "
+            "seamless WHITE studio background (paper or cyclorama). Soft "
+            "directional key light with a subtle natural floor shadow. If the "
+            "reference has no model, use a ghost-mannequin / invisible mannequin "
+            "presentation so the garment shape is fully visible. If the reference "
+            "has a model, keep the same model in a neutral studio pose."
         )
     else:
         scene = (
-            "Composition: a different professional detail angle from the first studio "
-            "shot — consider a 3/4 angle, a top-down flat-lay (if appropriate to the "
-            "category), or a close-up detail of a key product feature (stitching, "
-            "texture, logo placement). Background remains clean and complementary "
-            "to the product's colour."
+            "Composition: a distinct angle from the first studio shot — "
+            "three-quarter view or a slight close-up detail of a key feature "
+            "(neckline, sleeve, hem, weave or print) — on a clean SOFT GREY "
+            "seamless studio background. Even soft studio lighting. Same model "
+            "rule as above: ghost-mannequin if the reference has no person, "
+            "otherwise keep the existing model."
         )
     return f"{base}\n\n{scene}\n\n{PRESERVATION_RULES}"
 
@@ -131,6 +143,7 @@ async def _generate_one(api_key: str, model_id: str, ref_b64: str, prompt: str, 
 
 async def enhance_product_images(reference_b64: str, *, model_id: str = "gemini-3.1-flash-image-preview") -> dict[str, Any]:
     """Generate 4 standalone enhanced images from a single reference. Returns dict with `outputs` array."""
+    import asyncio
     api_key = os.environ.get("EMERGENT_LLM_KEY", "").strip()
     if not api_key:
         raise RuntimeError("EMERGENT_LLM_KEY not configured")
@@ -138,15 +151,15 @@ async def enhance_product_images(reference_b64: str, *, model_id: str = "gemini-
     if not ref:
         raise ValueError("Reference image is empty")
 
-    outputs: list[dict[str, Any]] = []
-    # Sequential — each call uses its own session so they don't share context, but
-    # Gemini's image-mode is fairly fast and 4 calls keep cost predictable.
-    for kind, prompt in PROMPTS:
+    async def _one(kind: str, prompt: str):
         sid = f"lokl-aienh-{uuid.uuid4().hex[:8]}"
         data = await _generate_one(api_key, model_id, ref, prompt, sid)
-        outputs.append({
+        return {
             "kind": kind,
             "ok": bool(data),
             "image": (f"data:image/png;base64,{data}" if data else None),
-        })
-    return {"outputs": outputs}
+        }
+
+    # Parallel — 4 distinct sessions so they don't share context. Cuts wall-time ~4x.
+    outputs = await asyncio.gather(*[_one(k, p) for k, p in PROMPTS])
+    return {"outputs": list(outputs)}
