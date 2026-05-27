@@ -31,16 +31,25 @@ export default function AIEnhanceModal({ product, sourceImage, onSelect, onClose
   const run = async () => {
     if (!source) { setError("Upload a clear product photo first."); return; }
     setBusy(true); setError("");
-    try {
-      const { data } = await api.post("/merchant/ai/enhance-image", { image: source });
-      const ord = ORDER.map((k) => (data.outputs || []).find((o) => o.kind === k) || { kind: k, ok: false, image: null });
-      setOutputs(ord.map((o) => ({ ...o, picked: !!o.ok })));
-      const okCount = ord.filter((o) => o.ok).length;
-      if (okCount === 0) setError("Generation returned no usable images. Try again or use a clearer source photo.");
-      else toast.success(`Generated ${okCount} of 4 enhanced images`);
-    } catch (e) {
-      setError(e?.response?.data?.detail || "AI enhancement failed");
-    } finally { setBusy(false); }
+    // Optimistic: render 4 loading tiles immediately, replace as each call resolves.
+    const initial = ORDER.map((k) => ({ kind: k, ok: false, image: null, picked: false, loading: true }));
+    setOutputs(initial);
+    // Fire 4 parallel per-kind calls — each finishes in 10-20s, well under the 60s ingress cap.
+    const tasks = ORDER.map((kind) =>
+      api.post("/merchant/ai/enhance-image/one", { image: source, kind })
+        .then(({ data }) => ({ ...data, picked: !!data.ok, loading: false }))
+        .catch((e) => ({ kind, ok: false, image: null, picked: false, loading: false, err: e?.response?.data?.detail || "failed" }))
+    );
+    // Stream results as they arrive
+    let okCount = 0;
+    await Promise.all(tasks.map(async (t, idx) => {
+      const res = await t;
+      okCount += res.ok ? 1 : 0;
+      setOutputs((arr) => arr.map((o, i) => (i === idx ? res : o)));
+    }));
+    if (okCount === 0) setError("Generation returned no usable images. Try a clearer source photo.");
+    else toast.success(`Generated ${okCount} of 4 enhanced images`);
+    setBusy(false);
   };
 
   const togglePick = (idx) => setOutputs((arr) => arr.map((o, i) => (i === idx ? { ...o, picked: !o.picked } : o)));
@@ -99,22 +108,20 @@ export default function AIEnhanceModal({ product, sourceImage, onSelect, onClose
           </button>
         )}
 
-        {busy && (
-          <div className="py-12 text-center text-sm text-[#595959]" data-testid="ai-enhance-loading">
-            <Loader2 size={28} className="animate-spin text-[#E68910] mx-auto mb-2" />
-            Generating 4 images in parallel… usually 15–25 seconds.
-          </div>
-        )}
-
-        {outputs && !busy && (
+        {outputs && (
           <>
             <div className="grid grid-cols-2 gap-3 mb-4">
               {outputs.map((o, idx) => (
                 <div key={o.kind} data-testid={`ai-out-${o.kind}`}
-                  className={`relative rounded-2xl overflow-hidden border-2 transition cursor-pointer ${o.picked ? "border-[#E68910] shadow-lg" : "border-[#E5E2DC]"}`}
+                  className={`relative rounded-2xl overflow-hidden border-2 transition ${o.ok ? "cursor-pointer" : ""} ${o.picked ? "border-[#E68910] shadow-lg" : "border-[#E5E2DC]"}`}
                   onClick={() => o.ok && togglePick(idx)}>
                   <div className="aspect-[4/5] bg-[#FDFBF7] relative">
-                    {o.ok && o.image ? (
+                    {o.loading ? (
+                      <div className="w-full h-full flex flex-col items-center justify-center text-xs text-[#595959] gap-2">
+                        <Loader2 size={22} className="animate-spin text-[#E68910]" />
+                        Generating…
+                      </div>
+                    ) : o.ok && o.image ? (
                       <img src={o.image} alt={KIND_LABEL[o.kind]} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-xs text-[#595959] px-3 text-center">Generation failed</div>
@@ -125,15 +132,15 @@ export default function AIEnhanceModal({ product, sourceImage, onSelect, onClose
                   </div>
                   <div className="px-3 py-2 bg-white text-[11px] font-semibold text-[#1A2B4C] flex items-center justify-between">
                     {KIND_LABEL[o.kind]}
-                    {!o.ok && <span className="text-red-500 text-[10px]">Failed</span>}
+                    {!o.loading && !o.ok && <span className="text-red-500 text-[10px]">Failed</span>}
                   </div>
                 </div>
               ))}
             </div>
 
             <div className="flex gap-2 justify-end flex-wrap">
-              <button onClick={run} data-testid="ai-enhance-retry" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-[#E5E2DC] text-sm font-semibold hover:border-[#1A2B4C]"><RefreshCw size={13} /> Regenerate</button>
-              <button onClick={applyPicked} data-testid="ai-enhance-apply" className="inline-flex items-center gap-1.5 px-5 py-2 rounded-full bg-[#E68910] text-white text-sm font-semibold hover:bg-[#cc7a0a]"><Sparkles size={13} /> Use picked images</button>
+              <button onClick={run} disabled={busy} data-testid="ai-enhance-retry" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-[#E5E2DC] text-sm font-semibold hover:border-[#1A2B4C] disabled:opacity-50"><RefreshCw size={13} /> Regenerate</button>
+              <button onClick={applyPicked} disabled={busy} data-testid="ai-enhance-apply" className="inline-flex items-center gap-1.5 px-5 py-2 rounded-full bg-[#E68910] text-white text-sm font-semibold hover:bg-[#cc7a0a] disabled:opacity-50"><Sparkles size={13} /> Use picked images</button>
             </div>
           </>
         )}

@@ -548,6 +548,7 @@ async def merchant_ai_enhance_image(payload: dict, user: dict = Depends(get_curr
 
     Payload: {image: base64 (data-URL or bare)}
     Response: {outputs: [{kind, ok, image}, …]}  -- 4 entries in order: outdoor_1, outdoor_2, studio_1, studio_2
+    Note: Frontend prefers /merchant/ai/enhance-image/one (per-kind, parallel) to dodge the 60s ingress cap.
     """
     ref = (payload or {}).get("image") or ""
     if not ref:
@@ -564,6 +565,30 @@ async def merchant_ai_enhance_image(payload: dict, user: dict = Depends(get_curr
             "AI couldn't generate any images from this photo. Please try a clearer, well-lit garment photo (JPEG/PNG, < 5 MB)."
         )
     return result
+
+
+@api.post("/merchant/ai/enhance-image/one")
+async def merchant_ai_enhance_one(payload: dict, user: dict = Depends(get_current_user)):
+    """Generate ONE of the 4 catalog images. Frontend fires 4 parallel calls.
+
+    Payload: {image: base64|http(s)-url|data-URI, kind: 'outdoor_1'|'outdoor_2'|'studio_1'|'studio_2'}
+    Response: {kind, ok, image}
+    """
+    from ai_enhance import VALID_KINDS, enhance_one_kind  # late import to share module instance
+    ref = (payload or {}).get("image") or ""
+    kind = (payload or {}).get("kind") or ""
+    if not ref:
+        raise HTTPException(400, "Reference image required")
+    if kind not in VALID_KINDS:
+        raise HTTPException(400, f"kind must be one of {VALID_KINDS}")
+    try:
+        out = await enhance_one_kind(ref, kind)
+    except Exception as exc:
+        log.exception("[ai_enhance_one] kind=%s merchant=%s", kind, user["sub"])
+        raise HTTPException(500, f"AI enhancement failed: {exc}")
+    if not out.get("ok"):
+        raise HTTPException(422, f"AI couldn't generate the {kind} image. Try a clearer source photo.")
+    return out
 
 
 

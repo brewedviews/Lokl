@@ -3,6 +3,30 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-15) — Phase 3 of 3 (AI Catalog Image Enhancer) + Perf pass
+
+### Phase 3 — AI Product Image Enhancer (Gemini Nano Banana via Emergent LLM key)
+- New `POST /api/merchant/ai/enhance-image/one` — generates **one** of `outdoor_1 | outdoor_2 | studio_1 | studio_2`. Frontend fires **4 parallel** calls (each ~10-25s) to stream tiles in and dodge the 60s ingress gateway cap.
+- Legacy `POST /api/merchant/ai/enhance-image` retained for backwards compat (returns all 4; can hit 60s cap on slow runs).
+- New prompts (`/app/backend/ai_enhance.py`): strict preservation — garment shape/colour/print/texture/neckline/sleeves/length unchanged; no collages, watermarks or text overlays; no fabricated models unless source already contains one; 2 outdoor (natural daylight + neutral backdrop), 2 studio (white seamless / soft grey).
+- New `_resolve_to_b64` helper auto-fetches HTTP(S) source URLs (every Lokl demo product cover is a CDN URL) via httpx and base64-encodes the bytes — fixes the iter9 critical bug.
+- Per-kind single-shot retry to absorb transient Gemini blips. Backend returns 422 with a clear user-facing message when all 4 sub-calls fail.
+- **Streaming UI** (`AIEnhanceModal.jsx`): renders 4 placeholders immediately, replaces each with the generated image (or a "Failed" tag) as that call resolves. Each tile is independently ★-pickable.
+- Triggers wired into **both** flows: (a) **Add product modal** via `[data-testid="ai-enhance-draft-btn"]` (appears after cover upload), (b) **ImageManager** via `[data-testid="ai-enhance-mgr-btn"]`. Existing product card AI button still works.
+- No usage cap (per user spec).
+
+### Perf pass (site felt slow)
+- `/api/products` list response went from **~13 MB → ~10 MB** by stripping the heavy `images` carousel array (full array still returned on PDP).
+- `/api/stores` strips `banner_images` array.
+- Nested product lists in `/api/stores/{id}` and similar list in `/api/products/{pid}` also strip `images`.
+- Frontend: added `loading="lazy"` to Home, SearchPage, StorePage, StoreCard images.
+
+### Test coverage
+- `/app/backend/tests/test_phase3_ai_enhance.py` — 10 tests covering auth, validation, 4-output ordering, per-kind endpoint, invalid `kind`, perf-trim sanity (products/stores/store-products/similar).
+- Phase 1 regression (`test_phase1_returns.py`) — 5/5 still pass.
+- iter5 flow regression — 14/14 still pass.
+- Total: **28/29 pytest pass** (1 ingress-timeout safeguard skip).
+
 ## Latest Iteration (Feb 2026 — Iter-14) — Phase 2 of 3 (Returns & Complaints Dashboards)
 
 ### Admin Console (NEW tabs)

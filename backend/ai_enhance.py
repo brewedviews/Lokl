@@ -129,6 +129,8 @@ PROMPTS: list[tuple[str, str]] = [
     ("studio_1", _studio_prompt(1)),
     ("studio_2", _studio_prompt(2)),
 ]
+PROMPTS_BY_KIND: dict[str, str] = dict(PROMPTS)
+VALID_KINDS = tuple(k for k, _ in PROMPTS)
 
 
 async def _generate_one(api_key: str, model_id: str, ref_b64: str, prompt: str, session_id: str) -> str | None:
@@ -155,6 +157,30 @@ async def _generate_one(api_key: str, model_id: str, ref_b64: str, prompt: str, 
         return None
     img = images[0]
     return img.get("data")
+
+
+async def enhance_one_kind(reference_b64: str, kind: str, *, model_id: str = "gemini-3.1-flash-image-preview") -> dict[str, Any]:
+    """Generate a single image of the given kind. Used by the per-kind endpoint so the
+    frontend can fire 4 parallel calls (each well under the 60s ingress cap)."""
+    if kind not in PROMPTS_BY_KIND:
+        raise ValueError(f"Unknown kind: {kind}")
+    api_key = os.environ.get("EMERGENT_LLM_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("EMERGENT_LLM_KEY not configured")
+    ref = await _resolve_to_b64(reference_b64)
+    if not ref:
+        raise ValueError("Reference image is empty")
+    prompt = PROMPTS_BY_KIND[kind]
+    sid = f"lokl-aienh-{uuid.uuid4().hex[:8]}"
+    data = await _generate_one(api_key, model_id, ref, prompt, sid)
+    if not data:
+        sid2 = f"lokl-aienh-{uuid.uuid4().hex[:8]}"
+        data = await _generate_one(api_key, model_id, ref, prompt, sid2)
+    return {
+        "kind": kind,
+        "ok": bool(data),
+        "image": (f"data:image/png;base64,{data}" if data else None),
+    }
 
 
 async def enhance_product_images(reference_b64: str, *, model_id: str = "gemini-3.1-flash-image-preview") -> dict[str, Any]:
