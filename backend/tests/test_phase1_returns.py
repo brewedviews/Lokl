@@ -26,7 +26,7 @@ def merchant():
     pw = "Phase1@2026"
     reg = requests.post(f"{API}/auth/register", json={
         "email": email, "password": pw, "store_name": f"Phase1 Store {uuid.uuid4().hex[:4]}",
-        "owner_name": "Phase1 Owner", "phone": "+919999900007", "city": "Bhilai",
+        "owner_name": "Phase1 Owner", "phone": f"+9199{str(uuid.uuid4().int)[:8]}", "city": "Bhilai",
     }, timeout=10)
     assert reg.status_code in (200, 201), reg.text
     tok = reg.json()["token"]

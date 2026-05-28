@@ -1,0 +1,42 @@
+{
+  "summary": "Iter11 — Full review of Lokl Phase A + B + C + AI 2-output. Backend pytest: 31/31 spec tests PASS (test_phaseA_redirect 3/3, test_phaseB_kyc_phone 7/7, test_phaseC_xlsx 3/3, test_phase1_returns 5/5, test_iter5_flow 14/14) + new test_iter11_extras.py 3/3 PASS (online-toggle full flow → /api/products filtering, /api/stores online tagging, AI 2-output round-trip via tiny data: URI, AI invalid kind rejected). Total 34/34. Frontend UI smoke (menscape@lokl.demo): smart post-login redirect lands on /merchant/orders (live products exist); sidebar online-toggle visible & functional (offline → 'You're offline — products hidden from customers' / online → 'You're online — accepting orders'); /merchant/products renders skeleton on cold-load, Sample xlsx button downloads lokl-products-template.xlsx, Bulk upload xlsx label present, 9 edit-product-* buttons open a fully pre-filled Edit Product modal (name/price/mrp/gender/category/sizes/description/Return-eligible), 'AI: generate 2 catalog images from cover' label confirms 2-output mode. No critical issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phaseA_redirect.py",
+    "/app/backend/tests/test_phaseB_kyc_phone.py",
+    "/app/backend/tests/test_phaseC_xlsx.py",
+    "/app/backend/tests/test_phase1_returns.py",
+    "/app/backend/tests/test_iter5_flow.py",
+    "/app/backend/tests/test_iter11_extras.py",
+    "/app/test_reports/pytest/results_iter11.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py — /merchant/next-route correctly cascades through (kyc → storefront → products → orders); auto-publish helper on POST /merchant/products correctly flips the store visible after first live product.",
+    "xlsx_template.py — template has 4 data validations (L1, L2, gender, returnable) and parser preserves both .xlsx and .csv paths. Good split.",
+    "ai_enhance.py — VALID_KINDS narrowed to ('outdoor_1','studio_1'); legacy /enhance-image now returns exactly 2 outputs; per-kind endpoint correctly 400s on outdoor_2.",
+    "Frontend MerchantLayout — OnlineToggle returns null until merchant fully launched (can_toggle:false). Working as designed; verified menscape demo (already launched) shows the big toggle.",
+    "Frontend MerchantProducts — products-skeleton rendered on cold load, module-level cache skips skeleton on warm re-navigation. Confirmed via hard reload."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter11_extras.py"
+  ],
+  "success_rate": {
+    "backend": "100% (34/34 pytest including extras)",
+    "frontend": "100% (smart redirect, online toggle, xlsx download, edit-details modal, skeleton, 2-output label — all confirmed)"
+  },
+  "test_credentials": "menscape@lokl.demo / Demo@2026 (approved demo merchant with 9 products); admin@lokl.in / Admin@2026.",
+  "seed_data_creation": "Each backend test registers its own throwaway merchant (phaseA_*, phaseB_*, phaseC_*, iter11_*) — no shared state pollution.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase A/B/C + AI 2-output is fully green. Run `pytest backend/tests/test_phaseA_redirect.py backend/tests/test_phaseB_kyc_phone.py backend/tests/test_phaseC_xlsx.py backend/tests/test_phase1_returns.py backend/tests/test_iter5_flow.py backend/tests/test_iter11_extras.py -v` from /app — 34/34 in ~60s (the new test_iter11_extras.py covers online-toggle round-trip + AI 2-output via tiny data: URI that completes within ingress 60s). Phase D (phone-as-login + WhatsApp OTP) is the next batch and is NOT covered here. AI per-kind endpoint with kind in ('outdoor_1','studio_1') is the new contract; anything else 400s.",
+  "rca of the issue": "N/A — no defects found. All 12 spec items in the review_request were verified at both API and UI layer."
+}

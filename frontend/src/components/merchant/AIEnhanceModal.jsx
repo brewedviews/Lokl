@@ -5,11 +5,9 @@ import { toast } from "sonner";
 
 const KIND_LABEL = {
   outdoor_1: "Outdoor · natural daylight",
-  outdoor_2: "Outdoor · alt angle",
   studio_1: "Studio · white seamless",
-  studio_2: "Studio · soft grey",
 };
-const ORDER = ["outdoor_1", "outdoor_2", "studio_1", "studio_2"];
+const ORDER = ["outdoor_1", "studio_1"];
 
 /**
  * AI image enhancer modal.
@@ -85,7 +83,7 @@ export default function AIEnhanceModal({ product, sourceImage, onSelect, onClose
         <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="display text-2xl font-bold text-[#1A2B4C] flex items-center gap-2"><Sparkles size={20} className="text-[#E68910]" /> AI catalog images</h3>
-            <p className="text-[11px] text-[#595959] mt-0.5">2 outdoor · 2 studio · standalone images · Gemini Nano Banana</p>
+            <p className="text-[11px] text-[#595959] mt-0.5">1 outdoor · 1 studio · model wearing your product · Gemini Nano Banana</p>
           </div>
           <button onClick={onClose} aria-label="Close" className="w-9 h-9 rounded-full border border-[#E5E2DC] flex items-center justify-center"><X size={16} /></button>
         </div>
@@ -96,7 +94,7 @@ export default function AIEnhanceModal({ product, sourceImage, onSelect, onClose
           <div className="flex-1 min-w-0">
             <div className="text-[10px] uppercase tracking-widest text-[#595959]">Source photo</div>
             <div className="font-semibold text-sm text-[#1A2B4C] truncate">{title}</div>
-            <p className="text-[11px] text-[#595959] mt-0.5 leading-snug">Lokl will generate exactly 4 standalone images — 2 outdoor (natural daylight, neutral backdrop) + 2 studio (white seamless / soft grey). Garment shape, colour, print and texture stay identical. No models added unless your photo already has one.</p>
+            <p className="text-[11px] text-[#595959] mt-0.5 leading-snug">Lokl generates 2 catalog images — 1 outdoor (natural daylight) + 1 studio (white seamless). Garment shape, colour, print and texture stay identical. If your photo has no model, we add a real-looking one wearing the product.</p>
           </div>
         </div>
 
@@ -104,8 +102,15 @@ export default function AIEnhanceModal({ product, sourceImage, onSelect, onClose
 
         {!outputs && !busy && (
           <button data-testid="ai-enhance-start" onClick={run} disabled={!source} className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#1A2B4C] text-white font-semibold hover:bg-[#101D36] disabled:opacity-50">
-            <Sparkles size={14} /> Generate 4 catalog images
+            <Sparkles size={14} /> Generate 2 catalog images
           </button>
+        )}
+
+        {busy && !outputs && (
+          <div className="py-8 text-center text-sm text-[#595959]">
+            <Loader2 size={24} className="animate-spin text-[#E68910] mx-auto mb-2" />
+            Working…
+          </div>
         )}
 
         {outputs && (

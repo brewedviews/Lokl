@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import api from "../lib/api";
 import { toast } from "sonner";
 
 export default function MerchantAuth({ mode = "login" }) {
@@ -13,12 +14,19 @@ export default function MerchantAuth({ mode = "login" }) {
 
   const submit = async (e) => {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     try {
       if (isLogin) await login(form.email, form.password);
       else await register(form);
       toast.success(isLogin ? "Welcome back!" : "Store account created — let's get you verified");
-      nav("/merchant/onboarding");
+      // Smart landing — approved merchants skip onboarding entirely.
+      try {
+        const { data } = await api.get("/merchant/next-route");
+        nav(data?.route || "/merchant/onboarding");
+      } catch {
+        nav("/merchant/onboarding");
+      }
     } catch (err) {
       toast.error(err.response?.data?.detail || "Auth failed");
     } finally { setBusy(false); }
@@ -56,7 +64,7 @@ export default function MerchantAuth({ mode = "login" }) {
               <>
                 <input data-testid="store-name-input" required value={form.store_name} onChange={(e) => setForm({ ...form, store_name: e.target.value })} placeholder="Store name (e.g. Bunto Boutique)" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
                 <input data-testid="owner-name-input" required value={form.owner_name} onChange={(e) => setForm({ ...form, owner_name: e.target.value })} placeholder="Your name" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-                <input data-testid="phone-input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone (optional)" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
+                <input data-testid="phone-input" required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number (10 digits)" inputMode="tel" pattern="^[0-9 +\-]{10,15}$" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
               </>
             )}
             <input data-testid="email-input" required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />

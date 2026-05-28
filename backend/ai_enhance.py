@@ -61,73 +61,52 @@ PRESERVATION_RULES = (
 )
 
 
-def _outdoor_prompt(variant: int) -> str:
-    """One of two outdoor prompts. variant ∈ {1, 2}. Natural daylight, neutral backdrop."""
+def _outdoor_prompt(_variant: int) -> str:
+    """Outdoor model-on-product prompt. (Phase D: 2 images total — one outdoor, one studio.)"""
     base = (
         "Generate a single premium e-commerce OUTDOOR product photograph of the "
-        "garment from the reference image, shot in soft natural daylight on a "
-        "neutral, uncluttered outdoor backdrop. The garment is the clear hero of "
-        "the frame, sharply detailed and fully visible."
+        "garment from the reference image. The garment is the clear hero of the frame, "
+        "sharply detailed and fully visible."
     )
-    if variant == 1:
-        scene = (
-            "Composition: front-facing or front-three-quarter view. Soft diffused "
-            "natural daylight (overcast or open-shade quality). Background is a "
-            "calm neutral outdoor surface — clean stone wall, weathered concrete, "
-            "warm sand, or pale plaster — with no distracting objects, signage, "
-            "or props. If the reference has no model, present the garment on a "
-            "ghost-mannequin / invisible mannequin or laid flat on a neutral "
-            "outdoor surface. If the reference has a model, keep the model and "
-            "use a relaxed, natural pose."
-        )
-    else:
-        scene = (
-            "Composition: distinct angle from the first outdoor shot — side, "
-            "back-three-quarter, or slight low-angle view. Soft golden-hour "
-            "natural daylight. Background is a different but still neutral "
-            "outdoor surface — sun-warmed stone, gentle dune, or muted sandy "
-            "courtyard. No props, no other people. If the reference has no "
-            "model, keep the garment alone (ghost-mannequin or styled flat-lay). "
-            "If the reference has a model, change the pose but preserve "
-            "the same person and outfit fit."
-        )
+    scene = (
+        "Composition: front-three-quarter view in soft natural daylight (open shade or "
+        "early-morning sun) on a calm neutral outdoor backdrop — clean stone wall, warm "
+        "concrete, weathered plaster or pale sand. No props, no signage. "
+        "MODEL RULE: If the reference image has NO human in it, add a tasteful, "
+        "real-looking adult model wearing the garment in a relaxed natural pose. Match "
+        "the model's age, gender presentation, and body type to the garment's category "
+        "and target audience. Face fully visible, friendly expression. "
+        "If the reference image already has a model, keep that same model and the same "
+        "garment fit; just restage the pose for outdoor light."
+    )
     return f"{base}\n\n{scene}\n\n{PRESERVATION_RULES}"
 
 
-def _studio_prompt(variant: int) -> str:
-    """One of two studio prompts. variant ∈ {1, 2}. White seamless / soft grey."""
+def _studio_prompt(_variant: int) -> str:
+    """Studio model-on-product prompt. (Phase D: 2 images total — one outdoor, one studio.)"""
     base = (
-        "Generate a single premium STUDIO e-commerce product photograph of the "
-        "garment from the reference image. Professional studio lighting, crisp "
-        "focus, accurate fabric texture, true-to-source colour."
+        "Generate a single premium STUDIO e-commerce product photograph of the garment "
+        "from the reference image. Professional studio lighting, crisp focus, accurate "
+        "fabric texture, true-to-source colour."
     )
-    if variant == 1:
-        scene = (
-            "Composition: hero straight-on / front-facing view on a clean "
-            "seamless WHITE studio background (paper or cyclorama). Soft "
-            "directional key light with a subtle natural floor shadow. If the "
-            "reference has no model, use a ghost-mannequin / invisible mannequin "
-            "presentation so the garment shape is fully visible. If the reference "
-            "has a model, keep the same model in a neutral studio pose."
-        )
-    else:
-        scene = (
-            "Composition: a distinct angle from the first studio shot — "
-            "three-quarter view or a slight close-up detail of a key feature "
-            "(neckline, sleeve, hem, weave or print) — on a clean SOFT GREY "
-            "seamless studio background. Even soft studio lighting. Same model "
-            "rule as above: ghost-mannequin if the reference has no person, "
-            "otherwise keep the existing model."
-        )
+    scene = (
+        "Composition: hero straight-on / front-three-quarter view on a clean seamless "
+        "studio background (white or soft warm grey). Soft directional key light with a "
+        "subtle natural floor shadow. "
+        "MODEL RULE: If the reference image has NO human in it, add a tasteful adult "
+        "model wearing the garment in a neutral studio pose. Match age, gender, body "
+        "type to the garment's category and target audience. Face fully visible. "
+        "If the reference already has a model, keep the same person and outfit fit, "
+        "just adjust the pose for a clean studio look."
+    )
     return f"{base}\n\n{scene}\n\n{PRESERVATION_RULES}"
 
 
-# 4 standalone outputs in fixed order
+# 2 standalone outputs in fixed order (Phase D: dropped from 4 → 2 for higher success rate
+# and faster wall-clock time. One outdoor + one studio, both model-on-product.)
 PROMPTS: list[tuple[str, str]] = [
     ("outdoor_1", _outdoor_prompt(1)),
-    ("outdoor_2", _outdoor_prompt(2)),
     ("studio_1", _studio_prompt(1)),
-    ("studio_2", _studio_prompt(2)),
 ]
 PROMPTS_BY_KIND: dict[str, str] = dict(PROMPTS)
 VALID_KINDS = tuple(k for k, _ in PROMPTS)

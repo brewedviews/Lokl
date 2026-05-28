@@ -1,8 +1,9 @@
 import React from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark, Building2 } from "lucide-react";
+import { Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import useHeartbeat from "../../hooks/useHeartbeat";
+import OnlineToggle from "./OnlineToggle";
 
 export default function MerchantLayout({ children }) {
   const { merchant, logout } = useAuth();
@@ -36,6 +37,7 @@ export default function MerchantLayout({ children }) {
               <span className="flex-1">{l.label}</span>
             </NavLink>
           ))}
+          {isApproved && <div className="px-1"><OnlineToggle /></div>}
         </nav>
         <div className="p-3 border-t border-[#E5E2DC]">
           <div className="px-3 py-2">

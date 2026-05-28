@@ -27,7 +27,7 @@ def fresh_merchant():
     pw = "Iter5@2026"
     reg = requests.post(f"{API}/auth/register", json={
         "email": email, "password": pw, "store_name": f"Iter5 Store {uuid.uuid4().hex[:4]}",
-        "owner_name": "Iter5 Owner", "phone": "+919999900005", "city": "Bhilai"
+        "owner_name": "Iter5 Owner", "phone": f"+9199{str(uuid.uuid4().int)[:8]}", "city": "Bhilai"
     }, timeout=15)
     assert reg.status_code == 200, reg.text
     tok = reg.json()["token"]
@@ -165,7 +165,7 @@ def approved_merchant(admin_token):
     pw = "Iter5@2026"
     reg = requests.post(f"{API}/auth/register", json={
         "email": email, "password": pw, "store_name": f"Iter5 ImgStore {uuid.uuid4().hex[:4]}",
-        "owner_name": "ImgOwner", "phone": "+919999900006", "city": "Bhilai"
+        "owner_name": "ImgOwner", "phone": f"+9199{str(uuid.uuid4().int)[:8]}", "city": "Bhilai"
     }, timeout=10).json()
     tok = reg["token"]; mid = reg["merchant"]["id"]
     requests.post(f"{API}/merchant/kyc/submit", headers={"Authorization": f"Bearer {tok}"}, json={

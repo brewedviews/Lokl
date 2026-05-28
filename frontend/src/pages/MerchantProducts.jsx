@@ -7,6 +7,8 @@ import AIEnhanceModal from "../components/merchant/AIEnhanceModal";
 import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 
+// Module-level cache so juggling tabs doesn't show an empty list for 2-3s.
+let _productsCache = null;
 const SAMPLE_CSV = `name,description,l1,l2,gender,mrp,price,sizes,stock_per_size
 Indigo Block-Print Kurta,Pure cotton hand-block,Women,Ethnic wear,,3499,1899,S;M;L;XL,50;100;39;10
 Oversized Tee,240GSM oversized graphic tee,Men,T-shirts,,1499,899,M;L;XL,30;45;20
@@ -15,15 +17,20 @@ White Court Sneakers,Classic low-top court sneakers,Footwear,,women,4999,3499,7;
 export default function MerchantProducts() {
   const { merchant } = useAuth();
   const nav = useNavigate();
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState(_productsCache || []);
+  const [loadedOnce, setLoadedOnce] = useState(!!_productsCache);
   const [cats, setCats] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
   const [openImg, setOpenImg] = useState(null);
   const [openAi, setOpenAi] = useState(null);
   const blankForm = { name: "", price: "", mrp: "", l1_id: "", l2_id: "", gender: "", description: "", images: [], stock: {}, return_eligible: false };
   const [form, setForm] = useState(blankForm);
+  const [editingId, setEditingId] = useState(null);  // when set, "Add product" modal is in edit mode
   const [bulkBusy, setBulkBusy] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
+  const [submitBusy, setSubmitBusy] = useState(false);
+  const [actionBusyId, setActionBusyId] = useState(null);
+  const [bulkOpBusy, setBulkOpBusy] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [aiOpenDraft, setAiOpenDraft] = useState(false);
 
@@ -39,25 +46,35 @@ export default function MerchantProducts() {
   const clearSel = () => setSelectedIds(new Set());
 
   const bulkAction = async (op) => {
+    if (bulkOpBusy) return;
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return toast.error("Pick at least one product");
     if (op === "delete" && !window.confirm(`Delete ${ids.length} product(s)? This cannot be undone.`)) return;
+    setBulkOpBusy(true);
     try {
       await api.post("/merchant/products/bulk-action", { ids, action: op });
       toast.success(op === "delete" ? "Deleted" : op === "publish" ? "Marked live" : "Paused");
       clearSel(); load();
     } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
+    finally { setBulkOpBusy(false); }
   };
 
   const togglePublish = async (p, to) => {
+    if (actionBusyId === p.id) return;
+    setActionBusyId(p.id);
     try {
       await api.put(`/merchant/products/${p.id}`, { paused: to === "live" ? false : true });
       toast.success(to === "live" ? "Marked live" : "Paused");
       load();
     } catch { toast.error("Failed"); }
+    finally { setActionBusyId(null); }
   };
 
-  const load = () => api.get("/merchant/products").then((r) => setProducts(r.data));
+  const load = () => api.get("/merchant/products").then((r) => {
+    _productsCache = r.data;
+    setProducts(r.data);
+    setLoadedOnce(true);
+  });
   useEffect(() => { load(); api.get("/categories").then((r) => setCats(r.data)); }, []);
 
   const selectedL1 = cats.find((c) => c.id === form.l1_id);
@@ -91,25 +108,59 @@ export default function MerchantProducts() {
 
   const submit = async (e) => {
     e.preventDefault();
+    if (submitBusy) return;
     if (!form.l1_id) return toast.error("Pick a category");
     if (needsL2 && !form.l2_id) return toast.error("Pick a sub-category");
     if (needsGender && !form.gender) return toast.error("Pick gender for this category");
-    if (!form.images.length) return toast.error("Upload at least one product image");
     const sizes = Object.keys(form.stock);
     if (sizes.length === 0) return toast.error("Add quantity for at least one size");
+    // Image is optional in edit mode if the product already has one server-side.
+    if (!editingId && !form.images.length) return toast.error("Upload at least one product image");
+    setSubmitBusy(true);
     try {
-      await api.post("/merchant/products", {
+      const body = {
         name: form.name, description: form.description,
         l1_id: form.l1_id, l2_id: form.l2_id, gender: form.gender,
         price: Number(form.price), mrp: Number(form.mrp) || null,
-        image: form.images[0], images: form.images, sizes, stock: form.stock,
+        sizes, stock: form.stock,
         return_eligible: !!form.return_eligible,
-      });
-      toast.success("Product added");
+      };
+      if (form.images.length) {
+        body.image = form.images[0];
+        body.images = form.images;
+        body.needs_image = false;
+      }
+      if (editingId) {
+        await api.put(`/merchant/products/${editingId}`, body);
+        toast.success("Product updated");
+      } else {
+        await api.post("/merchant/products", body);
+        toast.success("Product added");
+      }
       setOpenAdd(false);
+      setEditingId(null);
       setForm(blankForm);
       load();
     } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
+    finally { setSubmitBusy(false); }
+  };
+
+  const openEdit = (p) => {
+    const sizes = p.sizes || Object.keys(p.stock || {});
+    setForm({
+      name: p.name || "",
+      price: p.price || "",
+      mrp: p.mrp || "",
+      l1_id: p.l1_id || "",
+      l2_id: p.l2_id || "",
+      gender: p.gender || "",
+      description: p.description || "",
+      images: (p.images && p.images.length ? p.images : (p.image ? [p.image] : [])),
+      stock: p.stock || sizes.reduce((acc, s) => ({ ...acc, [s]: 0 }), {}),
+      return_eligible: !!p.return_eligible,
+    });
+    setEditingId(p.id);
+    setOpenAdd(true);
   };
 
   const handleBulk = async (file) => {
@@ -118,15 +169,27 @@ export default function MerchantProducts() {
     const fd = new FormData(); fd.append("file", file);
     try {
       const { data } = await api.post("/merchant/products/bulk", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success(`Imported ${data.created}${data.skipped?.length ? ` · skipped ${data.skipped.length}` : ""}`);
+      const skip = data.skipped?.length ? ` · skipped ${data.skipped.length}` : "";
+      toast.success(`Imported ${data.created}${skip} · add images to take live`);
       load();
     } catch (e) { toast.error(e.response?.data?.detail || "Bulk import failed"); }
     finally { setBulkBusy(false); }
   };
 
-  const downloadSample = () => {
-    const blob = new Blob([SAMPLE_CSV], { type: "text/csv" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "lokl-products-sample.csv"; a.click();
+  const downloadTemplate = async () => {
+    try {
+      // Authed fetch — axios doesn't handle binary blobs as cleanly as the native API.
+      const token = localStorage.getItem("bf_token");
+      const apiUrl = api.defaults.baseURL;
+      const res = await fetch(`${apiUrl}/merchant/products/template.xlsx`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "lokl-products-template.xlsx";
+      a.click();
+    } catch { toast.error("Could not download template"); }
   };
 
   const goLive = async () => {
@@ -145,12 +208,12 @@ export default function MerchantProducts() {
             <p className="text-[#595959] text-sm mt-1">{products.length} product{products.length !== 1 ? "s" : ""}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={downloadSample} title="CSV format: sizes=S;M;L  stock_per_size=50;100;39" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#E5E2DC] text-sm font-semibold hover:border-[#1A2B4C]"><Download size={14} /> Sample CSV</button>
+            <button onClick={downloadTemplate} title="xlsx with dropdowns for category, sub-category, gender and returnable" data-testid="download-template" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#E5E2DC] text-sm font-semibold hover:border-[#1A2B4C]"><Download size={14} /> Sample xlsx</button>
             <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[#E5E2DC] text-sm font-semibold hover:border-[#1A2B4C] cursor-pointer">
-              <Upload size={14} /> {bulkBusy ? "Importing…" : "Bulk upload CSV"}
-              <input data-testid="bulk-csv" type="file" accept=".csv" className="hidden" onChange={(e) => handleBulk(e.target.files?.[0])} />
+              <Upload size={14} /> {bulkBusy ? "Importing…" : "Bulk upload xlsx"}
+              <input data-testid="bulk-csv" type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => { handleBulk(e.target.files?.[0]); e.target.value = ""; }} />
             </label>
-            <button onClick={() => setOpenAdd(true)} data-testid="add-product-btn" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#1A2B4C] text-white text-sm font-semibold hover:bg-[#101D36]"><Plus size={14} /> Add product</button>
+            <button onClick={() => { setEditingId(null); setForm(blankForm); setOpenAdd(true); }} data-testid="add-product-btn" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#1A2B4C] text-white text-sm font-semibold hover:bg-[#101D36]"><Plus size={14} /> Add product</button>
           </div>
         </div>
 
@@ -170,15 +233,28 @@ export default function MerchantProducts() {
           <div data-testid="bulk-bar" className="sticky top-4 z-30 mb-3 bg-[#1A2B4C] text-white rounded-2xl px-4 py-3 flex items-center justify-between shadow-lg">
             <div className="text-sm font-semibold">{selectedIds.size} selected</div>
             <div className="flex gap-2">
-              <button onClick={() => bulkAction("publish")} data-testid="bulk-publish" className="px-3 py-1.5 rounded-full bg-[#4F7363] text-xs font-semibold">Go live</button>
-              <button onClick={() => bulkAction("pause")} data-testid="bulk-pause" className="px-3 py-1.5 rounded-full bg-white/15 text-xs font-semibold">Pause</button>
-              <button onClick={() => bulkAction("delete")} data-testid="bulk-delete" className="px-3 py-1.5 rounded-full bg-red-500 text-xs font-semibold">Delete</button>
+              <button onClick={() => bulkAction("publish")} disabled={bulkOpBusy} data-testid="bulk-publish" className="px-3 py-1.5 rounded-full bg-[#4F7363] text-xs font-semibold disabled:opacity-50">{bulkOpBusy ? "Working…" : "Go live"}</button>
+              <button onClick={() => bulkAction("pause")} disabled={bulkOpBusy} data-testid="bulk-pause" className="px-3 py-1.5 rounded-full bg-white/15 text-xs font-semibold disabled:opacity-50">Pause</button>
+              <button onClick={() => bulkAction("delete")} disabled={bulkOpBusy} data-testid="bulk-delete" className="px-3 py-1.5 rounded-full bg-red-500 text-xs font-semibold disabled:opacity-50">Delete</button>
               <button onClick={clearSel} className="px-3 py-1.5 rounded-full bg-white/10 text-xs">Cancel</button>
             </div>
           </div>
         )}
 
-        {products.length === 0 ? (
+        {!loadedOnce ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" data-testid="products-skeleton">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="bg-white rounded-2xl border border-[#E5E2DC] overflow-hidden animate-pulse">
+                <div className="w-full aspect-[4/5] bg-[#F2EFE8]" />
+                <div className="p-3 space-y-2">
+                  <div className="h-3 bg-[#F2EFE8] rounded w-3/4" />
+                  <div className="h-2 bg-[#F2EFE8] rounded w-1/2" />
+                  <div className="h-3 bg-[#F2EFE8] rounded w-1/3" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : products.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-2xl border border-[#E5E2DC]">
             <Package size={48} className="mx-auto text-[#E68910] mb-4" />
             <p className="text-[#595959]">No products yet. Add one or upload a CSV.</p>
@@ -190,28 +266,35 @@ export default function MerchantProducts() {
               const l2 = l1?.l2?.find((s) => s.id === p.l2_id);
               const isLive = !p.paused;
               const isSel = selectedIds.has(p.id);
+              const busy = actionBusyId === p.id;
               return (
-                <div key={p.id} data-testid={`mp-${p.id}`} className={`group bg-white rounded-2xl border-2 overflow-hidden relative transition ${isSel ? "border-[#E68910]" : "border-[#E5E2DC]"}`}>
+                <div key={p.id} data-testid={`mp-${p.id}`} className={`group bg-white rounded-2xl border-2 overflow-hidden relative transition ${isSel ? "border-[#E68910]" : "border-[#E5E2DC]"} ${busy ? "opacity-70 pointer-events-none" : ""}`}>
                   <label className="absolute top-2 left-2 z-10 cursor-pointer">
                     <input type="checkbox" checked={isSel} onChange={() => toggleSel(p.id)} data-testid={`sel-${p.id}`} className="w-5 h-5 accent-[#E68910]" />
                   </label>
                   {!isLive && (
                     <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold uppercase tracking-wide">paused</span>
                   )}
-                  {p.image ? <img src={p.image} alt={p.name} className="w-full aspect-[4/5] object-cover" /> :
+                  {p.image ? <img src={p.image} alt={p.name} loading="lazy" className="w-full aspect-[4/5] object-cover" /> :
                             <div className="w-full aspect-[4/5] bg-[#FDFBF7] flex items-center justify-center"><Package className="text-[#E5E2DC]" size={36} /></div>}
                   {/* Per-product hover Go-Live (only when paused) */}
                   {!isLive && (
-                    <button onClick={() => togglePublish(p, "live")} data-testid={`go-live-${p.id}`}
-                      className="absolute inset-x-3 bottom-3 opacity-0 group-hover:opacity-100 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[#E68910] text-white text-xs font-bold shadow-lg transition">
-                      <Rocket size={12} /> Go live
+                    <button onClick={() => togglePublish(p, "live")} disabled={busy} data-testid={`go-live-${p.id}`}
+                      className="absolute inset-x-3 bottom-3 opacity-0 group-hover:opacity-100 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[#E68910] text-white text-xs font-bold shadow-lg transition disabled:opacity-60">
+                      <Rocket size={12} /> {busy ? "Working…" : "Go live"}
                     </button>
                   )}
                   <div className="p-3">
                     <div className="font-semibold text-sm text-[#1A2B4C] truncate">{p.name}</div>
                     <div className="text-[10px] text-[#595959] uppercase">{l1?.name} {l2 ? `· ${l2.name}` : p.gender ? `· ${p.gender}` : ""}</div>
                     <div className="text-sm font-bold text-[#1A2B4C] mt-1">₹{Number(p.price).toLocaleString()}</div>
-                    <button onClick={() => setOpenImg(p)} className="mt-2 w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-semibold border border-[#E68910]/40 text-[#E68910] hover:bg-[#E68910]/10">
+                    {p.needs_image && !p.image && (
+                      <div className="mt-2 px-2 py-1 rounded-md bg-[#E68910]/10 text-[#E68910] text-[10px] font-bold uppercase tracking-wide text-center">Add image to take live</div>
+                    )}
+                    <button onClick={() => openEdit(p)} data-testid={`edit-product-${p.id}`} className="mt-2 w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-semibold border border-[#1A2B4C]/40 text-[#1A2B4C] hover:bg-[#1A2B4C]/5">
+                      Edit details
+                    </button>
+                    <button onClick={() => setOpenImg(p)} className="mt-1.5 w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-semibold border border-[#E68910]/40 text-[#E68910] hover:bg-[#E68910]/10">
                       <ImagePlus size={11} /> {p.image ? "Edit images" : "Add images"}
                     </button>
                     <button onClick={() => setOpenAi(p)} data-testid={`ai-enhance-btn-${p.id}`} disabled={!p.image && !(p.images && p.images[0])} className="mt-1.5 w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-semibold border border-[#1A2B4C]/40 text-[#1A2B4C] hover:bg-[#1A2B4C]/5 disabled:opacity-40">
@@ -227,7 +310,7 @@ export default function MerchantProducts() {
         {openAdd && (
           <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
             <form onSubmit={submit} className="bg-white rounded-3xl w-full max-w-lg p-6 space-y-3 max-h-[90vh] overflow-y-auto">
-              <h2 className="display text-2xl font-bold text-[#1A2B4C] mb-2">New product</h2>
+              <h2 className="display text-2xl font-bold text-[#1A2B4C] mb-2">{editingId ? "Edit product" : "New product"}</h2>
               <input required placeholder="Product name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none" />
               <div className="grid grid-cols-2 gap-3">
                 <input required type="number" placeholder="Selling price *" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none" />
@@ -278,7 +361,7 @@ export default function MerchantProducts() {
                     data-testid="ai-enhance-draft-btn"
                     className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#1A2B4C]/40 text-[#1A2B4C] text-[11px] font-semibold hover:bg-[#1A2B4C]/5"
                   >
-                    <Sparkles size={12} className="text-[#E68910]" /> AI: generate 4 catalog images from cover
+                    <Sparkles size={12} className="text-[#E68910]" /> AI: generate 2 catalog images from cover
                   </button>
                 )}
               </div>
@@ -314,8 +397,8 @@ export default function MerchantProducts() {
               </label>
 
               <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => { setOpenAdd(false); setForm(blankForm); }} className="flex-1 px-5 py-3 rounded-full border border-[#E5E2DC]">Cancel</button>
-                <button type="submit" data-testid="save-product-btn" className="flex-1 px-5 py-3 rounded-full bg-[#E68910] text-white font-semibold">Save</button>
+                <button type="button" onClick={() => { setOpenAdd(false); setEditingId(null); setForm(blankForm); }} className="flex-1 px-5 py-3 rounded-full border border-[#E5E2DC]">Cancel</button>
+                <button type="submit" disabled={submitBusy} data-testid="save-product-btn" className="flex-1 px-5 py-3 rounded-full bg-[#E68910] text-white font-semibold disabled:opacity-60">{submitBusy ? "Saving…" : "Save"}</button>
               </div>
             </form>
           </div>
@@ -364,12 +447,16 @@ function ImageManager({ product, onClose }) {
     const next = arr.slice(); const [it] = next.splice(idx, 1); next.unshift(it); return next;
   });
 
+  const [saveBusy, setSaveBusy] = useState(false);
   const save = async () => {
+    if (saveBusy) return;
     if (!images.length) return toast.error("Add at least one image");
+    setSaveBusy(true);
     try {
       await api.put(`/merchant/products/${product.id}`, { image: images[0], images });
       toast.success("Saved"); onClose();
     } catch { toast.error("Save failed"); }
+    finally { setSaveBusy(false); }
   };
 
   return (
@@ -413,12 +500,12 @@ function ImageManager({ product, onClose }) {
             data-testid="ai-enhance-mgr-btn"
             className="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full border border-[#1A2B4C]/40 text-[#1A2B4C] text-sm font-semibold hover:bg-[#1A2B4C]/5"
           >
-            <Sparkles size={14} className="text-[#E68910]" /> AI: generate 4 catalog images from cover
+            <Sparkles size={14} className="text-[#E68910]" /> AI: generate 2 catalog images from cover
           </button>
         )}
         <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-[#E5E2DC]">
           <button onClick={onClose} className="px-5 py-2.5 rounded-full border border-[#E5E2DC]">Close</button>
-          <button onClick={save} data-testid="save-images" className="px-5 py-2.5 rounded-full bg-[#E68910] text-white font-semibold">Save</button>
+          <button onClick={save} disabled={saveBusy} data-testid="save-images" className="px-5 py-2.5 rounded-full bg-[#E68910] text-white font-semibold disabled:opacity-60">{saveBusy ? "Saving…" : "Save"}</button>
         </div>
       </div>
       {aiOpen && (

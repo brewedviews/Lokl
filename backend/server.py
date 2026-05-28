@@ -38,7 +38,8 @@ log = logging.getLogger("lokl")
 # ===== Models =====
 class MerchantSignup(BaseModel):
     email: EmailStr; password: str; store_name: str; owner_name: str
-    phone: Optional[str] = None; city: Optional[str] = "Bhilai"
+    phone: str  # mandatory — used for cellular/WhatsApp contact and (soon) OTP login
+    city: Optional[str] = "Bhilai"
 
 class MerchantLogin(BaseModel): email: EmailStr; password: str
 class AdminLogin(BaseModel): email: EmailStr; password: str
@@ -47,7 +48,9 @@ class KycSubmit(BaseModel):
     pan_number: str; gst_number: Optional[str] = ""
     business_name: str; business_category: str; business_type: str; business_address: str
     bank_account_number: str; bank_ifsc: str; account_holder_name: str
-    pan_doc_b64: Optional[str] = ""; gst_doc_b64: Optional[str] = ""; cancelled_cheque_b64: str
+    # Docs are optional on resubmission — backend keeps the previously-uploaded blob if
+    # the field is empty this time. Validation still ensures a doc was provided on first submit.
+    pan_doc_b64: Optional[str] = ""; gst_doc_b64: Optional[str] = ""; cancelled_cheque_b64: Optional[str] = ""
 
 class StorefrontUpdate(BaseModel):
     tagline: str; story: str; banner: str
@@ -87,12 +90,20 @@ class CustomerUpsert(BaseModel):
 # ===== Auth =====
 @api.post("/auth/register")
 async def register(payload: MerchantSignup):
+    phone = (payload.phone or "").strip()
+    digits = "".join(c for c in phone if c.isdigit())
+    if len(digits) < 10:
+        raise HTTPException(400, "Phone number is required (10+ digits)")
     if await db.merchants.find_one({"email": payload.email}, {"_id": 0}):
         raise HTTPException(400, "Email already registered")
+    # Phone uniqueness check — last-10-digits canonical form, ignoring +91/91 prefixes.
+    p10 = digits[-10:]
+    if await db.merchants.find_one({"phone_canonical": p10}, {"_id": 0}):
+        raise HTTPException(400, "Phone number already registered")
     mid = f"m-{uuid.uuid4().hex[:10]}"
     doc = {"id": mid, "email": payload.email, "password_hash": hash_password(payload.password),
            "store_name": payload.store_name, "owner_name": payload.owner_name,
-           "phone": payload.phone, "city": payload.city,
+           "phone": phone, "phone_canonical": p10, "city": payload.city,
            "created_at": datetime.now(timezone.utc).isoformat(), "role": "merchant",
            "kyc_status": "draft", "kyc_submitted_at": None, "approved_at": None,
            "published": False, "storefront": None, "notifications": []}
@@ -113,6 +124,40 @@ async def me(user: dict = Depends(get_current_user)):
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0, "password_hash": 0})
     if not m: raise HTTPException(404, "Merchant not found")
     return m
+
+
+async def _merchant_next_route(merchant_id: str) -> str:
+    """Compute the best landing route for a merchant based on onboarding state.
+    Login + onboarding pages call this so an approved merchant never sees the
+    onboarding page again.
+    """
+    m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0, "kyc_status": 1})
+    if not m:
+        return "/merchant/login"
+    kyc = (m.get("kyc_status") or "draft").lower()
+    if kyc in ("draft", "rejected"):
+        return "/merchant/kyc"
+    if kyc == "on_hold":
+        return "/merchant/onboarding"  # show hold notice + Update KYC button
+    if kyc == "submitted":
+        return "/merchant/onboarding"  # under review
+    # approved
+    store_id = f"store-m-{merchant_id}"
+    store = await db.stores.find_one({"id": store_id}, {"_id": 0, "published": 1})
+    if not store:
+        return "/merchant/storefront"
+    live_count = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
+    if live_count < 1:
+        return "/merchant/products"
+    return "/merchant/orders"
+
+
+@api.get("/merchant/next-route")
+async def merchant_next_route(user: dict = Depends(get_current_user)):
+    """Returns where the merchant should land after login/refresh."""
+    if user.get("role") != "merchant":
+        raise HTTPException(403, "Merchant only")
+    return {"route": await _merchant_next_route(user["sub"])}
 
 
 # ===== Categories =====
@@ -150,6 +195,11 @@ async def search(q: str = "", limit: int = 20):
 
 # ===== Public catalog =====
 def _visible_store_filter():
+    # `published` = approved + has products + has clicked store-level go-live (auto in current flow).
+    # `paused` = admin-paused (hidden entirely).
+    # `online` is the merchant's self-service availability toggle — when False, the store is
+    # still visible in /stores listings but tagged "Offline now" and ALL their products are
+    # hidden from the public products listing.
     return {"kyc_status": "approved", "published": True, "paused": {"$ne": True}, "product_count": {"$gte": 1}}
 
 def _visible_product_filter():
@@ -192,10 +242,16 @@ async def list_stores(city: Optional[str] = None, limit: int = 50):
     stores = await db.stores.find(q, {"_id": 0, "banner_images": 0}).sort("distance_km", 1).to_list(limit)
     open_list, offline_list = [], []
     for s in stores:
-        is_open, next_label = _is_store_open_now(s)
+        merchant_online = s.get("online") is not False
+        is_open_by_time, next_label = _is_store_open_now(s)
+        is_open = is_open_by_time and merchant_online
         s["is_open"] = is_open
+        s["online"] = merchant_online  # explicit for UI
         if not is_open:
-            s["next_open_label"] = next_label
+            if not merchant_online:
+                s["next_open_label"] = "Offline — back soon"
+            else:
+                s["next_open_label"] = next_label
             offline_list.append(s)
         else:
             open_list.append(s)
@@ -205,21 +261,29 @@ async def list_stores(city: Optional[str] = None, limit: int = 50):
 async def get_store(store_id: str):
     s = await db.stores.find_one({"id": store_id, **_visible_store_filter()}, {"_id": 0})
     if not s: raise HTTPException(404, "Store not found")
-    is_open, next_label = _is_store_open_now(s)
-    s["is_open"] = is_open
-    s["next_open_label"] = next_label
-    products = await db.products.find({"store_id": store_id, **_visible_product_filter()}, {"_id": 0, "images": 0}).to_list(200)
-    for p in products:
-        p["store_is_open"] = is_open
-        if not is_open:
-            p["next_open_label"] = next_label
+    merchant_online = s.get("online") is not False
+    is_open_by_time, next_label = _is_store_open_now(s)
+    s["is_open"] = is_open_by_time and merchant_online
+    s["online"] = merchant_online
+    s["next_open_label"] = next_label if merchant_online else "Offline — back soon"
+    # When merchant is offline, hide their products from the store page too (user spec).
+    if not merchant_online:
+        products = []
+    else:
+        products = await db.products.find({"store_id": store_id, **_visible_product_filter()}, {"_id": 0, "images": 0}).to_list(200)
+        for p in products:
+            p["store_is_open"] = s["is_open"]
+            if not s["is_open"]:
+                p["next_open_label"] = s.get("next_open_label")
     return {"store": s, "products": products}
 
 @api.get("/products")
 async def list_products(l1: Optional[str] = None, l2: Optional[str] = None,
                         gender: Optional[str] = None, store: Optional[str] = None,
                         sort: str = "trending", limit: int = 100):
-    visible_ids = await db.stores.find(_visible_store_filter(), {"_id": 0, "id": 1}).to_list(1000)
+    # Only show products from stores that are visible AND currently online (merchant toggle).
+    online_filter = {**_visible_store_filter(), "online": {"$ne": False}}
+    visible_ids = await db.stores.find(online_filter, {"_id": 0, "id": 1}).to_list(1000)
     visible_set = {s["id"] for s in visible_ids}
     q = {"store_id": {"$in": list(visible_set)}, **_visible_product_filter()}
     if l1: q["l1_id"] = l1
@@ -412,8 +476,18 @@ async def admin_cancel_order(oid: str, request: Request, payload: Optional[dict]
 @api.post("/merchant/kyc/submit")
 async def kyc_submit(payload: KycSubmit, user: dict = Depends(get_current_user)):
     # Re-submitting clears any prior hold so admins see it as a fresh review.
+    update = payload.model_dump()
+    # Preserve previously-uploaded docs when this submission omits them (merchant just
+    # tweaked text fields after an on_hold note).
+    existing = await db.merchants.find_one(
+        {"id": user["sub"]},
+        {"_id": 0, "pan_doc_b64": 1, "gst_doc_b64": 1, "cancelled_cheque_b64": 1}
+    ) or {}
+    for k in ("pan_doc_b64", "gst_doc_b64", "cancelled_cheque_b64"):
+        if not (update.get(k) or "").strip() and existing.get(k):
+            update[k] = existing[k]
     await db.merchants.update_one({"id": user["sub"]}, {"$set": {
-        **payload.model_dump(),
+        **update,
         "kyc_status": "submitted",
         "kyc_submitted_at": datetime.now(timezone.utc).isoformat(),
         "hold_comment": None, "hold_at": None}})
@@ -424,7 +498,18 @@ async def kyc_status(user: dict = Depends(get_current_user)):
     m = await db.merchants.find_one({"id": user["sub"]},
         {"_id": 0, "password_hash": 0, "pan_doc_b64": 0, "gst_doc_b64": 0, "cancelled_cheque_b64": 0})
     if not m: raise HTTPException(404, "Not found")
-    return {"kyc_status": m.get("kyc_status", "draft"), "merchant": m}
+    # Lightweight presence flags so the KYC form can show "✓ already uploaded" without
+    # transferring the heavy base64 blobs back to the browser.
+    raw = await db.merchants.find_one(
+        {"id": user["sub"]},
+        {"_id": 0, "pan_doc_b64": 1, "gst_doc_b64": 1, "cancelled_cheque_b64": 1}
+    ) or {}
+    docs_present = {
+        "pan_doc": bool(raw.get("pan_doc_b64")),
+        "gst_doc": bool(raw.get("gst_doc_b64")),
+        "cancelled_cheque": bool(raw.get("cancelled_cheque_b64")),
+    }
+    return {"kyc_status": m.get("kyc_status", "draft"), "merchant": m, "docs_present": docs_present}
 
 @api.get("/merchant/notifications")
 async def merchant_notifications(user: dict = Depends(get_current_user)):
@@ -501,6 +586,42 @@ async def merchant_publish(user: dict = Depends(get_current_user)):
         "time": datetime.now(timezone.utc).isoformat()}}})
     return {"ok": True, "go_live_eta_minutes": 60}
 
+
+@api.get("/merchant/store/state")
+async def merchant_store_state(user: dict = Depends(get_current_user)):
+    """Returns just what the sidebar needs: is the merchant fully launched + their online toggle."""
+    sid = f"store-m-{user['sub']}"
+    s = await db.stores.find_one({"id": sid}, {"_id": 0, "published": 1, "online": 1, "paused": 1, "product_count": 1})
+    if not s:
+        return {"published": False, "online": True, "can_toggle": False, "product_count": 0}
+    pc = await db.products.count_documents({"store_id": sid, "paused": {"$ne": True}})
+    return {
+        "published": bool(s.get("published")),
+        "online": s.get("online") is not False,
+        "paused": bool(s.get("paused")),
+        "product_count": pc,
+        # Only show the big sidebar toggle once the merchant is fully launched (approved +
+        # storefront + has ≥1 live product + admin not pausing them).
+        "can_toggle": bool(s.get("published")) and pc >= 1 and not s.get("paused"),
+    }
+
+
+@api.post("/merchant/store/online")
+async def merchant_store_online(payload: dict, user: dict = Depends(get_current_user)):
+    """Merchant self-service availability toggle. Body: {online: bool}.
+    When `online=False`: store stays visible on the listing but is marked
+    "Offline — back soon" and all products from this store are hidden from the
+    public products listing."""
+    online = bool(payload.get("online"))
+    sid = f"store-m-{user['sub']}"
+    s = await db.stores.find_one({"id": sid}, {"_id": 0, "published": 1})
+    if not s:
+        raise HTTPException(400, "Set up your storefront first")
+    if not s.get("published"):
+        raise HTTPException(400, "Take your store live before toggling availability")
+    await db.stores.update_one({"id": sid}, {"$set": {"online": online}})
+    return {"ok": True, "online": online}
+
 @api.get("/merchant/products")
 async def merchant_products(user: dict = Depends(get_current_user)):
     return await db.products.find({"merchant_id": user["sub"]}, {"_id": 0}).to_list(500)
@@ -514,6 +635,38 @@ def _validate_l1_l2(l1_id: str, l2_id: str, gender: str):
     else:
         if not gender or gender not in GENDERS:
             raise HTTPException(400, "gender required for this category")
+
+async def _maybe_autopublish_store(merchant_id: str) -> bool:
+    """Auto-publish the merchant's store once KYC is approved, the storefront exists,
+    and there is at least one un-paused product. Idempotent and safe to call after every
+    product mutation. Returns True if the store was just flipped to published.
+
+    This kills a recurring UX bug where merchants who "took products live" never noticed
+    the separate store-level Go-Live step, so their store stayed `published=False` and
+    invisible to customers.
+    """
+    m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0, "kyc_status": 1})
+    if not m or m.get("kyc_status") != "approved":
+        return False
+    store_id = f"store-m-{merchant_id}"
+    store = await db.stores.find_one({"id": store_id}, {"_id": 0, "published": 1})
+    if not store or store.get("published"):
+        return False
+    cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
+    if cnt < 1:
+        return False
+    await db.stores.update_one({"id": store_id}, {"$set": {
+        "published": True,
+        "product_count": cnt,
+        "live_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    await db.merchants.update_one({"id": merchant_id}, {"$push": {"notifications": {
+        "type": "go-live", "title": "Your store is live on Lokl",
+        "body": "Customers in Bhilai can now discover and order from your store.",
+        "time": datetime.now(timezone.utc).isoformat(),
+    }}})
+    return True
+
 
 @api.post("/merchant/products")
 async def create_merchant_product(payload: ProductCreate, user: dict = Depends(get_current_user)):
@@ -532,6 +685,7 @@ async def create_merchant_product(payload: ProductCreate, user: dict = Depends(g
     await db.products.insert_one(doc)
     cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
+    await _maybe_autopublish_store(user["sub"])
     doc.pop("_id", None); return doc
 
 @api.put("/merchant/products/{pid}")
@@ -540,6 +694,12 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
     if not p: raise HTTPException(404, "Product not found")
     payload.pop("id", None); payload.pop("merchant_id", None)
     await db.products.update_one({"id": pid}, {"$set": payload})
+    # If the product was just unpaused, recompute count and maybe auto-publish.
+    if "paused" in payload:
+        store_id = f"store-m-{user['sub']}"
+        cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
+        await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
+        await _maybe_autopublish_store(user["sub"])
     return await db.products.find_one({"id": pid}, {"_id": 0})
 
 @api.post("/merchant/ai/enhance-image")
@@ -607,81 +767,142 @@ async def merchant_products_bulk_action(payload: dict, user: dict = Depends(get_
             {"id": {"$in": ids}, "merchant_id": user["sub"]},
             {"$set": {"paused": new_paused}}
         )
+        store_id = f"store-m-{user['sub']}"
+        cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
+        await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
+        await _maybe_autopublish_store(user["sub"])
         return {"updated": r.modified_count, "paused": new_paused}
     raise HTTPException(400, "Unknown action")
 
 
 
+@api.get("/merchant/products/template.xlsx")
+async def merchant_bulk_template(user: dict = Depends(get_current_user)):
+    """Return the Lokl xlsx template with L1/L2/gender/returnable dropdowns and 3 example rows."""
+    from xlsx_template import build_template_xlsx
+    data = build_template_xlsx()
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="lokl-products-template.xlsx"'},
+    )
+
+
+def _row_to_product(row: dict, l1_by_name: dict, l2_by_name: dict) -> tuple[dict | None, str | None]:
+    """Parse one bulk-upload row (from xlsx or csv) into a product doc fragment.
+    Returns (doc, skip_reason). doc is None when the row should be skipped."""
+    name = str(row.get("name") or "").strip()
+    if not name:
+        return None, "blank-name"
+    l1_name = str(row.get("l1") or row.get("category") or "").strip().lower()
+    l1_id = l1_by_name.get(l1_name)
+    if not l1_id:
+        return None, f"{name}: unknown L1 '{l1_name}'"
+    l2_name = str(row.get("l2") or row.get("subcategory") or "").strip().lower()
+    l2_id = l2_by_name.get((l1_id, l2_name), "") if l2_name else ""
+    gender = str(row.get("gender") or "").strip().lower()
+    if l1_id in L2_BY_L1 and not l2_id:
+        return None, f"{name}: L2 required for category"
+    if l1_id not in L2_BY_L1 and not gender:
+        gender = "unisex"
+    sizes_raw = str(row.get("sizes") or "").strip()
+    sizes = [s.strip() for s in sizes_raw.replace("|", ";").split(";") if s.strip()] if sizes_raw else []
+    try: price = float((row.get("price") or row.get("selling_price") or 0) or 0)
+    except (ValueError, TypeError): price = 0
+    try: mrp = float(row.get("mrp") or 0)
+    except (ValueError, TypeError): mrp = 0
+    stock_raw = str(row.get("stock_per_size") or row.get("stock") or "").strip()
+    stock_dict: dict = {}
+    if stock_raw:
+        parts = [p.strip() for p in stock_raw.replace("|", ";").split(";") if p.strip() != ""]
+        if len(parts) == len(sizes) and sizes:
+            for sz, n in zip(sizes, parts):
+                try: stock_dict[sz] = int(float(n))
+                except (ValueError, TypeError): stock_dict[sz] = 0
+        elif len(parts) == 1 and sizes:
+            try: only = int(float(parts[0]))
+            except (ValueError, TypeError): only = 0
+            stock_dict = {sz: only for sz in sizes}
+        elif not sizes:
+            try: stock_dict = {"default": int(float(parts[0]))}
+            except (ValueError, TypeError): stock_dict = {"default": 0}
+        else:
+            return None, f"{name}: sizes/stock count mismatch"
+    returnable_raw = str(row.get("returnable") or "").strip().lower()
+    return_eligible = returnable_raw in ("yes", "y", "true", "1")
+    return {
+        "name": name, "price": price, "mrp": mrp or None,
+        "l1_id": l1_id, "l2_id": l2_id, "gender": gender,
+        "description": str(row.get("description") or "").strip(),
+        "sizes": sizes, "stock": stock_dict or {"default": 0},
+        "return_eligible": return_eligible,
+    }, None
+
+
 @api.post("/merchant/products/bulk")
 async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    """CSV columns: name, description, l1, l2, gender, mrp, price,
-    sizes (semicolon-separated, e.g. `S;M;L`),
-    stock_per_size (semicolon-separated counts matching sizes, e.g. `50;100;39`).
-    A single integer in stock_per_size means "same qty for every size"."""
+    """Accept BOTH .xlsx (preferred — has dropdowns) and legacy .csv.
+    Columns: name, description, l1, l2, gender, mrp, price,
+    sizes (semicolon-separated, e.g. `S;M;L`), stock_per_size (e.g. `50;100;39`),
+    returnable (Yes/No).
+    """
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
     if m.get("kyc_status") != "approved": raise HTTPException(403, "KYC not approved")
-    raw = (await file.read()).decode("utf-8", errors="ignore")
-    reader = csv.DictReader(io.StringIO(raw))
+    store_id = f"store-m-{user['sub']}"
+    store = await db.stores.find_one({"id": store_id}, {"_id": 0})
+    if not store: raise HTTPException(400, "Set up storefront first")
+
+    raw_bytes = await file.read()
+    fname = (file.filename or "").lower()
+    rows: list[dict] = []
+    if fname.endswith(".xlsx") or raw_bytes.startswith(b"PK\x03\x04"):
+        try:
+            from xlsx_template import parse_uploaded_xlsx
+            rows = parse_uploaded_xlsx(raw_bytes)
+        except Exception as e:
+            raise HTTPException(400, f"Could not read xlsx: {e}")
+    else:
+        try:
+            raw = raw_bytes.decode("utf-8", errors="ignore")
+            rows = list(csv.DictReader(io.StringIO(raw)))
+        except Exception as e:
+            raise HTTPException(400, f"Could not read csv: {e}")
+
     l1_by_name = {c["name"].lower(): c["id"] for c in L1_CATEGORIES}
     l2_by_name = {}
     for lid, subs in L2_BY_L1.items():
         for s in subs: l2_by_name[(lid, s["name"].lower())] = s["id"]
-    store_id = f"store-m-{user['sub']}"
-    store = await db.stores.find_one({"id": store_id}, {"_id": 0})
-    if not store: raise HTTPException(400, "Set up storefront first")
-    created, skipped = [], []
-    for row in reader:
-        name = (row.get("name") or row.get("Name") or "").strip()
-        if not name: continue
-        l1_name = (row.get("l1") or row.get("category") or "").strip().lower()
-        l1_id = l1_by_name.get(l1_name)
-        if not l1_id: skipped.append(name); continue
-        l2_name = (row.get("l2") or row.get("subcategory") or "").strip().lower()
-        l2_id = l2_by_name.get((l1_id, l2_name), "") if l2_name else ""
-        gender = (row.get("gender") or "").strip().lower()
-        # Validate L1/L2/gender
-        if l1_id in L2_BY_L1 and not l2_id: skipped.append(name); continue
-        if l1_id not in L2_BY_L1 and not gender: gender = "unisex"
-        sizes_raw = (row.get("sizes") or "").strip()
-        sizes = [s.strip() for s in sizes_raw.replace("|", ";").split(";") if s.strip()] if sizes_raw else []
-        try: price = float((row.get("price") or row.get("selling_price") or 0) or 0)
-        except ValueError: price = 0
-        try: mrp = float(row.get("mrp") or 0)
-        except ValueError: mrp = 0
-        # stock_per_size: semicolon-separated counts matching sizes positionally.
-        # Backwards compat: a single integer means "same qty for every size".
-        stock_raw = (row.get("stock_per_size") or row.get("stock") or "").strip()
-        stock_dict = {}
-        if stock_raw:
-            parts = [p.strip() for p in stock_raw.replace("|", ";").split(";") if p.strip() != ""]
-            if len(parts) == len(sizes) and sizes:
-                for sz, n in zip(sizes, parts):
-                    try: stock_dict[sz] = int(float(n))
-                    except ValueError: stock_dict[sz] = 0
-            elif len(parts) == 1 and sizes:
-                try: only = int(float(parts[0]))
-                except ValueError: only = 0
-                stock_dict = {sz: only for sz in sizes}
-            elif not sizes:
-                try: stock_dict = {"default": int(float(parts[0]))}
-                except ValueError: stock_dict = {"default": 0}
-            else:
-                # Mismatched count → skip row to avoid silent corruption
-                skipped.append(name); continue
+
+    created_ids: list[str] = []
+    created_names: list[str] = []
+    skipped: list[str] = []
+    for row in rows:
+        # Skip blank rows
+        if not any((v not in (None, "") for v in row.values())):
+            continue
+        doc_frag, reason = _row_to_product(row, l1_by_name, l2_by_name)
+        if doc_frag is None:
+            skipped.append(reason or "unknown")
+            continue
         pid = f"prod-{uuid.uuid4().hex[:10]}"
-        await db.products.insert_one({"id": pid, "merchant_id": user["sub"], "store_id": store_id,
+        # Newly bulk-uploaded products start PAUSED so the merchant adds images first;
+        # they go live one-by-one as the merchant clicks Go-live or adds an image.
+        await db.products.insert_one({
+            "id": pid, "merchant_id": user["sub"], "store_id": store_id,
             "store_name": m["store_name"], "store_city": m.get("city", ""),
             "store_distance_km": store["distance_km"], "store_eta_min": store["eta_min"],
-            "rating": 4.5, "paused": False, "name": name, "price": price,
-            "mrp": mrp or None, "l1_id": l1_id, "l2_id": l2_id, "gender": gender,
-            "description": (row.get("description") or "").strip(),
-            "sizes": sizes, "image": "", "ai_enhanced": False, "try_at_doorstep": False,
-            "stock": stock_dict or {"default": 0},
-            "created_at": datetime.now(timezone.utc).isoformat()})
-        created.append(name)
+            "rating": 4.5, "paused": True, "needs_image": True,
+            "image": "", "ai_enhanced": False, "try_at_doorstep": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            **doc_frag,
+        })
+        created_ids.append(pid)
+        created_names.append(doc_frag["name"])
     cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
-    return {"created": len(created), "skipped": skipped, "names": created[:20]}
+    await _maybe_autopublish_store(user["sub"])
+    return {"created": len(created_ids), "created_ids": created_ids,
+            "names": created_names[:50], "skipped": skipped[:50]}
 
 
 # ===== Merchant AI =====
@@ -727,6 +948,14 @@ async def merchant_analytics(period: str = "30d", user: dict = Depends(get_curre
         try: d = datetime.fromisoformat(o["created_at"]).date().isoformat()
         except Exception: continue
         by_day[d] = by_day.get(d, 0) + float(o.get("total", 0))
+    # Gap-fill the trend so the chart shows a continuous timeline (last N days of the period,
+    # capped at 14 points for a clean bar chart). Empty days show as 0-height bars which
+    # gives the merchant a clear "no orders that day" signal.
+    span_days = max(1, min(14, (end.date() - start.date()).days or 1))
+    trend = []
+    for i in range(span_days, 0, -1):
+        d = (end.date() - timedelta(days=i - 1)).isoformat()
+        trend.append({"date": d, "revenue": round(by_day.get(d, 0), 2)})
     repeat_rate = min(58, int(count * 0.42)) if count >= 4 else 0
     agg = {}
     for o in orders:
@@ -740,7 +969,7 @@ async def merchant_analytics(period: str = "30d", user: dict = Depends(get_curre
     return {"period": period, "revenue": round(revenue, 2), "orders": count,
         "avg_order_value": round(revenue / count, 2) if count else 0,
         "repeat_rate": repeat_rate, "conversion": 0,
-        "trend": [{"date": d, "revenue": by_day[d]} for d in sorted(by_day.keys())[-14:]],
+        "trend": trend,
         "top_products": top, "demo_mode": False}
 
 @api.get("/merchant/analytics/report.csv")

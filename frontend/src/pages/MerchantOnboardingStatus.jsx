@@ -14,11 +14,19 @@ export default function MerchantOnboardingStatus() {
   useEffect(() => {
     api.get("/merchant/kyc/status").then((r) => setData(r.data));
     api.get("/merchant/notifications").then((r) => setNotifs(r.data));
+    // If merchant is already past onboarding (approved + has storefront), bounce them to the right tab.
+    api.get("/merchant/next-route").then(({ data: nr }) => {
+      const route = nr?.route;
+      if (route && route !== "/merchant/onboarding") {
+        nav(route, { replace: true });
+      }
+    }).catch(() => { /* stay on this page */ });
     const i = setInterval(() => {
       api.get("/merchant/kyc/status").then((r) => setData(r.data));
       api.get("/merchant/notifications").then((r) => setNotifs(r.data));
     }, 8000);
     return () => clearInterval(i);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const status = data?.kyc_status || merchant?.kyc_status || "draft";
