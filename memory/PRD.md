@@ -3,6 +3,34 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-16) — Merchant Onboarding overhaul (Phases A + B + C + AI quality)
+
+### Phase A — Smart redirect & quick UX fixes
+- **Smart post-login redirect** (`GET /api/merchant/next-route`): brand-new → `/kyc`, on-hold/submitted → `/onboarding`, approved + no storefront → `/storefront`, storefront + no live product → `/products`, ≥1 live product → `/orders`. No more "always onboarding".
+- **Auto-publish store**: every product mutation (create/update/bulk) now calls `_maybe_autopublish_store` — flips `store.published=true` once kyc=approved + storefront exists + ≥1 unpaused product. Killed the "live products but invisible store" bug (Ujjwal Fashion).
+- **Double-click protection**: Save, Delete, Go-live, Bulk-action buttons disable while in-flight + show "Saving…" / "Working…".
+- **Products tab skeleton**: module-level cache of last products list + animated skeleton on cold-load. No more 2-3s empty flash on tab juggle.
+- **Revenue trend gap-fill**: `trend` is now always 14 continuous days with `revenue:0` on empty days (no more broken chart).
+
+### Phase B — Onboarding & KYC UX
+- **Phone now mandatory + unique** on register (`phone_canonical` indexed for fast lookup); email still primary login until Phase D.
+- **KYC pre-fill**: `GET /merchant/kyc/status` now returns `docs_present` flags (pan_doc, gst_doc, cancelled_cheque) so the form shows "✓ already uploaded"; on-hold banner shows admin's `hold_comment` inline at the top.
+- **KYC resubmission preserves docs**: `pan_doc_b64`/`gst_doc_b64`/`cancelled_cheque_b64` are now optional in `KycSubmit` and the backend keeps the previously-stored blob when the field is empty this time.
+- **Big Online/Offline toggle** in merchant sidebar (`OnlineToggle.jsx`): renders only when fully launched (approved + storefront + ≥1 live product + not admin-paused). When offline: store remains visible on `/api/stores` but tagged `online:false` + "Offline — back soon", and ALL their products are hidden from `/api/products`. New endpoints: `GET /api/merchant/store/state`, `POST /api/merchant/store/online`.
+
+### Phase C — xlsx bulk upload
+- Replaced CSV with **xlsx** as the merchant-facing format. New `GET /api/merchant/products/template.xlsx` returns a workbook with 4 native Excel data-validation dropdowns: l1 (Category), l2 (Sub-category), gender, returnable Yes/No + 3 example rows + a "How to fill" instructions sheet.
+- `POST /api/merchant/products/bulk` now accepts **both xlsx and legacy csv**, includes a `returnable` column, returns `created_ids`, and bulk-uploaded products start `paused:true, needs_image:true` so they don't go live until the merchant adds an image / confirms details.
+- New **Edit details** button (`data-testid="edit-product-{pid}"`) on every product card opens the existing Add modal pre-filled — supports tweaking name/sizes/returnable/category for bulk-uploaded rows.
+
+### AI Image Enhancer quality update (item 7 partial)
+- Dropped 4 → **2 images** (1 outdoor + 1 studio) for higher per-call success rate and faster wall-time.
+- New **model-on-product** prompt: when source has no human, AI now adds a real-looking adult model (age/gender matched to category); when source already has a model, AI keeps the same person and adjusts pose.
+- Documented in finish summary: 100% success requires either fal.ai Flux Kontext Pro (stronger product-preservation editor, ~$0.04/img) or Gemini 3 Pro Image (when GA).
+
+### Tests
+- New `/app/backend/tests/test_phaseA_redirect.py` (3), `test_phaseB_kyc_phone.py` (7), `test_phaseC_xlsx.py` (3) + `test_iter11_extras.py` (3 — online toggle round-trip + AI 2-output) = **34/34 pytest pass** (verified by iter-11 testing agent — zero defects, zero action items).
+
 ## Latest Iteration (Feb 2026 — Iter-15) — Phase 3 of 3 (AI Catalog Image Enhancer) + Perf pass
 
 ### Phase 3 — AI Product Image Enhancer (Gemini Nano Banana via Emergent LLM key)
