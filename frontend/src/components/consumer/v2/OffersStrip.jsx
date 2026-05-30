@@ -7,7 +7,7 @@ export default function OffersStrip({ offers }) {
   return (
     <section className="py-8" data-testid="offers-strip">
       <div className="px-4 sm:px-8 mb-3 max-w-7xl mx-auto">
-        <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C]">Popular in Bhilai</h2>
+        <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C]">Offers for you</h2>
         <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Limited-time campaigns from your nearby stores.</p>
       </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-8 px-4 sm:px-8 pb-2 max-w-7xl mx-auto">

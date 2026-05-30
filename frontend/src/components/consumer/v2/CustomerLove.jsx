@@ -10,7 +10,7 @@ export default function CustomerLove({ items }) {
         <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight">Loved by Bhilai shoppers</h2>
         <p className="text-xs sm:text-sm opacity-80 mt-0.5">Real reviews from real customers.</p>
       </div>
-      <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory px-4 sm:px-8 pb-2 max-w-7xl mx-auto">
+      <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-8 px-4 sm:px-8 pb-2 max-w-7xl mx-auto">
         {items.map((t) => (
           <article key={t.id} className="snap-start shrink-0 w-[74vw] sm:w-[290px] bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10">
             <div className="flex items-center gap-1 text-[#F59E0B] mb-2">

@@ -475,13 +475,13 @@ async def list_l2(l1_id: str):
 # ============ Lokl V2 — Site CMS ============
 DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "hero",            "label": "Hero",                "enabled": True, "rank": 10},
-    {"id": "popular_in_city", "label": "Popular in Bhilai",   "enabled": True, "rank": 20},
-    {"id": "categories",      "label": "Categories",          "enabled": True, "rank": 30},
+    {"id": "popular_in_city", "label": "Trending now",        "enabled": True, "rank": 20},
+    {"id": "categories",      "label": "Shop by category",    "enabled": True, "rank": 30},
     {"id": "offers",          "label": "Offers carousel",     "enabled": True, "rank": 40},
     {"id": "selling_fast",    "label": "Selling fast",        "enabled": True, "rank": 50},
     {"id": "stores",          "label": "Stores near you",     "enabled": True, "rank": 60},
     {"id": "recently_viewed", "label": "Recently viewed",     "enabled": True, "rank": 70},
-    {"id": "customer_love",   "label": "Customer love",       "enabled": True, "rank": 80},
+    {"id": "customer_love",   "label": "Loved by Bhilai shoppers", "enabled": True, "rank": 80},
 ]
 DEFAULT_HERO = {
     "image": "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png",

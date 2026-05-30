@@ -3,11 +3,11 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
-## Latest Iteration (Feb 2026 — Iter-21) — Carousel snap-padding fix + section rename
+## Latest Iteration (Feb 2026 — Iter-21) — Carousel snap-padding fix + section reorder
 
-- **Root-caused the persistent "cards touching the left edge" issue.** The OffersStrip + HCarousel `snap-x snap-mandatory` containers were auto-scrolling `scrollLeft` to exactly the value of `padding-left` on first render, because the default `scroll-padding` is 0 — so `snap-start` aligned the first card with the container's border-edge (eating the padding). Fixed by adding `scroll-pl-4 sm:scroll-pl-8` to both `OffersStrip.jsx` and `HCarousel.jsx` so the snap-port respects the inset. Verified via DOM: first card now reports `x=112` matching hero/header alignment at x=112 (32px padding inside `max-w-7xl`).
-- **Renamed the top campaign rail "Offers for you" → "Popular in Bhilai"** per user request (`OffersStrip.jsx` h2).
-- **Renamed the product carousel section "Popular in Bhilai" → "Trending now"** to avoid a duplicate heading on the same page (`Home.jsx` `popular_in_city` slot).
+- **Root-caused the persistent "cards touching the left edge" issue.** All `snap-x snap-mandatory` carousels were auto-scrolling `scrollLeft = padding-left` on first render — the default `scroll-padding` is 0, so `snap-start` aligned the first card with the container's border-edge, eating the padding. Fixed by adding `scroll-pl-4 sm:scroll-pl-8` to `OffersStrip.jsx`, `HCarousel.jsx`, AND `CustomerLove.jsx` (which was missing it). Verified via DOM bounding-box on desktop+mobile: every carousel's first card now starts at x=112, matching the hero/section headers.
+- **Reordered homepage sections** per user: Hero → Trending now (popular_in_city) → Shop by category → Offers for you (banners) → Selling fast → Stores near you → Loved by Bhilai shoppers → Footer. Both the DB-stored `site_config` doc and the `DEFAULT_HOMEPAGE_SECTIONS` defaults in `server.py` updated. Section labels also refreshed (`popular_in_city` → "Trending now", `customer_love` → "Loved by Bhilai shoppers").
+- OffersStrip h2 reverted to "Offers for you" — the user wanted the WHOLE asset moved (not a text swap); the rail itself was relocated below Categories.
 
 ## Latest Iteration (Feb 2026 — Iter-20) — Consistency + copy + footer cleanup
 
