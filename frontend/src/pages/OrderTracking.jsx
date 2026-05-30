@@ -355,8 +355,10 @@ export default function OrderTracking() {
                     : b.state === "handed_off" ? "text-purple-700 bg-purple-50"
                     : b.state === "accepted" ? "text-[#4F7363] bg-[#4F7363]/10"
                     : "text-[#E68910] bg-[#E68910]/10";
-                  // Show this store's unique OTP once it's accepted, until delivered
-                  const showStoreOtp = b.otp && ["accepted", "handed_off"].includes(b.state);
+                  // Show this store's unique OTP only after the merchant has
+                  // handed the package to the rider (status flips to
+                  // "Out for delivery") — same trigger as single-store flow.
+                  const showStoreOtp = b.otp && b.state === "handed_off";
                   return (
                     <div key={b.merchant_id} className="py-4 first:pt-0 last:pb-0" data-testid={`store-row-${b.store_id}`}>
                       <div className="flex items-start justify-between gap-3 mb-3">
@@ -374,8 +376,8 @@ export default function OrderTracking() {
                       {showStoreOtp && (
                         <div data-testid={`store-otp-${b.store_id}`} className="mt-3 bg-[#0A1F5C] text-white rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
                           <div>
-                            <div className="text-[10px] uppercase tracking-widest text-white/70">Rider OTP — {b.store_name}</div>
-                            <div className="text-[10px] text-white/60 mt-0.5">Share when this store's rider arrives</div>
+                            <div className="text-[10px] uppercase tracking-widest text-white/70">Delivery OTP</div>
+                            <div className="text-[11px] text-white/70 mt-0.5">Share the OTP with the delivery person</div>
                           </div>
                           <div className="font-display text-2xl font-bold tracking-[0.25em] tabular-nums text-[#E68910]">{b.otp}</div>
                         </div>

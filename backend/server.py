@@ -915,7 +915,7 @@ async def get_order(order_id: str):
                 "timeline": (o.get("merchant_timelines") or {}).get(mid) or [],
                 "delivered_at": (o.get("merchant_delivered_at") or {}).get(mid),
                 # Customer sees the per-store OTP only AFTER that store accepts
-                "otp": (o.get("merchant_otps") or {}).get(mid) if (o.get("merchant_states") or {}).get(mid) in ("accepted", "handed_off", "delivered") else None,
+                "otp": (o.get("merchant_otps") or {}).get(mid) if (o.get("merchant_states") or {}).get(mid) in ("handed_off", "delivered") else None,
                 "cancel_reason": (o.get("merchant_cancelled") or {}).get(mid),
             })
         o["store_breakdown"] = breakdown

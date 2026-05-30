@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Bike, CheckCircle2, Package } from "lucide-react";
 import api from "../../lib/api";
 
@@ -12,12 +12,15 @@ const STATUS_META = {
 
 /**
  * Floating strip that polls the customer's most recent active order and shows
- * its status on every customer-facing page. Hidden when nothing is in flight.
+ * its status on every customer-facing page. Hidden when nothing is in flight
+ * AND when the user is already on the order's own tracking page (no point
+ * floating a CTA to the same page).
  */
 export default function OrderStatusStrip() {
   const phone = (typeof window !== "undefined" && window.localStorage)
     ? localStorage.getItem("bf_customer_phone") : null;
   const [order, setOrder] = useState(null);
+  const { pathname } = useLocation();
 
   useEffect(() => {
     if (!phone) return;
@@ -34,6 +37,8 @@ export default function OrderStatusStrip() {
   }, [phone]);
 
   if (!order) return null;
+  // Hide the floater on the order tracking page itself
+  if (pathname.startsWith("/orders/") || pathname.startsWith("/order/")) return null;
   const meta = STATUS_META[order.status] || { label: order.status, c: "bg-zinc-200 text-zinc-700" };
   const Icon = order.status === "delivered" ? CheckCircle2 : order.status === "on_the_way" ? Bike : Package;
 

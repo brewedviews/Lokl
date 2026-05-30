@@ -287,9 +287,18 @@ def test_customer_order_returns_store_breakdown(two_merchants):
     assert by_mid[mB["merchant_id"]]["state"] == "pending"
     assert by_mid[mA["merchant_id"]]["subtotal"] == 599
     assert by_mid[mB["merchant_id"]]["subtotal"] == 1198
-    # A accepted → A's OTP must surface in store_breakdown. B not accepted → no OTP yet.
-    assert by_mid[mA["merchant_id"]]["otp"] == o["merchant_otps"][mA["merchant_id"]]
+    # A accepted but NOT handed off → OTP must still be hidden from customer.
+    # OTP only surfaces in store_breakdown once the merchant hands the package
+    # to the rider (state = handed_off).
+    assert by_mid[mA["merchant_id"]]["otp"] is None, "OTP must be hidden until handed_off"
     assert by_mid[mB["merchant_id"]]["otp"] is None
+
+    # After A hands off → A's OTP surfaces; B still hidden
+    requests.post(f"{API}/merchant/orders/{oid}/handed-to-rider", headers=mA["h"], timeout=10).raise_for_status()
+    o3 = requests.get(f"{API}/orders/{oid}", timeout=10).json()
+    bd3 = {b["merchant_id"]: b for b in o3["store_breakdown"]}
+    assert bd3[mA["merchant_id"]]["otp"] == o["merchant_otps"][mA["merchant_id"]]
+    assert bd3[mB["merchant_id"]]["otp"] is None
 
 
 def test_per_merchant_slice_cancel(two_merchants):
