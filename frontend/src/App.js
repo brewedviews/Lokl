@@ -17,6 +17,8 @@ import OrderTracking from "./pages/OrderTracking";
 import ReturnTracking from "./pages/ReturnTracking";
 import CustomerAccount from "./pages/CustomerAccount";
 import SearchPage from "./pages/SearchPage";
+import CategoryHub from "./pages/CategoryHub";
+import LocationGate from "./components/consumer/LocationGate";
 
 import MerchantAuth from "./pages/MerchantAuth";
 import MerchantOnboardingStatus from "./pages/MerchantOnboardingStatus";
@@ -53,8 +55,10 @@ function App() {
       <AuthProvider>
         <CartProvider>
           <BrowserRouter>
+            <LocationGate />
             <Routes>
               <Route path="/" element={<Home />} />
+              <Route path="/categories" element={<CategoryHub />} />
               <Route path="/c/:slug" element={<CategoryPage />} />
               <Route path="/product/:id" element={<ProductDetail />} />
               <Route path="/p/:id" element={<ProductDetail />} />

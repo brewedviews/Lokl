@@ -6,8 +6,18 @@ import ProductBadge from "./ProductBadge";
 import { useCart } from "../../../contexts/CartContext";
 import { isInWishlist, toggleWishlist } from "../../../lib/wishlist";
 
-/** 80% image / 20% content product card — single primary badge, qty stepper. */
-export default function ProductCardV2({ p, onWishlist, isWished }) {
+/** 80% image / 20% content product card — single primary badge, qty stepper.
+ *  Props:
+ *    - p:           product
+ *    - compact:     when true, hides the store-name label and the delivery-ETA
+ *                   sub-line. Use this inside store-page grids (where the page
+ *                   itself already communicates store + delivery).
+ *    - linkState:   extra `state` to forward via <Link> — used by the PDP to
+ *                   detect when the user navigated from a Store page so the
+ *                   "More from {store}" section can render instead of generic
+ *                   "You might also love".
+ */
+export default function ProductCardV2({ p, onWishlist, isWished, compact = false, linkState }) {
   const [wished, setWished] = useState(() => (typeof isWished === "boolean" ? isWished : isInWishlist(p.id)));
   useEffect(() => {
     // Stay in sync when wishlist changes elsewhere (e.g. removed from /account)
@@ -40,7 +50,7 @@ export default function ProductCardV2({ p, onWishlist, isWished }) {
 
   return (
     <div className="group relative bg-white rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] hover:shadow-[0_8px_24px_rgba(10,31,92,0.12)] transition" data-testid={`p-card-${p.id}`}>
-      <Link to={`/product/${p.id}`} className="block active:scale-[0.98] transition">
+      <Link to={`/product/${p.id}`} state={linkState} className="block active:scale-[0.98] transition">
         <div className="relative aspect-[4/5] bg-slate-100 overflow-hidden">
           {p.image ? (
             <img src={p.image} alt={p.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
@@ -67,13 +77,18 @@ export default function ProductCardV2({ p, onWishlist, isWished }) {
           )}
         </div>
         <div className="p-2 pb-1 space-y-0.5">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B] line-clamp-1">{p.store_name || "Lokl Store"}</div>
+          {!compact && (
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B] line-clamp-1">{p.store_name || "Lokl Store"}</div>
+          )}
           <div className="text-[12px] font-semibold text-[#0F172A] line-clamp-1">{p.name}</div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-sm font-bold text-[#0A1F5C]">₹{Number(p.price).toLocaleString()}</span>
             {p.mrp && p.mrp > p.price && <span className="text-[11px] text-[#94A3B8] line-through">₹{Number(p.mrp).toLocaleString()}</span>}
           </div>
-          {p.low_stock_size ? (
+          {compact ? (
+            // Inside a store page: skip the delivery sub-line (the store header already shows ETA).
+            p.low_stock_size ? <div className="text-[10px] font-semibold text-[#EF4444]">{p.low_stock_size}</div> : null
+          ) : p.low_stock_size ? (
             <div className="text-[10px] font-semibold text-[#EF4444]">{p.low_stock_size}</div>
           ) : p.social_proof ? (
             <div className="text-[10px] text-[#64748B]">{p.social_proof}</div>

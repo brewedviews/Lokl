@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Store, ArrowRight, Upload, X, ImagePlus, Clock } from "lucide-react";
+import { Store, ArrowRight, X, ImagePlus, Clock, MapPin, Crosshair, ExternalLink } from "lucide-react";
 import MerchantLayout from "../components/merchant/MerchantLayout";
 import api from "../lib/api";
 import { toast } from "sonner";
@@ -12,9 +12,11 @@ export default function MerchantStorefront() {
   const [form, setForm] = useState({
     tagline: "", story: "", banners: [],
     locality: "", opens_at: "10:00", closes_at: "18:00",
+    lat: "", lng: "",
   });
   const [busyIdx, setBusyIdx] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pinning, setPinning] = useState(false);
 
   useEffect(() => {
     if (merchant?.storefront) {
@@ -26,6 +28,7 @@ export default function MerchantStorefront() {
         locality: s.locality || "",
         opens_at: s.opens_at || "10:00",
         closes_at: s.closes_at || "18:00",
+        lat: s.lat ?? "", lng: s.lng ?? "",
       });
     }
   }, [merchant]);
@@ -45,6 +48,9 @@ export default function MerchantStorefront() {
   const save = async () => {
     if (!form.tagline || !form.story || form.banners.length === 0) return toast.error("Tagline, story and at least 1 cover image are required");
     if (form.opens_at >= form.closes_at) return toast.error("Closing time must be after opening time");
+    const lat = parseFloat(form.lat), lng = parseFloat(form.lng);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return toast.error("Pin your store on the map (latitude & longitude are required).");
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return toast.error("Invalid coordinates.");
     setSaving(true);
     try {
       await api.post("/merchant/storefront", {
@@ -52,6 +58,7 @@ export default function MerchantStorefront() {
         banners: form.banners, banner: form.banners[0],
         locality: form.locality,
         opens_at: form.opens_at, closes_at: form.closes_at,
+        lat, lng,
         specialties: [],
       });
       toast.success("Storefront saved");
@@ -60,6 +67,26 @@ export default function MerchantStorefront() {
     } catch (e) {
       toast.error(e.response?.data?.detail || "Failed to save");
     } finally { setSaving(false); }
+  };
+
+  const useCurrentLocation = () => {
+    if (!("geolocation" in navigator)) return toast.error("Geolocation unsupported on this device");
+    setPinning(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setForm((f) => ({ ...f, lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6) }));
+        setPinning(false);
+        toast.success("Pinned to your current location");
+      },
+      (err) => { setPinning(false); toast.error(err?.message || "Could not access location"); },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  };
+
+  const openMapsPicker = () => {
+    const q = encodeURIComponent(merchant?.business_address || "Bhilai");
+    window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, "_blank");
+    toast.message("Right-click your storefront on Maps → copy coordinates → paste below.", { duration: 6000 });
   };
 
   return (
@@ -97,6 +124,52 @@ export default function MerchantStorefront() {
             </Field>
           </div>
           <p className="text-[11px] text-[#595959] -mt-2"><Clock size={11} className="inline mr-1" />Orders are accepted from 30 minutes after opening to 30 minutes before closing. Outside these hours your store is shown as "Offline" to customers.</p>
+
+          {/* Pin store location — mandatory so distance/ETA are accurate */}
+          <div className="rounded-2xl border border-[#E5E2DC] bg-[#FDFBF7] p-4">
+            <div className="flex items-start gap-2 mb-2">
+              <MapPin size={16} className="text-[#E68910] shrink-0 mt-0.5" />
+              <div>
+                <div className="text-sm font-semibold text-[#1A2B4C]">Pin your store location *</div>
+                <p className="text-[11px] text-[#595959] mt-0.5">Customers see the exact distance + ETA to your store. Mandatory before publishing.</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={useCurrentLocation} disabled={pinning} data-testid="sf-use-current-location"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#1A2B4C] text-white text-xs font-semibold disabled:opacity-60 hover:bg-[#0F1D38]">
+                <Crosshair size={13} /> {pinning ? "Pinning…" : "Use current location"}
+              </button>
+              <button type="button" onClick={openMapsPicker} data-testid="sf-pin-on-maps"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-[#E5E2DC] text-[#1A2B4C] text-xs font-semibold hover:border-[#1A2B4C]">
+                <ExternalLink size={13} /> Pin on Google Maps
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <Field label="Latitude">
+                <input data-testid="sf-lat" type="number" step="any" value={form.lat}
+                  onChange={(e) => setForm({ ...form, lat: e.target.value })}
+                  placeholder="21.2089"
+                  className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white" />
+              </Field>
+              <Field label="Longitude">
+                <input data-testid="sf-lng" type="number" step="any" value={form.lng}
+                  onChange={(e) => setForm({ ...form, lng: e.target.value })}
+                  placeholder="81.3784"
+                  className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white" />
+              </Field>
+            </div>
+            {form.lat && form.lng && !Number.isNaN(parseFloat(form.lat)) && !Number.isNaN(parseFloat(form.lng)) && (
+              <div className="mt-3 rounded-xl overflow-hidden border border-[#E5E2DC] aspect-[16/9] bg-[#F3F4F6]">
+                <iframe
+                  data-testid="sf-map-preview"
+                  title="Store location preview"
+                  className="w-full h-full"
+                  loading="lazy"
+                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${parseFloat(form.lng)-0.005},${parseFloat(form.lat)-0.003},${parseFloat(form.lng)+0.005},${parseFloat(form.lat)+0.003}&layer=mapnik&marker=${parseFloat(form.lat)},${parseFloat(form.lng)}`}
+                />
+              </div>
+            )}
+          </div>
 
           <Field label="Cover images (up to 5) — uploaded by you *">
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">

@@ -4,7 +4,7 @@ import { Bike, MapPin, ShieldCheck, Clock, ChevronRight } from "lucide-react";
 import api from "../lib/api";
 import ConsumerHeader from "../components/consumer/ConsumerHeader";
 import Footer from "../components/consumer/Footer";
-import ProductCard from "../components/consumer/ProductCard";
+import ProductCardV2 from "../components/consumer/v2/ProductCardV2";
 
 function etaFromDistance(km) {
   if (!km && km !== 0) return "30-45 min";
@@ -61,6 +61,10 @@ export default function StorePage() {
   const [data, setData] = useState(null);
   const [sheet, setSheet] = useState(null); // 'story' | 'delivery' | null
   useEffect(() => { api.get(`/stores/${id}`).then((r) => setData(r.data)); }, [id]);
+  // Remember the most recently visited store id — used by ProductDetail to keep
+  // store-context across refreshes ("More from {store}" instead of generic
+  // "You might also love").
+  useEffect(() => { try { if (data?.store?.id) sessionStorage.setItem("lokl_last_store_id", data.store.id); } catch {} }, [data]);
 
   if (!data) return <div className="min-h-screen bg-[#FDFBF7]"><ConsumerHeader /><div className="p-10 text-center">Loading…</div></div>;
   const { store, products } = data;
@@ -146,7 +150,14 @@ export default function StorePage() {
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
-              {products.map((p) => <ProductCard key={p.id} p={p} />)}
+              {products.map((p) => (
+                <ProductCardV2
+                  key={p.id}
+                  p={{ ...p, store_name: store.name }}
+                  compact
+                  linkState={{ fromStore: store.id }}
+                />
+              ))}
             </div>
           )}
         </div>

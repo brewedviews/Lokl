@@ -1,11 +1,11 @@
 import React from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { Home, Grid3x3, Search, Receipt, User } from "lucide-react";
+import { Home, Grid3x3, Heart, Receipt, User } from "lucide-react";
 
 const ITEMS = [
   { to: "/", label: "Home", icon: Home, test: "nav-home" },
-  { to: "/products", label: "Categories", icon: Grid3x3, test: "nav-categories" },
-  { to: "/search", label: "Search", icon: Search, test: "nav-search" },
+  { to: "/categories", label: "Categories", icon: Grid3x3, test: "nav-categories" },
+  { to: "/account?tab=wishlist", label: "Wishlist", icon: Heart, test: "nav-wishlist" },
   { to: "/account?tab=orders", label: "Orders", icon: Receipt, test: "nav-orders" },
   { to: "/account", label: "Profile", icon: User, test: "nav-profile" },
 ];

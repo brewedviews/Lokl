@@ -11,28 +11,41 @@ import HCarousel from "../components/consumer/v2/HCarousel";
 import ProductCardV2 from "../components/consumer/v2/ProductCardV2";
 import StoreCardV2 from "../components/consumer/v2/StoreCardV2";
 import CustomerLove from "../components/consumer/v2/CustomerLove";
+import { useUserCoords } from "../components/consumer/LocationBanner";
 
 export default function Home() {
   const { customer } = useAuth() || {};
+  const coords = useUserCoords();
   const [stats, setStats] = useState(null);
   const [offers, setOffers] = useState([]);
   const [cats, setCats] = useState([]);
   const [popular, setPopular] = useState([]);
   const [sellingFast, setSellingFast] = useState([]);
-  const [stores, setStores] = useState([]);
+  const [nearbyStores, setNearbyStores] = useState([]);
+  const [popularStores, setPopularStores] = useState([]);
+  const [allStores, setAllStores] = useState([]);
   const [recentlyViewed, setRecentlyViewed] = useState([]);
   const [testimonials, setTestimonials] = useState([]);
   const [config, setConfig] = useState(null);
 
   useEffect(() => {
+    const llQ = coords ? `lat=${coords.lat}&lng=${coords.lng}` : "";
     Promise.all([
       api.get("/site/homepage-config").then((r) => setConfig(r.data)).catch(() => setConfig(null)),
       api.get("/stats/home").then((r) => setStats(r.data)).catch(() => setStats(null)),
       api.get("/feed/popular-in-city?limit=10").then((r) => setPopular(r.data || [])).catch(() => setPopular([])),
-      api.get("/stores?limit=8").then((r) => setStores(r.data || [])).catch(() => setStores([])),
+      api.get(`/stores?limit=12${llQ ? `&${llQ}` : ""}`).then((r) => setAllStores(r.data || [])).catch(() => setAllStores([])),
+      api.get("/feed/popular-stores?limit=8").then((r) => setPopularStores(r.data || [])).catch(() => setPopularStores([])),
       api.get("/offers").then((r) => setOffers(r.data || [])).catch(() => setOffers([])),
       api.get("/categories/counts").then((r) => setCats(r.data || [])).catch(() => setCats([])),
     ]);
+    if (coords) {
+      api.get(`/feed/nearby-stores?lat=${coords.lat}&lng=${coords.lng}&limit=8`)
+        .then((r) => setNearbyStores(r.data || []))
+        .catch(() => setNearbyStores([]));
+    } else {
+      setNearbyStores([]);
+    }
     setTimeout(() => {
       api.get("/feed/selling-fast?limit=10").then((r) => setSellingFast(r.data || [])).catch(() => {});
       api.get("/testimonials").then((r) => setTestimonials(r.data || [])).catch(() => {});
@@ -40,7 +53,7 @@ export default function Home() {
         api.get("/me/recently-viewed?limit=10").then((r) => setRecentlyViewed(r.data || [])).catch(() => {});
       }
     }, 80);
-  }, [customer]);
+  }, [customer, coords]);
 
   // CMS visibility helper — admin can toggle any section off; default on if config not loaded yet.
   const enabled = (id) => {
@@ -85,27 +98,69 @@ export default function Home() {
         {sellingFast.map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
     ),
-    stores: () => (stores.length > 0 ? (
-      <section className="px-4 sm:px-8 pt-8 max-w-7xl mx-auto" data-testid="stores-near-you">
-        <div className="flex items-end justify-between mb-3">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0A1F5C]">Stores near you</h2>
-            <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Verified Bhilai stores delivering today.</p>
-          </div>
-          <Link to="/stores" className="text-xs font-bold text-[#F59E0B]">See all →</Link>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          {stores.slice(0, 6).map((s) => <StoreCardV2 key={s.id} s={s} />)}
-        </div>
-      </section>
-    ) : (
-      <section className="px-4 py-10 text-center bg-[#F8FAFC]">
-        <StoreIcon size={36} className="text-[#F59E0B] mx-auto mb-3" />
-        <h3 className="text-lg font-display font-bold text-[#0A1F5C]">Stores are coming soon</h3>
-        <p className="text-sm text-[#64748B] mt-2 max-w-md mx-auto">Run a Bhilai store? Join the marketplace.</p>
-        <Link to="/merchant/register" className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F59E0B] text-white text-sm font-bold shadow-[0_8px_24px_rgba(245,158,11,0.35)]">Become a seller <ArrowRight size={14} /></Link>
-      </section>
-    )),
+    stores: () => {
+      // Three-stack: Nearby (only if user shared coords) → Popular → All.
+      const sections = [];
+      if (coords && nearbyStores.length > 0) {
+        sections.push(
+          <section key="nearby" className="px-4 sm:px-8 pt-8 max-w-7xl mx-auto" data-testid="stores-nearby">
+            <div className="flex items-end justify-between mb-3">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0A1F5C]">Nearby stores</h2>
+                <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Closest open stores around you.</p>
+              </div>
+              <Link to="/stores" className="text-xs font-bold text-[#F59E0B]">See all →</Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              {nearbyStores.slice(0, 6).map((s) => <StoreCardV2 key={s.id} s={s} />)}
+            </div>
+          </section>
+        );
+      }
+      if (popularStores.length > 0) {
+        sections.push(
+          <section key="popular" className="px-4 sm:px-8 pt-8 max-w-7xl mx-auto" data-testid="stores-popular">
+            <div className="flex items-end justify-between mb-3">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0A1F5C]">Popular stores</h2>
+                <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Most ordered from in the last 30 days.</p>
+              </div>
+              <Link to="/stores" className="text-xs font-bold text-[#F59E0B]">See all →</Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              {popularStores.slice(0, 6).map((s) => <StoreCardV2 key={s.id} s={s} />)}
+            </div>
+          </section>
+        );
+      }
+      if (allStores.length > 0) {
+        sections.push(
+          <section key="all" className="px-4 sm:px-8 pt-8 max-w-7xl mx-auto" data-testid="stores-all">
+            <div className="flex items-end justify-between mb-3">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0A1F5C]">All stores</h2>
+                <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Verified Bhilai stores delivering today.</p>
+              </div>
+              <Link to="/stores" className="text-xs font-bold text-[#F59E0B]">See all →</Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              {allStores.slice(0, 6).map((s) => <StoreCardV2 key={s.id} s={s} />)}
+            </div>
+          </section>
+        );
+      }
+      if (sections.length === 0) {
+        return (
+          <section className="px-4 py-10 text-center bg-[#F8FAFC]">
+            <StoreIcon size={36} className="text-[#F59E0B] mx-auto mb-3" />
+            <h3 className="text-lg font-display font-bold text-[#0A1F5C]">Stores are coming soon</h3>
+            <p className="text-sm text-[#64748B] mt-2 max-w-md mx-auto">Run a Bhilai store? Join the marketplace.</p>
+            <Link to="/merchant/register" className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F59E0B] text-white text-sm font-bold shadow-[0_8px_24px_rgba(245,158,11,0.35)]">Become a seller <ArrowRight size={14} /></Link>
+          </section>
+        );
+      }
+      return <>{sections}</>;
+    },
     recently_viewed: () => recentlyViewed.length > 0 && (
       <HCarousel title="Recently viewed" subtitle="Pick up where you left off" testid="recently-viewed">
         {recentlyViewed.map((p) => <ProductCardV2 key={p.id} p={p} />)}

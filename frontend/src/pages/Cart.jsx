@@ -18,7 +18,7 @@ export default function Cart() {
           <div className="mt-12 text-center py-20 bg-white rounded-2xl border border-[#E5E2DC]">
             <ShoppingBag size={48} className="mx-auto text-[#E68910] mb-4" />
             <p className="text-[#595959]">Your bag is empty</p>
-            <Link to="/shop" className="inline-block mt-6 px-6 py-3 rounded-full bg-[#1A2B4C] text-white font-semibold">Start shopping</Link>
+            <Link to="/" data-testid="empty-cart-cta" className="inline-block mt-6 px-6 py-3 rounded-full bg-[#1A2B4C] text-white font-semibold hover:bg-[#0F1D38] transition">Start shopping</Link>
           </div>
         ) : (
           <div className="grid md:grid-cols-3 gap-8 mt-8">

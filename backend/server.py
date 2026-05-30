@@ -59,6 +59,8 @@ class StorefrontUpdate(BaseModel):
     timing: Optional[str] = ""
     opens_at: Optional[str] = "10:00"
     closes_at: Optional[str] = "18:00"
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 class ProductCreate(BaseModel):
     name: str; price: float; mrp: Optional[float] = None
@@ -608,8 +610,38 @@ def _is_store_open_now(store: dict) -> tuple[bool, str | None]:
         return True, None
 
 
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance in kilometres."""
+    import math
+    R = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
+    return 2 * R * math.asin(math.sqrt(a))
+
+def _attach_distance_and_eta(stores: list, user_lat: Optional[float], user_lng: Optional[float]) -> list:
+    """Compute distance_km + eta_min from store coords ↔ user coords, then sort ascending."""
+    if user_lat is None or user_lng is None:
+        # No user coords — distance/ETA hidden (frontend should respect this)
+        for s in stores:
+            s.pop("distance_km", None); s.pop("eta_min", None)
+        return stores
+    for s in stores:
+        slat, slng = s.get("lat"), s.get("lng")
+        if isinstance(slat, (int, float)) and isinstance(slng, (int, float)):
+            d = round(_haversine_km(user_lat, user_lng, float(slat), float(slng)), 2)
+            s["distance_km"] = d
+            # Simple ETA model: 15 min base prep + ~5 min/km for short distances, capped 90.
+            s["eta_min"] = max(20, min(90, int(round(15 + d * 5))))
+        else:
+            s.pop("distance_km", None); s.pop("eta_min", None)
+    return stores
+
+
 @api.get("/stores")
-async def list_stores(city: Optional[str] = None, limit: int = 50):
+async def list_stores(city: Optional[str] = None, limit: int = 50,
+                      lat: Optional[float] = None, lng: Optional[float] = None):
     q = dict(_visible_store_filter())
     # Hide stores the merchant has toggled offline — they should disappear from the
     # public listing entirely (not just be tagged "offline"), otherwise customers
@@ -618,7 +650,8 @@ async def list_stores(city: Optional[str] = None, limit: int = 50):
     q["online"] = {"$ne": False}
     if city: q["city"] = city
     # Strip heavy multi-banner array from list view (only cover `banner` is needed for cards)
-    stores = await db.stores.find(q, {"_id": 0, "banner_images": 0}).sort("distance_km", 1).to_list(limit)
+    stores = await db.stores.find(q, {"_id": 0, "banner_images": 0}).to_list(limit)
+    stores = _attach_distance_and_eta(stores, lat, lng)
     open_list, offline_list = [], []
     for s in stores:
         merchant_online = s.get("online") is not False
@@ -634,7 +667,48 @@ async def list_stores(city: Optional[str] = None, limit: int = 50):
             offline_list.append(s)
         else:
             open_list.append(s)
-    return open_list + offline_list  # open first, offline at the bottom
+    # Open + distance asc; offline at the bottom (open-first → distance asc per user spec)
+    if lat is not None and lng is not None:
+        open_list.sort(key=lambda s: s.get("distance_km") if s.get("distance_km") is not None else 9999)
+        offline_list.sort(key=lambda s: s.get("distance_km") if s.get("distance_km") is not None else 9999)
+    return open_list + offline_list
+
+
+@api.get("/feed/nearby-stores")
+async def feed_nearby_stores(lat: float, lng: float, limit: int = 10):
+    """Open stores sorted by Haversine distance ascending. Requires user coords."""
+    q = {**_visible_store_filter(), "online": {"$ne": False}}
+    stores = await db.stores.find(q, {"_id": 0, "banner_images": 0}).to_list(200)
+    stores = _attach_distance_and_eta(stores, lat, lng)
+    out = []
+    for s in stores:
+        is_open_by_time, _ = _is_store_open_now(s)
+        if not is_open_by_time: continue
+        if s.get("distance_km") is None: continue
+        s["is_open"] = True
+        out.append(s)
+    out.sort(key=lambda s: s["distance_km"])
+    return out[:limit]
+
+
+@api.get("/feed/popular-stores")
+async def feed_popular_stores(limit: int = 10):
+    """Stores with the most orders in the last 30 days."""
+    q = {**_visible_store_filter(), "online": {"$ne": False}}
+    stores = await db.stores.find(q, {"_id": 0, "banner_images": 0}).to_list(200)
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    counts: dict = {}
+    async for o in db.orders.find({"created_at": {"$gte": since}}, {"_id": 0, "items": 1}):
+        for it in (o.get("items") or []):
+            sid = it.get("store_id")
+            if sid: counts[sid] = counts.get(sid, 0) + 1
+    for s in stores:
+        s["orders_30d"] = counts.get(s["id"], 0)
+        is_open_by_time, _ = _is_store_open_now(s)
+        s["is_open"] = is_open_by_time
+    stores.sort(key=lambda s: (-s.get("orders_30d", 0), s.get("name", "").lower()))
+    return stores[:limit]
+
 
 @api.get("/stores/{store_id}")
 async def get_store(store_id: str):
@@ -922,6 +996,11 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
     if not m: raise HTTPException(404, "Not found")
     if m.get("kyc_status") != "approved": raise HTTPException(403, "KYC not approved yet")
+    # Lat/lng are mandatory so distance + ETA can be computed accurately.
+    if payload.lat is None or payload.lng is None:
+        raise HTTPException(400, "Pin your store on the map (latitude & longitude are required).")
+    if not (-90 <= float(payload.lat) <= 90) or not (-180 <= float(payload.lng) <= 180):
+        raise HTTPException(400, "Invalid coordinates.")
     store_id = f"store-m-{user['sub']}"
     # Derive area from business_address (first comma-segment)
     biz_addr = m.get("business_address", "") or ""
@@ -937,15 +1016,13 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_
         "timing": payload.timing or f"{payload.opens_at} - {payload.closes_at}",
         "opens_at": payload.opens_at or "10:00",
         "closes_at": payload.closes_at or "18:00",
-        "lat": 21.2147, "lng": 81.3850,
-        "distance_km": round(random.uniform(0.8, 4.0), 1),
-        "eta_min": random.choice([28, 32, 35, 40, 45]),
+        "lat": float(payload.lat), "lng": float(payload.lng),
         "trusted": True,
         "kyc_status": "approved", "published": False, "paused": False, "product_count": 0,
         "created_at": datetime.now(timezone.utc).isoformat()}
     existing = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if existing:
-        for k in ("published", "paused", "product_count", "created_at", "distance_km", "eta_min"):
+        for k in ("published", "paused", "product_count", "created_at"):
             if k in existing: store_doc[k] = existing[k]
     await db.stores.update_one({"id": store_id}, {"$set": store_doc}, upsert=True)
     await db.merchants.update_one({"id": user["sub"]}, {"$set": {"storefront": store_doc}})

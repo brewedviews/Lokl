@@ -3,6 +3,38 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-28) — Location tech + 3-rail stores + PDP context + Category hub
+
+Major end-to-end batch covering 4 phases the user asked for (L1 → L2 → P1 → C1):
+
+### L1 — Customer location tech
+- New `lib/location.js`: HTML5 geolocation wrapper + Bhilai service polygon (covers Bhilai + Durg + Jamul + Risali + Utai + Charoda via lat 21.07-21.37, lng 81.17-81.52 ray-casting), Haversine distance, localStorage persistence, `lokl:location` event emitter.
+- New `LocationGate.jsx`: custom first-visit modal ("See what's nearby — share for nearby stores, accurate delivery times and distance-based delivery charges"). Triggers native browser prompt only on "Share Location" click; safe-skipped on /merchant /admin routes.
+- New `LocationBanner.jsx` + `useUserCoords` hook: replaces the old IP-detect callout. Now state-driven — granted+in-service → nothing; granted+out → orange "we serve Bhilai"; denied/skipped → subtle navy CTA banner ("Enable location for nearby stores").
+- `ConsumerHeader.jsx`: dropped the brittle IP fallback (false-positives on the preview URL).
+
+### L2 — Merchant store geolocation
+- `lat`/`lng` now mandatory in `POST /merchant/storefront`; rejected if missing.
+- New `MerchantStorefront.jsx` "Pin your store location" card: "Use current location" button (browser geolocation), "Pin on Google Maps" deep-link, manual lat/lng inputs, live OpenStreetMap iframe preview.
+- New backend helpers: `_haversine_km`, `_attach_distance_and_eta` (computes per-store distance + ETA from user coords; ETA model = 15 min base + 5 min/km, capped 90).
+- `GET /api/stores?lat=&lng=` now accepts user coords → open-first → distance asc.
+- New endpoints: `GET /api/feed/nearby-stores?lat=&lng=` (open + distance-sorted), `GET /api/feed/popular-stores` (orders_30d desc).
+- `Home.jsx` now renders 3 rails inside the `stores` CMS slot: **Nearby stores** (only if user shared coords) → **Popular stores** → **All stores**.
+- Backfilled all 10 seeded stores with Bhilai-cluster coordinates.
+
+### P1 — Product listings + PDP context
+- New `compact` + `linkState` props on `ProductCardV2`. `compact` hides the store_name + delivery line for in-store grids. `linkState` forwards `{fromStore: storeId}` through `<Link>`.
+- `StorePage.jsx` now uses `ProductCardV2 compact linkState={fromStore}` instead of the legacy `ProductCard`.
+- `ProductDetail.jsx` reads `useLocation().state.fromStore` (and `sessionStorage.lokl_last_store_id` set by StorePage on mount) — when matched, fetches the store's products and renders **"More from {Store}"** instead of generic "You might also love". `useEffect([id])` now `window.scrollTo(0,0)` and resets all state so related-card clicks are real PDP reloads, not in-place mutations.
+
+### C1 — Category hub + Cart empty + Bottom nav
+- New `CategoryHub.jsx` at `/categories`: L1 tile grid (3 cols mobile / 6 desktop) + OffersStrip + Trending now + Selling fast + Recently added rails — Myntra/Ajio-style discovery page.
+- Sticky bottom nav: replaced the dead Search icon with Heart → `Wishlist (/account?tab=wishlist)`. "Categories" now correctly routes to `/categories`.
+- `CustomerAccount.jsx` reads `?tab=` deep-link to select the matching tile on mount + on prop change.
+- `Cart.jsx` empty state CTA now `to="/"` (was `/shop` → 404).
+
+Verified end-to-end: 4 location states, store-distance sort (0.4 → 4.7km), 3 home rails, store→PDP "More from", category hub (9 L1 tiles), cart empty CTA, bottom-nav layout.
+
 ## Latest Iteration (Feb 2026 — Iter-27) — Order Tracking redesign
 
 Full rebuild of `OrderTracking.jsx` in Myntra/Ajio style while preserving every existing capability (8s polling, OTP card, return modal, complaint modal, return-eligibility 24h logic, cancelled state).

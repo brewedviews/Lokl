@@ -1,28 +1,55 @@
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
 import { Star, Bike, MapPin, ShieldCheck, Heart, ShoppingBag, Sparkles, Truck, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import api from "../lib/api";
 import ConsumerHeader from "../components/consumer/ConsumerHeader";
 import Footer from "../components/consumer/Footer";
-import ProductCard from "../components/consumer/ProductCard";
+import ProductCardV2 from "../components/consumer/v2/ProductCardV2";
 import { useCart } from "../contexts/CartContext";
 import { toast } from "sonner";
 
 export default function ProductDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const location = useLocation();
   const { add } = useCart();
   const [data, setData] = useState(null);
   const [size, setSize] = useState(null);
   const [imgIdx, setImgIdx] = useState(0);
+  const [storeContext, setStoreContext] = useState(null); // { id, name, products }
+
+  // The user is in store-context if either:
+  //  - they navigated from a store page (state.fromStore set on the Link), or
+  //  - they refreshed and the last-visited store id in sessionStorage matches
+  //    the current product's store_id.
+  const fromStoreId = location.state?.fromStore || null;
 
   useEffect(() => {
+    // Reset to a clean state every time the route id changes — including scroll
+    // position. This is what makes related-product clicks feel like a fresh PDP.
+    window.scrollTo({ top: 0, behavior: "auto" });
+    setData(null); setSize(null); setImgIdx(0); setStoreContext(null);
     api.get(`/products/${id}`).then((r) => {
       setData(r.data);
       setSize(r.data.product.sizes?.[0] || null);
-      setImgIdx(0);
+      // Resolve store-context: if state says fromStore (and matches the product),
+      // OR sessionStorage marker matches the product's store, fetch that store's
+      // products for the "More from {store}" section.
+      const pStoreId = r.data.product?.store_id;
+      const sessionStoreId = (() => {
+        try { return sessionStorage.getItem("lokl_last_store_id"); } catch { return null; }
+      })();
+      const matchStore = (fromStoreId && pStoreId === fromStoreId) || (sessionStoreId && pStoreId === sessionStoreId);
+      if (matchStore && pStoreId) {
+        api.get(`/stores/${pStoreId}`).then((sr) => {
+          const others = (sr.data?.products || []).filter((x) => x.id !== r.data.product.id).slice(0, 6);
+          if (others.length > 0) {
+            setStoreContext({ id: pStoreId, name: sr.data.store?.name || r.data.product.store_name, products: others });
+          }
+        }).catch(() => {});
+      }
     });
-  }, [id]);
+  }, [id, fromStoreId]);
 
   if (!data) return <div className="min-h-screen bg-[#FDFBF7]"><ConsumerHeader /><div className="p-10 text-center text-[#595959]">Loading…</div></div>;
 
@@ -152,14 +179,30 @@ export default function ProductDetail() {
         </div>
       </div>
 
-      {similar?.length > 0 && (
-        <section className="max-w-6xl mx-auto px-4 md:px-8 mt-10 md:mt-14">
-          <h2 className="font-display text-2xl md:text-3xl font-bold text-[#0A1F5C] mb-5">You might also love</h2>
+      {storeContext ? (
+        <section className="max-w-6xl mx-auto px-4 md:px-8 mt-10 md:mt-14" data-testid="more-from-store">
+          <h2 className="font-display text-2xl md:text-3xl font-bold text-[#0A1F5C] mb-5">
+            More from <Link to={`/store/${storeContext.id}`} className="text-[#E68910] hover:underline">{storeContext.name}</Link>
+          </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
-            {similar.slice(0, 4).map((p) => <ProductCard key={p.id} p={p} />)}
+            {storeContext.products.slice(0, 4).map((p) => (
+              <ProductCardV2
+                key={p.id}
+                p={{ ...p, store_name: storeContext.name }}
+                compact
+                linkState={{ fromStore: storeContext.id }}
+              />
+            ))}
           </div>
         </section>
-      )}
+      ) : similar?.length > 0 ? (
+        <section className="max-w-6xl mx-auto px-4 md:px-8 mt-10 md:mt-14" data-testid="similar-products">
+          <h2 className="font-display text-2xl md:text-3xl font-bold text-[#0A1F5C] mb-5">You might also love</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
+            {similar.slice(0, 4).map((p) => <ProductCardV2 key={p.id} p={p} />)}
+          </div>
+        </section>
+      ) : null}
 
       <Footer />
     </div>

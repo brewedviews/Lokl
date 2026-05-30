@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { MapPin, Search, ShoppingBag, Store, User, AlertCircle, RefreshCw } from "lucide-react";
+import { MapPin, Search, ShoppingBag, Store, User } from "lucide-react";
 import { useCart } from "../../contexts/CartContext";
 import api from "../../lib/api";
 import useHeartbeat from "../../hooks/useHeartbeat";
 import OrderStatusStrip from "./OrderStatusStrip";
+import LocationBanner from "./LocationBanner";
 
 export default function ConsumerHeader() {
   const [city] = useState("Bhilai"); // pilot is Bhilai-only
-  const [detectedAway, setDetectedAway] = useState(null);
   const [q, setQ] = useState("");
   const [sug, setSug] = useState({ products: [], stores: [] });
   const [sugOpen, setSugOpen] = useState(false);
@@ -35,35 +35,7 @@ export default function ConsumerHeader() {
   const pickProduct = (p) => { setSugOpen(false); setQ(""); nav(`/p/${p.id}`); };
   const pickStore = (s) => { setSugOpen(false); setQ(""); nav(`/store/${s.id}`); };
 
-  useEffect(() => {
-    localStorage.setItem("bf_city", "Bhilai");
-    const probe = async () => {
-      const callIp = async () => {
-        try {
-          const { data } = await api.get("/geo/detect");
-          if (!data.supported) {
-            const c = (data.detected_city || "").trim();
-            setDetectedAway(c && c.toLowerCase() !== "unknown" ? c : "your area");
-          }
-        } catch { /* noop */ }
-      };
-      if (!navigator.geolocation) return callIp();
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          try {
-            const { data } = await api.get(`/geo/detect?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`);
-            if (!data.supported) {
-              const c = (data.detected_city || "").trim();
-              setDetectedAway(c && c.toLowerCase() !== "unknown" ? c : "your area");
-            }
-          } catch { /* noop */ }
-        },
-        () => callIp(),
-        { timeout: 6000, maximumAge: 600000 }
-      );
-    };
-    probe();
-  }, []);
+  useEffect(() => { localStorage.setItem("bf_city", "Bhilai"); }, []);
 
   return (
     <>
@@ -149,18 +121,12 @@ export default function ConsumerHeader() {
         </div>
       </header>
 
-      {detectedAway && (
-        <div data-testid="away-banner" className="bg-[#E68910]/10 border-b border-[#E68910]/30 text-[#1A2B4C] text-xs md:text-sm">
-          <div className="max-w-7xl mx-auto px-4 md:px-8 py-2 flex items-center gap-2 flex-wrap">
-            <AlertCircle size={14} className="text-[#E68910] shrink-0" />
-            <span>
-              Lokl currently serves <strong>Bhilai</strong>. We'll let you know when we're in <strong>{detectedAway}</strong>.
-            </span>
-            <button onClick={() => setDetectedAway(null)} className="ml-auto text-[10px] uppercase tracking-widest hover:text-[#E68910]">Dismiss</button>
-          </div>
-        </div>
-      )}
+      {detectedAwayPlaceholder}
+      <LocationBanner />
       <OrderStatusStrip />
     </>
   );
 }
+
+// Removed dead detectedAway state — LocationBanner now handles every state.
+const detectedAwayPlaceholder = null;

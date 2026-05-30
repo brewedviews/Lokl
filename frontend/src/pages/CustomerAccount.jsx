@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Phone, Save, Package, MapPin, Plus, Trash2, Home as HomeIcon,
   Heart, Wallet, TicketPercent, HelpCircle, Settings, RotateCcw, ChevronRight,
@@ -82,6 +82,9 @@ function QuickTile({ icon: Icon, label, count, active, onClick, testid }) {
 }
 
 export default function CustomerAccount() {
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const validTiles = ["orders", "returns", "addresses", "wishlist", "wallet", "coupons", "support", "profile"];
   const [phone, setPhone] = useState(localStorage.getItem("bf_customer_phone") || "");
   const [hasPhone, setHasPhone] = useState(!!localStorage.getItem("bf_customer_phone"));
   const [data, setData] = useState(null);
@@ -89,8 +92,14 @@ export default function CustomerAccount() {
   const [wishlist, setWishlist] = useState([]);
   const [form, setForm] = useState({ name: "", age: "", email: "" });
   const [addrModal, setAddrModal] = useState(null);
-  const [activeTile, setActiveTile] = useState("orders"); // default selection per user
+  const [activeTile, setActiveTile] = useState(validTiles.includes(tabParam) ? tabParam : "orders");
   const [busy, setBusy] = useState(false);
+
+  // Honour deep-link tab changes (e.g. sticky-nav clicks while already on /account)
+  useEffect(() => {
+    if (tabParam && validTiles.includes(tabParam)) setActiveTile(tabParam);
+    // eslint-disable-next-line
+  }, [tabParam]);
 
   const refreshWishlist = () => setWishlist(getWishlist(phone));
 
