@@ -3,6 +3,25 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-25) — Batch B + C: Mobile Store page + My Account rebuild
+
+### Batch B — Mobile Store Page
+- Cover image height reduced on mobile: `h-[45vh]` → `h-[28vh] sm:h-[45vh] md:h-[55vh]`.
+- Replaced the tall stacked Story + Delivery aside cards on mobile with **two compact `InfoChip`s placed side-by-side** under the cover image (each chip: 8px icon-tile + 10px label + truncated value + chevron). Tapping a chip opens a bottom-sheet style `InfoSheet` modal with the full content.
+- Desktop aside (`hidden md:block`) preserves the original two-column story/delivery cards, unchanged.
+- Verified on 390px viewport: chips render at y=369, product grid heading at y=443 — products are above the fold on first render (viewport 800px).
+
+### Batch C — My Account rebuild (Myntra/Ajio style)
+- Called `design_agent_full_stack` to lock the blueprint; saved at `/app/design_guidelines.json`.
+- Rebuilt `CustomerAccount.jsx`:
+  - `ProfileHeaderCard` — avatar + name + phone + "Lokl Member" pill, inline pencil edit.
+  - `QuickActionGrid` — 4×2 tile grid (`grid-cols-4`): Orders / Returns / Addresses / Wishlist / Wallet / Coupons / Support / Profile, each with optional saffron count-badge or grey "SOON" badge.
+  - `RecentOrdersPreview` — last 3 orders in a divided list with status pills (emerald=delivered, saffron=pending, rose=cancelled) and ChevronRight affordance.
+  - Inline expandable sections for full Orders list / Address book / Profile edit form (single section open at a time via `openSection` state).
+  - `LogoutControl` saffron ghost button at the bottom — clears `bf_customer_phone` and resets state.
+- All eight tiles present; counts pulled from `/customer/{phone}` (orders, addresses) and `/customer/{phone}/returns`; Wishlist/Wallet/Coupons are stubs showing a "coming soon" toast.
+- Mobile + desktop screenshots verified; ESLint clean.
+
 ## Latest Iteration (Feb 2026 — Iter-24) — Batch A: Store names + slim footer + consistent gap
 
 - **Fixed "LOKL STORE" fallback on Trending now / Selling fast product cards.** `enrich_products_with_badges` in `feeds.py` now also resolves and attaches `store_name` via a single batched lookup on the `stores` collection. Verified via `/api/feed/popular-in-city` + `/api/feed/selling-fast` — every card now shows the real store (`Anjali Boutique`, `Step & Sole`, `Street Bazaar`, etc.). Affects every feed that uses the enricher (popular_in_city, selling_fast, best_sellers, new_arrivals, trending).
