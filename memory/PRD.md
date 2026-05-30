@@ -3,7 +3,25 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
-## Latest Iteration (Feb 2026 — Iter-26) — My Account refinements
+## Latest Iteration (Feb 2026 — Iter-27) — Order Tracking redesign
+
+Full rebuild of `OrderTracking.jsx` in Myntra/Ajio style while preserving every existing capability (8s polling, OTP card, return modal, complaint modal, return-eligibility 24h logic, cancelled state).
+
+New structure (top → bottom):
+1. **StatusHero** — large display heading ("Delivered" / "On the way" / "Order confirmed" / "Cancelled" / "Returned"), descriptive subtitle, order ID + placed timestamp, contextual ETA pill (saffron-tinted) or "Delivered" pill (emerald-tinted).
+2. **ProgressStepper** — 4-step horizontal pipeline (Placed → Confirmed → Out for delivery → Delivered) with `#4F7363` (Lokl green) for completed steps, navy text for active step, grey for pending. Mobile-safe (small dots + tight labels).
+3. **OtpCard** — navy bg + saffron OTP, shown only when `status === "on_the_way"`.
+4. **Help & return panel** — preserved entire previous logic (canReturn / windowExpired / no eligible items branches, return + complaint modal triggers). Buttons polished (saffron filled "Return product", navy outlined "Contact Customer Care").
+5. **Timeline** — kept but compacted (now uses `#4F7363` checkmarks + tighter rows + timestamps).
+6. **AddressCard** — NEW. Renders the delivery address (name, line, landmark, city/pincode/phone) inside an icon-led card.
+7. **ItemsCard** — restyled "Your bag · N items" with size + Qty + an emerald "Return eligible" chip on eligible items.
+8. **BillSummary** — NEW. Item total + delivery fee (with FREE pill) + discount + Total paid + payment-mode line.
+9. **Help pill** — bottom outlined card with email + phone for any state.
+
+Other:
+- Wrapped page in `min-h-screen flex flex-col` with `flex-1` on `<main>` so the slim footer stays pinned to the viewport bottom even on tiny phones.
+- Uses the existing Lokl tokens only (cream, navy `#0A1F5C`, saffron `#E68910`, green `#4F7363`); no new colors introduced.
+- Lint clean, DOM-verified on a delivered + a not-yet-delivered order.
 
 - **Fixed "LOKL MEMBER" badge overlapping the name + pencil on mobile.** Moved the badge out of `absolute` positioning and into the same inline-flex flow as `<h2>` + edit button — flex-wrap lets the pill cleanly drop to the next line on narrow screens. Verified `scrollWidth === clientWidth` for the header card on a 390px viewport (no overflow).
 - **Orders is now the default selected tile** (Myntra/Ajio pattern). Added `activeTile` state (initial `"orders"`) and a single switch-driven content panel. Selected tile gets a navy 2-px border + faint navy tint + shadow; clicking any tile swaps the panel below. Recent-orders preview removed in favour of the full Orders panel above the fold.
