@@ -30,9 +30,9 @@ BHILAI_AREAS = [
 ]
 
 STORES = [
-    {"slug": "anjali-boutique",       "name": "Anjali Boutique",          "area": "Sector 10",   "specialty": "Designer kurtas & sarees",
+    {"slug": "anjali-store",       "name": "Anjali Store",          "area": "Sector 10",   "specialty": "Designer kurtas & sarees",
      "banner": "https://images.unsplash.com/photo-1610189012906-4c0aa9b9781e?w=1200&q=80",
-     "tagline": "Curated ethnic wear for modern women", "story": "Family-run boutique since 1998, hand-picked from Surat, Banaras & Jaipur."},
+     "tagline": "Curated ethnic wear for modern women", "story": "Family-run store since 1998, hand-picked from Surat, Banaras & Jaipur."},
     {"slug": "menscape",              "name": "Menscape",                 "area": "Civic Centre","specialty": "Men's formal & casual",
      "banner": "https://images.unsplash.com/photo-1617137968427-85924c800a22?w=1200&q=80",
      "tagline": "Sharp wardrobe essentials for the Bhilai man", "story": "Stocked with brands from Mumbai & Bengaluru — trial at your doorstep."},
@@ -79,13 +79,13 @@ def one_size_stock(n=10):
 
 # (store_slug, name, l1, l2|None, gender|None, price, mrp, image, sizes_or_None, stock_or_None)
 PRODUCTS = [
-    # ── Anjali Boutique — Women ── 6 products
-    ("anjali-boutique", "Anarkali Kurta Set",      "l1-women", "l2-w-ethnic",     None, 2799, 3999, "https://images.unsplash.com/photo-1610189012906-4c0aa9b9781e?w=600&q=80", APPAREL_SIZES, None),
-    ("anjali-boutique", "Banarasi Silk Saree",     "l1-women", "l2-w-ethnic",     None, 4499, 6999, "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600&q=80", None, one_size_stock(8)),
-    ("anjali-boutique", "Cotton A-line Dress",     "l1-women", "l2-w-dresses",    None, 1499, 2299, "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=600&q=80", APPAREL_SIZES, None),
-    ("anjali-boutique", "Floral Maxi Dress",       "l1-women", "l2-w-dresses",    None, 1899, 2799, "https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=600&q=80", APPAREL_SIZES, None),
-    ("anjali-boutique", "Linen Co-ord Set",        "l1-women", "l2-w-topwear",    None, 2299, 3299, "https://images.unsplash.com/photo-1564257631407-4deb1f99d992?w=600&q=80", APPAREL_SIZES, None),
-    ("anjali-boutique", "Lehenga Choli Festive",   "l1-women", "l2-w-ethnic",     None, 5999, 8999, "https://images.unsplash.com/photo-1610189012906-4c0aa9b9781e?w=600&q=80&fit=crop", APPAREL_SIZES, None),
+    # ── Anjali Store — Women ── 6 products
+    ("anjali-store", "Anarkali Kurta Set",      "l1-women", "l2-w-ethnic",     None, 2799, 3999, "https://images.unsplash.com/photo-1610189012906-4c0aa9b9781e?w=600&q=80", APPAREL_SIZES, None),
+    ("anjali-store", "Banarasi Silk Saree",     "l1-women", "l2-w-ethnic",     None, 4499, 6999, "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600&q=80", None, one_size_stock(8)),
+    ("anjali-store", "Cotton A-line Dress",     "l1-women", "l2-w-dresses",    None, 1499, 2299, "https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=600&q=80", APPAREL_SIZES, None),
+    ("anjali-store", "Floral Maxi Dress",       "l1-women", "l2-w-dresses",    None, 1899, 2799, "https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=600&q=80", APPAREL_SIZES, None),
+    ("anjali-store", "Linen Co-ord Set",        "l1-women", "l2-w-topwear",    None, 2299, 3299, "https://images.unsplash.com/photo-1564257631407-4deb1f99d992?w=600&q=80", APPAREL_SIZES, None),
+    ("anjali-store", "Lehenga Choli Festive",   "l1-women", "l2-w-ethnic",     None, 5999, 8999, "https://images.unsplash.com/photo-1610189012906-4c0aa9b9781e?w=600&q=80&fit=crop", APPAREL_SIZES, None),
 
     # ── Menscape — Men ── 6 products
     ("menscape",       "Slim-fit Cotton Shirt",   "l1-men",   "l2-m-shirt",      None, 1199, 1799, "https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=600&q=80", APPAREL_SIZES, None),

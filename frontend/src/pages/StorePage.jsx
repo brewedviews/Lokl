@@ -45,7 +45,7 @@ export default function StorePage() {
         <div className="absolute bottom-0 left-0 right-0 max-w-7xl mx-auto px-4 md:px-8 pb-8 text-white">
           {store.trusted && (
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/90 text-[#1A2B4C] text-xs font-semibold mb-3">
-              <ShieldCheck size={12} className="text-[#4F7363]" /> Trusted Boutique
+              <ShieldCheck size={12} className="text-[#4F7363]" /> Trusted Store
             </div>
           )}
           <h1 data-testid="store-name" className="display text-4xl md:text-6xl font-bold leading-[1.0]">{store.name}</h1>
@@ -76,11 +76,11 @@ export default function StorePage() {
           </div>
         </aside>
         <div className="md:col-span-2">
-          <h2 className="display text-3xl font-bold text-[#1A2B4C] mb-6">From this boutique ({products.length})</h2>
+          <h2 className="display text-3xl font-bold text-[#1A2B4C] mb-6">From this store ({products.length})</h2>
           {products.length === 0 ? (
             <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#E68910]/10 text-[#E68910] text-[11px] font-bold uppercase tracking-widest mb-3">Building it</div>
-              <p className="text-sm text-[#595959]">This boutique hasn't listed any products yet — drop back soon.</p>
+              <p className="text-sm text-[#595959]">This store hasn't listed any products yet — drop back soon.</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-5">

@@ -40,7 +40,7 @@ export default function MerchantAuth({ mode = "login" }) {
           <span className="display text-3xl font-bold">lokl<span className="text-[#E68910]">.</span></span>
         </Link>
         <div className="relative">
-          <h1 className="display text-5xl font-bold leading-tight">Your boutique. <br /><span className="text-[#E68910]">AI-powered.</span></h1>
+          <h1 className="display text-5xl font-bold leading-tight">Your store. <br /><span className="text-[#E68910]">AI-powered.</span></h1>
           <p className="mt-5 text-white/70 max-w-md">Snap product photos with your phone. Our AI builds magazine-quality catalogs in seconds. Sell to thousands nearby.</p>
           <div className="mt-10 grid grid-cols-3 gap-4 text-sm">
             <div><div className="display text-3xl font-bold text-[#E68910]">3 min</div><div className="text-white/60">to launch</div></div>
@@ -62,7 +62,7 @@ export default function MerchantAuth({ mode = "login" }) {
           <div className="mt-8 space-y-3">
             {!isLogin && (
               <>
-                <input data-testid="store-name-input" required value={form.store_name} onChange={(e) => setForm({ ...form, store_name: e.target.value })} placeholder="Store name (e.g. Bunto Boutique)" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
+                <input data-testid="store-name-input" required value={form.store_name} onChange={(e) => setForm({ ...form, store_name: e.target.value })} placeholder="Store name (e.g. Bunto Store)" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
                 <input data-testid="owner-name-input" required value={form.owner_name} onChange={(e) => setForm({ ...form, owner_name: e.target.value })} placeholder="Your name" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
                 <input data-testid="phone-input" required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number (10 digits)" inputMode="tel" pattern="^[0-9 +\-]{10,15}$" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
               </>

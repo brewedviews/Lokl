@@ -15,14 +15,14 @@ export default function HeroV2({ stats, hero }) {
   const eyebrow = hero?.eyebrow || "Serving Bhilai";
   const t1 = hero?.title_line1 || "Delivered in minutes from";
   const t2 = hero?.title_line2 || "stores next door.";
-  const sub = hero?.subtitle || "Hand-picked fashion from trusted Bhilai boutiques · 45-minute delivery.";
+  const sub = hero?.subtitle || "Hand-picked fashion from trusted Bhilai stores.";
   // Fastest-ETA can be inferred from stats (avg) when no live store list is available.
   const eta = stats?.fastest_eta_min || 30;
 
   return (
     <section data-testid="hero-v2" className="relative">
-      <div className="max-w-7xl mx-auto px-4 md:px-8 pt-4 md:pt-8">
-        <div className="relative rounded-[24px] md:rounded-[28px] overflow-hidden bg-[#1A2B4C] min-h-[340px] md:min-h-[320px]">
+      <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-4 md:pt-6">
+        <div className="relative rounded-2xl overflow-hidden bg-[#1A2B4C] min-h-[300px] md:min-h-[320px]">
           <img
             src={img}
             alt="Bhilai Globe Chowk"
@@ -31,7 +31,7 @@ export default function HeroV2({ stats, hero }) {
           {/* Mobile: vertical cream wash top→bottom. Desktop: left-anchored horizontal wash so the image breathes on the right. */}
           <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/95 via-[#FDFBF7]/80 to-[#FDFBF7]/30 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
 
-          <div className="relative px-5 md:px-10 lg:px-12 py-6 md:py-10 min-h-[340px] md:min-h-[320px] flex flex-col justify-between md:justify-center max-w-2xl">
+          <div className="relative px-5 md:px-10 lg:px-12 py-6 md:py-10 min-h-[300px] md:min-h-[320px] flex flex-col justify-between md:justify-center max-w-2xl">
             <div>
               <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white shadow-sm text-[11px] font-semibold mb-3 md:mb-4 self-start text-[#0A1F5C] uppercase tracking-wide">
                 <MapPin size={12} className="text-[#F59E0B]" /> {eyebrow}

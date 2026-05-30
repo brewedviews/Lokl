@@ -3,6 +3,15 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-20) — Consistency + copy + footer cleanup
+
+User-requested polish round:
+- **Hero subtitle** scrubbed — "· 45-minute delivery." removed; now reads "Hand-picked fashion from trusted Bhilai stores." (CMS default updated, existing site_config doc reset).
+- **Global "boutique" → "store"** rename across `/app/frontend/src/**` and `/app/backend/**` source + the seeded testimonial quote that mentioned "boutique" (DB row updated).
+- **Footer trimmed** to brand + tagline + social + contact strip + copyright. Removed the 4-chip trust bar AND the Shop / Company / Help columns as requested.
+- **Consistent boundary + spacing** — every section (hero, offers, categories, carousels, stores, customer love) now uses `max-w-7xl mx-auto px-4 sm:px-8 py-8` for uniform horizontal padding and vertical rhythm. Categories grid gets `gap-3 sm:gap-4` to align with carousel gaps.
+- Hero card switched from `rounded-[24px] md:rounded-[28px]` to a single `rounded-2xl` to align with all other section cards.
+
 ## Latest Iteration (Feb 2026 — Iter-19) — Hero rollback to v1 card style
 
 User-requested rollback of the hero only — restored the previous Bhilai-Globe-Chowk card style hero:

@@ -31,7 +31,7 @@ export default function WhyLokl() {
 
 export function HowLoklWorks() {
   const steps = [
-    { n: "1", title: "Browse Nearby Stores", body: "Discover boutiques in your city" },
+    { n: "1", title: "Browse Nearby Stores", body: "Discover stores in your city" },
     { n: "2", title: "Try At Doorstep", body: "Try before you pay, where available" },
     { n: "3", title: "Keep What You Love", body: "Easy returns on the rest" },
   ];

@@ -488,7 +488,7 @@ DEFAULT_HERO = {
     "eyebrow": "Serving Bhilai",
     "title_line1": "Delivered in minutes from",
     "title_line2": "stores next door.",
-    "subtitle": "Hand-picked fashion from trusted Bhilai boutiques · 45-minute delivery.",
+    "subtitle": "Hand-picked fashion from trusted Bhilai stores.",
     "cta_primary_label": "Shop Women", "cta_primary_link": "/c/women",
     "cta_secondary_label": "Shop Men", "cta_secondary_link": "/c/men",
     "show_stats": True, "show_usp_chips": True,
@@ -2251,7 +2251,7 @@ async def startup_seed():
         now = datetime.now(timezone.utc).isoformat()
         await db.merchants.update_one({"id": demo["id"]}, {"$set": {
             "kyc_status": "approved", "approved_at": now,
-            "pan_number": "DEMOP1234D", "business_name": "Demo Boutique Pvt Ltd",
+            "pan_number": "DEMOP1234D", "business_name": "Demo Store Pvt Ltd",
             "business_category": "Multi-category", "business_type": "Pvt Ltd",
             "business_address": "Sector 10, Bhilai 490006",
             "bank_account_number": "1234567890", "bank_ifsc": "SBIN0001234",

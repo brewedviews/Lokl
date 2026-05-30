@@ -57,10 +57,10 @@ export default function Home() {
     hero: () => <HeroV2 stats={stats} hero={config?.hero} />,
     offers: () => offers.length > 0 && <OffersStrip offers={offers} />,
     categories: () => cats.length > 0 && (
-      <section className="px-4 sm:px-8 py-6 max-w-7xl mx-auto" data-testid="categories-v2">
+      <section className="px-4 sm:px-8 py-8 max-w-7xl mx-auto" data-testid="categories-v2">
         <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0A1F5C] mb-1">Shop by category</h2>
-        <p className="text-xs sm:text-sm text-[#64748B] mb-4">From boutiques across Bhilai.</p>
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+        <p className="text-xs sm:text-sm text-[#64748B] mb-4">From stores across Bhilai.</p>
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 sm:gap-4">
           {cats.slice(0, 6).map((c) => (
             <Link key={c.id} to={`/c/${c.slug}`} data-testid={`category-${c.slug}`} className="group bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-[0_2px_8px_rgba(10,31,92,0.06)] active:scale-95 transition">
               <div className="aspect-square bg-slate-100">
@@ -86,11 +86,11 @@ export default function Home() {
       </HCarousel>
     ),
     stores: () => (stores.length > 0 ? (
-      <section className="px-4 sm:px-8 py-6 max-w-7xl mx-auto" data-testid="stores-near-you">
+      <section className="px-4 sm:px-8 py-8 max-w-7xl mx-auto" data-testid="stores-near-you">
         <div className="flex items-end justify-between mb-3">
           <div>
             <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0A1F5C]">Stores near you</h2>
-            <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Verified Bhilai boutiques delivering today.</p>
+            <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Verified Bhilai stores delivering today.</p>
           </div>
           <Link to="/stores" className="text-xs font-bold text-[#F59E0B]">See all →</Link>
         </div>
@@ -101,8 +101,8 @@ export default function Home() {
     ) : (
       <section className="px-4 py-10 text-center bg-[#F8FAFC]">
         <StoreIcon size={36} className="text-[#F59E0B] mx-auto mb-3" />
-        <h3 className="text-lg font-display font-bold text-[#0A1F5C]">Boutiques are coming soon</h3>
-        <p className="text-sm text-[#64748B] mt-2 max-w-md mx-auto">Run a Bhilai boutique? Join the marketplace.</p>
+        <h3 className="text-lg font-display font-bold text-[#0A1F5C]">Stores are coming soon</h3>
+        <p className="text-sm text-[#64748B] mt-2 max-w-md mx-auto">Run a Bhilai store? Join the marketplace.</p>
         <Link to="/merchant/register" className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F59E0B] text-white text-sm font-bold shadow-[0_8px_24px_rgba(245,158,11,0.35)]">Become a seller <ArrowRight size={14} /></Link>
       </section>
     )),

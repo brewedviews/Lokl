@@ -35,7 +35,7 @@ export default function ProductList() {
       <ConsumerHeader />
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-10">
         <h1 data-testid="plp-title" className="display text-4xl md:text-5xl font-bold text-[#1A2B4C]">All products</h1>
-        <p className="text-[#595959] mt-2">{products.length} pieces from boutiques near you</p>
+        <p className="text-[#595959] mt-2">{products.length} pieces from stores near you</p>
 
         <div className="mt-8 flex flex-wrap gap-2 overflow-x-auto no-scrollbar">
           <button onClick={() => setCat("")} data-testid="filter-all"

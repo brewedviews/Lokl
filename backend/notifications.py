@@ -79,7 +79,7 @@ def notify_order_placed(customer_phone: str, order_id: str, total: float, eta_mi
     body = (
         f"🎉 Lokl: Order *{order_id}* confirmed!\n"
         f"Amount: ₹{total:,.0f}\n"
-        f"Your boutique is preparing it. ETA ~{eta_min} mins.\n"
+        f"Your store is preparing it. ETA ~{eta_min} mins.\n"
         f"Track: lokl.in/orders/{order_id}"
     )
     send_whatsapp(customer_phone, body)
@@ -150,7 +150,7 @@ def notify_order_cancelled(customer_phone: str, order_id: str, reason: str) -> N
 def notify_order_delivered(customer_phone: str, order_id: str) -> None:
     body = (
         f"📦 Lokl: Order *{order_id}* has been delivered.\n"
-        f"Loved it? Rate your boutique in 1 tap."
+        f"Loved it? Rate your store in 1 tap."
     )
     send_whatsapp(customer_phone, body)
 

@@ -88,7 +88,7 @@ export default function ConsumerHeader() {
                 onChange={(e) => { setQ(e.target.value); setSugOpen(true); }}
                 onFocus={() => setSugOpen(true)}
                 onBlur={() => setTimeout(() => setSugOpen(false), 200)}
-                placeholder="Search kurtas, sneakers, boutique stores…"
+                placeholder="Search kurtas, sneakers, store stores…"
                 className="bg-transparent flex-1 outline-none text-sm"
               />
             </div>

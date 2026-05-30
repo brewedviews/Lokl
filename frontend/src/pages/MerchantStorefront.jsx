@@ -66,7 +66,7 @@ export default function MerchantStorefront() {
     <MerchantLayout>
       <div className="p-6 md:p-10 max-w-3xl">
         <h1 className="display text-3xl md:text-4xl font-bold text-[#1A2B4C] flex items-center gap-2"><Store size={26} /> Storefront</h1>
-        <p className="text-[#595959] mt-1">Edit the public face of your boutique. <span className="text-[#E68910]">Store name &amp; business address can only be changed via a verified change request.</span></p>
+        <p className="text-[#595959] mt-1">Edit the public face of your store. <span className="text-[#E68910]">Store name &amp; business address can only be changed via a verified change request.</span></p>
 
         <div className="mt-6 bg-white border border-[#E5E2DC] rounded-3xl p-6 space-y-4">
           <div className="grid md:grid-cols-2 gap-3 pb-4 border-b border-[#E5E2DC]">

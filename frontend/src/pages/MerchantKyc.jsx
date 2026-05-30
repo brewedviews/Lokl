@@ -150,7 +150,7 @@ export default function MerchantKyc() {
                 <input data-testid="kyc-gst" value={form.gst_number} onChange={(e) => set("gst_number", e.target.value.toUpperCase())} placeholder="22ABCDE1234F1Z5" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" />
               </Field>
               <Field label="Registered business name *">
-                <input data-testid="kyc-business-name" value={form.business_name} onChange={(e) => set("business_name", e.target.value)} placeholder="e.g. Bunto Boutique Pvt Ltd" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
+                <input data-testid="kyc-business-name" value={form.business_name} onChange={(e) => set("business_name", e.target.value)} placeholder="e.g. Bunto Store Pvt Ltd" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
               </Field>
               <Field label="Business category *">
                 <select data-testid="kyc-category" value={form.business_category} onChange={(e) => set("business_category", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white">

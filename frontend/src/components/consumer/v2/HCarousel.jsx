@@ -5,7 +5,7 @@ export default function HCarousel({ title, subtitle, link, linkLabel = "See all"
   const ref = useRef(null);
   if (React.Children.count(children) === 0) return null;
   return (
-    <section className="py-6" data-testid={testid}>
+    <section className="py-8" data-testid={testid}>
       <div className="px-4 sm:px-8 flex items-end justify-between gap-3 mb-3 max-w-7xl mx-auto">
         <div className="min-w-0">
           <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight line-clamp-1">{title}</h2>

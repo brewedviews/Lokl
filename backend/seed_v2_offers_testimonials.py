@@ -32,7 +32,7 @@ TESTIMONIALS = [
      "quote": "Better than any mall trip. Five stores, one delivery, paid cash. Magic.",
      "avatar": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&q=80", "rank": 30},
     {"name": "Anjali V.", "city": "Bhilai", "rating": 4,
-     "quote": "Found a beautiful saree from a boutique I'd never have walked into. Lokl gets it.",
+     "quote": "Found a beautiful saree from a store I'd never have walked into. Lokl gets it.",
      "avatar": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200&q=80", "rank": 40},
 ]
 
