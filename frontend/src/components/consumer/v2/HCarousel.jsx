@@ -17,7 +17,7 @@ export default function HCarousel({ title, subtitle, link, linkLabel = "See all"
       </div>
       <div ref={ref} className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory px-4 sm:px-8 pb-2 max-w-7xl mx-auto">
         {React.Children.map(children, (c, i) => (
-          <div key={i} className="snap-start shrink-0 w-[44vw] sm:w-[220px] md:w-[230px]">{c}</div>
+          <div key={i} className="snap-start shrink-0 w-[42vw] sm:w-[200px] md:w-[220px]">{c}</div>
         ))}
       </div>
     </section>

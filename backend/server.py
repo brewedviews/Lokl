@@ -475,9 +475,9 @@ async def list_l2(l1_id: str):
 # ============ Lokl V2 — Site CMS ============
 DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "hero",            "label": "Hero",                "enabled": True, "rank": 10},
-    {"id": "offers",          "label": "Offers carousel",     "enabled": True, "rank": 20},
+    {"id": "popular_in_city", "label": "Popular in Bhilai",   "enabled": True, "rank": 20},
     {"id": "categories",      "label": "Categories",          "enabled": True, "rank": 30},
-    {"id": "popular_in_city", "label": "Popular in Bhilai",   "enabled": True, "rank": 40},
+    {"id": "offers",          "label": "Offers carousel",     "enabled": True, "rank": 40},
     {"id": "selling_fast",    "label": "Selling fast",        "enabled": True, "rank": 50},
     {"id": "stores",          "label": "Stores near you",     "enabled": True, "rank": 60},
     {"id": "recently_viewed", "label": "Recently viewed",     "enabled": True, "rank": 70},

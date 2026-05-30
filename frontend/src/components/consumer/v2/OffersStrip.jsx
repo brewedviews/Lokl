@@ -16,7 +16,7 @@ export default function OffersStrip({ offers }) {
             key={o.id}
             to={o.cta_link || "/products"}
             data-testid={`offer-${o.id}`}
-            className="snap-start shrink-0 w-[82vw] sm:w-[360px] rounded-2xl overflow-hidden relative shadow-[0_8px_24px_rgba(10,31,92,0.12)] active:scale-[0.98] transition"
+            className="snap-start shrink-0 w-[78vw] sm:w-[340px] rounded-2xl overflow-hidden relative shadow-[0_8px_24px_rgba(10,31,92,0.12)] active:scale-[0.98] transition"
             style={{ background: o.background || "#0A1F5C" }}
           >
             <div className="aspect-[16/9] relative">

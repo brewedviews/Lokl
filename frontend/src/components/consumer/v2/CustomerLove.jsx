@@ -12,7 +12,7 @@ export default function CustomerLove({ items }) {
       </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory px-4 sm:px-8 pb-2 max-w-7xl mx-auto">
         {items.map((t) => (
-          <article key={t.id} className="snap-start shrink-0 w-[78vw] sm:w-[300px] bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10">
+          <article key={t.id} className="snap-start shrink-0 w-[74vw] sm:w-[290px] bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10">
             <div className="flex items-center gap-1 text-[#F59E0B] mb-2">
               {Array.from({ length: t.rating || 5 }).map((_, i) => (
                 <Star key={i} size={12} fill="currentColor" />
