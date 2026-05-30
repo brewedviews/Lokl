@@ -472,6 +472,84 @@ async def list_l2(l1_id: str):
     return await db.subcategories.find({"l1_id": l1_id}, {"_id": 0}).to_list(50)
 
 
+# ============ Lokl V2 — Site CMS ============
+DEFAULT_HOMEPAGE_SECTIONS = [
+    {"id": "hero",            "label": "Hero",                "enabled": True, "rank": 10},
+    {"id": "offers",          "label": "Offers carousel",     "enabled": True, "rank": 20},
+    {"id": "categories",      "label": "Categories",          "enabled": True, "rank": 30},
+    {"id": "popular_in_city", "label": "Popular in Bhilai",   "enabled": True, "rank": 40},
+    {"id": "selling_fast",    "label": "Selling fast",        "enabled": True, "rank": 50},
+    {"id": "stores",          "label": "Stores near you",     "enabled": True, "rank": 60},
+    {"id": "recently_viewed", "label": "Recently viewed",     "enabled": True, "rank": 70},
+    {"id": "customer_love",   "label": "Customer love",       "enabled": True, "rank": 80},
+]
+DEFAULT_HERO = {
+    "image": "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png",
+    "eyebrow": "Bhilai · Live",
+    "title_line1": "Fashion from Bhilai's best stores.",
+    "title_line2": "Delivered in under 45 minutes.",
+    "subtitle": "Discover thousands of products from trusted local boutiques with fast delivery, doorstep trial and easy returns.",
+    "cta_primary_label": "Shop Women", "cta_primary_link": "/c/women",
+    "cta_secondary_label": "Shop Men", "cta_secondary_link": "/c/men",
+    "show_stats": True, "show_usp_chips": True,
+}
+
+
+async def _get_site_config() -> dict:
+    doc = await db.site_config.find_one({"id": "homepage"}, {"_id": 0})
+    if not doc:
+        doc = {"id": "homepage", "sections": DEFAULT_HOMEPAGE_SECTIONS, "hero": DEFAULT_HERO}
+        await db.site_config.insert_one(doc)
+    section_ids = {s["id"] for s in doc.get("sections", [])}
+    added = [s for s in DEFAULT_HOMEPAGE_SECTIONS if s["id"] not in section_ids]
+    if added:
+        doc.setdefault("sections", []).extend(added)
+        await db.site_config.update_one({"id": "homepage"}, {"$set": {"sections": doc["sections"]}})
+    if "hero" not in doc:
+        doc["hero"] = DEFAULT_HERO
+        await db.site_config.update_one({"id": "homepage"}, {"$set": {"hero": doc["hero"]}})
+    doc.pop("_id", None)
+    return doc
+
+
+@api.get("/site/homepage-config")
+async def public_homepage_config():
+    cfg = await _get_site_config()
+    cfg["sections"] = sorted(cfg["sections"], key=lambda s: s.get("rank", 999))
+    return cfg
+
+
+@api.get("/admin/site/homepage-config")
+async def admin_get_homepage_config(user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    return await _get_site_config()
+
+
+@api.put("/admin/site/homepage-config")
+async def admin_put_homepage_config(payload: dict, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    update = {}
+    if isinstance(payload.get("sections"), list):
+        clean = []
+        for s in payload["sections"]:
+            if not isinstance(s, dict) or "id" not in s: continue
+            clean.append({
+                "id": str(s["id"]),
+                "label": str(s.get("label", "")),
+                "enabled": bool(s.get("enabled", True)),
+                "rank": int(s.get("rank", 100)),
+            })
+        update["sections"] = clean
+    if isinstance(payload.get("hero"), dict):
+        cur = (await _get_site_config()).get("hero", DEFAULT_HERO)
+        merged = {**cur, **{k: v for k, v in payload["hero"].items() if k in DEFAULT_HERO}}
+        update["hero"] = merged
+    if not update:
+        raise HTTPException(400, "Nothing to update")
+    await db.site_config.update_one({"id": "homepage"}, {"$set": update}, upsert=True)
+    return await _get_site_config()
+
+
 @api.get("/search")
 async def search(q: str = "", limit: int = 20):
     """Lightweight typeahead. Returns products + stores matching the query."""

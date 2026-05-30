@@ -3,6 +3,33 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-18) — Homepage fixes + Site CMS
+
+### Homepage user-feedback fixes
+- **Hero image restored** to the previous Bhilai Globe Chowk ChatGPT image (not the gold Unsplash boutique that crept in).
+- **Desktop responsive** — `max-w-7xl mx-auto` container, `lg:` breakpoints across hero / carousels / categories grid. Hero scales to text-6xl on desktop, metric strip widens to `max-w-3xl` centered, USP chips space out properly.
+- **Spacing fixed** on `Shop Women / Shop Men` CTAs (`gap-3 sm:gap-4`) and metric strip (`gap-4 sm:gap-8`).
+- **Removed**: Why Lokl, How Lokl Works, Trending, New Arrivals, Best Sellers (per user spec).
+- **Carousels no longer hug the left edge** — `px-4 sm:px-8` + `max-w-7xl mx-auto` on Popular, Selling Fast, Customer Love, Offers strip.
+- **Hero CTAs** route correctly: Shop Women → `/c/women`, Shop Men → `/c/men`.
+- **Add to cart on every home product card** — ProductCardV2 now has an inline orange "Add" button → switches to a `+ / qty / −` stepper after first add. Updates the global cart via CartContext.
+- **Footer rebuilt** — 4-column structure (Brand / Shop / Company / Help) + trust strip at top (delivery, returns, secure, verified) + contact strip + copyright.
+- **"See all" links fixed** — Popular / Selling Fast now point to `/products?sort=trending`.
+- **Removed** the offer-strip and feed carousel "always-render" behaviour — they hide when data empty.
+
+### PDP fixes (compact + bug squash)
+- Image placeholder shown when product has no image (was previously a 0-height div).
+- Fallback values for `store_eta_min` (45) and `store_distance_km` (1.5) — fixes the "min, km" with-no-numbers bug from the user's screenshot.
+- Smaller H1 (`text-2xl md:text-3xl`), tighter button heights, `whitespace-nowrap` on Add to bag / Buy now to kill the text-wrap.
+- New tokens applied (#0A1F5C navy / #F59E0B orange / white background).
+
+### Site CMS (new — "developer dashboard")
+- New `site_config` collection (singleton doc id=`homepage`) — backfilled with defaults so admins start with a working homepage out of the box.
+- Public endpoint `GET /api/site/homepage-config` — homepage reads section order + on/off + hero overrides at load time.
+- Admin endpoints `GET/PUT /api/admin/site/homepage-config` — controls section visibility, ordering (numeric rank), and full hero override (image URL, eyebrow, title lines, subtitle, both CTA labels + links, show_stats, show_usp_chips).
+- **New `/admin` → Site CMS tab** with toggle + rank-edit per section, hero text/image editor, and live save.
+- Home.jsx now respects the CMS — `orderedIds.map(...)` renders sections in admin-controlled order; disabled sections are skipped.
+
 ## Latest Iteration (Feb 2026 — Iter-17) — Lokl V2 Marketplace UI (Phase 1 + 2)
 
 ### Phase 1 — Dynamic data engine (backend)

@@ -84,7 +84,7 @@ export function AdminDashboard() {
         </div>
 
         <div className="flex gap-2 mb-5 flex-wrap">
-          {[["approvals", "Approvals"], ["stores", "Stores"], ["live", "Live orders"], ["delivered", "Delivered"], ["returns", "Returns"], ["complaints", "Complaints"], ["liveusers", "Live users"], ["customers", "Customers"]].map(([k, l]) => (
+          {[["approvals", "Approvals"], ["stores", "Stores"], ["live", "Live orders"], ["delivered", "Delivered"], ["returns", "Returns"], ["complaints", "Complaints"], ["liveusers", "Live users"], ["customers", "Customers"], ["cms", "Site CMS"]].map(([k, l]) => (
             <button key={k} data-testid={`admin-tab-${k}`} onClick={() => setTab(k)}
               className={`px-5 py-2 rounded-full text-sm font-semibold transition ${tab === k ? "bg-[#1A2B4C] text-white" : "bg-white border border-[#E5E2DC] text-[#595959]"}`}>{l}</button>
           ))}
@@ -98,6 +98,7 @@ export function AdminDashboard() {
         {tab === "complaints" && <ComplaintsTab />}
         {tab === "liveusers" && <LiveUsersTab />}
         {tab === "customers" && <CustomersTab />}
+        {tab === "cms" && <SiteCmsTab />}
       </div>
     </div>
   );
@@ -951,6 +952,91 @@ function CustomersTab() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+function SiteCmsTab() {
+  const [cfg, setCfg] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+
+  const load = () => api.get("/admin/site/homepage-config").then((r) => setCfg(r.data)).catch(() => {});
+  React.useEffect(() => { load(); }, []);
+
+  if (!cfg) return <div className="text-[#595959]">Loading…</div>;
+
+  const updateSection = (id, patch) => {
+    setCfg((c) => ({ ...c, sections: c.sections.map((s) => s.id === id ? { ...s, ...patch } : s) }));
+  };
+  const updateHero = (patch) => setCfg((c) => ({ ...c, hero: { ...c.hero, ...patch } }));
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.put("/admin/site/homepage-config", { sections: cfg.sections, hero: cfg.hero });
+      setCfg(data);
+      toast.success("Homepage config saved — live within seconds");
+    } catch (e) { toast.error(e.response?.data?.detail || "Save failed"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-6" data-testid="site-cms-tab">
+      <div className="bg-white border border-[#E5E2DC] rounded-2xl p-5">
+        <h3 className="display text-xl font-bold text-[#1A2B4C] mb-1">Homepage sections</h3>
+        <p className="text-xs text-[#595959] mb-4">Drag rank to reorder. Toggle to hide a section without redeploying.</p>
+        <div className="space-y-2">
+          {cfg.sections.sort((a, b) => a.rank - b.rank).map((s) => (
+            <div key={s.id} data-testid={`cms-row-${s.id}`} className="flex items-center gap-3 p-3 rounded-xl border border-[#E5E2DC]">
+              <input type="number" value={s.rank} onChange={(e) => updateSection(s.id, { rank: parseInt(e.target.value || "0", 10) })}
+                className="w-16 px-2 py-1 rounded-lg border border-[#E5E2DC] text-sm" />
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-[#1A2B4C]">{s.label}</div>
+                <div className="text-[10px] uppercase tracking-widest text-[#595959]">{s.id}</div>
+              </div>
+              <button data-testid={`cms-toggle-${s.id}`} onClick={() => updateSection(s.id, { enabled: !s.enabled })}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold ${s.enabled ? "bg-[#4F7363] text-white" : "bg-[#595959]/20 text-[#595959]"}`}>
+                {s.enabled ? "ON" : "OFF"}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-white border border-[#E5E2DC] rounded-2xl p-5">
+        <h3 className="display text-xl font-bold text-[#1A2B4C] mb-1">Hero</h3>
+        <p className="text-xs text-[#595959] mb-4">Image URL, copy, CTA labels and links — all editable here.</p>
+        <div className="grid sm:grid-cols-2 gap-3 text-sm">
+          {[
+            ["image", "Image URL"], ["eyebrow", "Eyebrow chip"],
+            ["title_line1", "Title line 1"], ["title_line2", "Title line 2"],
+            ["subtitle", "Subtitle"],
+            ["cta_primary_label", "Primary CTA label"], ["cta_primary_link", "Primary CTA link"],
+            ["cta_secondary_label", "Secondary CTA label"], ["cta_secondary_link", "Secondary CTA link"],
+          ].map(([k, label]) => (
+            <label key={k} className="block">
+              <span className="text-[10px] uppercase tracking-widest text-[#595959] font-bold">{label}</span>
+              <input value={cfg.hero?.[k] || ""} data-testid={`cms-hero-${k}`}
+                onChange={(e) => updateHero({ [k]: e.target.value })}
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-[#E5E2DC]" />
+            </label>
+          ))}
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={cfg.hero?.show_stats !== false} onChange={(e) => updateHero({ show_stats: e.target.checked })} />
+            <span className="text-sm">Show stats strip</span>
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={cfg.hero?.show_usp_chips !== false} onChange={(e) => updateHero({ show_usp_chips: e.target.checked })} />
+            <span className="text-sm">Show USP chips</span>
+          </label>
+        </div>
+      </div>
+
+      <button onClick={save} disabled={busy} data-testid="cms-save"
+        className="px-6 py-3 rounded-full bg-[#E68910] text-white font-bold disabled:opacity-50">
+        {busy ? "Saving…" : "Save homepage config"}
+      </button>
     </div>
   );
 }

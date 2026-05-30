@@ -43,69 +43,76 @@ export default function ProductDetail() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7]">
+    <div className="min-h-screen bg-white">
       <ConsumerHeader />
-      <div className="max-w-7xl mx-auto px-4 md:px-8 py-10 grid md:grid-cols-2 gap-10">
-        <div data-testid="pdp-image" className="relative rounded-3xl overflow-hidden bg-white">
-          <img src={images[imgIdx]} alt={product.name} className="w-full aspect-[4/5] object-cover" />
+      <div className="max-w-6xl mx-auto px-4 md:px-8 py-6 md:py-10 grid md:grid-cols-2 gap-6 md:gap-10">
+        <div data-testid="pdp-image" className="relative rounded-2xl overflow-hidden bg-slate-100">
+          {images[imgIdx] ? (
+            <img src={images[imgIdx]} alt={product.name} className="w-full aspect-[4/5] object-cover" />
+          ) : (
+            <div className="w-full aspect-[4/5] flex flex-col items-center justify-center text-[#94A3B8] text-sm">
+              <ShoppingBag size={36} className="mb-2 opacity-50" />
+              <span>Image coming soon</span>
+            </div>
+          )}
           {images.length > 1 && (
             <>
-              <button onClick={() => setImgIdx((i) => (i - 1 + images.length) % images.length)} className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white" aria-label="Previous image"><ChevronLeft size={18} /></button>
-              <button onClick={() => setImgIdx((i) => (i + 1) % images.length)} className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white" aria-label="Next image"><ChevronRight size={18} /></button>
+              <button onClick={() => setImgIdx((i) => (i - 1 + images.length) % images.length)} className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/95 shadow flex items-center justify-center hover:bg-white" aria-label="Previous image"><ChevronLeft size={18} /></button>
+              <button onClick={() => setImgIdx((i) => (i + 1) % images.length)} className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/95 shadow flex items-center justify-center hover:bg-white" aria-label="Next image"><ChevronRight size={18} /></button>
               <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
                 {images.map((_, i) => (
-                  <button key={i} onClick={() => setImgIdx(i)} className={`w-2 h-2 rounded-full transition ${i === imgIdx ? "bg-[#1A2B4C] w-5" : "bg-white/80 border border-[#1A2B4C]/30"}`} aria-label={`Go to image ${i + 1}`} />
+                  <button key={i} onClick={() => setImgIdx(i)} className={`w-2 h-2 rounded-full transition ${i === imgIdx ? "bg-[#0A1F5C] w-5" : "bg-white/80 border border-[#0A1F5C]/30"}`} aria-label={`Go to image ${i + 1}`} />
                 ))}
               </div>
             </>
           )}
           {product.ai_enhanced && (
-            <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-[#1A2B4C] text-white text-xs font-semibold flex items-center gap-1.5">
-              <Sparkles size={12} className="text-[#E68910]" /> AI Enhanced
+            <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-[#0A1F5C] text-white text-[11px] font-semibold flex items-center gap-1.5">
+              <Sparkles size={11} className="text-[#F59E0B]" /> AI Enhanced
             </div>
           )}
         </div>
 
         <div data-testid="pdp-info">
           {product.store_id ? (
-            <Link to={`/store/${product.store_id}`} data-testid="store-name-link" className="text-xs uppercase tracking-widest text-[#E68910] hover:underline">
+            <Link to={`/store/${product.store_id}`} data-testid="store-name-link" className="text-[11px] uppercase tracking-widest font-bold text-[#F59E0B] hover:underline">
               {product.store_name}
             </Link>
           ) : (
-            <div className="text-xs uppercase tracking-widest text-[#595959]">{product.store_name}</div>
+            <div className="text-[11px] uppercase tracking-widest text-[#64748B]">{product.store_name}</div>
           )}
-          <h1 className="display text-3xl md:text-4xl font-bold text-[#1A2B4C] mt-2 leading-tight">{product.name}</h1>
+          <h1 className="font-display text-2xl md:text-3xl font-bold text-[#0A1F5C] mt-2 leading-tight">{product.name}</h1>
 
-          <div className="flex items-center gap-4 mt-4 text-sm">
-            <span className="flex items-center gap-1"><Star size={14} className="fill-[#E68910] text-[#E68910]" />{product.rating}</span>
-            <span className="flex items-center gap-1 text-[#595959]"><Bike size={14} /> {product.store_eta_min} min</span>
-            <span className="flex items-center gap-1 text-[#595959]"><MapPin size={14} /> {product.store_distance_km} km</span>
-            <span className="flex items-center gap-1 text-[#4F7363]"><ShieldCheck size={14} /> Trusted</span>
+          <div className="flex items-center gap-3 mt-3 text-xs">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#10B981] text-white font-bold"><Star size={11} fill="currentColor" /> {product.rating || 4.5}</span>
+            <span className="flex items-center gap-1 text-[#64748B]"><Bike size={13} /> {product.store_eta_min || 45} min</span>
+            <span className="flex items-center gap-1 text-[#64748B]"><MapPin size={13} /> {Number(product.store_distance_km || 1.5).toFixed(1)} km</span>
+            <span className="flex items-center gap-1 text-[#10B981]"><ShieldCheck size={13} /> Trusted</span>
           </div>
 
-          <div className="flex items-end gap-3 mt-6">
-            <span className="display text-4xl font-bold text-[#1A2B4C]">₹{product.price.toLocaleString()}</span>
-            {product.mrp && (
+          <div className="flex items-end gap-2 mt-4">
+            <span className="font-display text-3xl font-bold text-[#0A1F5C]">₹{Number(product.price).toLocaleString()}</span>
+            {product.mrp && product.mrp > product.price && (
               <>
-                <span className="text-lg text-[#595959] line-through">₹{product.mrp.toLocaleString()}</span>
-                <span className="text-sm font-semibold text-[#4F7363]">{discount}% off</span>
+                <span className="text-sm text-[#94A3B8] line-through">₹{Number(product.mrp).toLocaleString()}</span>
+                <span className="text-sm font-bold text-[#10B981]">{discount}% off</span>
               </>
             )}
           </div>
-          <p className="text-xs text-[#595959] mt-1">Inclusive of all taxes</p>
+          <p className="text-[11px] text-[#64748B] mt-1">Inclusive of all taxes</p>
 
-          <p className="mt-6 text-[#1C1C1C] leading-relaxed">{product.description}</p>
+          {product.description && <p className="mt-4 text-sm text-[#1C1C1C] leading-relaxed line-clamp-3">{product.description}</p>}
 
           {product.sizes?.length > 0 && (
-            <div className="mt-8">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="font-semibold text-[#1A2B4C]">Select size</h4>
-                <span className="text-xs text-[#E68910]">Try-at-doorstep available</span>
+            <div className="mt-6">
+              <div className="flex items-center justify-between mb-2.5">
+                <h4 className="text-sm font-semibold text-[#0A1F5C]">Select size</h4>
+                <span className="text-[11px] font-bold text-[#F59E0B]">Try-at-doorstep available</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {product.sizes.map((s) => (
                   <button key={s} onClick={() => setSize(s)} data-testid={`size-${s}`}
-                    className={`min-w-12 px-4 py-2.5 rounded-full text-sm font-semibold border transition ${size === s ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white border-[#E5E2DC] hover:border-[#1A2B4C]"}`}>
+                    className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-slate-200 hover:border-[#0A1F5C]"}`}>
                     {s}
                   </button>
                 ))}
@@ -113,42 +120,42 @@ export default function ProductDetail() {
             </div>
           )}
 
-          <div className="mt-8 flex gap-3">
-            <button onClick={handleAdd} data-testid="add-to-bag" className="flex-1 inline-flex items-center justify-center gap-2 px-6 py-4 rounded-full border-2 border-[#1A2B4C] text-[#1A2B4C] font-semibold hover:bg-[#1A2B4C] hover:text-white transition">
-              <ShoppingBag size={18} /> Add to bag
+          <div className="mt-6 flex gap-2">
+            <button onClick={handleAdd} data-testid="add-to-bag" className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border-2 border-[#0A1F5C] text-[#0A1F5C] text-sm font-bold hover:bg-[#0A1F5C] hover:text-white transition whitespace-nowrap">
+              <ShoppingBag size={16} /> Add to bag
             </button>
-            <button onClick={handleBuy} data-testid="buy-now" className="flex-1 inline-flex items-center justify-center gap-2 px-6 py-4 rounded-full bg-[#E68910] text-white font-semibold hover:bg-[#C9770E] transition">
+            <button onClick={handleBuy} data-testid="buy-now" className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#F59E0B] text-white text-sm font-bold hover:bg-[#cc7a0a] transition whitespace-nowrap">
               Buy now
             </button>
-            <button className="w-14 h-14 rounded-full bg-white border border-[#E5E2DC] flex items-center justify-center hover:border-[#1A2B4C] transition">
-              <Heart size={18} />
+            <button aria-label="Wishlist" className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
+              <Heart size={16} />
             </button>
           </div>
 
-          <div className="mt-8 grid grid-cols-3 gap-3 text-xs">
-            <div className="p-4 rounded-2xl bg-white border border-[#E5E2DC]">
-              <Truck size={18} className="text-[#E68910] mb-2" />
+          <div className="mt-6 grid grid-cols-3 gap-2 text-[11px]">
+            <div className="p-3 rounded-2xl bg-[#F8FAFC] border border-slate-100">
+              <Truck size={16} className="text-[#F59E0B] mb-1.5" />
               <div className="font-semibold">Fast delivery</div>
-              <div className="text-[#595959]">{product.store_eta_min} min</div>
+              <div className="text-[#64748B]">{product.store_eta_min || 45} min</div>
             </div>
-            <div className="p-4 rounded-2xl bg-white border border-[#E5E2DC]">
-              <RefreshCw size={18} className="text-[#E68910] mb-2" />
+            <div className="p-3 rounded-2xl bg-[#F8FAFC] border border-slate-100">
+              <RefreshCw size={16} className="text-[#F59E0B] mb-1.5" />
               <div className="font-semibold">Easy returns</div>
-              <div className="text-[#595959]">7-day exchange</div>
+              <div className="text-[#64748B]">7-day exchange</div>
             </div>
-            <div className="p-4 rounded-2xl bg-white border border-[#E5E2DC]">
-              <ShieldCheck size={18} className="text-[#4F7363] mb-2" />
+            <div className="p-3 rounded-2xl bg-[#F8FAFC] border border-slate-100">
+              <ShieldCheck size={16} className="text-[#10B981] mb-1.5" />
               <div className="font-semibold">Trusted store</div>
-              <div className="text-[#595959]">Verified merchant</div>
+              <div className="text-[#64748B]">Verified merchant</div>
             </div>
           </div>
         </div>
       </div>
 
       {similar?.length > 0 && (
-        <section className="max-w-7xl mx-auto px-4 md:px-8 mt-16">
-          <h2 className="display text-3xl font-bold text-[#1A2B4C] mb-6">You might also love</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+        <section className="max-w-6xl mx-auto px-4 md:px-8 mt-10 md:mt-14">
+          <h2 className="font-display text-2xl md:text-3xl font-bold text-[#0A1F5C] mb-5">You might also love</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
             {similar.slice(0, 4).map((p) => <ProductCard key={p.id} p={p} />)}
           </div>
         </section>

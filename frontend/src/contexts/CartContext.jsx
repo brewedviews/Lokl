@@ -24,8 +24,10 @@ export const CartProvider = ({ children }) => {
   };
 
   const remove = (key) => setItems((prev) => prev.filter((x) => x.key !== key));
-  const updateQty = (key, qty) => setItems((prev) =>
-    prev.map((x) => x.key === key ? { ...x, qty: Math.max(1, qty) } : x));
+  const updateQty = (key, qty) => setItems((prev) => {
+    if (qty <= 0) return prev.filter((x) => x.key !== key);
+    return prev.map((x) => x.key === key ? { ...x, qty } : x);
+  });
   const clear = () => setItems([]);
 
   const total = items.reduce((s, x) => s + x.price * x.qty, 0);

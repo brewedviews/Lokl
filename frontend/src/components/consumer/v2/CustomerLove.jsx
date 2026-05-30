@@ -6,11 +6,11 @@ export default function CustomerLove({ items }) {
   if (!items || items.length === 0) return null;
   return (
     <section className="py-8 bg-[#0A1F5C] text-white" data-testid="customer-love">
-      <div className="px-4 mb-4">
-        <h2 className="text-2xl font-display font-bold tracking-tight">Loved by Bhilai shoppers</h2>
-        <p className="text-xs opacity-80 mt-0.5">Real reviews from real customers.</p>
+      <div className="px-4 sm:px-8 mb-4 max-w-7xl mx-auto">
+        <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight">Loved by Bhilai shoppers</h2>
+        <p className="text-xs sm:text-sm opacity-80 mt-0.5">Real reviews from real customers.</p>
       </div>
-      <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory px-4 pb-2">
+      <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory px-4 sm:px-8 pb-2 max-w-7xl mx-auto">
         {items.map((t) => (
           <article key={t.id} className="snap-start shrink-0 w-[78vw] sm:w-[300px] bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10">
             <div className="flex items-center gap-1 text-[#F59E0B] mb-2">
