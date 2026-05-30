@@ -3,7 +3,31 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
-## Latest Iteration (Feb 2026 — Iter-29) — Per-merchant order state machine
+## Latest Iteration (Feb 2026 — Iter-30) — Per-merchant UNIQUE 4-digit OTPs
+
+User clarified the multi-store flow needs a UNIQUE OTP per merchant (not a shared global OTP). Each store gets its own OTP. Customer receives one OTP per merchant only after that merchant accepts. Admin dashboard renders the multi-store order as one row with per-slice inline Mark Delivered + Cancel buttons + each store's OTP. Merchant only sees their own OTP.
+
+### Backend
+- `POST /api/orders`: now generates `merchant_otps: {mid: "XXXX"}` — one unique 4-digit code per merchant (not a shared one). Legacy global `otp` field set to first merchant's OTP for backward compat. New `merchant_cancelled: {mid: reason}` map added.
+- `POST /api/merchant/orders/{oid}/accept`: returns the merchant's OWN OTP. Customer accept-notification now includes that store's specific OTP. Rider pickup notification fires PER-merchant accept (each leg has its own dispatch + unique OTP), passing only that merchant's items.
+- `POST /api/merchant/orders/{oid}/handed-to-rider`: customer's "on-the-way" SMS now uses the relevant store's OTP, not the global one.
+- `POST /api/admin/orders/{oid}/cancel`: accepts optional `{merchant_id, reason}` payload to cancel one slice. Global only flips to `cancelled` when ALL slices cancelled. Per-merchant `cancelled` state added to the state machine.
+- `POST /api/twilio/inbound` (delivery confirmation): scans `merchant_otps` to match the OTP to a specific merchant slice; flips only that slice to delivered. Falls back to legacy `otp` for single-store orders.
+- `GET /api/merchant/orders`: now returns `my_otp` + filters `merchant_otps` to hide other merchants' OTPs (server-side isolation).
+- `GET /api/orders/{id}`: `store_breakdown[].otp` populated only when state ∈ {accepted, handed_off, delivered}; pending merchants hide their OTP from customer until accept.
+- `GET /api/admin/orders`: now enriches every order with `store_breakdown[]` (per-merchant items, subtotal, state, OTP, cancel_reason) for UI consumption.
+- `notify_order_accepted` (notifications.py): now accepts optional `otp` param to include in customer's "store accepted" message.
+
+### Frontend
+- `AdminPanel.jsx`: OrdersTab renders multi-store orders with a "MULTI-STORE · N" pill and per-slice inline cards. Each slice shows the store name, item count, subtotal, that store's unique 4-digit Rider OTP, plus dedicated Mark delivered + Cancel buttons. Single-store orders preserve the original whole-order finalize layout. `markDelivered(oid, merchantId)` and `cancel(oid, merchantId)` now accept an optional merchant_id to target a single slice.
+- `OrderTracking.jsx` (customer): global OtpCard now suppressed when `is_multi_store`. Each MiniStepper card in the breakdown now embeds an inline navy OTP card (store name + "Share when this store's rider arrives" + 4-digit code) — only visible when the slice is in accepted/handed_off state. Cancelled slices show a rose-tinted reason banner.
+- `MerchantOrders.jsx`: Accepted OTP card and On-the-way OTP line now read from `o.my_otp || o.otp` so each merchant only ever sees their own code.
+
+### Tests
+- `test_multi_merchant_orders.py` extended to 12 passing tests. New coverage: distinct OTP generation, accept returns only my_otp, merchant_orders hides other merchants' OTPs, per-merchant admin slice cancel, twilio inbound matches per-merchant OTP and flips only that slice.
+- Testing agent (iteration_14.json): backend 100% + frontend 100%. End-to-end validated with seeded order BFO-8A76279A (merchant A OTP 5459, merchant B OTP 9834) — each merchant sees only their own OTP, customer order tracking shows both per-store OTP cards in their respective MiniStepper rows.
+
+
 
 User reported: in a multi-store checkout, both merchants saw each other's items, the Accept button kept showing after one merchant accepted, and the global order total (not the merchant's subtotal) was being displayed. Also: customer order tracking showed only a single global stepper for multi-store orders.
 
