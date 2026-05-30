@@ -485,10 +485,10 @@ DEFAULT_HOMEPAGE_SECTIONS = [
 ]
 DEFAULT_HERO = {
     "image": "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png",
-    "eyebrow": "Bhilai · Live",
-    "title_line1": "Fashion from Bhilai's best stores.",
-    "title_line2": "Delivered in under 45 minutes.",
-    "subtitle": "Discover thousands of products from trusted local boutiques with fast delivery, doorstep trial and easy returns.",
+    "eyebrow": "Serving Bhilai",
+    "title_line1": "Delivered in minutes from",
+    "title_line2": "stores next door.",
+    "subtitle": "Hand-picked fashion from trusted Bhilai boutiques · 45-minute delivery.",
     "cta_primary_label": "Shop Women", "cta_primary_link": "/c/women",
     "cta_secondary_label": "Shop Men", "cta_secondary_link": "/c/men",
     "show_stats": True, "show_usp_chips": True,

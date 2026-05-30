@@ -118,7 +118,7 @@ export default function Home() {
   void enabled;
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#FDFBF7]">
       <ConsumerHeader />
       <main className="pb-24 md:pb-12">
         {orderedIds.length > 0

@@ -1,90 +1,71 @@
 import React from "react";
-import { Link } from "react-router-dom";
-import { ArrowRight, Truck, Shirt, Store, Sparkles } from "lucide-react";
+import { MapPin, Bike } from "lucide-react";
 
 const FALLBACK_HERO_IMG = "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png";
 
+/**
+ * Lokl Hero v3 — restored card-style hero per user request (Iter-19).
+ * Cream-wash gradient over Bhilai Globe Chowk image, headline "Delivered in minutes
+ * from stores next door.", subtitle, eyebrow chip, and a fast-delivery / LIVE pill.
+ * No Shop Men / Shop Women CTAs, no metric strip, no USP chips below — exactly as in the
+ * uploaded screenshot. CMS hero overrides still honoured.
+ */
 export default function HeroV2({ stats, hero }) {
   const img = hero?.image || FALLBACK_HERO_IMG;
-  const eyebrow = hero?.eyebrow || "Bhilai · Live";
-  const t1 = hero?.title_line1 || "Fashion from Bhilai's best stores.";
-  const t2 = hero?.title_line2 || "Delivered in under 45 minutes.";
-  const sub = hero?.subtitle || "Discover thousands of products from trusted local boutiques with fast delivery, doorstep trial and easy returns.";
-  const cta1l = hero?.cta_primary_label || "Shop Women";
-  const cta1h = hero?.cta_primary_link || "/c/women";
-  const cta2l = hero?.cta_secondary_label || "Shop Men";
-  const cta2h = hero?.cta_secondary_link || "/c/men";
-  const showStats = hero?.show_stats !== false;
-  const showChips = hero?.show_usp_chips !== false;
+  const eyebrow = hero?.eyebrow || "Serving Bhilai";
+  const t1 = hero?.title_line1 || "Delivered in minutes from";
+  const t2 = hero?.title_line2 || "stores next door.";
+  const sub = hero?.subtitle || "Hand-picked fashion from trusted Bhilai boutiques · 45-minute delivery.";
+  // Fastest-ETA can be inferred from stats (avg) when no live store list is available.
+  const eta = stats?.fastest_eta_min || 30;
 
   return (
-    <section className="relative overflow-hidden" data-testid="hero-v2">
-      <div className="relative h-[72vh] sm:h-[68vh] lg:h-[78vh] max-h-[720px] min-h-[460px]">
-        <img src={img} alt="Lokl fashion hero" className="absolute inset-0 w-full h-full object-cover object-center" />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#0A1F5C]/55 via-[#0A1F5C]/35 to-[#0A1F5C]/85" />
-        <div className="relative h-full max-w-7xl mx-auto flex flex-col justify-end px-4 sm:px-8 pb-36 sm:pb-40 lg:pb-44 text-white">
-          <span className="inline-flex w-fit items-center gap-1.5 px-3 py-1 rounded-full bg-[#F59E0B] text-white text-[10px] font-bold uppercase tracking-widest mb-3">
-            <Sparkles size={11} /> {eyebrow}
-          </span>
-          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-display font-bold leading-[1.05] tracking-tight max-w-2xl">
-            {t1}
-            <br className="hidden sm:block" /> {t2}
-          </h1>
-          <p className="text-sm sm:text-base lg:text-lg opacity-90 mt-4 max-w-lg leading-relaxed">{sub}</p>
-          <div className="flex flex-wrap gap-3 sm:gap-4 mt-6">
-            <Link to={cta1h} data-testid="hero-shop-women" className="inline-flex items-center gap-1.5 px-6 py-3 rounded-full bg-[#F59E0B] text-white text-sm font-bold shadow-[0_8px_24px_rgba(245,158,11,0.35)] active:scale-95 transition">
-              {cta1l} <ArrowRight size={14} />
-            </Link>
-            <Link to={cta2h} data-testid="hero-shop-men" className="inline-flex items-center gap-1.5 px-6 py-3 rounded-full bg-white text-[#0A1F5C] text-sm font-bold active:scale-95 transition">
-              {cta2l} <ArrowRight size={14} />
-            </Link>
+    <section data-testid="hero-v2" className="relative">
+      <div className="max-w-7xl mx-auto px-4 md:px-8 pt-4 md:pt-8">
+        <div className="relative rounded-[24px] md:rounded-[28px] overflow-hidden bg-[#1A2B4C] min-h-[340px] md:min-h-[320px]">
+          <img
+            src={img}
+            alt="Bhilai Globe Chowk"
+            className="absolute inset-0 w-full h-full object-cover object-[60%_45%] md:object-center"
+          />
+          {/* Mobile: vertical cream wash top→bottom. Desktop: left-anchored horizontal wash so the image breathes on the right. */}
+          <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/95 via-[#FDFBF7]/80 to-[#FDFBF7]/30 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
+
+          <div className="relative px-5 md:px-10 lg:px-12 py-6 md:py-10 min-h-[340px] md:min-h-[320px] flex flex-col justify-between md:justify-center max-w-2xl">
+            <div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white shadow-sm text-[11px] font-semibold mb-3 md:mb-4 self-start text-[#0A1F5C] uppercase tracking-wide">
+                <MapPin size={12} className="text-[#F59E0B]" /> {eyebrow}
+              </div>
+              <h1 className="font-display text-[28px] leading-[1.1] md:text-4xl lg:text-5xl font-bold tracking-tight text-[#0A1F5C]">
+                {t1} <span className="text-[#F59E0B]">{t2}</span>
+              </h1>
+              <p className="mt-2.5 md:mt-3 text-[13px] md:text-base text-[#0A1F5C]/75 md:text-[#475569] max-w-md leading-relaxed">
+                {sub}
+              </p>
+            </div>
+
+            {/* Mobile-only ETA pill at the bottom of the card */}
+            <div className="md:hidden mt-4 inline-flex items-center gap-2.5 self-start px-3 py-2 rounded-2xl bg-white/95 backdrop-blur-sm shadow-md">
+              <div className="w-8 h-8 rounded-full bg-[#F59E0B] flex items-center justify-center shrink-0"><Bike size={14} className="text-white" /></div>
+              <div className="leading-tight">
+                <div className="text-[10px] text-[#0A1F5C]/70 font-medium">Fast delivery</div>
+                <div className="font-bold text-[#0A1F5C] font-display text-sm" data-testid="hero-fastest-eta-mobile">{eta} minutes</div>
+              </div>
+              <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[9px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse" /> LIVE</span>
+            </div>
+          </div>
+
+          {/* Desktop floating ETA card */}
+          <div className="hidden md:flex absolute top-1/2 right-6 lg:right-10 -translate-y-1/2 bg-white/90 backdrop-blur-md rounded-2xl p-3.5 items-center gap-3 min-w-[260px] shadow-xl">
+            <div className="w-11 h-11 rounded-full bg-[#F59E0B] flex items-center justify-center shrink-0"><Bike size={18} className="text-white" /></div>
+            <div className="flex-1">
+              <div className="text-[11px] text-[#0A1F5C]/70">Fast delivery in Bhilai</div>
+              <div className="font-bold text-[#0A1F5C] font-display text-lg" data-testid="hero-fastest-eta">{eta} minutes</div>
+            </div>
+            <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[10px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse" /> LIVE</span>
           </div>
         </div>
-
-        {showStats && stats && (
-          <div data-testid="hero-stats" className="absolute left-4 right-4 sm:left-8 sm:right-8 lg:max-w-3xl lg:left-1/2 lg:-translate-x-1/2 bottom-20 sm:bottom-24 grid grid-cols-4 gap-4 sm:gap-8 bg-white/95 backdrop-blur-md rounded-2xl py-4 px-4 sm:px-8 shadow-[0_16px_48px_rgba(10,31,92,0.25)]">
-            <Metric label="Rating" value={`★ ${stats.avg_rating?.toFixed?.(1) ?? "4.5"}`} />
-            <Metric label="Stores" value={`${stats.verified_stores}+`} />
-            <Metric label="Products" value={fmt(stats.products)} />
-            <Metric label="Deliveries" value={fmt(stats.deliveries)} />
-          </div>
-        )}
       </div>
-
-      {showChips && (
-        <div className="relative -mt-8 px-4 sm:px-8 max-w-7xl mx-auto">
-          <div className="grid grid-cols-3 gap-2 sm:gap-4 bg-white rounded-2xl p-2 sm:p-3 shadow-[0_8px_24px_rgba(10,31,92,0.10)]" data-testid="usp-chips">
-            <UspChip icon={Truck} title="Delivery in 30–45 mins" />
-            <UspChip icon={Shirt} title="Try before you buy" />
-            <UspChip icon={Store} title="Verified local stores" />
-          </div>
-        </div>
-      )}
     </section>
   );
-}
-
-function Metric({ label, value }) {
-  return (
-    <div className="text-center">
-      <div className="text-sm sm:text-lg font-bold text-[#0A1F5C] leading-tight">{value}</div>
-      <div className="text-[9px] sm:text-[11px] uppercase tracking-widest text-[#64748B] font-semibold mt-1">{label}</div>
-    </div>
-  );
-}
-
-function UspChip({ icon: Icon, title }) {
-  return (
-    <div className="flex flex-col items-center gap-1 py-2 sm:py-3 text-center">
-      <Icon size={18} className="text-[#F59E0B]" />
-      <span className="text-[10px] sm:text-xs font-bold text-[#0F172A] leading-tight">{title}</span>
-    </div>
-  );
-}
-
-function fmt(n) {
-  n = Number(n || 0);
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k+`;
-  if (n >= 100) return `${Math.floor(n / 100) * 100}+`;
-  return String(n);
 }

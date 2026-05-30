@@ -3,6 +3,20 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-19) — Hero rollback to v1 card style
+
+User-requested rollback of the hero only — restored the previous Bhilai-Globe-Chowk card style hero:
+- Single rounded card (`rounded-[24px] md:rounded-[28px]`) on a cream backdrop.
+- Cream gradient wash (vertical on mobile, horizontal-from-left on desktop) so the headline sits on a soft fade and the image breathes on the right.
+- Eyebrow chip "SERVING BHILAI" with map-pin.
+- Headline: "Delivered in minutes from **stores next door.**" (orange second clause).
+- Subtitle: "Hand-picked fashion from trusted Bhilai boutiques · 45-minute delivery."
+- Floating "Fast delivery in Bhilai · 30 minutes · LIVE" pill (desktop on right, mobile inline under copy).
+- **No Shop Men / Shop Women CTAs, no metric strip, no USP chips** — per the user's screenshot.
+- CMS overrides preserved — admin can still edit eyebrow / title lines / subtitle / image URL from `/admin → Site CMS`.
+- Backend `DEFAULT_HERO` updated to match; existing `site_config` doc was reset to pick up the new defaults.
+- Body bg of Home reverted to `#FDFBF7` so the cream card sits on the right surface.
+
 ## Latest Iteration (Feb 2026 — Iter-18) — Homepage fixes + Site CMS
 
 ### Homepage user-feedback fixes
