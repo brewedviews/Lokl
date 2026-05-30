@@ -62,6 +62,7 @@ function App() {
               <Route path="/categories" element={<CategoryHub />} />
               <Route path="/wishlist" element={<WishlistPage />} />
               <Route path="/c/:slug" element={<CategoryPage />} />
+              <Route path="/c/:slug/:l2slug" element={<CategoryPage />} />
               <Route path="/product/:id" element={<ProductDetail />} />
               <Route path="/p/:id" element={<ProductDetail />} />
               <Route path="/stores" element={<StoreList />} />

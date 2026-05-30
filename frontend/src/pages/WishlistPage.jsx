@@ -1,27 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { Heart, Trash2, Package } from "lucide-react";
 import { toast } from "sonner";
 import ConsumerHeader from "../components/consumer/ConsumerHeader";
 import Footer from "../components/consumer/Footer";
-import OffersStrip from "../components/consumer/v2/OffersStrip";
-import HCarousel from "../components/consumer/v2/HCarousel";
 import ProductCardV2 from "../components/consumer/v2/ProductCardV2";
+import DiscoveryRails from "../components/consumer/DiscoveryRails";
 import { getWishlist, removeFromWishlist } from "../lib/wishlist";
-import api from "../lib/api";
 
-// Dedicated wishlist route — replaces the previous /account?tab=wishlist link.
-// • If the user has saved products → render the same product-card grid we use
-//   on Home/Store (compact via store_name handled inside the card component).
-// • If empty → friendly empty state followed by the same discovery rails the
-//   Category Hub uses (Offers / Trending / Selling fast / Recently added),
-//   minus the L1 category tiles. Helps the user keep shopping.
+// Dedicated wishlist route. If empty → friendly card + shared DiscoveryRails
+// (same flow used by the empty-cart page).
 export default function WishlistPage() {
   const [items, setItems] = useState(getWishlist());
-  const [offers, setOffers] = useState([]);
-  const [trending, setTrending] = useState([]);
-  const [sellingFast, setSellingFast] = useState([]);
-  const [recent, setRecent] = useState([]);
 
   useEffect(() => {
     const sync = () => setItems(getWishlist());
@@ -29,21 +18,7 @@ export default function WishlistPage() {
     return () => window.removeEventListener("wishlist:change", sync);
   }, []);
 
-  // Only fetch the discovery rails when the wishlist is empty.
-  useEffect(() => {
-    if (items.length > 0) return;
-    Promise.all([
-      api.get("/offers").then((r) => setOffers(r.data || [])).catch(() => {}),
-      api.get("/feed/popular-in-city?limit=10").then((r) => setTrending(r.data || [])).catch(() => {}),
-      api.get("/feed/selling-fast?limit=10").then((r) => setSellingFast(r.data || [])).catch(() => {}),
-      api.get("/feed/new-arrivals?limit=10").then((r) => setRecent(r.data || [])).catch(() => {}),
-    ]);
-  }, [items.length]);
-
-  const remove = (id) => {
-    removeFromWishlist(id);
-    toast.success("Removed from wishlist");
-  };
+  const remove = (id) => { removeFromWishlist(id); toast.success("Removed from wishlist"); };
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
@@ -68,7 +43,7 @@ export default function WishlistPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
               {items.map((p) => (
                 <div key={p.id} className="relative" data-testid={`wishlist-card-${p.id}`}>
-                  <ProductCardV2 p={p} compact />
+                  <ProductCardV2 p={p} />
                   <button
                     onClick={() => remove(p.id)}
                     data-testid={`wishlist-remove-${p.id}`}
@@ -83,7 +58,6 @@ export default function WishlistPage() {
           </section>
         ) : (
           <>
-            {/* Empty state — friendly message */}
             <section className="max-w-7xl mx-auto px-4 sm:px-8 pt-6" data-testid="wishlist-empty">
               <div className="bg-white border border-dashed border-[#E5E2DC] rounded-3xl p-6 sm:p-8 text-center">
                 <Package size={28} className="text-[#94A3B8] mx-auto mb-2" />
@@ -93,24 +67,7 @@ export default function WishlistPage() {
                 </p>
               </div>
             </section>
-
-            {/* Same flow as Category Hub minus the L1 tiles */}
-            {offers.length > 0 && <OffersStrip offers={offers} />}
-            {trending.length > 0 && (
-              <HCarousel title="Trending now" subtitle="Most ordered products nearby this week" testid="wishlist-trending" link="/products?sort=trending" linkLabel="See all">
-                {trending.map((p) => <ProductCardV2 key={p.id} p={p} />)}
-              </HCarousel>
-            )}
-            {sellingFast.length > 0 && (
-              <HCarousel title="Selling fast" subtitle="Don't miss out — limited stock" testid="wishlist-selling-fast" link="/products?sort=trending">
-                {sellingFast.map((p) => <ProductCardV2 key={p.id} p={p} />)}
-              </HCarousel>
-            )}
-            {recent.length > 0 && (
-              <HCarousel title="Recently added" subtitle="Fresh drops from Bhilai stores" testid="wishlist-recent" link="/products?sort=new" linkLabel="See all">
-                {recent.map((p) => <ProductCardV2 key={p.id} p={p} />)}
-              </HCarousel>
-            )}
+            <DiscoveryRails testidPrefix="wishlist" />
           </>
         )}
       </main>

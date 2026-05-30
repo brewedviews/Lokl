@@ -3,24 +3,56 @@ import { Link, useNavigate } from "react-router-dom";
 import { Trash2, ShoppingBag, Bike } from "lucide-react";
 import ConsumerHeader from "../components/consumer/ConsumerHeader";
 import Footer from "../components/consumer/Footer";
+import DiscoveryRails from "../components/consumer/DiscoveryRails";
 import { useCart } from "../contexts/CartContext";
 
 export default function Cart() {
   const { items, remove, updateQty, total } = useCart();
   const nav = useNavigate();
 
+  // Empty state — mirror the Wishlist empty page: friendly card + the same
+  // discovery rails (Offers / Trending / Selling fast / Recently added).
+  if (items.length === 0) {
+    return (
+      <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
+        <ConsumerHeader />
+        <main className="flex-1">
+          <section className="max-w-7xl mx-auto px-4 sm:px-8 pt-8" data-testid="cart-header">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-[#E68910]/10 grid place-items-center">
+                <ShoppingBag size={20} className="text-[#E68910]" />
+              </div>
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">Your bag</h1>
+                <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Items you add will appear here.</p>
+              </div>
+            </div>
+          </section>
+          <section className="max-w-7xl mx-auto px-4 sm:px-8 pt-6" data-testid="cart-empty">
+            <div className="bg-white border border-dashed border-[#E5E2DC] rounded-3xl p-6 sm:p-8 text-center">
+              <ShoppingBag size={28} className="text-[#94A3B8] mx-auto mb-2" />
+              <div className="text-base sm:text-lg font-display font-bold text-[#0A1F5C]">Your bag is empty</div>
+              <p className="text-xs sm:text-sm text-[#64748B] mt-1 max-w-md mx-auto">
+                Add items from your nearby Bhilai stores below — or jump straight to discovery.
+              </p>
+              <Link to="/" data-testid="empty-cart-cta" className="inline-block mt-4 px-6 py-2.5 rounded-full bg-[#1A2B4C] text-white text-sm font-semibold hover:bg-[#0F1D38] transition">
+                Start shopping
+              </Link>
+            </div>
+          </section>
+          <DiscoveryRails testidPrefix="cart" />
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
       <ConsumerHeader />
       <div className="max-w-5xl mx-auto px-4 md:px-8 py-10">
         <h1 className="display text-4xl font-bold text-[#1A2B4C]">Your bag</h1>
-        {items.length === 0 ? (
-          <div className="mt-12 text-center py-20 bg-white rounded-2xl border border-[#E5E2DC]">
-            <ShoppingBag size={48} className="mx-auto text-[#E68910] mb-4" />
-            <p className="text-[#595959]">Your bag is empty</p>
-            <Link to="/" data-testid="empty-cart-cta" className="inline-block mt-6 px-6 py-3 rounded-full bg-[#1A2B4C] text-white font-semibold hover:bg-[#0F1D38] transition">Start shopping</Link>
-          </div>
-        ) : (
+        {items.length === 0 ? null : (
           <div className="grid md:grid-cols-3 gap-8 mt-8">
             <div className="md:col-span-2 space-y-4">
               {items.map((it) => (
