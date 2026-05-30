@@ -61,6 +61,46 @@ function ProgressStepper({ status }) {
   );
 }
 
+// Map a per-merchant state to a step index for the per-store mini stepper.
+function stepIndexFromMerchantState(s) {
+  const x = (s || "").toLowerCase();
+  if (x === "delivered") return 3;
+  if (x === "handed_off") return 2;
+  if (x === "accepted") return 1;
+  return 0;
+}
+
+// Compact per-store mini stepper used inside multi-store breakdown.
+function MiniStepper({ activeIdx }) {
+  return (
+    <div className="relative">
+      <div className="flex items-start justify-between gap-1">
+        {STEPS.map((s, i) => {
+          const done = i <= activeIdx;
+          const Icon = s.icon;
+          return (
+            <div key={s.key} className="flex-1 flex flex-col items-center text-center relative">
+              {i > 0 && (
+                <div
+                  className={`absolute top-2.5 right-1/2 w-full h-[2px] -z-0 ${i <= activeIdx ? "bg-[#4F7363]" : "bg-[#E5E2DC]"}`}
+                  style={{ transform: "translateX(50%)" }}
+                />
+              )}
+              <div className={`relative z-10 w-5 h-5 sm:w-6 sm:h-6 rounded-full grid place-items-center shrink-0 transition
+                ${done ? "bg-[#4F7363] text-white" : "bg-white border-2 border-[#E5E2DC] text-[#94A3B8]"}`}>
+                <Icon size={10} strokeWidth={2.6} />
+              </div>
+              <div className={`mt-1 text-[9px] sm:text-[10px] font-semibold ${done ? "text-[#0A1F5C]" : "text-[#94A3B8]"} leading-tight`}>
+                {s.label}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function StatusHero({ order }) {
   const status = (order.status || "").toLowerCase();
   const title =
@@ -103,8 +143,8 @@ function StatusHero({ order }) {
         )}
       </div>
 
-      {/* stepper hidden for cancelled */}
-      {status !== "cancelled" && (
+      {/* stepper hidden for cancelled AND for multi-store (each store has its own) */}
+      {status !== "cancelled" && !order.is_multi_store && (
         <div className="mt-5 sm:mt-6">
           <ProgressStepper status={status} />
         </div>
@@ -276,36 +316,59 @@ export default function OrderTracking() {
 
         {order.is_multi_store && (
           <section data-testid="multi-store-breakdown" className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm">
-            <div className="flex items-start gap-2 mb-3">
+            <div className="flex items-start gap-2 mb-4">
               <Package size={16} className="text-[#E68910] shrink-0 mt-0.5" />
               <div>
                 <h2 className="font-display text-base sm:text-lg font-bold text-[#0A1F5C]">Ordered from {Object.keys(order.merchant_states || {}).length} stores</h2>
-                <p className="text-[11px] text-[#64748B] mt-0.5">You paid once. Each store packs and delivers their items separately.</p>
+                <p className="text-[11px] text-[#64748B] mt-0.5">You paid once. Each store packs and delivers their items separately — track each below.</p>
               </div>
             </div>
             <div className="divide-y divide-[#E5E2DC]">
-              {Array.from(new Set((order.items || []).map((it) => it.store_id))).filter(Boolean).map((sid) => {
-                const its = (order.items || []).filter((it) => it.store_id === sid);
-                const sname = its[0]?.store_name || "Store";
-                const mid = its[0]?.merchant_id;
-                const st = (order.merchant_states || {})[mid] || "pending";
-                const tone = st === "accepted" ? "text-emerald-700 bg-emerald-50"
-                  : st === "rejected" || st === "cancelled" ? "text-rose-700 bg-rose-50"
-                  : "text-[#E68910] bg-[#E68910]/10";
-                return (
-                  <div key={sid} className="py-3 first:pt-0 last:pb-0 flex items-center gap-3" data-testid={`store-row-${sid}`}>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-[#0A1F5C] truncate">{sname}</div>
-                      <div className="text-[11px] text-[#64748B] mt-0.5">
-                        {its.length} item{its.length === 1 ? "" : "s"} · ₹{its.reduce((a, it) => a + (Number(it.price) * (Number(it.qty) || 1)), 0).toLocaleString()}
+              {(() => {
+                // Prefer enriched store_breakdown from backend; fall back to deriving from items
+                const breakdown = order.store_breakdown && order.store_breakdown.length
+                  ? order.store_breakdown
+                  : Array.from(new Set((order.items || []).map((it) => it.merchant_id))).filter(Boolean).map((mid) => {
+                      const its = (order.items || []).filter((it) => it.merchant_id === mid);
+                      return {
+                        merchant_id: mid,
+                        store_id: its[0]?.store_id,
+                        store_name: its[0]?.store_name || "Store",
+                        items: its,
+                        subtotal: its.reduce((a, it) => a + (Number(it.price) * (Number(it.qty) || 1)), 0),
+                        state: (order.merchant_states || {})[mid] || "pending",
+                      };
+                    });
+                return breakdown.map((b) => {
+                  const idx = stepIndexFromMerchantState(b.state);
+                  const stateLabel =
+                    b.state === "delivered" ? "Delivered"
+                    : b.state === "handed_off" ? "Out for delivery"
+                    : b.state === "accepted" ? "Confirmed"
+                    : "Placed";
+                  const tone =
+                    b.state === "delivered" ? "text-emerald-700 bg-emerald-50"
+                    : b.state === "handed_off" ? "text-purple-700 bg-purple-50"
+                    : b.state === "accepted" ? "text-[#4F7363] bg-[#4F7363]/10"
+                    : "text-[#E68910] bg-[#E68910]/10";
+                  return (
+                    <div key={b.merchant_id} className="py-4 first:pt-0 last:pb-0" data-testid={`store-row-${b.store_id}`}>
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-[#0A1F5C] truncate">{b.store_name}</div>
+                          <div className="text-[11px] text-[#64748B] mt-0.5">
+                            {b.items.length} item{b.items.length === 1 ? "" : "s"} · ₹{Number(b.subtotal).toLocaleString()}
+                          </div>
+                        </div>
+                        <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 ${tone}`}>
+                          {stateLabel}
+                        </span>
                       </div>
+                      <MiniStepper activeIdx={idx} />
                     </div>
-                    <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 ${tone}`}>
-                      {st === "accepted" ? "Accepted" : st === "rejected" ? "Rejected" : "Waiting"}
-                    </span>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
           </section>
         )}

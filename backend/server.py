@@ -785,6 +785,41 @@ async def get_product(pid: str):
 # ===== Orders =====
 SERVICEABLE_CITIES = ["bhilai"]
 
+# ---------- Multi-merchant state helpers ----------
+_STATE_RANK = {"pending": 0, "accepted": 1, "handed_off": 2, "delivered": 3}
+_STATE_TO_GLOBAL = {"pending": "pending_merchant", "accepted": "accepted",
+                    "handed_off": "on_the_way", "delivered": "delivered"}
+
+def _derive_global_status(states: dict) -> str:
+    """Global order status = min state across all merchants (a customer's order
+    can't be 'delivered' until every store on it has delivered)."""
+    if not states: return "pending_merchant"
+    min_state = min(states.values(), key=lambda s: _STATE_RANK.get(s, 0))
+    return _STATE_TO_GLOBAL.get(min_state, "pending_merchant")
+
+def _new_merchant_timeline(placed_at: str) -> list:
+    """Each merchant gets a fresh 4-step timeline (Placed → Confirmed → Out for
+    delivery → Delivered). 'Placed' is stamped at order creation."""
+    return [
+        {"label": "Order placed", "time": placed_at},
+        {"label": "Merchant accepted", "time": None},
+        {"label": "Order on the way", "time": None},
+        {"label": "Delivered", "time": None},
+    ]
+
+def _stamp_merchant_step(timelines: dict, mid: str, label: str, when: str) -> dict:
+    """Stamp the first matching empty step on the merchant's timeline. No-op if
+    the step is already stamped or the merchant has no timeline yet."""
+    tl = (timelines or {}).get(mid)
+    if not tl: return timelines or {}
+    for t in tl:
+        if t.get("label") == label and not t.get("time"):
+            t["time"] = when
+            break
+    timelines[mid] = tl
+    return timelines
+
+
 @api.post("/orders")
 async def create_order(payload: OrderCreate):
     addr_city = (payload.address.get("city") or "").strip().lower()
@@ -817,12 +852,16 @@ async def create_order(payload: OrderCreate):
     # Per-merchant accept state — each merchant accepts/rejects independently.
     # The global `status` only advances to `confirmed` when ALL merchants accept.
     merchant_states = {mid: "pending" for mid in unique_mids}
+    # Per-merchant 4-step timeline so each store's flow is tracked independently
+    merchant_timelines = {mid: _new_merchant_timeline(now) for mid in unique_mids}
     doc = {"id": order_id, "items": items_snap, "address": payload.address,
            "total": payload.total, "payment_method": payload.payment_method,
            "customer": payload.customer or {},
            "status": "pending_merchant",
            "merchant_ids": unique_mids,
            "merchant_states": merchant_states,
+           "merchant_timelines": merchant_timelines,
+           "merchant_delivered_at": {},
            "is_multi_store": len(unique_mids) > 1,
            "otp": otp,
            "created_at": now,
@@ -851,6 +890,26 @@ async def create_order(payload: OrderCreate):
 async def get_order(order_id: str):
     o = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
+    # Enrich multi-store orders with per-merchant breakdown for the customer
+    # tracking UI: items grouped by store + each store's own 4-step timeline.
+    if o.get("is_multi_store"):
+        breakdown = []
+        for mid in (o.get("merchant_ids") or []):
+            items = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid]
+            if not items: continue
+            sname = items[0].get("store_name") or "Store"
+            sid = items[0].get("store_id")
+            breakdown.append({
+                "merchant_id": mid,
+                "store_id": sid,
+                "store_name": sname,
+                "items": items,
+                "subtotal": round(sum(float(it.get("price", 0)) * int(it.get("qty", 1)) for it in items), 2),
+                "state": (o.get("merchant_states") or {}).get(mid, "pending"),
+                "timeline": (o.get("merchant_timelines") or {}).get(mid) or [],
+                "delivered_at": (o.get("merchant_delivered_at") or {}).get(mid),
+            })
+        o["store_breakdown"] = breakdown
     return o
 
 @api.get("/merchant/orders")
@@ -879,8 +938,10 @@ async def merchant_orders(user: dict = Depends(get_current_user)):
         o["items"] = own_items
         # Override total to this merchant's slice so revenue is accurately reported
         o["merchant_subtotal"] = round(sum(float(it.get("price", 0)) * int(it.get("qty", 1)) for it in own_items), 2)
-        # This merchant's per-order accept state
+        # This merchant's per-order accept state + their own timeline
         o["my_state"] = (o.get("merchant_states") or {}).get(mid, "pending")
+        o["my_timeline"] = (o.get("merchant_timelines") or {}).get(mid) or o.get("timeline") or []
+        o["my_delivered_at"] = (o.get("merchant_delivered_at") or {}).get(mid)
         cleaned.append(o)
     return cleaned
 
@@ -888,25 +949,34 @@ async def merchant_orders(user: dict = Depends(get_current_user)):
 async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)):
     o = await db.orders.find_one({"id": oid, "merchant_ids": user["sub"]}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
+    mid = user["sub"]
     now = datetime.now(timezone.utc).isoformat()
-    # Per-merchant accept state — global status flips to "accepted" only when
-    # EVERY merchant on the order has accepted; otherwise we keep
-    # "pending_merchant" so the customer sees the partial-accept state.
-    states = dict(o.get("merchant_states") or {mid: "pending" for mid in (o.get("merchant_ids") or [])})
-    states[user["sub"]] = "accepted"
-    all_accepted = states and all(v == "accepted" for v in states.values())
+    # Per-merchant accept state — independent per merchant. The customer-facing
+    # global status is derived from min(merchant_states) so it always reflects
+    # the laggard.
+    states = dict(o.get("merchant_states") or {m: "pending" for m in (o.get("merchant_ids") or [])})
+    if states.get(mid) != "pending":
+        raise HTTPException(400, "Order already accepted")
+    states[mid] = "accepted"
+    timelines = dict(o.get("merchant_timelines") or {})
+    if mid not in timelines:
+        timelines[mid] = _new_merchant_timeline(o.get("created_at", now))
+    timelines = _stamp_merchant_step(timelines, mid, "Merchant accepted", now)
+    all_accepted = states and all(_STATE_RANK.get(v, 0) >= _STATE_RANK["accepted"] for v in states.values())
+    new_global = _derive_global_status(states)
+    # Keep the legacy global timeline in sync (stamp "Merchant accepted" only when ALL accept)
     tl = o.get("timeline", [])
     if all_accepted:
         for t in tl:
             if t["label"] == "Merchant accepted" and not t["time"]:
                 t["time"] = now; break
-    new_global = "accepted" if all_accepted else "pending_merchant"
     await db.orders.update_one(
         {"id": oid},
-        {"$set": {"status": new_global, "merchant_states": states, "timeline": tl}},
+        {"$set": {"status": new_global, "merchant_states": states,
+                  "merchant_timelines": timelines, "timeline": tl}},
     )
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
-    m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0, "store_name": 1, "business_address": 1})
+    m = await db.merchants.find_one({"id": mid}, {"_id": 0, "store_name": 1, "business_address": 1})
     if cust_phone:
         try: notify_order_accepted(cust_phone, oid, (m or {}).get("store_name", "your store"))
         except Exception: pass
@@ -933,21 +1003,27 @@ async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_us
     PER-MERCHANT state, not the global order status."""
     o = await db.orders.find_one({"id": oid, "merchant_ids": user["sub"]}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
+    mid = user["sub"]
     states = dict(o.get("merchant_states") or {})
-    my_state = states.get(user["sub"]) or (o.get("status") if not states else "pending")
+    my_state = states.get(mid) or (o.get("status") if not states else "pending")
     if my_state not in ("accepted",):
         raise HTTPException(400, "Accept the order before handing it to the rider")
     now = datetime.now(timezone.utc).isoformat()
-    tl = o.get("timeline", [])
     # Mark this merchant as handed off
-    states[user["sub"]] = "handed_off"
-    all_handed = states and all(v == "handed_off" for v in states.values())
-    new_global = "on_the_way" if all_handed else o.get("status")
+    states[mid] = "handed_off"
+    timelines = dict(o.get("merchant_timelines") or {})
+    if mid not in timelines:
+        timelines[mid] = _new_merchant_timeline(o.get("created_at", now))
+    timelines = _stamp_merchant_step(timelines, mid, "Order on the way", now)
+    all_handed = states and all(_STATE_RANK.get(v, 0) >= _STATE_RANK["handed_off"] for v in states.values())
+    new_global = _derive_global_status(states)
+    tl = o.get("timeline", [])
     if all_handed:
         for t in tl:
             if t["label"] in ("Order on the way", "Handed to rider", "Rider on the way") and not t["time"]:
                 t["time"] = now; break
-    await db.orders.update_one({"id": oid}, {"$set": {"status": new_global, "merchant_states": states, "timeline": tl}})
+    await db.orders.update_one({"id": oid}, {"$set": {"status": new_global, "merchant_states": states,
+                                                       "merchant_timelines": timelines, "timeline": tl}})
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     if cust_phone and all_handed:
         try: notify_order_on_the_way(cust_phone, oid, o.get("otp", ""))
@@ -957,23 +1033,59 @@ async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_us
 
 # ===== Admin order management =====
 @api.post("/admin/orders/{oid}/mark-delivered")
-async def admin_mark_delivered(oid: str, request: Request):
+async def admin_mark_delivered(oid: str, request: Request, payload: Optional[dict] = None):
+    """Mark an order (or one merchant's slice of a multi-store order) as delivered.
+
+    Payload (optional): `{"merchant_id": "..."}` — when present on a multi-store
+    order, marks only that merchant's slice. Global order flips to `delivered`
+    only after every merchant has delivered."""
     _check_admin(request.headers.get("authorization"))
     o = await db.orders.find_one({"id": oid}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
     if o.get("status") in ("delivered", "cancelled"):
         raise HTTPException(400, "Order already finalized")
     now = datetime.now(timezone.utc).isoformat()
+    mids = o.get("merchant_ids") or []
+    target_mid = (payload or {}).get("merchant_id")
+
+    states = dict(o.get("merchant_states") or {m: "pending" for m in mids})
+    timelines = dict(o.get("merchant_timelines") or {})
+    delivered_map = dict(o.get("merchant_delivered_at") or {})
+
+    # Decide which merchants to mark delivered in this call
+    if target_mid:
+        if target_mid not in mids:
+            raise HTTPException(400, "merchant_id not part of this order")
+        targets = [target_mid]
+    else:
+        # Single-store order, or admin chose to mark everything
+        targets = [m for m in mids if states.get(m) != "delivered"] or mids
+
+    for mid in targets:
+        if states.get(mid) == "delivered":
+            continue
+        states[mid] = "delivered"
+        if mid not in timelines:
+            timelines[mid] = _new_merchant_timeline(o.get("created_at", now))
+        timelines = _stamp_merchant_step(timelines, mid, "Delivered", now)
+        delivered_map[mid] = now
+
+    new_global = _derive_global_status(states) if states else "delivered"
     tl = o.get("timeline", [])
-    for t in tl:
-        if t["label"] == "Delivered" and not t["time"]:
-            t["time"] = now; break
-    await db.orders.update_one({"id": oid}, {"$set": {"status": "delivered", "timeline": tl, "delivered_at": now}})
+    update_doc = {"status": new_global, "merchant_states": states,
+                  "merchant_timelines": timelines, "merchant_delivered_at": delivered_map}
+    if new_global == "delivered":
+        for t in tl:
+            if t["label"] == "Delivered" and not t["time"]:
+                t["time"] = now; break
+        update_doc["timeline"] = tl
+        update_doc["delivered_at"] = now
+    await db.orders.update_one({"id": oid}, {"$set": update_doc})
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
-    if cust_phone:
+    if cust_phone and new_global == "delivered":
         try: notify_order_delivered(cust_phone, oid)
         except Exception: pass
-    return {"ok": True}
+    return {"ok": True, "all_delivered": new_global == "delivered", "merchant_states": states}
 
 @api.post("/admin/orders/{oid}/cancel")
 async def admin_cancel_order(oid: str, request: Request, payload: Optional[dict] = None):
@@ -1887,16 +1999,40 @@ async def twilio_inbound(request: Request):
         return Response(content=twiml_empty, media_type="application/xml")
 
     now = datetime.now(timezone.utc).isoformat()
+    states = dict(o.get("merchant_states") or {})
+    timelines = dict(o.get("merchant_timelines") or {})
+    delivered_map = dict(o.get("merchant_delivered_at") or {})
+    # Multi-store: each rider WhatsApp ping marks the next handed_off merchant as delivered
+    # (riders deliver sequentially; the OTP is shared across both legs).
+    candidate_mid = None
+    for mid in (o.get("merchant_ids") or []):
+        if states.get(mid) == "handed_off":
+            candidate_mid = mid
+            break
+    if candidate_mid:
+        states[candidate_mid] = "delivered"
+        if candidate_mid not in timelines:
+            timelines[candidate_mid] = _new_merchant_timeline(o.get("created_at", now))
+        timelines = _stamp_merchant_step(timelines, candidate_mid, "Delivered", now)
+        delivered_map[candidate_mid] = now
+    new_global = _derive_global_status(states) if states else "delivered"
     tl = o.get("timeline", [])
-    for t in tl:
-        if t["label"] == "Delivered" and not t["time"]:
-            t["time"] = now; break
-    await db.orders.update_one({"id": o["id"]}, {"$set": {"status": "delivered", "timeline": tl, "delivered_via": "rider-whatsapp", "delivered_at": now}})
+    update_doc = {"status": new_global, "merchant_states": states,
+                  "merchant_timelines": timelines, "merchant_delivered_at": delivered_map,
+                  "delivered_via": "rider-whatsapp"}
+    if new_global == "delivered":
+        for t in tl:
+            if t["label"] == "Delivered" and not t["time"]:
+                t["time"] = now; break
+        update_doc["timeline"] = tl
+        update_doc["delivered_at"] = now
+    await db.orders.update_one({"id": o["id"]}, {"$set": update_doc})
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
-    if cust_phone:
+    if cust_phone and new_global == "delivered":
         try: notify_order_delivered(cust_phone, o["id"])
         except Exception: pass
-    log.info("[Twilio inbound] marked %s as delivered via rider WhatsApp", o["id"])
+    log.info("[Twilio inbound] marked %s as delivered via rider WhatsApp (merchant=%s, global=%s)",
+             o["id"], candidate_mid, new_global)
     reply = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>✅ Lokl: Order {o["id"]} marked delivered. Thank you!</Message></Response>'
     return Response(content=reply, media_type="application/xml")
 

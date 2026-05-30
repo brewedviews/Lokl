@@ -114,12 +114,12 @@ export default function MerchantOrders() {
 
   // Bucket per THIS merchant's state (multi-store orders accept independently)
   const myState = (o) => o.my_state || o.status; // legacy fallback
-  const pending = orders.filter((o) => myState(o) === "pending" || (o.my_state === undefined && (o.my_state === "pending" || (o.my_state === undefined && o.status === "pending_merchant"))));
-  const accepted = orders.filter((o) => myState(o) === "accepted" && o.status !== "on_the_way" && o.status !== "delivered" && o.status !== "returned" && o.status !== "completed");
-  const onWay = orders.filter((o) => o.status === "on_the_way");
+  const pending = orders.filter((o) => myState(o) === "pending" || (o.my_state === undefined && o.status === "pending_merchant"));
+  const accepted = orders.filter((o) => myState(o) === "accepted");
+  const onWay = orders.filter((o) => myState(o) === "handed_off" || (o.my_state === undefined && o.status === "on_the_way"));
   const returning = orders.filter((o) => o.return_status && o.return_status !== "completed");
   const returned = orders.filter((o) => o.status === "returned");
-  const history = orders.filter((o) => ["delivered", "completed", "cancelled"].includes(o.status) && !o.return_status);
+  const history = orders.filter((o) => (myState(o) === "delivered" || ["delivered", "completed", "cancelled"].includes(o.status)) && !o.return_status && myState(o) !== "handed_off" && myState(o) !== "accepted" && myState(o) !== "pending");
 
   return (
     <MerchantLayout>
@@ -226,7 +226,7 @@ export default function MerchantOrders() {
                 <div key={o.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3" data-testid={`onway-${o.id}`}>
                   <div>
                     <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</div>
-                    <div className="text-xs text-[#595959]">Rider en-route to customer · OTP {o.otp}</div>
+                    <div className="text-xs text-[#595959]">{o.is_multi_store ? "Your items handed to rider · OTP " : "Rider en-route to customer · OTP "}{o.otp}</div>
                   </div>
                   <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">On the way</span>
                 </div>

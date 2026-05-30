@@ -56,7 +56,7 @@ def merchant():
         "tagline": "Phase1 store", "story": "Test",
         "banner": "x", "banners": [],
         "specialties": ["casuals"], "opens_at": "09:00", "closes_at": "23:00",
-        "locality": "Sector 10",
+        "locality": "Sector 10", "lat": 21.21, "lng": 81.38,
     }, timeout=10)
     requests.post(f"{API}/merchant/store/publish", headers=h, timeout=10)
 

@@ -1,0 +1,30 @@
+{
+  "summary": "Iter13: validated per-merchant order state machine on multi-store orders. All 8 backend pytests pass (test_multi_merchant_orders.py). Frontend E2E confirmed: customer OrderTracking hides global stepper & renders multi-store-breakdown with one MiniStepper per store updating independently; MerchantOrders dashboard buckets order by my_state and shows merchant_subtotal (₹599) not global total (₹1,797); merchant A could accept + hand-off independently while B remained pending (order moved to onway bucket for A only); StickyCart pill hidden on /cart and /checkout (mobile viewport) and visible on home.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "global", "issues": ["Console warning: empty string passed to img src attribute (pre-existing, unrelated to this iteration)"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_multi_merchant_orders.py",
+    "/app/test_reports/pytest/results_iter13.xml",
+    "/app/test_reports/seed_multi_store.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "StickyCart guard logic (StickyCart.jsx:14) correctly uses pathname.startsWith() — safe for nested routes like /cart/anything.",
+    "OrderTracking.jsx:329 falls back to deriving store breakdown from items if backend store_breakdown missing — defensive and good.",
+    "MerchantOrders.jsx consistently uses (o.merchant_subtotal ?? o.total) across buckets — good fallback for single-store legacy orders."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin admin@lokl.in / Admin@2026. Per-test merchants seeded fresh via /app/test_reports/seed_multi_store.py (mmui_A_*@lokl.in / Multi@2026).",
+  "seed_data_creation": "Two merchants + one multi-store order BFO-E8BFEDEB created via /app/test_reports/seed_multi_store.py. Reusable for retests.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Cloudflare blocks urllib/requests with bot user-agents on this preview URL (returns 403 'error code: 1010'). For external API tests use the in-cluster path (pytest works fine because the host's requests UA is accepted). For Playwright API calls, use page.request (browser context — no CF block). Frontend localStorage cart key is 'bf_cart' (NOT lokl_cart). Merchant auth token key is 'bf_token'.",
+  "rca of the issue": "No issues found. Per-merchant state machine and UI integration working as designed end-to-end."
+}

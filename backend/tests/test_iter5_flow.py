@@ -185,7 +185,8 @@ def approved_merchant(admin_token):
         "tagline": "T", "story": "S", "banner": "",
         "banners": ["data:image/jpeg;base64,/9j/4AAQSkZJRg=="],
         "specialties": ["A"], "locality": "Sector 10",
-        "timing": "", "opens_at": "10:00", "closes_at": "20:00"
+        "timing": "", "opens_at": "10:00", "closes_at": "20:00",
+        "lat": 21.21, "lng": 81.38,
     }, timeout=10)
     assert sf.status_code == 200, sf.text
     return {"token": tok, "mid": mid}
@@ -267,6 +268,12 @@ def live_order(admin_token, approved_merchant):
     assert acc.status_code == 200, acc.text
     otp = acc.json().get("otp")
     assert otp and len(otp) == 4
+    # Hand off to rider so Twilio OTP-Delivered can flip it to delivered.
+    # The webhook only marks merchants currently in `handed_off` state as
+    # delivered (mirrors real-world rider flow).
+    h2r = requests.post(f"{API}/merchant/orders/{oid}/handed-to-rider",
+                        headers={"Authorization": f"Bearer {tok}"}, timeout=10)
+    assert h2r.status_code == 200, h2r.text
     return {"oid": oid, "otp": otp}
 
 
