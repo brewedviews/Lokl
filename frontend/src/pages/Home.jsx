@@ -99,11 +99,12 @@ export default function Home() {
       </HCarousel>
     ),
     stores: () => {
-      // Three-stack: Nearby (only if user shared coords) → Popular → All.
-      const sections = [];
+      // Per UX feedback we keep only the "Nearby stores" rail on Home. The
+      // Popular Stores + All Stores rails were merged into the dedicated
+      // /stores listing page — Home stays focused on personal proximity.
       if (coords && nearbyStores.length > 0) {
-        sections.push(
-          <section key="nearby" className="px-4 sm:px-8 pt-8 max-w-7xl mx-auto" data-testid="stores-nearby">
+        return (
+          <section className="px-4 sm:px-8 pt-8 max-w-7xl mx-auto" data-testid="stores-nearby">
             <div className="flex items-end justify-between mb-3">
               <div>
                 <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0A1F5C]">Nearby stores</h2>
@@ -117,29 +118,17 @@ export default function Home() {
           </section>
         );
       }
-      if (popularStores.length > 0) {
-        sections.push(
-          <section key="popular" className="px-4 sm:px-8 pt-8 max-w-7xl mx-auto" data-testid="stores-popular">
-            <div className="flex items-end justify-between mb-3">
-              <div>
-                <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0A1F5C]">Popular stores</h2>
-                <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Most ordered from in the last 30 days.</p>
-              </div>
-              <Link to="/stores" className="text-xs font-bold text-[#F59E0B]">See all →</Link>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-              {popularStores.slice(0, 6).map((s) => <StoreCardV2 key={s.id} s={s} />)}
-            </div>
-          </section>
-        );
-      }
+      // No coords or no nearby stores → fall back to a compact all-stores rail
+      // so first-time visitors still see something to discover.
       if (allStores.length > 0) {
-        sections.push(
-          <section key="all" className="px-4 sm:px-8 pt-8 max-w-7xl mx-auto" data-testid="stores-all">
+        return (
+          <section className="px-4 sm:px-8 pt-8 max-w-7xl mx-auto" data-testid="stores-nearby">
             <div className="flex items-end justify-between mb-3">
               <div>
-                <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0A1F5C]">All stores</h2>
-                <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Verified Bhilai stores delivering today.</p>
+                <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0A1F5C]">Nearby stores</h2>
+                <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">
+                  {coords ? "Top stores around you." : "Enable location to see distance + ETA."}
+                </p>
               </div>
               <Link to="/stores" className="text-xs font-bold text-[#F59E0B]">See all →</Link>
             </div>
@@ -149,17 +138,14 @@ export default function Home() {
           </section>
         );
       }
-      if (sections.length === 0) {
-        return (
-          <section className="px-4 py-10 text-center bg-[#F8FAFC]">
-            <StoreIcon size={36} className="text-[#F59E0B] mx-auto mb-3" />
-            <h3 className="text-lg font-display font-bold text-[#0A1F5C]">Stores are coming soon</h3>
-            <p className="text-sm text-[#64748B] mt-2 max-w-md mx-auto">Run a Bhilai store? Join the marketplace.</p>
-            <Link to="/merchant/register" className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F59E0B] text-white text-sm font-bold shadow-[0_8px_24px_rgba(245,158,11,0.35)]">Become a seller <ArrowRight size={14} /></Link>
-          </section>
-        );
-      }
-      return <>{sections}</>;
+      return (
+        <section className="px-4 py-10 text-center bg-[#F8FAFC]">
+          <StoreIcon size={36} className="text-[#F59E0B] mx-auto mb-3" />
+          <h3 className="text-lg font-display font-bold text-[#0A1F5C]">Stores are coming soon</h3>
+          <p className="text-sm text-[#64748B] mt-2 max-w-md mx-auto">Run a Bhilai store? Join the marketplace.</p>
+          <Link to="/merchant/register" className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F59E0B] text-white text-sm font-bold shadow-[0_8px_24px_rgba(245,158,11,0.35)]">Become a seller <ArrowRight size={14} /></Link>
+        </section>
+      );
     },
     recently_viewed: () => recentlyViewed.length > 0 && (
       <HCarousel title="Recently viewed" subtitle="Pick up where you left off" testid="recently-viewed">

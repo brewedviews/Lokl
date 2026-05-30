@@ -111,7 +111,7 @@ export default function ConsumerHeader() {
           <Link to="/merchant/login" data-testid="nav-merchant" className="hidden md:inline text-sm font-medium hover:text-[#E68910] transition">
             For Merchants
           </Link>
-          <Link to="/account" data-testid="nav-account" aria-label="Account" title="My account" className="w-9 h-9 rounded-full bg-white border border-[#E5E2DC] flex items-center justify-center hover:border-[#1A2B4C] transition shrink-0">
+          <Link to="/account" data-testid="nav-account" aria-label="Account" title="My account" className="hidden md:flex w-9 h-9 rounded-full bg-white border border-[#E5E2DC] items-center justify-center hover:border-[#1A2B4C] transition shrink-0">
             <User size={16} />
           </Link>
           <Link to="/cart" data-testid="nav-cart" className="relative flex items-center gap-1 px-3 py-2 rounded-full bg-[#1A2B4C] text-white hover:bg-[#101D36] transition shrink-0">

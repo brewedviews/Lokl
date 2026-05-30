@@ -16,11 +16,9 @@ export default function LocationGate() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (getPermissionState() === "unknown") {
-      // Skip on merchant / admin routes — gate is for consumer flows only.
-      const p = window.location.pathname || "";
-      if (!p.startsWith("/merchant") && !p.startsWith("/admin")) setOpen(true);
-    }
+    // Auto-modal disabled per UX feedback (it blocked discovery on first visit).
+    // The thin "Enable location" strip below the header is the single entry
+    // point now — clicking it triggers the native browser permission directly.
     return onLocationChange((s) => { if (s?.state && s.state !== "unknown") setOpen(false); });
   }, []);
 

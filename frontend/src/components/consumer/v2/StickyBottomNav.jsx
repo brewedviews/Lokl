@@ -17,8 +17,16 @@ export default function StickyBottomNav() {
   return (
     <nav
       data-testid="sticky-bottom-nav"
-      className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200"
-      style={{ paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))" }}
+      className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-white border-t border-slate-200 shadow-[0_-2px_12px_rgba(10,31,92,0.06)]"
+      style={{
+        // translateZ promotes the nav to its own compositing layer — this
+        // fixes the iOS Safari quirk where the nav can briefly detach while
+        // the URL bar collapses/expands, and prevents transformed ancestors
+        // (animated cards, etc.) from creating a containing block.
+        transform: "translateZ(0)",
+        WebkitTransform: "translateZ(0)",
+        paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))",
+      }}
     >
       <ul className="grid grid-cols-5">
         {ITEMS.map((it) => {
