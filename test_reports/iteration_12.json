@@ -1,0 +1,54 @@
+{
+  "summary": "Iter12 — Lokl Marketplace UI V2 (Phase 1 dynamic data engine + Phase 2 homepage rebuild). Backend pytest 24/24 PASS (test_v2_homepage_feeds 7/7, test_phaseA_redirect 3/3, test_phaseB_kyc_phone 6/6, test_phaseC_xlsx 3/3, test_phase1_returns 5/5). Admin offers + testimonials CRUD verified: anon POST→401, admin POST/DELETE→200 (login endpoint is POST /api/admin/login, not /api/auth/login). Frontend mobile (414x900) smoke: all 15 required data-testids present (hero-v2, hero-stats, usp-chips, why-lokl, offers-strip, categories-v2, popular-in-city, selling-fast, stores-near-you, trending, new-arrivals, best-sellers, customer-love, how-it-works, sticky-bottom-nav). Hero copy verbatim ('Fashion from Bhilai's best stores.' + 'Delivered in under 45 minutes.'). CTAs hero-shop-women→/products?gender=women, hero-shop-men→/products?gender=men. Hero stats shows 4 stats (4.5/47+/100+/43). USP chips show all 3 required ('Delivery in 30–45 mins', 'Try before you buy', 'Verified local stores'). Badge engine: 10/10 popular-in-city cards have exactly 1 badge each (0 violations). All 5 sticky-bottom-nav tabs present (Home/Categories/Search/Orders/Profile); correctly absent on /merchant/login and /admin/login. Sticky-cart-pill initially absent; after PDP add-to-bag→home it appears with text '1 item · ₹4,499' + 'View cart'. Two minor issues found (see below).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "StickyBottomNav",
+        "issue": "React console warning: 'Encountered two children with the same key /account'. Both nav-orders and nav-profile items in /app/frontend/src/components/consumer/v2/StickyBottomNav.jsx map with `to` as the implicit React key. Since both items share to='/account', React emits a duplicate-key warning on every homepage render. Fix: use a stable unique key like item.test (data-testid value) or item.label in the .map(). Non-blocking but pollutes console.",
+        "selector": "[data-testid=\"sticky-bottom-nav\"]",
+        "priority": "LOW"
+      },
+      {
+        "component": "ProductCardV2 (popular-in-city carousel)",
+        "issue": "Image-area to card-height ratio measured 69.17% (227.7px image / 329.2px card). Spec target is ≥70% (80/20 rule). Marginally below threshold — likely due to padding/border rounding. Increase image aspect or reduce card text padding by ~4px to clear the 70% bar.",
+        "selector": "[data-testid=\"popular-in-city\"] [data-testid^=\"p-card-\"] img",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v2_homepage_feeds.py",
+    "/app/backend/tests/test_phaseA_redirect.py",
+    "/app/backend/tests/test_phaseB_kyc_phone.py",
+    "/app/backend/tests/test_phaseC_xlsx.py",
+    "/app/backend/tests/test_phase1_returns.py",
+    "/app/test_reports/pytest/results_iter12.xml"
+  ],
+  "action_items": [
+    "(LOW) Fix duplicate React key warning in StickyBottomNav.jsx — change .map key from item.to → item.test (or item.label). Currently both Orders + Profile point at /account, causing the warning seen on every homepage load.",
+    "(LOW, optional) Bump ProductCardV2 image area to ≥70% of card height (currently 69.17%) to satisfy the 80/20 rule."
+  ],
+  "critical_code_review_comments": [
+    "Backend /api/admin/login is the correct admin auth endpoint — review_request mentions admin role-gating which is implemented correctly (anon → 401, admin → 200). Spec's '403 for non-admin' is actually 401 in current impl when no token sent; could be 403 if a non-admin merchant token is passed. Worth a follow-up test if strict 403-vs-401 contract matters.",
+    "feeds.py badge engine: verified that exactly 1 badge is emitted per product (priority ordering working, no stacking). Keys badge, badge_label, social_proof, low_stock_size are always present (null when not applicable) — matches contract.",
+    "StickyBottomNav.jsx duplicate-key bug — items are mapped on the `to` field which is not unique for the orders/profile pair. Trivial 1-line fix.",
+    "test_phaseB_kyc_phone.py has 6 tests, not the 7 mentioned in the review_request comment ('7/7'). Not a failure — just numeric drift in the spec. All 6 pass."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (24/24 spec pytest + admin offers/testimonials CRUD round-trip)",
+    "frontend": "~95% (all 15 testids + hero copy + CTAs + badges + sticky nav scoping + sticky cart pill all verified; 1 React key warning + 1 marginal image-ratio shortfall)"
+  },
+  "test_credentials": "admin@lokl.in / Admin@2026 (POST /api/admin/login); cart pill verified anonymously by add-to-bag on /product/prod-demo-c7fb4f4d (size OS).",
+  "seed_data_creation": "None — backend pytest creates per-test throwaway merchants; admin offer/testimonial CRUD created TEST_iter12 offer + TEST_T testimonial which were deleted within the same run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 15 v2 homepage testids verified at mobile 414x900. Sticky bottom nav uses .md:hidden so desktop will show 0 — expected. Sticky cart pill is bound to the cart context populated by add-to-bag (testid='add-to-bag') on PDPs; size selection required first (testid='size-{SIZE}'). Phase 3-5 (PDP V2, ProductCardV2 on grids, store hero, checkout trust strip) NOT yet implemented — existing PDP is legacy and acceptable per review_request. The single React key warning is the only console noise and is harmless but should be cleaned.",
+  "rca of the issue": "Duplicate React key '/account' RCA: in /app/frontend/src/components/consumer/v2/StickyBottomNav.jsx the nav items array contains both {to:'/account', label:'Orders'} and {to:'/account', label:'Profile'}. The .map() inside the component is presumably using `item.to` as the React key. Since the same path appears twice, React fires the duplicate-key warning. Mitigation: change the key prop to a unique value such as `item.test` (data-testid) or `item.label`. No functional/visual impact — both nav buttons still render and navigate correctly."
+}

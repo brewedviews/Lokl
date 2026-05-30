@@ -171,6 +171,302 @@ async def list_categories():
         by_l1.setdefault(s["l1_id"], []).append(s)
     return [{**c, "l2": by_l1.get(c["id"], [])} for c in cats]
 
+
+# ===== Lokl V2 — dynamic homepage feeds =====
+from feeds import home_stats as _home_stats, enrich_products_with_badges as _enrich_badges
+
+
+async def _visible_online_store_ids() -> set[str]:
+    online_filter = {**_visible_store_filter(), "online": {"$ne": False}}
+    ids = await db.stores.find(online_filter, {"_id": 0, "id": 1}).to_list(1000)
+    return {s["id"] for s in ids}
+
+
+@api.get("/stats/home")
+async def stats_home():
+    return await _home_stats(db)
+
+
+@api.get("/feed/popular-in-city")
+async def feed_popular_in_city(city: Optional[str] = "Bhilai", limit: int = 12):
+    sids = await _visible_online_store_ids()
+    if not sids: return []
+    since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    counts: dict[str, int] = {}
+    async for o in db.orders.find(
+        {"created_at": {"$gte": since},
+         "status": {"$nin": ["pending_merchant", "rejected", "cancelled"]}},
+        {"_id": 0, "items": 1}
+    ):
+        for it in (o.get("items") or []):
+            pid = it.get("product_id") or it.get("id")
+            if pid: counts[pid] = counts.get(pid, 0) + int(it.get("qty") or 1)
+    top_ids = [pid for pid, _ in sorted(counts.items(), key=lambda kv: -kv[1])[:limit]]
+    items: list[dict] = []
+    if top_ids:
+        items = await db.products.find(
+            {"id": {"$in": top_ids}, "store_id": {"$in": list(sids)}, **_visible_product_filter()},
+            {"_id": 0, "images": 0}
+        ).to_list(limit)
+        rank = {pid: i for i, pid in enumerate(top_ids)}
+        items.sort(key=lambda p: rank.get(p["id"], 999))
+    if not items:
+        items = await db.products.find(
+            {"store_id": {"$in": list(sids)}, **_visible_product_filter()},
+            {"_id": 0, "images": 0}
+        ).sort("rating", -1).to_list(limit)
+    items = await _enrich_badges(db, items)
+    for p in items: p["orders_7d"] = counts.get(p["id"], 0)
+    return items
+
+
+@api.get("/feed/selling-fast")
+async def feed_selling_fast(limit: int = 12):
+    sids = await _visible_online_store_ids()
+    if not sids: return []
+    items = await db.products.find(
+        {"store_id": {"$in": list(sids)}, **_visible_product_filter()},
+        {"_id": 0, "images": 0}
+    ).sort("created_at", -1).to_list(100)
+    items = await _enrich_badges(db, items)
+    items = [p for p in items if p.get("badge") in ("selling_fast", "best_seller") or p.get("low_stock_size")]
+    return items[:limit]
+
+
+@api.get("/feed/best-sellers")
+async def feed_best_sellers(limit: int = 12):
+    sids = await _visible_online_store_ids()
+    if not sids: return []
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    counts: dict[str, int] = {}
+    async for o in db.orders.find(
+        {"created_at": {"$gte": since}, "status": "delivered"},
+        {"_id": 0, "items": 1}
+    ):
+        for it in (o.get("items") or []):
+            pid = it.get("product_id") or it.get("id")
+            if pid: counts[pid] = counts.get(pid, 0) + int(it.get("qty") or 1)
+    top_ids = [pid for pid, _ in sorted(counts.items(), key=lambda kv: -kv[1])[:limit]]
+    items: list[dict] = []
+    if top_ids:
+        items = await db.products.find(
+            {"id": {"$in": top_ids}, "store_id": {"$in": list(sids)}, **_visible_product_filter()},
+            {"_id": 0, "images": 0}
+        ).to_list(limit)
+        rank = {pid: i for i, pid in enumerate(top_ids)}
+        items.sort(key=lambda p: rank.get(p["id"], 999))
+    if not items:
+        items = await db.products.find(
+            {"store_id": {"$in": list(sids)}, **_visible_product_filter()},
+            {"_id": 0, "images": 0}
+        ).sort("rating", -1).to_list(limit)
+    items = await _enrich_badges(db, items)
+    for p in items: p["orders_30d"] = counts.get(p["id"], 0)
+    return items
+
+
+@api.get("/feed/new-arrivals")
+async def feed_new_arrivals(limit: int = 12):
+    sids = await _visible_online_store_ids()
+    if not sids: return []
+    items = await db.products.find(
+        {"store_id": {"$in": list(sids)}, **_visible_product_filter()},
+        {"_id": 0, "images": 0}
+    ).sort("created_at", -1).to_list(limit)
+    return await _enrich_badges(db, items)
+
+
+@api.get("/feed/trending")
+async def feed_trending(limit: int = 12):
+    sids = await _visible_online_store_ids()
+    if not sids: return []
+    since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    score: dict[str, int] = {}
+    async for o in db.orders.find(
+        {"created_at": {"$gte": since},
+         "status": {"$nin": ["pending_merchant", "rejected", "cancelled"]}},
+        {"_id": 0, "items": 1}
+    ):
+        for it in (o.get("items") or []):
+            pid = it.get("product_id") or it.get("id")
+            if pid: score[pid] = score.get(pid, 0) + 5 * int(it.get("qty") or 1)
+    try:
+        async for v in db.product_views.find({"ts": {"$gte": since}}, {"_id": 0, "product_id": 1}):
+            pid = v.get("product_id")
+            if pid: score[pid] = score.get(pid, 0) + 1
+    except Exception: pass
+    top_ids = [pid for pid, _ in sorted(score.items(), key=lambda kv: -kv[1])[:limit]]
+    items: list[dict] = []
+    if top_ids:
+        items = await db.products.find(
+            {"id": {"$in": top_ids}, "store_id": {"$in": list(sids)}, **_visible_product_filter()},
+            {"_id": 0, "images": 0}
+        ).to_list(limit)
+        rank = {pid: i for i, pid in enumerate(top_ids)}
+        items.sort(key=lambda p: rank.get(p["id"], 999))
+    if not items:
+        items = await db.products.find(
+            {"store_id": {"$in": list(sids)}, **_visible_product_filter()},
+            {"_id": 0, "images": 0}
+        ).sort("rating", -1).to_list(limit)
+    return await _enrich_badges(db, items)
+
+
+@api.post("/track/view")
+async def track_view(payload: dict):
+    pid = (payload or {}).get("product_id")
+    if not pid: return {"ok": False}
+    await db.product_views.insert_one({
+        "product_id": pid, "ts": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True}
+
+
+@api.post("/me/recently-viewed")
+async def record_recently_viewed(payload: dict, user: dict = Depends(get_current_user)):
+    if user.get("role") != "customer": return {"ok": False}
+    pid = (payload or {}).get("product_id")
+    if not pid: return {"ok": False}
+    await db.recently_viewed.update_one(
+        {"customer_id": user["sub"], "product_id": pid},
+        {"$set": {"ts": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.get("/me/recently-viewed")
+async def list_recently_viewed(user: dict = Depends(get_current_user), limit: int = 12):
+    if user.get("role") != "customer": return []
+    rows = await db.recently_viewed.find({"customer_id": user["sub"]}, {"_id": 0}).sort("ts", -1).to_list(limit)
+    pids = [r["product_id"] for r in rows]
+    if not pids: return []
+    sids = await _visible_online_store_ids()
+    items = await db.products.find(
+        {"id": {"$in": pids}, "store_id": {"$in": list(sids)}, **_visible_product_filter()},
+        {"_id": 0, "images": 0}
+    ).to_list(limit)
+    rank = {pid: i for i, pid in enumerate(pids)}
+    items.sort(key=lambda p: rank.get(p["id"], 999))
+    return await _enrich_badges(db, items)
+
+
+@api.get("/search/trending")
+async def search_trending(limit: int = 8):
+    from collections import Counter
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    counts: Counter = Counter()
+    try:
+        async for r in db.search_queries.find({"ts": {"$gte": since}}, {"_id": 0, "q": 1}):
+            q = (r.get("q") or "").strip().lower()
+            if q: counts[q] += 1
+    except Exception: pass
+    items = [{"q": q, "count": c} for q, c in counts.most_common(limit)]
+    if items: return items
+    return [{"q": q, "count": 0} for q in
+            ["Sarees", "Kurtis", "Sneakers", "Bridal wear", "Formal shirts",
+             "Kids fashion", "Jeans", "Footwear"]][:limit]
+
+
+@api.post("/search/track")
+async def search_track(payload: dict):
+    q = (payload or {}).get("q", "").strip()
+    if not q: return {"ok": False}
+    await db.search_queries.insert_one({"q": q.lower(), "ts": datetime.now(timezone.utc).isoformat()})
+    return {"ok": True}
+
+
+@api.get("/offers")
+async def list_offers():
+    now = datetime.now(timezone.utc).isoformat()
+    rows = await db.offers.find(
+        {"published": True, "$or": [{"expires_at": None}, {"expires_at": {"$gt": now}}]},
+        {"_id": 0}
+    ).sort("rank", 1).to_list(20)
+    return rows
+
+
+def _admin_only(user: dict):
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Admin only")
+
+
+@api.post("/admin/offers")
+async def admin_create_offer(payload: dict, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    doc = {
+        "id": f"off-{uuid.uuid4().hex[:8]}",
+        "title": payload.get("title", "").strip(),
+        "subtitle": payload.get("subtitle", "").strip(),
+        "image": payload.get("image", ""),
+        "cta_label": payload.get("cta_label", "Shop now"),
+        "cta_link": payload.get("cta_link", "/products"),
+        "background": payload.get("background", "#0A1F5C"),
+        "rank": int(payload.get("rank", 100)),
+        "published": bool(payload.get("published", True)),
+        "expires_at": payload.get("expires_at"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.offers.insert_one(doc)
+    doc.pop("_id", None); return doc
+
+
+@api.delete("/admin/offers/{oid}")
+async def admin_delete_offer(oid: str, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    await db.offers.delete_one({"id": oid})
+    return {"ok": True}
+
+
+@api.get("/testimonials")
+async def list_testimonials(limit: int = 12):
+    rows = await db.testimonials.find({"published": True}, {"_id": 0}).sort("rank", 1).to_list(limit)
+    return rows
+
+
+@api.post("/admin/testimonials")
+async def admin_create_testimonial(payload: dict, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    doc = {
+        "id": f"tes-{uuid.uuid4().hex[:8]}",
+        "name": payload.get("name", "").strip(),
+        "city": payload.get("city", "Bhilai").strip(),
+        "rating": int(payload.get("rating", 5)),
+        "quote": payload.get("quote", "").strip(),
+        "avatar": payload.get("avatar", ""),
+        "rank": int(payload.get("rank", 100)),
+        "published": bool(payload.get("published", True)),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.testimonials.insert_one(doc)
+    doc.pop("_id", None); return doc
+
+
+@api.delete("/admin/testimonials/{tid}")
+async def admin_delete_testimonial(tid: str, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    await db.testimonials.delete_one({"id": tid})
+    return {"ok": True}
+
+
+@api.get("/categories/counts")
+async def categories_with_counts():
+    sids = await _visible_online_store_ids()
+    cats = await db.categories.find({}, {"_id": 0}).sort("order", 1).to_list(50)
+    if not sids:
+        for c in cats: c["product_count"] = 0
+        return cats
+    pipeline = [
+        {"$match": {"store_id": {"$in": list(sids)}, **_visible_product_filter()}},
+        {"$group": {"_id": "$l1_id", "n": {"$sum": 1}}},
+    ]
+    counts: dict[str, int] = {}
+    async for row in db.products.aggregate(pipeline):
+        counts[row["_id"]] = int(row["n"] or 0)
+    for c in cats:
+        c["product_count"] = counts.get(c.get("id"), 0)
+    return cats
+
 @api.get("/categories/{l1_id}/l2")
 async def list_l2(l1_id: str):
     return await db.subcategories.find({"l1_id": l1_id}, {"_id": 0}).to_list(50)

@@ -1,149 +1,148 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Bike, Store as StoreIcon, Zap, MapPin, ShieldCheck, Sparkles, Package } from "lucide-react";
+import { ArrowRight, Store as StoreIcon, Eye } from "lucide-react";
 import api from "../lib/api";
+import { useAuth } from "../contexts/AuthContext";
 import ConsumerHeader from "../components/consumer/ConsumerHeader";
 import Footer from "../components/consumer/Footer";
-import ProductCard from "../components/consumer/ProductCard";
-import StoreCard from "../components/consumer/StoreCard";
-
-const HERO_IMG = "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png"; // Bhilai Globe Chowk — full-bleed 2.4:1
+import HeroV2 from "../components/consumer/v2/HeroV2";
+import WhyLokl, { HowLoklWorks } from "../components/consumer/v2/WhyLokl";
+import OffersStrip from "../components/consumer/v2/OffersStrip";
+import HCarousel from "../components/consumer/v2/HCarousel";
+import ProductCardV2 from "../components/consumer/v2/ProductCardV2";
+import StoreCardV2 from "../components/consumer/v2/StoreCardV2";
+import CustomerLove from "../components/consumer/v2/CustomerLove";
 
 export default function Home() {
-  const [categories, setCategories] = useState([]);
+  const { customer } = useAuth() || {};
+  const [stats, setStats] = useState(null);
+  const [offers, setOffers] = useState([]);
+  const [cats, setCats] = useState([]);
+  const [popular, setPopular] = useState([]);
+  const [sellingFast, setSellingFast] = useState([]);
   const [stores, setStores] = useState([]);
-  const [products, setProducts] = useState([]);
-  const city = "Bhilai";
+  const [trending, setTrending] = useState([]);
+  const [newArrivals, setNewArrivals] = useState([]);
+  const [bestSellers, setBestSellers] = useState([]);
+  const [recentlyViewed, setRecentlyViewed] = useState([]);
+  const [testimonials, setTestimonials] = useState([]);
 
   useEffect(() => {
+    // Foreground critical (above fold): stats + popular + stores
     Promise.all([
-      api.get("/categories"),
-      api.get("/stores"),
-      api.get("/products?limit=12"),
-    ]).then(([c, s, p]) => { setCategories(c.data); setStores(s.data); setProducts(p.data); }).catch(console.error);
-  }, []);
-
-  const fastestEta = stores.length ? Math.min(...stores.map((s) => s.eta_min).filter(Boolean)) : null;
-  const cityStores = stores;
+      api.get("/stats/home").then((r) => setStats(r.data)).catch(() => setStats(null)),
+      api.get("/feed/popular-in-city?limit=10").then((r) => setPopular(r.data || [])).catch(() => setPopular([])),
+      api.get("/stores?limit=8").then((r) => setStores(r.data || [])).catch(() => setStores([])),
+      api.get("/offers").then((r) => setOffers(r.data || [])).catch(() => setOffers([])),
+      api.get("/categories/counts").then((r) => setCats(r.data || [])).catch(() => setCats([])),
+    ]);
+    // Background — below fold lazy fetch in next tick
+    setTimeout(() => {
+      api.get("/feed/selling-fast?limit=10").then((r) => setSellingFast(r.data || [])).catch(() => {});
+      api.get("/feed/trending?limit=10").then((r) => setTrending(r.data || [])).catch(() => {});
+      api.get("/feed/new-arrivals?limit=10").then((r) => setNewArrivals(r.data || [])).catch(() => {});
+      api.get("/feed/best-sellers?limit=10").then((r) => setBestSellers(r.data || [])).catch(() => {});
+      api.get("/testimonials").then((r) => setTestimonials(r.data || [])).catch(() => {});
+      if (customer) {
+        api.get("/me/recently-viewed?limit=10").then((r) => setRecentlyViewed(r.data || [])).catch(() => {});
+      }
+    }, 80);
+  }, [customer]);
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7]">
+    <div className="min-h-screen bg-white">
       <ConsumerHeader />
+      <main className="pb-24 md:pb-12">
+        <HeroV2 stats={stats} />
 
-      <section data-testid="hero" className="relative">
-        <div className="max-w-7xl mx-auto px-4 md:px-8 pt-4 md:pt-8">
-          <div className="relative rounded-[24px] md:rounded-[28px] overflow-hidden bg-[#1A2B4C] min-h-[340px] md:min-h-[300px]">
-            <img
-              src={HERO_IMG}
-              alt="Bhilai Globe Chowk"
-              className="absolute inset-0 w-full h-full object-cover object-[60%_45%] md:object-center"
-            />
-            {/* Mobile: strong cream wash from top → fades to ~30% bottom so categories don't get clipped. Desktop: left-anchored wash. */}
-            <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/95 via-[#FDFBF7]/80 to-[#FDFBF7]/30 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
+        <WhyLokl />
 
-            <div className="relative px-5 md:px-10 lg:px-12 py-6 md:py-10 min-h-[340px] md:min-h-[300px] flex flex-col justify-between md:justify-center max-w-2xl">
+        <OffersStrip offers={offers} />
+
+        {/* Categories with counts */}
+        {cats.length > 0 && (
+          <section className="px-4 py-6" data-testid="categories-v2">
+            <h2 className="text-xl font-display font-bold text-[#0A1F5C] mb-1">Shop by category</h2>
+            <p className="text-xs text-[#64748B] mb-4">From boutiques across Bhilai.</p>
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+              {cats.slice(0, 6).map((c) => (
+                <Link key={c.id} to={`/c/${c.slug}`} data-testid={`category-${c.slug}`} className="group bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-[0_2px_8px_rgba(10,31,92,0.06)] active:scale-95 transition">
+                  <div className="aspect-square bg-slate-100">
+                    {c.image && <img src={c.image} alt={c.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-110 transition duration-500" />}
+                  </div>
+                  <div className="text-center py-2 px-1">
+                    <div className="text-[12px] font-bold text-[#0F172A]">{c.name}</div>
+                    <div className="text-[10px] text-[#64748B] mt-0.5">{(c.product_count ?? 0).toLocaleString()} products</div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {popular.length > 0 && (
+          <HCarousel title="Popular in Bhilai" subtitle="Most ordered products nearby this week" testid="popular-in-city" link="/products" linkLabel="See all">
+            {popular.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+          </HCarousel>
+        )}
+
+        {sellingFast.length > 0 && (
+          <HCarousel title="Selling fast" subtitle="Don't miss out — limited stock" testid="selling-fast" link="/products">
+            {sellingFast.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+          </HCarousel>
+        )}
+
+        {/* Stores Near You */}
+        {stores.length > 0 ? (
+          <section className="px-4 py-6" data-testid="stores-near-you">
+            <div className="flex items-end justify-between mb-3">
               <div>
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white shadow-sm text-[11px] font-semibold mb-3 md:mb-4 self-start">
-                  <MapPin size={12} className="text-[#E68910]" /> SERVING BHILAI
-                </div>
-                <h1 className="display text-[28px] leading-[1.1] md:text-4xl lg:text-5xl font-bold tracking-tight text-[#1A2B4C]">
-                  Delivered in minutes from <span className="text-[#E68910]">stores next door.</span>
-                </h1>
-                <p className="mt-2.5 md:mt-3 text-[13px] md:text-base text-[#1A2B4C]/75 md:text-[#595959] max-w-md leading-relaxed">
-                  Hand-picked fashion from trusted Bhilai boutiques · 45-minute delivery.
-                </p>
+                <h2 className="text-xl font-display font-bold text-[#0A1F5C]">Stores near you</h2>
+                <p className="text-xs text-[#64748B] mt-0.5">Verified Bhilai boutiques delivering today.</p>
               </div>
-
-              {/* Mobile-only inline ETA chip — sits at bottom of hero, semi-transparent so it doesn't crowd the image */}
-              <div className="md:hidden mt-4 inline-flex items-center gap-2.5 self-start px-3 py-2 rounded-2xl bg-white/95 backdrop-blur-sm shadow-md">
-                <div className="w-8 h-8 rounded-full bg-[#E68910] flex items-center justify-center shrink-0"><Bike size={14} className="text-white" /></div>
-                <div className="leading-tight">
-                  <div className="text-[10px] text-[#1A2B4C]/70 font-medium">Fast delivery</div>
-                  <div className="font-bold text-[#1A2B4C] display text-sm" data-testid="hero-fastest-eta-mobile">{fastestEta ? `${fastestEta} minutes` : "45 minutes"}</div>
-                </div>
-                <span className="px-2 py-0.5 rounded-full bg-[#1A2B4C] text-white text-[9px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#E68910] animate-pulse" /> LIVE</span>
-              </div>
+              <Link to="/stores" className="text-xs font-bold text-[#F59E0B]">See all →</Link>
             </div>
-
-            {/* Desktop floating ETA card */}
-            <div className="hidden md:flex absolute top-1/2 right-6 lg:right-10 -translate-y-1/2 bf-glass rounded-2xl p-3.5 items-center gap-3 min-w-[260px] shadow-xl">
-              <div className="w-11 h-11 rounded-full bg-[#E68910] flex items-center justify-center shrink-0"><Bike size={18} className="text-white" /></div>
-              <div className="flex-1">
-                <div className="text-[11px] text-[#1A2B4C]/70">Fast delivery in Bhilai</div>
-                <div className="font-bold text-[#1A2B4C] display text-lg" data-testid="hero-fastest-eta">{fastestEta ? `${fastestEta} minutes` : "45 minutes"}</div>
-              </div>
-              <span className="px-2 py-0.5 rounded-full bg-[#1A2B4C] text-white text-[10px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#E68910] animate-pulse" /> LIVE</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {stores.slice(0, 4).map((s) => <StoreCardV2 key={s.id} s={s} />)}
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* L1 CATEGORIES */}
-      <section data-testid="categories" className="max-w-7xl mx-auto px-4 md:px-8 mt-10">
-        <div className="flex justify-between items-end mb-5">
-          <h2 className="display text-2xl md:text-3xl font-bold text-[#1A2B4C]">Shop by category</h2>
-        </div>
-        <div className="grid grid-cols-3 md:grid-cols-7 gap-3 md:gap-4">
-          {categories.map((c) => (
-            <Link key={c.id} to={`/c/${c.slug}`} data-testid={`category-${c.slug}`} className="group">
-              <div className="aspect-square rounded-2xl overflow-hidden bg-white border border-[#E5E2DC]">
-                <img src={c.image} alt={c.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
-              </div>
-              <div className="text-center mt-2 text-xs md:text-sm font-medium text-[#1C1C1C]">{c.name}</div>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      <section data-testid="nearby-stores" className="max-w-7xl mx-auto px-4 md:px-8 mt-14">
-        <div className="flex justify-between items-end mb-5">
-          <div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#E68910]/10 text-[#E68910] text-[11px] font-semibold mb-2"><StoreIcon size={11} /> NEAR YOU</div>
-            <h2 className="display text-2xl md:text-3xl font-bold text-[#1A2B4C]">Stores in your neighborhood</h2>
-          </div>
-          <Link to="/stores" className="text-sm text-[#1A2B4C] font-semibold hover:text-[#E68910]">All stores →</Link>
-        </div>
-        {(cityStores.length ? cityStores : stores).length === 0 ? (
-          <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center">
-            <StoreIcon size={36} className="text-[#E68910] mx-auto mb-3" />
-            <h3 className="display text-xl font-bold text-[#1A2B4C]">Boutiques are coming soon to Bhilai</h3>
-            <p className="text-sm text-[#595959] mt-2 max-w-md mx-auto">We're onboarding local fashion stores in Bhilai. Are you a boutique owner? Join us.</p>
-            <Link to="/merchant/register" className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#E68910] text-white text-sm font-semibold">Become a seller <ArrowRight size={14} /></Link>
-          </div>
+          </section>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5">
-            {(cityStores.length ? cityStores : stores).slice(0, 4).map((s) => <StoreCard key={s.id} s={s} />)}
-          </div>
+          <section className="px-4 py-10 text-center bg-[#F8FAFC]">
+            <StoreIcon size={36} className="text-[#F59E0B] mx-auto mb-3" />
+            <h3 className="text-lg font-display font-bold text-[#0A1F5C]">Boutiques are coming soon</h3>
+            <p className="text-sm text-[#64748B] mt-2 max-w-md mx-auto">Run a Bhilai boutique? Join the marketplace.</p>
+            <Link to="/merchant/register" className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F59E0B] text-white text-sm font-bold shadow-[0_8px_24px_rgba(245,158,11,0.35)]">Become a seller <ArrowRight size={14} /></Link>
+          </section>
         )}
-      </section>
 
-      <section data-testid="trending-products" className="max-w-7xl mx-auto px-4 md:px-8 mt-14">
-        <div className="flex justify-between items-end mb-5">
-          <h2 className="display text-2xl md:text-3xl font-bold text-[#1A2B4C]">Trending nearby</h2>
-        </div>
-        {products.length === 0 ? (
-          <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#E68910]/10 text-[#E68910] text-[11px] font-bold uppercase tracking-widest mb-3">Building it</div>
-            <p className="text-sm text-[#595959]">Fresh drops will appear here as Bhilai merchants go live — available soon.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-            {products.slice(0, 8).map((p) => <ProductCard key={p.id} p={p} />)}
-          </div>
+        {trending.length > 0 && (
+          <HCarousel title="Trending now" subtitle="What Bhilai is shopping today" testid="trending">
+            {trending.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+          </HCarousel>
         )}
-      </section>
 
-      <section data-testid="merchant-strip" className="max-w-7xl mx-auto px-4 md:px-8 mt-16">
-        <div className="relative rounded-2xl overflow-hidden bg-[#1A2B4C] text-white px-5 md:px-8 py-4 md:py-5 flex flex-wrap items-center justify-between gap-3">
-          <div className="bf-noise absolute inset-0 opacity-25" />
-          <div className="relative flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-[#E68910]/20 flex items-center justify-center shrink-0"><Zap size={16} className="text-[#E68910]" /></div>
-            <div><div className="display text-base md:text-lg font-bold">Sell on Lokl.</div><div className="text-xs text-white/70">AI-powered storefront in minutes — free to start.</div></div>
-          </div>
-          <Link to="/merchant/register" className="relative inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#E68910] text-white text-sm font-semibold">Become a seller <ArrowRight size={14} /></Link>
-        </div>
-      </section>
+        {newArrivals.length > 0 && (
+          <HCarousel title="New arrivals" subtitle="Fresh drops in the last two weeks" testid="new-arrivals">
+            {newArrivals.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+          </HCarousel>
+        )}
 
+        {bestSellers.length > 0 && (
+          <HCarousel title="Best sellers" subtitle="Bhilai's most-ordered styles, last 30 days" testid="best-sellers">
+            {bestSellers.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+          </HCarousel>
+        )}
+
+        {recentlyViewed.length > 0 && (
+          <HCarousel title="Recently viewed" subtitle="Pick up where you left off" testid="recently-viewed">
+            {recentlyViewed.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+          </HCarousel>
+        )}
+
+        <CustomerLove items={testimonials} />
+
+        <HowLoklWorks />
+      </main>
       <Footer />
     </div>
   );

@@ -1,0 +1,35 @@
+import React from "react";
+import { Star } from "lucide-react";
+
+/** Customer Love — admin-managed testimonials carousel. */
+export default function CustomerLove({ items }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <section className="py-8 bg-[#0A1F5C] text-white" data-testid="customer-love">
+      <div className="px-4 mb-4">
+        <h2 className="text-2xl font-display font-bold tracking-tight">Loved by Bhilai shoppers</h2>
+        <p className="text-xs opacity-80 mt-0.5">Real reviews from real customers.</p>
+      </div>
+      <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory px-4 pb-2">
+        {items.map((t) => (
+          <article key={t.id} className="snap-start shrink-0 w-[78vw] sm:w-[300px] bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10">
+            <div className="flex items-center gap-1 text-[#F59E0B] mb-2">
+              {Array.from({ length: t.rating || 5 }).map((_, i) => (
+                <Star key={i} size={12} fill="currentColor" />
+              ))}
+            </div>
+            <p className="text-sm leading-snug">"{t.quote}"</p>
+            <div className="flex items-center gap-2 mt-3">
+              {t.avatar ? <img src={t.avatar} alt={t.name} loading="lazy" className="w-7 h-7 rounded-full object-cover" /> :
+                <div className="w-7 h-7 rounded-full bg-white/20" />}
+              <div>
+                <div className="text-[12px] font-bold">{t.name}</div>
+                <div className="text-[10px] opacity-70">{t.city}</div>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}

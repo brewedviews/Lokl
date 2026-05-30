@@ -29,6 +29,8 @@ import MerchantBank from "./pages/MerchantBank";
 import AIStudio from "./pages/AIStudio";
 
 import AdminLogin, { AdminDashboard } from "./pages/AdminPanel";
+import StickyBottomNav from "./components/consumer/v2/StickyBottomNav";
+import StickyCart from "./components/consumer/v2/StickyCart";
 
 function Protected({ children }) {
   const { merchant, loading } = useAuth();
@@ -80,6 +82,8 @@ function App() {
               <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/admin" element={<AdminDashboard />} />
             </Routes>
+            <StickyCart />
+            <StickyBottomNav />
           </BrowserRouter>
         </CartProvider>
       </AuthProvider>
