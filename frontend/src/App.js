@@ -18,6 +18,7 @@ import ReturnTracking from "./pages/ReturnTracking";
 import CustomerAccount from "./pages/CustomerAccount";
 import SearchPage from "./pages/SearchPage";
 import CategoryHub from "./pages/CategoryHub";
+import WishlistPage from "./pages/WishlistPage";
 import LocationGate from "./components/consumer/LocationGate";
 
 import MerchantAuth from "./pages/MerchantAuth";
@@ -59,6 +60,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/categories" element={<CategoryHub />} />
+              <Route path="/wishlist" element={<WishlistPage />} />
               <Route path="/c/:slug" element={<CategoryPage />} />
               <Route path="/product/:id" element={<ProductDetail />} />
               <Route path="/p/:id" element={<ProductDetail />} />

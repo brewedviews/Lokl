@@ -58,7 +58,7 @@ function ProfileHeaderCard({ name, phone, onEdit }) {
 }
 
 // Tile that visually highlights when active, just like Myntra/Ajio account tabs.
-function QuickTile({ icon: Icon, label, count, active, onClick, testid }) {
+function QuickTile({ icon: Icon, label, count, active, onClick, testid, soon }) {
   return (
     <button
       type="button"
@@ -70,13 +70,17 @@ function QuickTile({ icon: Icon, label, count, active, onClick, testid }) {
           ? "border-2 border-[#0A1F5C] bg-[#0A1F5C]/[0.04] shadow-md"
           : "border border-[#E5E2DC] hover:border-[#0A1F5C] hover:shadow-md"}`}
     >
-      <Icon size={22} strokeWidth={1.6} className={active ? "text-[#0A1F5C]" : "text-[#0A1F5C]"} />
-      <span className="text-[11px] sm:text-xs font-semibold text-[#0A1F5C] text-center leading-tight">{label}</span>
-      {count > 0 && (
+      <Icon size={22} strokeWidth={1.6} className={`${soon ? "text-[#94A3B8]" : "text-[#0A1F5C]"}`} />
+      <span className={`text-[11px] sm:text-xs font-semibold text-center leading-tight ${soon ? "text-[#94A3B8]" : "text-[#0A1F5C]"}`}>{label}</span>
+      {soon ? (
+        <span className="absolute -top-1.5 -right-1.5 bg-slate-400 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full shadow-sm ring-2 ring-white uppercase tracking-wider">
+          Soon
+        </span>
+      ) : count > 0 ? (
         <span className="absolute -top-1.5 -right-1.5 bg-[#E68910] text-white text-[10px] font-bold px-1.5 py-0.5 min-w-[18px] text-center rounded-full shadow-sm ring-2 ring-white">
           {count > 99 ? "99+" : count}
         </span>
-      )}
+      ) : null}
     </button>
   );
 }
@@ -209,8 +213,8 @@ export default function CustomerAccount() {
     { key: "returns",   label: "Returns",   icon: RotateCcw,      count: returns.length },
     { key: "addresses", label: "Addresses", icon: MapPin,         count: addresses.length },
     { key: "wishlist",  label: "Wishlist",  icon: Heart,          count: wishlist.length },
-    { key: "wallet",    label: "Wallet",    icon: Wallet,         count: 0 },
-    { key: "coupons",   label: "Coupons",   icon: TicketPercent,  count: 0 },
+    { key: "wallet",    label: "Wallet",    icon: Wallet,         count: 0, soon: true },
+    { key: "coupons",   label: "Coupons",   icon: TicketPercent,  count: 0, soon: true },
     { key: "support",   label: "Support",   icon: HelpCircle,     count: 0 },
     { key: "profile",   label: "Profile",   icon: Settings,       count: 0 },
   ];
@@ -230,8 +234,22 @@ export default function CustomerAccount() {
               icon={t.icon}
               label={t.label}
               count={t.count}
-              active={activeTile === t.key}
-              onClick={() => setActiveTile(t.key)}
+              soon={t.soon}
+              active={!t.soon && activeTile === t.key}
+              onClick={() => {
+                if (t.soon) {
+                  toast.message(`${t.label} — coming soon`);
+                  return;
+                }
+                if (t.key === "wishlist") {
+                  // Wishlist now has its own dedicated route — keep behaviour
+                  // consistent with the bottom-nav so users never end up on the
+                  // old in-tile view.
+                  window.location.href = "/wishlist";
+                  return;
+                }
+                setActiveTile(t.key);
+              }}
               testid={`tile-${t.key}`}
             />
           ))}

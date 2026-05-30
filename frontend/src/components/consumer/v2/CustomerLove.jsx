@@ -5,7 +5,7 @@ import { Star } from "lucide-react";
 export default function CustomerLove({ items }) {
   if (!items || items.length === 0) return null;
   return (
-    <section className="pt-8 pb-10 bg-gradient-to-b from-[#152D6E] to-[#0A1F5C] text-white" data-testid="customer-love">
+    <section className="mt-8 pt-8 pb-10 bg-gradient-to-b from-[#152D6E] to-[#0A1F5C] text-white" data-testid="customer-love">
       <div className="px-4 sm:px-8 mb-4 max-w-7xl mx-auto">
         <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight">Loved by Bhilai shoppers</h2>
         <p className="text-xs sm:text-sm opacity-80 mt-0.5">Real reviews from real customers.</p>

@@ -92,17 +92,44 @@ export default function ConsumerHeader() {
           </form>
 
           {/* Mobile search */}
-          <form onSubmit={submitSearch} className="flex-1 md:hidden">
+          <form onSubmit={submitSearch} className="flex-1 md:hidden relative">
             <div className="flex w-full items-center gap-2 px-3 py-2 bg-white border border-[#E5E2DC] rounded-full focus-within:border-[#1A2B4C] transition">
               <Search size={14} className="text-[#595959] shrink-0" />
               <input
                 data-testid="search-input-mobile"
                 value={q}
-                onChange={(e) => setQ(e.target.value)}
+                onChange={(e) => { setQ(e.target.value); setSugOpen(true); }}
+                onFocus={() => setSugOpen(true)}
+                onBlur={() => setTimeout(() => setSugOpen(false), 200)}
                 placeholder="Search…"
                 className="bg-transparent flex-1 outline-none text-xs min-w-0"
               />
             </div>
+            {sugOpen && q.trim().length >= 2 && (sug.products.length || sug.stores.length) > 0 && (
+              <div data-testid="search-suggest-mobile" className="absolute left-0 right-0 top-full mt-2 bg-white rounded-2xl shadow-2xl border border-[#E5E2DC] py-2 max-h-[60vh] overflow-y-auto z-50">
+                {sug.stores.slice(0, 4).map((s) => (
+                  <button type="button" key={s.id} onClick={() => pickStore(s)} className="w-full text-left px-4 py-2 hover:bg-[#FDFBF7] flex items-center gap-3" data-testid={`sug-store-${s.id}-m`}>
+                    <img src={s.banner || s.image} alt="" className="w-9 h-9 rounded-lg object-cover" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-semibold text-[#1A2B4C] truncate">{s.name}</div>
+                      <div className="text-[10px] text-[#595959] truncate">Store · {s.area || ""}</div>
+                    </div>
+                  </button>
+                ))}
+                {sug.products.slice(0, 6).map((p) => (
+                  <button type="button" key={p.id} onClick={() => pickProduct(p)} className="w-full text-left px-4 py-2 hover:bg-[#FDFBF7] flex items-center gap-3" data-testid={`sug-product-${p.id}-m`}>
+                    <img src={p.image} alt="" className="w-9 h-9 rounded-lg object-cover" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-semibold text-[#1A2B4C] truncate">{p.name}</div>
+                      <div className="text-[10px] text-[#595959] truncate">{p.store_name} · ₹{Number(p.price).toLocaleString()}</div>
+                    </div>
+                  </button>
+                ))}
+                <button type="submit" className="w-full text-left px-4 py-2 hover:bg-[#FDFBF7] text-[11px] text-[#E68910] font-semibold border-t border-[#E5E2DC] mt-1">
+                  Search all results for "{q}" →
+                </button>
+              </div>
+            )}
           </form>
 
           <Link to="/stores" data-testid="nav-stores" className="hidden md:flex items-center gap-1.5 text-sm font-medium hover:text-[#E68910] transition">
