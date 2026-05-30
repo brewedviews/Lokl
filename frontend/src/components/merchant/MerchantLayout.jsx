@@ -51,7 +51,7 @@ export default function MerchantLayout({ children }) {
               KYC · {merchant?.kyc_status || "draft"}
             </div>
           </div>
-          <button onClick={() => { logout(); nav("/"); }} data-testid="logout-btn" className="w-full flex items-center gap-2 px-4 py-2 rounded-xl text-sm hover:bg-white mt-2">
+          <button onClick={async () => { await logout(); nav("/merchant/login"); }} data-testid="logout-btn" className="w-full flex items-center gap-2 px-4 py-2 rounded-xl text-sm hover:bg-white mt-2">
             <LogOut size={14} /> Sign out
           </button>
         </div>

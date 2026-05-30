@@ -66,13 +66,13 @@ export default function MerchantOrders() {
     const load = async () => {
       try {
         const { data } = await api.get("/merchant/orders");
-        const news = data.filter((o) => o.status === "pending_merchant" && !seenIds.current.has(o.id));
+        const news = data.filter((o) => (o.my_state === "pending" || (o.my_state === undefined && o.status === "pending_merchant")) && !seenIds.current.has(o.id));
         // Skip ping on the very first load (avoid blasting on tab open with backlog)
         if (news.length > 0 && initialLoadDone.current && !muted) {
           playLoudPing(audioCtxRef);
           news.forEach((o) => {
             if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              try { new Notification("New order on Lokl", { body: `${o.id} · ₹${o.total}` }); } catch { /* noop */ }
+              try { new Notification("New order on Lokl", { body: `${o.id} · ₹${o.merchant_subtotal ?? o.total}` }); } catch { /* noop */ }
             }
             toast.success(`New order ${o.id}!`, { duration: 6000 });
           });
@@ -112,12 +112,14 @@ export default function MerchantOrders() {
   const handToRider = async (id) => { await api.post(`/merchant/orders/${id}/handed-to-rider`); toast.success("Handed to rider · on the way"); refresh(); };
   const refresh = async () => { const { data } = await api.get("/merchant/orders"); setOrders(data); };
 
-  const pending = orders.filter((o) => o.status === "pending_merchant");
-  const accepted = orders.filter((o) => o.status === "accepted");
+  // Bucket per THIS merchant's state (multi-store orders accept independently)
+  const myState = (o) => o.my_state || o.status; // legacy fallback
+  const pending = orders.filter((o) => myState(o) === "pending" || (o.my_state === undefined && (o.my_state === "pending" || (o.my_state === undefined && o.status === "pending_merchant"))));
+  const accepted = orders.filter((o) => myState(o) === "accepted" && o.status !== "on_the_way" && o.status !== "delivered" && o.status !== "returned" && o.status !== "completed");
   const onWay = orders.filter((o) => o.status === "on_the_way");
   const returning = orders.filter((o) => o.return_status && o.return_status !== "completed");
   const returned = orders.filter((o) => o.status === "returned");
-  const history = orders.filter((o) => !["pending_merchant", "accepted", "on_the_way", "returned"].includes(o.status) && !o.return_status);
+  const history = orders.filter((o) => ["delivered", "completed", "cancelled"].includes(o.status) && !o.return_status);
 
   return (
     <MerchantLayout>
@@ -156,7 +158,7 @@ export default function MerchantOrders() {
                   <div className="text-xs text-[#595959]">{new Date(o.created_at).toLocaleString()}</div>
                 </div>
                 <div className="text-right">
-                  <div className="display text-2xl font-bold text-[#4F7363]">₹{o.total.toLocaleString()}</div>
+                  <div className="display text-2xl font-bold text-[#4F7363]">₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</div>
                   <div className="text-xs text-[#595959]">{o.payment_method}</div>
                 </div>
               </div>
@@ -197,7 +199,7 @@ export default function MerchantOrders() {
                 <div key={o.id} className="bg-white border-2 border-[#E68910]/40 rounded-2xl p-4" data-testid={`accepted-${o.id}`}>
                   <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                     <div>
-                      <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
+                      <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</div>
                       <div className="text-xs text-[#595959]">{o.customer?.name || o.address?.name || "Customer"} · {o.address?.pincode || ""}</div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -223,7 +225,7 @@ export default function MerchantOrders() {
               {onWay.map((o) => (
                 <div key={o.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3" data-testid={`onway-${o.id}`}>
                   <div>
-                    <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
+                    <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</div>
                     <div className="text-xs text-[#595959]">Rider en-route to customer · OTP {o.otp}</div>
                   </div>
                   <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">On the way</span>
@@ -244,7 +246,7 @@ export default function MerchantOrders() {
                   <div key={o.id} className="bg-white border border-[#E68910]/30 rounded-2xl p-4" data-testid={`returning-${o.id}`}>
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div>
-                        <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
+                        <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</div>
                         <div className="text-[11px] text-[#595959]">{new Date(o.created_at).toLocaleString()} · {o.items.length} item(s)</div>
                       </div>
                       <span className={`text-[10px] uppercase font-bold px-2.5 py-1 rounded-full ${meta.c}`}>{meta.l}</span>
@@ -285,7 +287,7 @@ export default function MerchantOrders() {
                 return (
                   <div key={o.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 flex items-center justify-between gap-3 flex-wrap" data-testid={`returned-${o.id}`}>
                     <div>
-                      <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{o.total.toLocaleString()}</div>
+                      <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</div>
                       <div className="text-[11px] text-[#595959]">{new Date(o.created_at).toLocaleString()} · {o.items.length} item(s){ret?.reason ? ` · ${ret.reason}` : ""}</div>
                     </div>
                     <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-700">Returned</span>
@@ -332,7 +334,7 @@ export default function MerchantOrders() {
                       <td className="px-4 py-2 font-semibold">{o.id}</td>
                       <td className="px-4 py-2 text-xs text-[#595959]">{new Date(o.created_at).toLocaleString()}</td>
                       <td className="px-4 py-2"><span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${o.status === "accepted" ? "bg-[#4F7363]/15 text-[#4F7363]" : "bg-red-100 text-red-500"}`}>{o.status}</span></td>
-                      <td className="px-4 py-2 text-right font-semibold">₹{o.total.toLocaleString()}</td>
+                      <td className="px-4 py-2 text-right font-semibold">₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>

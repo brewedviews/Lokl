@@ -1,13 +1,17 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ShoppingBag, ArrowRight } from "lucide-react";
 import { useCart } from "../../../contexts/CartContext";
 
-/** Sticky cart pill — appears after first add. Mobile-only floating button. */
+/** Sticky cart pill — appears after first add. Mobile-only floating button.
+ *  Hidden on /cart and /checkout so it doesn't sit on top of the page that
+ *  IS the cart. */
 export default function StickyCart() {
   const { items, total } = useCart();
+  const { pathname } = useLocation();
   const count = (items || []).reduce((s, i) => s + (i.qty || 1), 0);
   if (count === 0) return null;
+  if (pathname.startsWith("/cart") || pathname.startsWith("/checkout")) return null;
   return (
     <Link
       to="/cart"

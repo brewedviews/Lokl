@@ -792,21 +792,38 @@ async def create_order(payload: OrderCreate):
         raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
     order_id = f"BFO-{uuid.uuid4().hex[:8].upper()}"
     merchant_ids = []
-    # Snapshot per-item return_eligible at order time so later product edits don't change history
+    # Snapshot per-item return_eligible AND stamp the owning store_id + merchant_id
+    # on every line item. Without this, multi-store carts cannot be routed to the
+    # right merchant dashboards (every merchant in `merchant_ids` saw every item).
     items_snap = []
     for it in payload.items:
-        p = await db.products.find_one({"id": it.get("id")}, {"merchant_id": 1, "return_eligible": 1, "_id": 0}) or {}
+        p = await db.products.find_one(
+            {"id": it.get("id")},
+            {"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1, "return_eligible": 1},
+        ) or {}
         if p.get("merchant_id"): merchant_ids.append(p["merchant_id"])
         new_it = dict(it)
         new_it["return_eligible"] = bool(p.get("return_eligible", False))
+        new_it["merchant_id"] = p.get("merchant_id")
+        new_it["store_id"] = p.get("store_id")
+        # Keep `store_name` accurate even if it wasn't in the cart snapshot
+        if p.get("store_name") and not new_it.get("store_name"):
+            new_it["store_name"] = p["store_name"]
         items_snap.append(new_it)
     now = datetime.now(timezone.utc).isoformat()
+    unique_mids = list(set([m for m in merchant_ids if m]))
     # 4-digit OTP shared across customer / admin / merchant for rider handoff verification
     otp = f"{random.randint(1000, 9999)}"
+    # Per-merchant accept state — each merchant accepts/rejects independently.
+    # The global `status` only advances to `confirmed` when ALL merchants accept.
+    merchant_states = {mid: "pending" for mid in unique_mids}
     doc = {"id": order_id, "items": items_snap, "address": payload.address,
            "total": payload.total, "payment_method": payload.payment_method,
            "customer": payload.customer or {},
-           "status": "pending_merchant", "merchant_ids": list(set(merchant_ids)),
+           "status": "pending_merchant",
+           "merchant_ids": unique_mids,
+           "merchant_states": merchant_states,
+           "is_multi_store": len(unique_mids) > 1,
            "otp": otp,
            "created_at": now,
            "timeline": [{"label": "Order placed", "time": now},
@@ -814,18 +831,18 @@ async def create_order(payload: OrderCreate):
                         {"label": "Order on the way", "time": None},
                         {"label": "Delivered", "time": None}]}
     await db.orders.insert_one(doc)
-    # Upsert customer profile silently
     if payload.customer and payload.customer.get("phone"):
         await _upsert_customer(payload.customer, payload.address)
-    # Fire-and-forget WhatsApp notifications
     cust_phone = (payload.customer or {}).get("phone") or (payload.address or {}).get("phone")
     if cust_phone:
         try: notify_order_placed(cust_phone, order_id, float(payload.total))
         except Exception: pass
-    for mid in set(merchant_ids):
+    for mid in unique_mids:
         m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1})
         if m and m.get("phone"):
-            try: notify_merchant_new_order(m["phone"], order_id, float(payload.total), len(payload.items))
+            # Notify each merchant only about THEIR slice of the order
+            their_items = [it for it in items_snap if it.get("merchant_id") == mid]
+            try: notify_merchant_new_order(m["phone"], order_id, float(payload.total), len(their_items))
             except Exception: pass
     doc.pop("_id", None)
     return doc
@@ -838,8 +855,11 @@ async def get_order(order_id: str):
 
 @api.get("/merchant/orders")
 async def merchant_orders(user: dict = Depends(get_current_user)):
-    """Returns this merchant's orders with customer PII redacted (name + pincode + landmark only)."""
-    raw = await db.orders.find({"merchant_ids": user["sub"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    """Returns this merchant's orders with customer PII redacted (name + pincode + landmark only).
+    Items are FILTERED to only this merchant's items — multi-store orders no
+    longer leak each merchant's products to every merchant."""
+    mid = user["sub"]
+    raw = await db.orders.find({"merchant_ids": mid}, {"_id": 0}).sort("created_at", -1).to_list(200)
     cleaned = []
     for o in raw:
         addr = o.get("address") or {}
@@ -850,9 +870,17 @@ async def merchant_orders(user: dict = Depends(get_current_user)):
             "pincode": addr.get("pincode", ""),
             "city": addr.get("city", "Bhilai"),
             "landmark": addr.get("landmark", ""),
-            # Coarse area = last comma-segment of line1 (no house numbers / street)
             "line1": (addr.get("line1", "").split(",")[-1] or "").strip(),
         }
+        own_items = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid]
+        # Legacy orders pre-fix have no merchant_id on items — fall back to all
+        if not own_items and not any(it.get("merchant_id") for it in (o.get("items") or [])):
+            own_items = o.get("items") or []
+        o["items"] = own_items
+        # Override total to this merchant's slice so revenue is accurately reported
+        o["merchant_subtotal"] = round(sum(float(it.get("price", 0)) * int(it.get("qty", 1)) for it in own_items), 2)
+        # This merchant's per-order accept state
+        o["my_state"] = (o.get("merchant_states") or {}).get(mid, "pending")
         cleaned.append(o)
     return cleaned
 
@@ -861,20 +889,29 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
     o = await db.orders.find_one({"id": oid, "merchant_ids": user["sub"]}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
     now = datetime.now(timezone.utc).isoformat()
+    # Per-merchant accept state — global status flips to "accepted" only when
+    # EVERY merchant on the order has accepted; otherwise we keep
+    # "pending_merchant" so the customer sees the partial-accept state.
+    states = dict(o.get("merchant_states") or {mid: "pending" for mid in (o.get("merchant_ids") or [])})
+    states[user["sub"]] = "accepted"
+    all_accepted = states and all(v == "accepted" for v in states.values())
     tl = o.get("timeline", [])
-    for t in tl:
-        if t["label"] == "Merchant accepted" and not t["time"]:
-            t["time"] = now; break
-    await db.orders.update_one({"id": oid}, {"$set": {"status": "accepted", "timeline": tl}})
-    # WhatsApp customer (no OTP yet — only after handoff)
+    if all_accepted:
+        for t in tl:
+            if t["label"] == "Merchant accepted" and not t["time"]:
+                t["time"] = now; break
+    new_global = "accepted" if all_accepted else "pending_merchant"
+    await db.orders.update_one(
+        {"id": oid},
+        {"$set": {"status": new_global, "merchant_states": states, "timeline": tl}},
+    )
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
-    m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0, "store_name": 1})
+    m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0, "store_name": 1, "business_address": 1})
     if cust_phone:
         try: notify_order_accepted(cust_phone, oid, (m or {}).get("store_name", "your store"))
         except Exception: pass
-    # Notify the registered rider via WhatsApp with order details + OTP
     rider_phone = os.environ.get("RIDER_PHONE", "").strip()
-    if rider_phone:
+    if all_accepted and rider_phone:
         try:
             addr = o.get("address") or {}
             pickup = (m or {}).get("store_name", "Store") + " · " + (m or {}).get("business_address", "Bhilai")
@@ -887,7 +924,7 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
                 pickup=pickup, drop=drop, items=o.get("items", []),
             )
         except Exception: pass
-    return {"ok": True, "otp": o.get("otp")}
+    return {"ok": True, "otp": o.get("otp"), "all_accepted": all_accepted, "my_state": "accepted"}
 
 @api.post("/merchant/orders/{oid}/handed-to-rider")
 async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_user)):

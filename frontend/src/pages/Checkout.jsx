@@ -139,13 +139,25 @@ export default function Checkout() {
         </div>
         <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC] h-fit">
           <h3 className="display text-xl font-bold text-[#1A2B4C] mb-3">Bag ({items.length})</h3>
+          {(() => {
+            const uniqueStores = [...new Set(items.map((it) => it.store_name).filter(Boolean))];
+            if (uniqueStores.length > 1) {
+              return (
+                <div data-testid="multi-store-notice" className="mb-3 rounded-xl border border-[#E68910]/30 bg-[#E68910]/10 px-3 py-2 text-[12px] text-[#0A1F5C]">
+                  Your bag has items from <strong>{uniqueStores.length} stores</strong>. You'll pay once now and may receive
+                  <strong> {uniqueStores.length} separate deliveries</strong> — one from each store.
+                </div>
+              );
+            }
+            return null;
+          })()}
           <div className="space-y-3 max-h-72 overflow-auto">
             {items.map((it) => (
               <div key={it.key} className="flex gap-3 text-sm">
                 <img src={it.image} alt={it.name} className="w-14 h-16 rounded-lg object-cover" />
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-[#1A2B4C] truncate">{it.name}</div>
-                  <div className="text-xs text-[#595959]">Qty {it.qty}{it.size ? ` · ${it.size}` : ""}</div>
+                  <div className="text-xs text-[#595959]">{it.store_name ? `${it.store_name} · ` : ""}Qty {it.qty}{it.size ? ` · ${it.size}` : ""}</div>
                 </div>
                 <div className="font-semibold">₹{(it.price * it.qty).toLocaleString()}</div>
               </div>
