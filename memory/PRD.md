@@ -3,6 +3,12 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-21) — Carousel snap-padding fix + section rename
+
+- **Root-caused the persistent "cards touching the left edge" issue.** The OffersStrip + HCarousel `snap-x snap-mandatory` containers were auto-scrolling `scrollLeft` to exactly the value of `padding-left` on first render, because the default `scroll-padding` is 0 — so `snap-start` aligned the first card with the container's border-edge (eating the padding). Fixed by adding `scroll-pl-4 sm:scroll-pl-8` to both `OffersStrip.jsx` and `HCarousel.jsx` so the snap-port respects the inset. Verified via DOM: first card now reports `x=112` matching hero/header alignment at x=112 (32px padding inside `max-w-7xl`).
+- **Renamed the top campaign rail "Offers for you" → "Popular in Bhilai"** per user request (`OffersStrip.jsx` h2).
+- **Renamed the product carousel section "Popular in Bhilai" → "Trending now"** to avoid a duplicate heading on the same page (`Home.jsx` `popular_in_city` slot).
+
 ## Latest Iteration (Feb 2026 — Iter-20) — Consistency + copy + footer cleanup
 
 User-requested polish round:

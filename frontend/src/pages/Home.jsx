@@ -76,7 +76,7 @@ export default function Home() {
       </section>
     ),
     popular_in_city: () => popular.length > 0 && (
-      <HCarousel title="Popular in Bhilai" subtitle="Most ordered products nearby this week" testid="popular-in-city" link="/products?sort=trending" linkLabel="See all">
+      <HCarousel title="Trending now" subtitle="Most ordered products nearby this week" testid="popular-in-city" link="/products?sort=trending" linkLabel="See all">
         {popular.map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
     ),
