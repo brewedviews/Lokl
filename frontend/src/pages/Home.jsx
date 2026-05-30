@@ -126,7 +126,7 @@ export default function Home() {
           : Object.entries(SECTIONS).map(([k, fn]) => <React.Fragment key={k}>{fn()}</React.Fragment>)
         }
       </main>
-      <Footer />
+      <Footer topGap={false} />
     </div>
   );
 }

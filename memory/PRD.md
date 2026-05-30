@@ -3,6 +3,12 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-24) — Batch A: Store names + slim footer + consistent gap
+
+- **Fixed "LOKL STORE" fallback on Trending now / Selling fast product cards.** `enrich_products_with_badges` in `feeds.py` now also resolves and attaches `store_name` via a single batched lookup on the `stores` collection. Verified via `/api/feed/popular-in-city` + `/api/feed/selling-fast` — every card now shows the real store (`Anjali Boutique`, `Step & Sole`, `Street Bazaar`, etc.). Affects every feed that uses the enricher (popular_in_city, selling_fast, best_sellers, new_arrivals, trending).
+- **Slim footer.** Replaced the multi-block ~400px-tall footer with a single-row strip (~92px): brand · contact pills · social icons in one line + a 16px copyright row. ~77% height reduction. Same navy bg, sticky-nav clearance preserved on mobile via `pb-20 md:pb-0`.
+- **Consistent section→footer gap on every page.** Added a `topGap` prop to `Footer.jsx` (default `true` = `mt-8`/32px). Home opts out (`topGap={false}`) so the gradient `CustomerLove` continues to blend seamlessly into the navy footer. Verified DOM gap: Home=0px (intentional blend), Stores/Cart/etc.=32px.
+
 ## Latest Iteration (Feb 2026 — Iter-23) — Offline-store hiding + merchant products perf
 
 - **Offline merchants are now fully hidden from the storefront.** Updated `/api/stores` to add `online: {$ne: False}` to the visibility filter so toggled-offline stores no longer appear in the listing. Updated `/api/stores/{store_id}` to return 404 when `online == False` (kills the empty store-page deep-link). Feeds already excluded offline stores via `_visible_online_store_ids`, so nothing else changed. Verified: toggled `Anjali Boutique` offline → listing went 10→9, direct PDP returned 404. Merchant dashboard endpoints (own store/products) are untouched.

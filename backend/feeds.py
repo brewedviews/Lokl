@@ -101,7 +101,7 @@ async def compute_product_badge(p: dict, *, orders_30d: dict, orders_7d: dict, v
 
 async def enrich_products_with_badges(db, products: list[dict]) -> list[dict]:
     """Mutates each product dict in-place adding {badge: str|None, badge_label: str|None,
-    social_proof: str|None, low_stock_size: str|None}. Cheap — one orders sweep total."""
+    social_proof: str|None, low_stock_size: str|None, store_name: str}. Cheap — one orders sweep total."""
     orders_30d, _ = await _orders_aggregate(db, days=30)
     orders_7d, _ = await _orders_aggregate(db, days=7)
     # Lightweight view tracking lives in `product_views` (created lazily). Tolerate missing collection.
@@ -113,6 +113,13 @@ async def enrich_products_with_badges(db, products: list[dict]) -> list[dict]:
             if pid: views_7d[pid] = views_7d.get(pid, 0) + 1
     except Exception:
         pass
+
+    # Batched store_name lookup — one query, no N+1
+    sids = list({p.get("store_id") for p in products if p.get("store_id")})
+    name_by_sid: dict[str, str] = {}
+    if sids:
+        async for s in db.stores.find({"id": {"$in": sids}}, {"_id": 0, "id": 1, "name": 1}):
+            name_by_sid[s["id"]] = s.get("name") or ""
 
     for p in products:
         badge = await compute_product_badge(p, orders_30d=orders_30d, orders_7d=orders_7d, views_7d=views_7d)
@@ -134,6 +141,10 @@ async def enrich_products_with_badges(db, products: list[dict]) -> list[dict]:
                 low = f"Only {q} left" + (f" in size {sz}" if sz and sz != "default" else "")
                 break
         p["low_stock_size"] = low
+        # Attach the actual store name (lookup batched above)
+        sid = p.get("store_id")
+        if sid and name_by_sid.get(sid):
+            p["store_name"] = name_by_sid[sid]
     return products
 
 
