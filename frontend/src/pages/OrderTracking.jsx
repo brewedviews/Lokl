@@ -303,7 +303,9 @@ export default function OrderTracking() {
   }
 
   const status = (order.status || "").toLowerCase();
-  const showOtp = status === "on_the_way" && order.otp;
+  // Only show the single global OTP card for SINGLE-store orders. Multi-store
+  // orders show one OTP per store inside the per-store breakdown card below.
+  const showOtp = !order.is_multi_store && status === "on_the_way" && order.otp;
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
@@ -342,15 +344,19 @@ export default function OrderTracking() {
                 return breakdown.map((b) => {
                   const idx = stepIndexFromMerchantState(b.state);
                   const stateLabel =
-                    b.state === "delivered" ? "Delivered"
+                    b.state === "cancelled" ? "Cancelled"
+                    : b.state === "delivered" ? "Delivered"
                     : b.state === "handed_off" ? "Out for delivery"
                     : b.state === "accepted" ? "Confirmed"
                     : "Placed";
                   const tone =
-                    b.state === "delivered" ? "text-emerald-700 bg-emerald-50"
+                    b.state === "cancelled" ? "text-rose-700 bg-rose-50"
+                    : b.state === "delivered" ? "text-emerald-700 bg-emerald-50"
                     : b.state === "handed_off" ? "text-purple-700 bg-purple-50"
                     : b.state === "accepted" ? "text-[#4F7363] bg-[#4F7363]/10"
                     : "text-[#E68910] bg-[#E68910]/10";
+                  // Show this store's unique OTP once it's accepted, until delivered
+                  const showStoreOtp = b.otp && ["accepted", "handed_off"].includes(b.state);
                   return (
                     <div key={b.merchant_id} className="py-4 first:pt-0 last:pb-0" data-testid={`store-row-${b.store_id}`}>
                       <div className="flex items-start justify-between gap-3 mb-3">
@@ -364,7 +370,21 @@ export default function OrderTracking() {
                           {stateLabel}
                         </span>
                       </div>
-                      <MiniStepper activeIdx={idx} />
+                      {b.state !== "cancelled" && <MiniStepper activeIdx={idx} />}
+                      {showStoreOtp && (
+                        <div data-testid={`store-otp-${b.store_id}`} className="mt-3 bg-[#0A1F5C] text-white rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-[10px] uppercase tracking-widest text-white/70">Rider OTP — {b.store_name}</div>
+                            <div className="text-[10px] text-white/60 mt-0.5">Share when this store's rider arrives</div>
+                          </div>
+                          <div className="font-display text-2xl font-bold tracking-[0.25em] tabular-nums text-[#E68910]">{b.otp}</div>
+                        </div>
+                      )}
+                      {b.state === "cancelled" && b.cancel_reason && (
+                        <div className="mt-2 text-[11px] text-rose-700 bg-rose-50 rounded-lg px-3 py-2">
+                          Cancelled: {b.cancel_reason}
+                        </div>
+                      )}
                     </div>
                   );
                 });

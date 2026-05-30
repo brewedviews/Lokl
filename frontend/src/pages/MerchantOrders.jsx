@@ -205,7 +205,7 @@ export default function MerchantOrders() {
                     <div className="flex items-center gap-3">
                       <div className="text-center">
                         <div className="text-[9px] uppercase tracking-widest text-[#595959]">Rider OTP</div>
-                        <div data-testid={`otp-${o.id}`} className="display text-3xl font-bold text-[#E68910] tracking-[0.2em] tabular-nums">{o.otp || "----"}</div>
+                        <div data-testid={`otp-${o.id}`} className="display text-3xl font-bold text-[#E68910] tracking-[0.2em] tabular-nums">{o.my_otp || o.otp || "----"}</div>
                       </div>
                     </div>
                   </div>
@@ -226,7 +226,7 @@ export default function MerchantOrders() {
                 <div key={o.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3" data-testid={`onway-${o.id}`}>
                   <div>
                     <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</div>
-                    <div className="text-xs text-[#595959]">{o.is_multi_store ? "Your items handed to rider · OTP " : "Rider en-route to customer · OTP "}{o.otp}</div>
+                    <div className="text-xs text-[#595959]">{o.is_multi_store ? "Your items handed to rider · OTP " : "Rider en-route to customer · OTP "}{o.my_otp || o.otp}</div>
                   </div>
                   <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">On the way</span>
                 </div>

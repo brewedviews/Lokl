@@ -507,20 +507,27 @@ function OrdersTab({ kind }) {
   };
   useEffect(() => { load(); const i = setInterval(load, 12000); return () => clearInterval(i); /* eslint-disable-next-line */ }, [kind]);
 
-  const markDelivered = async (oid) => {
-    const r = await apiFetch(`/admin/orders/${oid}/mark-delivered`, { method: "POST" });
-    if (r.ok) { toast.success("Marked delivered"); load(); }
+  const markDelivered = async (oid, merchantId) => {
+    const body = merchantId ? { merchant_id: merchantId } : {};
+    const r = await apiFetch(`/admin/orders/${oid}/mark-delivered`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (r.ok) { toast.success(merchantId ? "Store slice delivered" : "Marked delivered"); load(); }
     else { toast.error("Failed"); }
   };
-  const cancel = async (oid) => {
-    const reason = window.prompt("Reason for cancelling this order? (will be sent to customer)") || "";
+  const cancel = async (oid, merchantId) => {
+    const reason = window.prompt(merchantId
+      ? "Reason for cancelling THIS store's slice? (sent to customer)"
+      : "Reason for cancelling this order? (will be sent to customer)") || "";
     if (!reason.trim()) return;
+    const body = { reason: reason.trim(), ...(merchantId ? { merchant_id: merchantId } : {}) };
     const r = await apiFetch(`/admin/orders/${oid}/cancel`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: reason.trim() }),
+      body: JSON.stringify(body),
     });
-    if (r.ok) { toast.success("Order cancelled"); load(); }
+    if (r.ok) { toast.success(merchantId ? "Store slice cancelled" : "Order cancelled"); load(); }
     else { toast.error("Failed"); }
   };
 
@@ -555,29 +562,89 @@ function OrdersTab({ kind }) {
         {orders.map((o) => {
           const badge = STATUS_BADGE[o.status] || { l: o.status, c: "bg-zinc-200 text-zinc-700" };
           const canFinalize = ["pending_merchant", "accepted", "on_the_way"].includes(o.status);
+          const isMulti = !!o.is_multi_store && (o.store_breakdown || []).length > 1;
+          const stateBadge = (s) => {
+            const map = {
+              pending:    { l: "Pending",       c: "bg-[#E68910]/15 text-[#E68910]" },
+              accepted:   { l: "Confirmed",     c: "bg-blue-100 text-blue-700" },
+              handed_off: { l: "On the way",    c: "bg-purple-100 text-purple-700" },
+              delivered:  { l: "Delivered",     c: "bg-[#4F7363]/15 text-[#4F7363]" },
+              cancelled:  { l: "Cancelled",     c: "bg-zinc-200 text-zinc-700" },
+            };
+            return map[s] || { l: s || "—", c: "bg-zinc-100 text-zinc-600" };
+          };
           return (
             <div key={o.id} data-testid={`order-row-${o.id}`} className="bg-white border border-[#E5E2DC] rounded-2xl p-4">
               <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
                 <div className="flex-1 min-w-[240px]">
-                  <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{Number(o.total).toLocaleString()}</div>
+                  <div className="font-semibold text-[#1A2B4C]">
+                    {o.id} · ₹{Number(o.total).toLocaleString()}
+                    {isMulti && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-[#E68910] bg-[#E68910]/10 px-1.5 py-0.5 rounded">Multi-store · {o.store_breakdown.length}</span>}
+                  </div>
                   <div className="text-xs text-[#595959]">
                     {(o.customer?.name || o.address?.name || "Customer")} · {o.address?.phone || "—"} · {o.address?.line1}, {o.address?.city || "Bhilai"}
                   </div>
                   <div className="text-[11px] text-[#595959] mt-0.5">
-                    Stores: {(o.store_names || []).join(", ") || "—"} · {o.items?.length || 0} item(s) · {o.payment_method || "—"}
+                    {(o.store_names || []).join(", ") || "—"} · {o.items?.length || 0} item(s) · {o.payment_method || "—"}
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${badge.c}`}>{badge.l}</span>
-                  {o.otp && kind === "live" && (
+                  {!isMulti && o.otp && kind === "live" && (
                     <div className="text-right">
-                      <div className="text-[9px] uppercase tracking-widest text-[#595959]">Rider OTP (share with rider)</div>
+                      <div className="text-[9px] uppercase tracking-widest text-[#595959]">Rider OTP</div>
                       <div data-testid={`admin-otp-${o.id}`} className="display text-2xl font-bold text-[#E68910] tracking-[0.2em] tabular-nums">{o.otp}</div>
                     </div>
                   )}
                 </div>
               </div>
-              {canFinalize && (
+
+              {/* Per-merchant breakdown for multi-store orders */}
+              {isMulti && (
+                <div className="border-t border-[#E5E2DC] pt-3 mb-2 space-y-2">
+                  {o.store_breakdown.map((b) => {
+                    const sb = stateBadge(b.state);
+                    const sliceCanFinalize = !["delivered", "cancelled"].includes(b.state);
+                    return (
+                      <div key={b.merchant_id} data-testid={`admin-slice-${o.id}-${b.merchant_id}`} className="bg-[#FAF8F3] border border-[#E5E2DC] rounded-xl p-3">
+                        <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold text-[#1A2B4C] truncate">{b.store_name}</div>
+                            <div className="text-[11px] text-[#595959] mt-0.5">
+                              {b.items.length} item(s) · ₹{Number(b.subtotal).toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {b.otp && kind === "live" && !["delivered", "cancelled"].includes(b.state) && (
+                              <div className="text-right">
+                                <div className="text-[9px] uppercase tracking-widest text-[#595959]">Rider OTP</div>
+                                <div data-testid={`admin-slice-otp-${b.merchant_id}`} className="display text-xl font-bold text-[#E68910] tracking-[0.2em] tabular-nums">{b.otp}</div>
+                              </div>
+                            )}
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide ${sb.c}`}>{sb.l}</span>
+                          </div>
+                        </div>
+                        {sliceCanFinalize && (
+                          <div className="flex flex-wrap gap-2">
+                            <button onClick={() => markDelivered(o.id, b.merchant_id)} data-testid={`admin-slice-deliver-${o.id}-${b.merchant_id}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#4F7363] text-white text-[11px] font-semibold hover:bg-[#3a5a4d]">
+                              <CheckCircle2 size={11} /> Mark delivered
+                            </button>
+                            <button onClick={() => cancel(o.id, b.merchant_id)} data-testid={`admin-slice-cancel-${o.id}-${b.merchant_id}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-red-300 text-red-600 text-[11px] font-semibold hover:bg-red-50">
+                              <XCircle size={11} /> Cancel
+                            </button>
+                          </div>
+                        )}
+                        {b.state === "cancelled" && b.cancel_reason && (
+                          <div className="mt-1 text-[10px] text-red-600">Reason: {b.cancel_reason}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Whole-order finalize buttons (single-store only) */}
+              {!isMulti && canFinalize && (
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-[#E5E2DC]">
                   <button onClick={() => markDelivered(o.id)} data-testid={`admin-deliver-${o.id}`} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#4F7363] text-white text-xs font-semibold hover:bg-[#3a5a4d]">
                     <CheckCircle2 size={13} /> Mark delivered

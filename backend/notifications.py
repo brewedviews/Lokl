@@ -94,9 +94,11 @@ def notify_merchant_new_order(merchant_phone: str, order_id: str, total: float, 
     send_whatsapp(merchant_phone, body)
 
 
-def notify_order_accepted(customer_phone: str, order_id: str, store_name: str) -> None:
+def notify_order_accepted(customer_phone: str, order_id: str, store_name: str, otp: str = "") -> None:
+    otp_line = f"Share OTP *{otp}* with the rider on arrival from {store_name}.\n" if otp else ""
     body = (
         f"✅ Lokl: Your order *{order_id}* was accepted by {store_name}.\n"
+        f"{otp_line}"
         f"Rider will pick up shortly."
     )
     send_whatsapp(customer_phone, body)

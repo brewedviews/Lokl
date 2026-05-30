@@ -120,6 +120,42 @@ def test_multi_store_order_creates_per_merchant_state(two_merchants):
         assert steps[2]["time"] is None
         assert steps[3]["time"] is None
     assert o["status"] == "pending_merchant"
+    # Per-merchant unique OTPs generated
+    otps = o["merchant_otps"]
+    assert set(otps.keys()) == {mA["merchant_id"], mB["merchant_id"]}
+    assert otps[mA["merchant_id"]] != otps[mB["merchant_id"]], "Each store must get a unique OTP"
+    for code in otps.values():
+        assert len(code) == 4 and code.isdigit()
+
+
+def test_accept_returns_only_my_otp(two_merchants):
+    """Each merchant receives THEIR OWN unique OTP on acceptance — never the other store's."""
+    mA, mB = two_merchants
+    o = _place_multi_order(mA, mB)
+    oid = o["id"]
+    expected_a = o["merchant_otps"][mA["merchant_id"]]
+    expected_b = o["merchant_otps"][mB["merchant_id"]]
+
+    rA = requests.post(f"{API}/merchant/orders/{oid}/accept", headers=mA["h"], timeout=10).json()
+    assert rA["otp"] == expected_a, "Merchant A must receive their own OTP"
+    assert rA["otp"] != expected_b
+
+    rB = requests.post(f"{API}/merchant/orders/{oid}/accept", headers=mB["h"], timeout=10).json()
+    assert rB["otp"] == expected_b, "Merchant B must receive their own OTP"
+    assert rB["otp"] != expected_a
+
+
+def test_merchant_orders_endpoint_hides_other_merchants_otp(two_merchants):
+    mA, mB = two_merchants
+    o = _place_multi_order(mA, mB)
+    oid = o["id"]
+    requests.post(f"{API}/merchant/orders/{oid}/accept", headers=mA["h"], timeout=10).raise_for_status()
+    listA = requests.get(f"{API}/merchant/orders", headers=mA["h"], timeout=10).json()
+    rowA = next(x for x in listA if x["id"] == oid)
+    # A's response must only contain A's OTP
+    assert rowA["my_otp"] == o["merchant_otps"][mA["merchant_id"]]
+    assert list(rowA.get("merchant_otps", {}).keys()) == [mA["merchant_id"]]
+    assert o["merchant_otps"][mB["merchant_id"]] not in rowA.get("merchant_otps", {}).values()
 
 
 def test_partial_accept_keeps_global_pending(two_merchants):
@@ -251,3 +287,60 @@ def test_customer_order_returns_store_breakdown(two_merchants):
     assert by_mid[mB["merchant_id"]]["state"] == "pending"
     assert by_mid[mA["merchant_id"]]["subtotal"] == 599
     assert by_mid[mB["merchant_id"]]["subtotal"] == 1198
+    # A accepted → A's OTP must surface in store_breakdown. B not accepted → no OTP yet.
+    assert by_mid[mA["merchant_id"]]["otp"] == o["merchant_otps"][mA["merchant_id"]]
+    assert by_mid[mB["merchant_id"]]["otp"] is None
+
+
+def test_per_merchant_slice_cancel(two_merchants):
+    mA, mB = two_merchants
+    o = _place_multi_order(mA, mB)
+    oid = o["id"]
+    requests.post(f"{API}/merchant/orders/{oid}/accept", headers=mA["h"], timeout=10).raise_for_status()
+    requests.post(f"{API}/merchant/orders/{oid}/accept", headers=mB["h"], timeout=10).raise_for_status()
+    ahdr = {"Authorization": f"Bearer {_admin_token()}"}
+    # Cancel only A's slice
+    r = requests.post(f"{API}/admin/orders/{oid}/cancel", headers=ahdr,
+                      json={"merchant_id": mA["merchant_id"], "reason": "Out of stock at A"}, timeout=10)
+    assert r.status_code == 200, r.text
+    o2 = requests.get(f"{API}/orders/{oid}", timeout=10).json()
+    assert o2["merchant_states"][mA["merchant_id"]] == "cancelled"
+    assert o2["merchant_states"][mB["merchant_id"]] == "accepted"
+    assert o2["status"] != "cancelled"
+    assert o2["merchant_cancelled"][mA["merchant_id"]] == "Out of stock at A"
+
+    # Cancel B's slice too → global flips to cancelled
+    r2 = requests.post(f"{API}/admin/orders/{oid}/cancel", headers=ahdr,
+                       json={"merchant_id": mB["merchant_id"], "reason": "Same"}, timeout=10)
+    assert r2.status_code == 200
+    o3 = requests.get(f"{API}/orders/{oid}", timeout=10).json()
+    assert o3["status"] == "cancelled"
+
+
+def test_twilio_inbound_matches_per_merchant_otp(two_merchants):
+    """Rider WhatsApps store-A's OTP → only store-A's slice flips to delivered."""
+    mA, mB = two_merchants
+    o = _place_multi_order(mA, mB)
+    oid = o["id"]
+    for m in (mA, mB):
+        requests.post(f"{API}/merchant/orders/{oid}/accept", headers=m["h"], timeout=10).raise_for_status()
+        requests.post(f"{API}/merchant/orders/{oid}/handed-to-rider", headers=m["h"], timeout=10).raise_for_status()
+    otp_a = o["merchant_otps"][mA["merchant_id"]]
+    otp_b = o["merchant_otps"][mB["merchant_id"]]
+    rider_phone = os.environ.get("RIDER_PHONE", "+917719052107")
+    # Rider for store A delivers
+    r = requests.post(f"{API}/twilio/inbound",
+                      data={"Body": f"{otp_a} - Delivered", "From": f"whatsapp:{rider_phone}"}, timeout=10)
+    assert r.status_code == 200
+    o2 = requests.get(f"{API}/orders/{oid}", timeout=10).json()
+    assert o2["merchant_states"][mA["merchant_id"]] == "delivered"
+    assert o2["merchant_states"][mB["merchant_id"]] == "handed_off"
+    assert o2["status"] == "on_the_way"  # B not yet delivered
+    # Rider for store B delivers → global delivered
+    r2 = requests.post(f"{API}/twilio/inbound",
+                       data={"Body": f"{otp_b} - Delivered", "From": f"whatsapp:{rider_phone}"}, timeout=10)
+    assert r2.status_code == 200
+    o3 = requests.get(f"{API}/orders/{oid}", timeout=10).json()
+    assert o3["merchant_states"][mA["merchant_id"]] == "delivered"
+    assert o3["merchant_states"][mB["merchant_id"]] == "delivered"
+    assert o3["status"] == "delivered"

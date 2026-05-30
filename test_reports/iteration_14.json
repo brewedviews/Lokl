@@ -1,0 +1,30 @@
+{
+  "summary": "Iter14: validated PER-MERCHANT UNIQUE 4-digit OTPs end-to-end. Backend: all 12 pytest in test_multi_merchant_orders.py PASS (covers create-generates-distinct-otps, accept-returns-only-my-otp, merchant_orders hides other merchant otp, per-merchant slice cancel, twilio inbound matches per-merchant otp, plus prior 7 state-machine tests). Phase1 single-store regression: 5/5 PASS. Frontend E2E (multi-store order BFO-8A76279A, A=5459, B=9834): (1) Customer /orders/:id shows BOTH per-store OTP cards (5459 inside MMUI A MiniStepper, 9834 inside MMUI B MiniStepper), global OtpCard correctly suppressed. (2) Admin Live orders tab shows MULTI-STORE pill + per-merchant slice rows with each unique OTP, Mark delivered + Cancel buttons PER slice. Single-store orders still show the original 'Cancel order' single-button layout. (3) Merchant A dashboard shows own OTP 5459 with subtotal ₹599 — NO leak of B's 9834. Merchant B dashboard shows own OTP 9834 with subtotal ₹1,198 — NO leak of A's 5459. All four agent_to_agent_context_note checkpoints verified.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_multi_merchant_orders.py",
+    "/app/test_reports/pytest/results_iter14.xml",
+    "/app/test_reports/seed_multi_store.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "OrderTracking.jsx correctly hides global OtpCard when is_multi_store and embeds per-store OTP inside each MiniStepper card only when state in {accepted,handed_off,delivered} — defensive against pending leak.",
+    "AdminPanel OrdersTab cleanly branches multi-store vs single-store rendering — preserves single-store UX while adding per-slice controls.",
+    "merchant_otps map response from GET /api/merchant/orders correctly filters to {mid:otp} for logged-in merchant only — strong server-side isolation, no other-merchant OTP leak even at JSON level.",
+    "POST /api/twilio/inbound scans the per-merchant merchant_otps dict and flips only the matching merchant's slice — not the first handed_off merchant. Verified by pytest test_twilio_inbound_matches_per_merchant_otp.",
+    "POST /api/admin/orders/{oid}/cancel {merchant_id, reason} correctly cancels just one slice; global flips to cancelled only when ALL slices cancelled. Verified."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin admin@lokl.in / Admin@2026. Multi-store seed merchants: mmui_A_a438c0@lokl.in / Multi@2026 (OTP 5459, subtotal ₹599) and mmui_B_b13803@lokl.in / Multi@2026 (OTP 9834, subtotal ₹1,198). Order: BFO-8A76279A.",
+  "seed_data_creation": "Reused /app/test_reports/seed_multi_store.py to seed 2 fresh merchants + 1 multi-store order. Both merchants accepted via API. Seed JSON at /tmp/multi_store_seed.json.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Per-merchant unique OTPs are now battle-tested. Seed script /app/test_reports/seed_multi_store.py creates two merchants + one multi-store order. After accept-API call per merchant, OTPs returned are unique 4-digit codes. UI testing requires /orders/:id (NOT /order/:id — note the plural). Admin tab is 'Live orders'. Merchant orders panel auto-loads at /merchant/dashboard root after login.",
+  "rca of the issue": "No issues found. Per-merchant unique OTP fan-out works end-to-end across backend, customer tracking, admin console and both merchant dashboards. Merchant-level OTP isolation verified — no cross-merchant OTP leakage at API or UI."
+}

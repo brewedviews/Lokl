@@ -847,8 +847,12 @@ async def create_order(payload: OrderCreate):
         items_snap.append(new_it)
     now = datetime.now(timezone.utc).isoformat()
     unique_mids = list(set([m for m in merchant_ids if m]))
-    # 4-digit OTP shared across customer / admin / merchant for rider handoff verification
-    otp = f"{random.randint(1000, 9999)}"
+    # Per-merchant unique 4-digit OTPs — each store gets its own rider handoff
+    # OTP. Customer receives one OTP per merchant (after that merchant accepts).
+    def _new_otp(): return f"{random.randint(1000, 9999)}"
+    merchant_otps = {mid: _new_otp() for mid in unique_mids}
+    # Legacy `otp` field kept for single-store backward compat (old clients).
+    otp = merchant_otps[unique_mids[0]] if unique_mids else _new_otp()
     # Per-merchant accept state — each merchant accepts/rejects independently.
     # The global `status` only advances to `confirmed` when ALL merchants accept.
     merchant_states = {mid: "pending" for mid in unique_mids}
@@ -862,6 +866,8 @@ async def create_order(payload: OrderCreate):
            "merchant_states": merchant_states,
            "merchant_timelines": merchant_timelines,
            "merchant_delivered_at": {},
+           "merchant_otps": merchant_otps,
+           "merchant_cancelled": {},  # {mid: reason} for per-merchant cancellation
            "is_multi_store": len(unique_mids) > 1,
            "otp": otp,
            "created_at": now,
@@ -908,6 +914,9 @@ async def get_order(order_id: str):
                 "state": (o.get("merchant_states") or {}).get(mid, "pending"),
                 "timeline": (o.get("merchant_timelines") or {}).get(mid) or [],
                 "delivered_at": (o.get("merchant_delivered_at") or {}).get(mid),
+                # Customer sees the per-store OTP only AFTER that store accepts
+                "otp": (o.get("merchant_otps") or {}).get(mid) if (o.get("merchant_states") or {}).get(mid) in ("accepted", "handed_off", "delivered") else None,
+                "cancel_reason": (o.get("merchant_cancelled") or {}).get(mid),
             })
         o["store_breakdown"] = breakdown
     return o
@@ -938,10 +947,14 @@ async def merchant_orders(user: dict = Depends(get_current_user)):
         o["items"] = own_items
         # Override total to this merchant's slice so revenue is accurately reported
         o["merchant_subtotal"] = round(sum(float(it.get("price", 0)) * int(it.get("qty", 1)) for it in own_items), 2)
-        # This merchant's per-order accept state + their own timeline
+        # This merchant's per-order accept state + their own timeline + OTP
         o["my_state"] = (o.get("merchant_states") or {}).get(mid, "pending")
         o["my_timeline"] = (o.get("merchant_timelines") or {}).get(mid) or o.get("timeline") or []
         o["my_delivered_at"] = (o.get("merchant_delivered_at") or {}).get(mid)
+        o["my_otp"] = (o.get("merchant_otps") or {}).get(mid) or o.get("otp", "")
+        # Hide other merchants' OTPs from this merchant's view
+        if o.get("merchant_otps"):
+            o["merchant_otps"] = {mid: o["my_otp"]}
         cleaned.append(o)
     return cleaned
 
@@ -977,24 +990,31 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
     )
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     m = await db.merchants.find_one({"id": mid}, {"_id": 0, "store_name": 1, "business_address": 1})
+    # This merchant's UNIQUE 4-digit OTP (each store gets its own; customer
+    # receives the OTP only after that merchant accepts).
+    my_otp = (o.get("merchant_otps") or {}).get(mid) or o.get("otp", "")
     if cust_phone:
-        try: notify_order_accepted(cust_phone, oid, (m or {}).get("store_name", "your store"))
+        try: notify_order_accepted(cust_phone, oid, (m or {}).get("store_name", "your store"), otp=my_otp)
         except Exception: pass
     rider_phone = os.environ.get("RIDER_PHONE", "").strip()
-    if all_accepted and rider_phone:
+    # Per-merchant rider pickup — each store's leg is its own dispatch with its
+    # own OTP. Fires the moment THIS merchant accepts (not gated on all).
+    if rider_phone:
         try:
             addr = o.get("address") or {}
             pickup = (m or {}).get("store_name", "Store") + " · " + (m or {}).get("business_address", "Bhilai")
             drop_parts = [addr.get("line1", ""), addr.get("landmark", ""), addr.get("city", "Bhilai"), addr.get("pincode", "")]
             drop = ", ".join([p for p in drop_parts if p])
+            # Only ship this merchant's own items to the rider
+            my_items = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid]
             notify_rider_pickup(
-                rider_phone, order_id=oid, otp=o.get("otp", ""),
+                rider_phone, order_id=oid, otp=my_otp,
                 customer_name=(o.get("customer") or {}).get("name") or addr.get("name", "Customer"),
                 customer_phone=cust_phone or addr.get("phone", ""),
-                pickup=pickup, drop=drop, items=o.get("items", []),
+                pickup=pickup, drop=drop, items=my_items or o.get("items", []),
             )
         except Exception: pass
-    return {"ok": True, "otp": o.get("otp"), "all_accepted": all_accepted, "my_state": "accepted"}
+    return {"ok": True, "otp": my_otp, "all_accepted": all_accepted, "my_state": "accepted"}
 
 @api.post("/merchant/orders/{oid}/handed-to-rider")
 async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_user)):
@@ -1025,8 +1045,10 @@ async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_us
     await db.orders.update_one({"id": oid}, {"$set": {"status": new_global, "merchant_states": states,
                                                        "merchant_timelines": timelines, "timeline": tl}})
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
-    if cust_phone and all_handed:
-        try: notify_order_on_the_way(cust_phone, oid, o.get("otp", ""))
+    if cust_phone:
+        # Notify customer THIS store is on the way (with that store's unique OTP)
+        my_otp = (o.get("merchant_otps") or {}).get(mid) or o.get("otp", "")
+        try: notify_order_on_the_way(cust_phone, oid, my_otp)
         except Exception: pass
     return {"ok": True, "all_handed": all_handed, "my_state": "handed_off"}
 
@@ -1089,13 +1111,39 @@ async def admin_mark_delivered(oid: str, request: Request, payload: Optional[dic
 
 @api.post("/admin/orders/{oid}/cancel")
 async def admin_cancel_order(oid: str, request: Request, payload: Optional[dict] = None):
+    """Cancel an order or one merchant's slice of a multi-store order.
+
+    Payload (optional): `{"reason": "...", "merchant_id": "..."}` — when
+    `merchant_id` is present on a multi-store order, only that merchant's slice
+    is cancelled; the rest of the order continues. Global flips to `cancelled`
+    only when every merchant on the order is cancelled (or none remain active)."""
     _check_admin(request.headers.get("authorization"))
     o = await db.orders.find_one({"id": oid}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
     if o.get("status") == "delivered":
         raise HTTPException(400, "Cannot cancel a delivered order")
     reason = (payload or {}).get("reason") or "Cancelled by admin"
-    await db.orders.update_one({"id": oid}, {"$set": {"status": "cancelled", "cancel_reason": reason}})
+    target_mid = (payload or {}).get("merchant_id")
+    mids = o.get("merchant_ids") or []
+
+    if target_mid:
+        if target_mid not in mids:
+            raise HTTPException(400, "merchant_id not part of this order")
+        # Mark just this merchant's slice as cancelled (state = "cancelled" sentinel)
+        cancelled = dict(o.get("merchant_cancelled") or {})
+        cancelled[target_mid] = reason
+        states = dict(o.get("merchant_states") or {})
+        states[target_mid] = "cancelled"
+        # Global cancels only when EVERY merchant slice is cancelled
+        active = [m for m in mids if states.get(m) != "cancelled"]
+        new_global = "cancelled" if not active else o.get("status")
+        update_doc = {"merchant_cancelled": cancelled, "merchant_states": states,
+                      "status": new_global}
+        if new_global == "cancelled":
+            update_doc["cancel_reason"] = reason
+        await db.orders.update_one({"id": oid}, {"$set": update_doc})
+    else:
+        await db.orders.update_one({"id": oid}, {"$set": {"status": "cancelled", "cancel_reason": reason}})
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     if cust_phone:
         try: notify_order_cancelled(cust_phone, oid, reason)
@@ -1856,11 +1904,33 @@ async def admin_orders(request: Request, status: Optional[str] = None, limit: in
     orders = await cursor.to_list(limit)
     # Enrich with store names
     mids = list({m for o in orders for m in (o.get("merchant_ids") or [])})
+    name_by_mid = {}
     if mids:
         mers = await db.merchants.find({"id": {"$in": mids}}, {"_id": 0, "id": 1, "store_name": 1}).to_list(len(mids))
         name_by_mid = {m["id"]: m["store_name"] for m in mers}
         for o in orders:
             o["store_names"] = [name_by_mid.get(m, "—") for m in (o.get("merchant_ids") or [])]
+    # Per-merchant breakdown so the admin UI can show one line per store
+    # (with each store's items, subtotal, state, OTP, cancel reason) — needed
+    # to render per-merchant Mark Delivered / Cancel buttons on multi-store
+    # orders.
+    for o in orders:
+        oids = o.get("merchant_ids") or []
+        if not oids: continue
+        bd = []
+        for mid in oids:
+            its = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid]
+            bd.append({
+                "merchant_id": mid,
+                "store_name": name_by_mid.get(mid, "—"),
+                "items": its,
+                "subtotal": round(sum(float(it.get("price", 0)) * int(it.get("qty", 1)) for it in its), 2),
+                "state": (o.get("merchant_states") or {}).get(mid, "pending"),
+                "otp": (o.get("merchant_otps") or {}).get(mid),
+                "delivered_at": (o.get("merchant_delivered_at") or {}).get(mid),
+                "cancel_reason": (o.get("merchant_cancelled") or {}).get(mid),
+            })
+        o["store_breakdown"] = bd
     return orders
 
 @api.post("/admin/products/{pid}/pause")
@@ -1993,28 +2063,45 @@ async def twilio_inbound(request: Request):
 
     # Otherwise — delivery confirmation
     otp = m_del.group(1)
-    o = await db.orders.find_one({"otp": otp, "status": {"$in": ["accepted", "on_the_way"]}}, {"_id": 0})
-    if not o:
+    # Match OTP against per-merchant OTP first (unique per store); fall back to
+    # legacy global `otp` for single-store / pre-fix orders.
+    cands = await db.orders.find({"status": {"$in": ["accepted", "on_the_way"]}}, {"_id": 0}).to_list(500)
+    target_mid = None
+    target_order = None
+    for cand in cands:
+        m_otps = cand.get("merchant_otps") or {}
+        for mid, code in m_otps.items():
+            if code == otp:
+                target_order = cand
+                target_mid = mid
+                break
+        if target_order:
+            break
+        if cand.get("otp") == otp:
+            target_order = cand
+            mids = cand.get("merchant_ids") or []
+            target_mid = mids[0] if mids else None
+            break
+
+    if not target_order:
         log.warning("[Twilio inbound] no matching live order for OTP %s", otp)
         return Response(content=twiml_empty, media_type="application/xml")
+    o = target_order
 
     now = datetime.now(timezone.utc).isoformat()
     states = dict(o.get("merchant_states") or {})
     timelines = dict(o.get("merchant_timelines") or {})
     delivered_map = dict(o.get("merchant_delivered_at") or {})
-    # Multi-store: each rider WhatsApp ping marks the next handed_off merchant as delivered
-    # (riders deliver sequentially; the OTP is shared across both legs).
-    candidate_mid = None
-    for mid in (o.get("merchant_ids") or []):
-        if states.get(mid) == "handed_off":
-            candidate_mid = mid
-            break
-    if candidate_mid:
-        states[candidate_mid] = "delivered"
-        if candidate_mid not in timelines:
-            timelines[candidate_mid] = _new_merchant_timeline(o.get("created_at", now))
-        timelines = _stamp_merchant_step(timelines, candidate_mid, "Delivered", now)
-        delivered_map[candidate_mid] = now
+    # Only mark delivered if THIS merchant's leg has been handed to rider.
+    if target_mid and states.get(target_mid) == "handed_off":
+        states[target_mid] = "delivered"
+        if target_mid not in timelines:
+            timelines[target_mid] = _new_merchant_timeline(o.get("created_at", now))
+        timelines = _stamp_merchant_step(timelines, target_mid, "Delivered", now)
+        delivered_map[target_mid] = now
+    elif target_mid is None and not states:
+        # Truly legacy order (no per-merchant state) — flip global
+        pass
     new_global = _derive_global_status(states) if states else "delivered"
     tl = o.get("timeline", [])
     update_doc = {"status": new_global, "merchant_states": states,
@@ -2032,7 +2119,7 @@ async def twilio_inbound(request: Request):
         try: notify_order_delivered(cust_phone, o["id"])
         except Exception: pass
     log.info("[Twilio inbound] marked %s as delivered via rider WhatsApp (merchant=%s, global=%s)",
-             o["id"], candidate_mid, new_global)
+             o["id"], target_mid, new_global)
     reply = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>✅ Lokl: Order {o["id"]} marked delivered. Thank you!</Message></Response>'
     return Response(content=reply, media_type="application/xml")
 
