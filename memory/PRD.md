@@ -3,6 +3,12 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-22) — Vertical rhythm + footer merge
+
+- **Uniform 32px section gap** across the entire homepage. Replaced `py-8` (32+32 = 64px between sections) with `pt-8` (top-only) on every V2 section: `OffersStrip`, `HCarousel`, `CustomerLove`, and the inline `categories-v2` + `stores-near-you` sections in `Home.jsx`. Also removed the extra `pb-2` from carousel rows. Verified via DOM: visible_gap_to_next_h2 = 32px for hero→trending, trending→categories, categories→offers, offers→selling-fast, selling-fast→stores, stores→customer-love.
+- **Seamless CustomerLove → Footer transition.** Removed the cream `pb-24 md:pb-12` from `<main>` (was leaking the cream parent bg between the navy CustomerLove section and the navy Footer). Moved the sticky-bottom-nav clearance to Footer's last bar (`pb-20 md:pb-0`).
+- **Gradient on CustomerLove.** Changed `bg-[#0A1F5C]` → `bg-gradient-to-b from-[#152D6E] to-[#0A1F5C]` so the section starts with a lighter navy and lands on the footer's exact `#0A1F5C` — gradient seamlessly merges into the solid Footer below.
+
 ## Latest Iteration (Feb 2026 — Iter-21) — Carousel snap-padding fix + section reorder
 
 - **Root-caused the persistent "cards touching the left edge" issue.** All `snap-x snap-mandatory` carousels were auto-scrolling `scrollLeft = padding-left` on first render — the default `scroll-padding` is 0, so `snap-start` aligned the first card with the container's border-edge, eating the padding. Fixed by adding `scroll-pl-4 sm:scroll-pl-8` to `OffersStrip.jsx`, `HCarousel.jsx`, AND `CustomerLove.jsx` (which was missing it). Verified via DOM bounding-box on desktop+mobile: every carousel's first card now starts at x=112, matching the hero/section headers.

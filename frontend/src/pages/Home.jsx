@@ -57,7 +57,7 @@ export default function Home() {
     hero: () => <HeroV2 stats={stats} hero={config?.hero} />,
     offers: () => offers.length > 0 && <OffersStrip offers={offers} />,
     categories: () => cats.length > 0 && (
-      <section className="px-4 sm:px-8 py-8 max-w-7xl mx-auto" data-testid="categories-v2">
+      <section className="px-4 sm:px-8 pt-8 max-w-7xl mx-auto" data-testid="categories-v2">
         <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0A1F5C] mb-1">Shop by category</h2>
         <p className="text-xs sm:text-sm text-[#64748B] mb-4">From stores across Bhilai.</p>
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 sm:gap-4">
@@ -86,7 +86,7 @@ export default function Home() {
       </HCarousel>
     ),
     stores: () => (stores.length > 0 ? (
-      <section className="px-4 sm:px-8 py-8 max-w-7xl mx-auto" data-testid="stores-near-you">
+      <section className="px-4 sm:px-8 pt-8 max-w-7xl mx-auto" data-testid="stores-near-you">
         <div className="flex items-end justify-between mb-3">
           <div>
             <h2 className="text-xl sm:text-2xl font-display font-bold text-[#0A1F5C]">Stores near you</h2>
@@ -120,7 +120,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
       <ConsumerHeader />
-      <main className="pb-24 md:pb-12">
+      <main className="pb-0">
         {orderedIds.length > 0
           ? orderedIds.map((id) => <React.Fragment key={id}>{SECTIONS[id]?.()}</React.Fragment>)
           : Object.entries(SECTIONS).map(([k, fn]) => <React.Fragment key={k}>{fn()}</React.Fragment>)

@@ -26,7 +26,7 @@ export default function Footer() {
         </div>
       </div>
 
-      <div className="bg-black/20">
+      <div className="bg-black/20 pb-20 md:pb-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-8 py-3 flex flex-wrap items-center justify-between gap-2 text-[11px] opacity-60">
           <span>© {new Date().getFullYear()} Lokl Commerce Pvt Ltd. All rights reserved.</span>
           <span>Built for the Tier-2 high street.</span>
