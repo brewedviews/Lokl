@@ -1,13 +1,20 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Heart, Plus, Minus, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import ProductBadge from "./ProductBadge";
 import { useCart } from "../../../contexts/CartContext";
+import { isInWishlist, toggleWishlist } from "../../../lib/wishlist";
 
 /** 80% image / 20% content product card — single primary badge, qty stepper. */
 export default function ProductCardV2({ p, onWishlist, isWished }) {
-  const [wished, setWished] = useState(!!isWished);
+  const [wished, setWished] = useState(() => (typeof isWished === "boolean" ? isWished : isInWishlist(p.id)));
+  useEffect(() => {
+    // Stay in sync when wishlist changes elsewhere (e.g. removed from /account)
+    const onChange = () => setWished(isInWishlist(p.id));
+    window.addEventListener("wishlist:change", onChange);
+    return () => window.removeEventListener("wishlist:change", onChange);
+  }, [p.id]);
   const { items, add, updateQty } = useCart();
   // Find this product in cart (any size variant)
   const inCart = (items || []).find((i) => i.id === p.id);
@@ -44,7 +51,13 @@ export default function ProductCardV2({ p, onWishlist, isWished }) {
           <button
             type="button"
             aria-label="Wishlist"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWished((w) => !w); onWishlist?.(p, !wished); }}
+            onClick={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              const justAdded = toggleWishlist(p);
+              setWished(justAdded);
+              toast.success(justAdded ? "Saved to wishlist" : "Removed from wishlist");
+              onWishlist?.(p, justAdded);
+            }}
             className={`absolute top-2 right-2 w-9 h-9 rounded-full grid place-items-center backdrop-blur-md transition active:scale-90 ${wished ? "bg-[#F59E0B] text-white" : "bg-white/85 text-[#0A1F5C]"}`}
           >
             <Heart size={15} fill={wished ? "currentColor" : "none"} strokeWidth={2.2} />

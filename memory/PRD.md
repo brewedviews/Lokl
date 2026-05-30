@@ -3,7 +3,15 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
-## Latest Iteration (Feb 2026 — Iter-25) — Batch B + C: Mobile Store page + My Account rebuild
+## Latest Iteration (Feb 2026 — Iter-26) — My Account refinements
+
+- **Fixed "LOKL MEMBER" badge overlapping the name + pencil on mobile.** Moved the badge out of `absolute` positioning and into the same inline-flex flow as `<h2>` + edit button — flex-wrap lets the pill cleanly drop to the next line on narrow screens. Verified `scrollWidth === clientWidth` for the header card on a 390px viewport (no overflow).
+- **Orders is now the default selected tile** (Myntra/Ajio pattern). Added `activeTile` state (initial `"orders"`) and a single switch-driven content panel. Selected tile gets a navy 2-px border + faint navy tint + shadow; clicking any tile swaps the panel below. Recent-orders preview removed in favour of the full Orders panel above the fold.
+- **Wishlist is live.** New util `/app/frontend/src/lib/wishlist.js` (localStorage, keyed by phone, dispatches `wishlist:change` events). Wired into `ProductCardV2`'s heart — toggling persists + toasts. New `WishlistPanel` lists saved products as cards with remove buttons. "SOON" badge dropped from the Wishlist tile; live count shown.
+- **Sign-out is now a proper outlined card button** matching the surrounding surfaces (white bg, `E5E2DC` border, saffron text/icon, hover saffron-tinted). Full-width, rounded-2xl, 14-16px vertical padding.
+- **Phone-gate empty-state fixed.** The footer used to "pull up" when content was short. Wrapped the page in `min-h-screen flex flex-col` with `flex-1` on `<main>` so the footer pins to the bottom of the viewport regardless of content height.
+
+## Latest Iteration (Feb 2026 — Iter-25) — Batch B + C
 
 ### Batch B — Mobile Store Page
 - Cover image height reduced on mobile: `h-[45vh]` → `h-[28vh] sm:h-[45vh] md:h-[55vh]`.
