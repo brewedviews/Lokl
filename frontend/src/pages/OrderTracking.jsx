@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
-  CheckCircle2, Circle, Bike, Package, RotateCcw, MessageCircle,
+  CheckCircle2, Bike, Package, RotateCcw, MessageCircle,
   AlertCircle, ShieldCheck, MapPin, Receipt, Clock, ShoppingBag, Phone
 } from "lucide-react";
 import ConsumerHeader from "../components/consumer/ConsumerHeader";
@@ -333,25 +333,9 @@ export default function OrderTracking() {
           </section>
         )}
 
-        {/* Timeline (collapsed-style row of completed events) */}
-        {(order.timeline || []).some((t) => t.time) && (
-          <section className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm" data-testid="timeline">
-            <h2 className="font-display text-base sm:text-lg font-bold text-[#0A1F5C] mb-3">Order timeline</h2>
-            <div className="space-y-3">
-              {(order.timeline || []).map((t, idx) => (
-                <div key={idx} className="flex items-center gap-3">
-                  {t.time
-                    ? <CheckCircle2 size={16} className="text-[#4F7363]" />
-                    : <Circle size={16} className="text-[#E5E2DC]" />}
-                  <div className="flex-1">
-                    <div className={`text-sm font-semibold ${t.time ? "text-[#0A1F5C]" : "text-[#94A3B8]"}`}>{t.label}</div>
-                    {t.time && <div className="text-[11px] text-[#64748B] mt-0.5">{new Date(t.time).toLocaleString()}</div>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+        {/* Timeline removed — the horizontal stepper inside StatusHero already
+            communicates the same Placed → Confirmed → Out for delivery → Delivered
+            progression, so the duplicate card was redundant. */}
 
         <AddressCard address={order.delivery_address || order.address} />
         <ItemsCard order={order} />
