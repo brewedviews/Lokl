@@ -1,87 +1,124 @@
 {
-  "project_name": "Bharat-First Fashion Commerce OS",
-  "theme": "Light",
-  "archetype": "Organic & Earthy",
-  "typography": {
-    "heading_font": "Clash Display, sans-serif",
-    "body_font": "Satoshi, sans-serif",
-    "font_weights": {
-      "headings": "600, 700",
-      "body": "400, 500"
-    },
-    "guidelines": "Do not use Space Grotesk, Inter, or Roboto. Use Clash Display for large impact headings and Satoshi for legible, clean body text. Headings should have tight letter spacing."
+  "theme_archetype": {
+    "theme": "LIGHT",
+    "archetype": "Brand-Specific Trust",
+    "description": "Blends high-contrast modern functionality (Blinkit/Myntra) with organic trust and fashion elegance (Nykaa). Emphasizes speed, local credibility, and high-conversion layouts."
   },
-  "colors": {
-    "background": "#FDFBF7",
-    "surface": "#FFFFFF",
-    "primary": "#1A2B4C",
-    "primary_hover": "#101D36",
-    "accent": "#E68910",
-    "accent_hover": "#C9770E",
-    "text_primary": "#1C1C1C",
-    "text_secondary": "#595959",
-    "border": "#E5E2DC",
-    "success": "#4F7363",
-    "warning": "#E68910",
-    "glass": "bg-white/70 backdrop-blur-xl border-white/40",
-    "guidelines": "No purple or violet gradients. Stick strictly to this warm, aspirational, organic palette. Use Deep Indigo for CTAs and Marigold for highlights/accents."
-  },
-  "spacing_and_layout": {
-    "padding": "Generous spacing philosophy. Use p-6, p-8, p-12 for containers. Avoid cramped UI.",
-    "grid_strategy": "Use asymmetrical 'bento' layouts for the consumer marketplace. Use strict 3-col 'control room' grid for merchant dashboards.",
-    "radius": "rounded-2xl for primary cards and images, rounded-full for buttons and badges.",
-    "borders": "Use subtle 1px borders (border-[#E5E2DC]) on merchant dashboard cards for crisp definition without shadows."
-  },
-  "components": {
-    "consumer": {
-      "header": "Sticky glassmorphic header (z-50) featuring a Hyperlocal Location Selector (Blinkit style).",
-      "hero_carousel": "Full-width or rounded edge carousel showcasing high-quality lifestyle fashion images. Include subtle noise texture over solids.",
-      "store_card": "Instagram-boutique feel. 4:5 aspect ratio images. Overlay rating, distance (e.g., '1.2 km away'), and store name at the bottom. Minimal UI, high visual impact.",
-      "pdp": "Immersive image gallery. 'AI Enhanced' badge on images. Sticky 'Add to Bag' CTA on mobile."
-    },
-    "merchant": {
-      "dashboard_layout": "Sidebar navigation. Clean white workspace (Solid surface, no glass here).",
-      "ai_catalog_engine": "The 'Wow Moment'. Side-by-side or drag-slider comparison showing the Raw Photo vs AI Transformed Photo. Must use the media assets provided.",
-      "upload_zone": "Large dashed border drag-and-drop zone with a warm gray background."
+  "color_palette_bridge": {
+    "strategy": "Transition from muted cream/navy to crisp white/deep navy for a more performance-focused, modern feel while keeping the brand equity.",
+    "colors": {
+      "primary_navy": "#0A1F5C",
+      "accent_orange": "#F59E0B",
+      "background_white": "#FFFFFF",
+      "surface_offwhite": "#F8FAFC",
+      "text_primary": "#0F172A",
+      "text_secondary": "#64748B",
+      "success_green": "#10B981",
+      "urgency_red": "#EF4444"
     }
   },
-  "media": {
-    "consumer_hero": {
-      "url": "https://static.prod-images.emergentagent.com/jobs/7eafffce-c685-4839-ad08-06796579c4de/images/2170af8ea48f218e9a710150fe28702a1b95a190e31f2858b88e10d4dde36cc1.png",
-      "description": "Cinematic lifestyle fashion banner for consumer app"
+  "typography": {
+    "font_family": {
+      "display": "'Playfair Display', serif",
+      "sans": "'Inter', sans-serif"
     },
-    "ai_before_raw": {
-      "url": "https://static.prod-images.emergentagent.com/jobs/7eafffce-c685-4839-ad08-06796579c4de/images/ec5665f39e798be41fe86083e99a5d4c91342b61fdb3c0fed0ac8470b9f5ae30.png",
-      "description": "Raw unedited smartphone photo of garment"
+    "scale": {
+      "h1": "text-3xl sm:text-4xl font-display font-bold tracking-tight leading-tight",
+      "h2": "text-2xl font-display font-semibold tracking-tight leading-snug",
+      "h3": "text-lg font-sans font-semibold leading-snug",
+      "body": "text-sm font-sans text-slate-700 leading-relaxed",
+      "caption": "text-xs font-sans text-slate-500",
+      "eyebrow": "text-[10px] font-sans font-bold uppercase tracking-wider"
+    }
+  },
+  "spacing_and_layout": {
+    "container": "max-w-md mx-auto w-full",
+    "screen_padding": "px-4",
+    "section_gap": "py-8",
+    "card_radius": "rounded-2xl",
+    "button_radius": "rounded-xl",
+    "pill_radius": "rounded-full"
+  },
+  "shadows_and_elevation": {
+    "sm": "shadow-[0_2px_8px_rgba(10,31,92,0.06)]",
+    "md": "shadow-[0_8px_24px_rgba(10,31,92,0.12)]",
+    "lg": "shadow-[0_16px_48px_rgba(10,31,92,0.16)]",
+    "orange_glow": "shadow-[0_4px_16px_rgba(245,158,11,0.25)]"
+  },
+  "motion_tokens": {
+    "tap_scale": "active:scale-[0.98] transition-transform duration-100 ease-in-out",
+    "wishlist_heart": "hover:scale-110 active:scale-90 transition-transform duration-200 ease-spring",
+    "sticky_cart": "animate-in slide-in-from-bottom-10 duration-300 ease-out",
+    "badge_ping": "animate-pulse duration-1000"
+  },
+  "skeleton_rules": {
+    "animation": "animate-pulse",
+    "color": "bg-slate-200",
+    "behavior": "Match exact dimensions of final loaded element to prevent layout shift."
+  },
+  "reference_layouts": {
+    "mobile_homepage_hero": {
+      "description": "Full-bleed image or split card. FIXED copy over dark gradient overlay (bg-black/40). Dual gender CTAs (Shop Women/Men) side-by-side. Metric strip floats at the very bottom overlapping the next section: '4.8 Avg Rating · 50+ Verified Stores · 5,000+ Products · 2,000+ Deliveries'."
     },
-    "ai_after_premium": {
-      "url": "https://static.prod-images.emergentagent.com/jobs/7eafffce-c685-4839-ad08-06796579c4de/images/85d2c0f8f4172341be04027aee7a0cdd867b695317ee9a9a01a9e2b11653670e.png",
-      "description": "AI transformed high-end editorial photo"
+    "mobile_product_card": {
+      "description": "80% image top, 20% content bottom. Image aspect-[4/5]. ONE dynamic badge top-left (absolute). Wishlist heart top-right (absolute). Bottom content: Brand, Title (truncate-1), Price (bold) + strikethrough + discount %, ETA/Delivery note."
     },
-    "store_interiors": [
-      "https://images.unsplash.com/photo-1441986300917-64674bd600d8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTF8MHwxfHNlYXJjaHwxfHxjbG90aGluZyUyMHN0b3JlJTIwYm91dGlxdWUlMjBpbnRlcmlvcnxlbnwwfHx8fDE3Nzg5MTI5OTh8MA&ixlib=rb-4.1.0&q=85",
-      "https://images.unsplash.com/photo-1555529771-835f59fc5efe?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTF8MHwxfHNlYXJjaHwzfHxjbG90aGluZyUyMHN0b3JlJTIwYm91dGlxdWUlMjBpbnRlcmlvcnxlbnwwfHx8fDE3Nzg5MTI5OTh8MA&ixlib=rb-4.1.0&q=85"
-    ],
-    "fashion_lifestyle": [
-      "https://images.unsplash.com/photo-1610189012906-4c0aa9b9781e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHw0fHxpbmRpYW4lMjBmYXNoaW9uJTIwbGlmZXN0eWxlJTIwbW9kZXJufGVufDB8fHx8MTc3ODkxMjk5OHww&ixlib=rb-4.1.0&q=85",
-      "https://images.unsplash.com/photo-1569810020669-aa9d38003ea7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwyfHxpbmRpYW4lMjBmYXNoaW9uJTIwbGlmZXN0eWxlJTIwbW9kZXJufGVufDB8fHx8MTc3ODkxMjk5OHww&ixlib=rb-4.1.0&q=85"
+    "mobile_store_card": {
+      "description": "Banner image top (h-24). Rounded logo overlapping banner bottom edge. Below banner: Store Name, Verified badge, Rating + Reviews, 'Since 2017', Distance, ETA. Bottom row: 1-line store story or social proof."
+    },
+    "mobile_pdp_above_fold": {
+      "description": "Image carousel (aspect-[3/4]). Urgency strip immediately below image. Title, Price, Discount. Doorstep Trial chip. Size selector chips. Trust strip (Secure/COD/Returns)."
+    },
+    "mobile_sticky_bottom_nav": {
+      "description": "Fixed bottom, z-50, bg-white/90 backdrop-blur-md, border-t. 5 items: Home, Categories, Search, Orders, Profile. Active state uses Accent Orange."
+    },
+    "mobile_search_overlay": {
+      "description": "Full screen modal. Header with Back button and thick Search Input. Input features rotating placeholder text. Below: 'Trending Searches' chips, 'Recent Searches' list."
+    }
+  },
+  "content_ordering": {
+    "homepage": [
+      "Header",
+      "Hero",
+      "USP chips",
+      "Why Lokl",
+      "Offers carousel",
+      "Categories with counts",
+      "Popular in Bhilai",
+      "Selling Fast",
+      "Stores Near You",
+      "Trending",
+      "New Arrivals",
+      "Best Sellers",
+      "Recently Viewed",
+      "Customer Love",
+      "How Lokl Works",
+      "Footer",
+      "Sticky bottom nav"
     ]
   },
-  "testing": {
-    "attribute": "data-testid",
-    "rule": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case format (e.g., data-testid='login-button')."
-  },
-  "icons": {
-    "library": "lucide-react",
-    "instructions": "Use lucide-react strictly. Do not use emoji icons."
-  },
-  "instructions_to_main_agent": [
-    "Build a responsive React web app. The platform has two halves: Consumer App and Merchant Dashboard.",
-    "For the Consumer App, use pure HTML/Tailwind styling for an immersive, layout-flexible design. Focus on large imagery, bento grids, and an 'Instagram boutique' visual feed for store listings.",
-    "For the Merchant Dashboard, use Shadcn UI components for complex interactions (Tables, Modals, Forms) but customize them to match the Organic & Earthy palette. No generic 'Vercel-look'.",
-    "Implement the 'AI Catalog Wow Moment' in the merchant dashboard utilizing the exact raw vs premium images provided in the media section to demonstrate the transformation.",
-    "Apply the data-testid attribute consistently across all interactive UI elements.",
-    "Do not use Inter, Roboto, or Space Grotesk. Embed and use Clash Display (Headings) and Satoshi (Body).",
-    "Do not invent new colors outside the defined palette. Never use purple or violet gradients."
-  ]
+  "what_to_avoid": [
+    "No generic full-screen gradients. Keep backgrounds crisp white.",
+    "No stacked badges on product cards (strictly ONE per card).",
+    "No fake numbers or placeholder stats (all must be agent-driven).",
+    "No stock images with watermarks.",
+    "No excessive motion or parallax that hurts performance.",
+    "No off-brand colors (stick strictly to Navy, Orange, White, Slate)."
+  ],
+  "image_urls": {
+    "women_fashion": [
+      "https://images.unsplash.com/photo-1612782809364-17727da6669c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHw0fHx3b21lbiUyMGZhc2hpb24lMjBtb2RlbCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MDE0NTk5MHww&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1618375601660-3e6842f5b791?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHwxfHx3b21lbiUyMGZhc2hpb24lMjBtb2RlbCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MDE0NTk5MHww&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1721003080966-423d4017d09d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHwzfHx3b21lbiUyMGZhc2hpb24lMjBtb2RlbCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MDE0NTk5MHww&ixlib=rb-4.1.0&q=85"
+    ],
+    "men_fashion": [
+      "https://images.unsplash.com/photo-1495366691023-cc4eadcc2d7e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHw0fHxtZW4lMjBmYXNoaW9uJTIwbW9kZWwlMjBzdHJlZXR8ZW58MHx8fHwxNzgwMTQ1OTkwfDA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1552252059-9d77e4059ad1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwwyfHxtZW4lMjBmYXNoaW9uJTIwbW9kZWwlMjBzdHJlZXR8ZW58MHx8fHwxNzgwMTQ1OTkwfDA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1615482572493-6d8be4ce0dc6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwxfHxtZW4lMjBmYXNoaW9uJTIwbW9kZWwlMjBzdHJlZXR8ZW58MHx8fHwxNzgwMTQ1OTkwfDA&ixlib=rb-4.1.0&q=85"
+    ],
+    "store_fronts": [
+      "https://images.unsplash.com/photo-1542581542-0d526913eb3e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwyfHxib3V0aXF1ZSUyMHN0b3JlJTIwZnJvbnQlMjBleHRlcmlvcnxlbnwwfHx8fDE3ODAxNDU5OTB8MA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1602251223185-b1f2c7e5cad7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwzfHxib3V0aXF1ZSUyMHN0b3JlJTIwZnJvbnQlMjBleHRlcmlvcnxlbnwwfHx8fDE3ODAxNDU5OTB8MA&ixlib=rb-4.1.0&q=85"
+    ]
+  }
 }
