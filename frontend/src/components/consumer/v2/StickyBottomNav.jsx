@@ -6,7 +6,7 @@ const ITEMS = [
   { to: "/", label: "Home", icon: Home, test: "nav-home" },
   { to: "/products", label: "Categories", icon: Grid3x3, test: "nav-categories" },
   { to: "/search", label: "Search", icon: Search, test: "nav-search" },
-  { to: "/account", label: "Orders", icon: Receipt, test: "nav-orders" },
+  { to: "/account?tab=orders", label: "Orders", icon: Receipt, test: "nav-orders" },
   { to: "/account", label: "Profile", icon: User, test: "nav-profile" },
 ];
 
@@ -24,7 +24,7 @@ export default function StickyBottomNav() {
         {ITEMS.map((it) => {
           const Icon = it.icon;
           return (
-            <li key={it.to}>
+            <li key={it.test}>
               <NavLink
                 to={it.to}
                 end={it.to === "/"}

@@ -31,9 +31,9 @@ export default function ProductCardV2({ p, onWishlist, isWished }) {
           <span className="absolute bottom-2 left-2 px-2 py-1 rounded-md bg-white/90 text-[#EF4444] text-[10px] font-bold uppercase tracking-wide">{discount}% off</span>
         )}
       </div>
-      <div className="p-2.5 space-y-1">
+      <div className="p-2 space-y-0.5">
         <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B] line-clamp-1">{p.store_name || "Lokl Store"}</div>
-        <div className="text-[13px] font-semibold text-[#0F172A] line-clamp-1">{p.name}</div>
+        <div className="text-[12px] font-semibold text-[#0F172A] line-clamp-1">{p.name}</div>
         <div className="flex items-baseline gap-1.5">
           <span className="text-sm font-bold text-[#0A1F5C]">₹{Number(p.price).toLocaleString()}</span>
           {p.mrp && p.mrp > p.price && <span className="text-[11px] text-[#94A3B8] line-through">₹{Number(p.mrp).toLocaleString()}</span>}

@@ -3,6 +3,25 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-17) — Lokl V2 Marketplace UI (Phase 1 + 2)
+
+### Phase 1 — Dynamic data engine (backend)
+- **Badge engine** (`/app/backend/feeds.py`): one primary badge per product (never stacked) chosen from {best_seller / selling_fast / top_rated / trending / best_deal / new_arrival / low_stock} with deterministic priority ordering. Derived from real orders + product_views — no hardcoded values.
+- **Social-proof** + `low_stock_size` derived per product (e.g. "Only 2 left in size M", "12 purchased this week").
+- New endpoints: `/api/stats/home`, `/api/feed/{popular-in-city, selling-fast, best-sellers, new-arrivals, trending}`, `/api/offers`, `/api/testimonials`, `/api/categories/counts`, `/api/search/trending`, `/api/search/track`, `/api/track/view`, `/api/me/recently-viewed` (GET+POST).
+- Admin CRUD for offers + testimonials. Seeded 4 starter offers + 4 testimonials so the homepage doesn't show empties on day one.
+
+### Phase 2 — Homepage rebuild (mobile-first, ~9/10 conversion-focused)
+- **New design tokens** (#0A1F5C navy, #F59E0B orange, white surfaces) bridged from the existing palette via the design_agent blueprint at `/app/design_guidelines.json`.
+- **15 sections** in spec order: HeroV2 (with floating metric strip + 3 USP chips) → Why Lokl → Offers carousel → Categories with counts → Popular in Bhilai → Selling Fast → Stores Near You → Trending → New Arrivals → Best Sellers → Recently Viewed (logged-in only) → Customer Love → How Lokl Works → Sticky Bottom Nav → Sticky Cart pill.
+- New V2 components in `/app/frontend/src/components/consumer/v2/`: HeroV2, ProductCardV2 (80/20 image-content with single badge + wishlist micro-anim), StoreCardV2, OffersStrip, HCarousel, WhyLokl + HowLoklWorks, CustomerLove, ProductBadge, StickyBottomNav, StickyCart.
+- Sticky bottom nav (Home/Categories/Search/Orders/Profile) — safe-area aware, hidden on merchant/admin routes.
+- Sticky cart pill appears after first add, persistent across browsing.
+
+### Test coverage
+- New `/app/backend/tests/test_v2_homepage_feeds.py` (7 tests).
+- iter-12 testing agent: **backend 100% (24/24)**, **frontend ~95%** — 2 trivial fixes applied (React duplicate-key in StickyBottomNav, ProductCardV2 image-area to 70%+).
+
 ## Latest Iteration (Feb 2026 — Iter-16) — Merchant Onboarding overhaul (Phases A + B + C + AI quality)
 
 ### Phase A — Smart redirect & quick UX fixes
