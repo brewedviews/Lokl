@@ -1,124 +1,99 @@
 {
-  "theme_archetype": {
-    "theme": "LIGHT",
-    "archetype": "Brand-Specific Trust",
-    "description": "Blends high-contrast modern functionality (Blinkit/Myntra) with organic trust and fashion elegance (Nykaa). Emphasizes speed, local credibility, and high-conversion layouts."
+  "theme_and_archetype": {
+    "domain": "E-commerce Marketplace",
+    "theme": "Light",
+    "archetype": "Organic & Earthy + Custom Brand Tokens",
+    "vibe": "High-trust, organized, frictionless, premium retail"
   },
-  "color_palette_bridge": {
-    "strategy": "Transition from muted cream/navy to crisp white/deep navy for a more performance-focused, modern feel while keeping the brand equity.",
-    "colors": {
-      "primary_navy": "#0A1F5C",
-      "accent_orange": "#F59E0B",
-      "background_white": "#FFFFFF",
-      "surface_offwhite": "#F8FAFC",
-      "text_primary": "#0F172A",
-      "text_secondary": "#64748B",
-      "success_green": "#10B981",
-      "urgency_red": "#EF4444"
-    }
+  "color_palette_tokens": {
+    "background": "#FDFBF7",
+    "primary": "#0A1F5C",
+    "accent": "#E68910",
+    "accent_alt": "#F59E0B",
+    "card_surface": "#FFFFFF",
+    "card_border": "#E5E2DC",
+    "text_primary": "#0A1F5C",
+    "text_muted": "#64748B",
+    "text_secondary_muted": "#595959"
   },
   "typography": {
-    "font_family": {
-      "display": "'Playfair Display', serif",
-      "sans": "'Inter', sans-serif"
-    },
-    "scale": {
-      "h1": "text-3xl sm:text-4xl font-display font-bold tracking-tight leading-tight",
-      "h2": "text-2xl font-display font-semibold tracking-tight leading-snug",
-      "h3": "text-lg font-sans font-semibold leading-snug",
-      "body": "text-sm font-sans text-slate-700 leading-relaxed",
-      "caption": "text-xs font-sans text-slate-500",
-      "eyebrow": "text-[10px] font-sans font-bold uppercase tracking-wider"
+    "display": "font-display",
+    "body": "sans-serif",
+    "hierarchy": {
+      "h1": "text-2xl sm:text-3xl font-display text-[#0A1F5C] tracking-tight",
+      "h2": "text-xl sm:text-2xl font-display text-[#0A1F5C]",
+      "h3": "text-lg font-display text-[#0A1F5C]",
+      "body": "text-base text-[#0A1F5C]",
+      "small": "text-sm text-[#64748B]",
+      "tiny_label": "text-xs tracking-[0.2em] uppercase text-[#64748B] font-medium"
     }
   },
-  "spacing_and_layout": {
-    "container": "max-w-md mx-auto w-full",
-    "screen_padding": "px-4",
-    "section_gap": "py-8",
-    "card_radius": "rounded-2xl",
-    "button_radius": "rounded-xl",
-    "pill_radius": "rounded-full"
+  "layout_and_spacing": {
+    "container": "max-w-7xl mx-auto px-4 sm:px-8",
+    "section_rhythm": "pt-8 (strict rule: no bottom padding between sections, preserve visual density)",
+    "bottom_spacing": "pb-24 (MUST include to coexist with existing sticky bottom nav)",
+    "carousel_snap": "scroll-pl-4 sm:scroll-pl-8",
+    "border_radius": "rounded-2xl to rounded-3xl for structural cards"
   },
-  "shadows_and_elevation": {
-    "sm": "shadow-[0_2px_8px_rgba(10,31,92,0.06)]",
-    "md": "shadow-[0_8px_24px_rgba(10,31,92,0.12)]",
-    "lg": "shadow-[0_16px_48px_rgba(10,31,92,0.16)]",
-    "orange_glow": "shadow-[0_4px_16px_rgba(245,158,11,0.25)]"
-  },
-  "motion_tokens": {
-    "tap_scale": "active:scale-[0.98] transition-transform duration-100 ease-in-out",
-    "wishlist_heart": "hover:scale-110 active:scale-90 transition-transform duration-200 ease-spring",
-    "sticky_cart": "animate-in slide-in-from-bottom-10 duration-300 ease-out",
-    "badge_ping": "animate-pulse duration-1000"
-  },
-  "skeleton_rules": {
-    "animation": "animate-pulse",
-    "color": "bg-slate-200",
-    "behavior": "Match exact dimensions of final loaded element to prevent layout shift."
-  },
-  "reference_layouts": {
-    "mobile_homepage_hero": {
-      "description": "Full-bleed image or split card. FIXED copy over dark gradient overlay (bg-black/40). Dual gender CTAs (Shop Women/Men) side-by-side. Metric strip floats at the very bottom overlapping the next section: '4.8 Avg Rating · 50+ Verified Stores · 5,000+ Products · 2,000+ Deliveries'."
+  "components": {
+    "ProfileHeaderCard": {
+      "layout": "bg-white border-[#E5E2DC] border rounded-3xl p-5 sm:p-6 flex items-center gap-4 relative shadow-sm",
+      "details": "Avatar image (rounded-full, w-16 h-16 object-cover border border-[#E5E2DC]), user name (h2), phone number (small, muted text). 'Member' badge (bg-[#F59E0B]/10 text-[#F59E0B] px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider absolute right-4 sm:right-6 top-6). 'Edit Profile' button underneath badge or as an icon in top right.",
+      "data_testid": "profile-header-card"
     },
-    "mobile_product_card": {
-      "description": "80% image top, 20% content bottom. Image aspect-[4/5]. ONE dynamic badge top-left (absolute). Wishlist heart top-right (absolute). Bottom content: Brand, Title (truncate-1), Price (bold) + strikethrough + discount %, ETA/Delivery note."
+    "QuickActionGrid": {
+      "layout": "grid grid-cols-4 gap-3 sm:gap-4 pt-8",
+      "details": "Bento-style tiles for: Orders, Returns, Addresses, Wishlist, Wallet, Coupons, Support, Settings.",
+      "tile_style": "bg-white border-[#E5E2DC] border rounded-2xl p-4 flex flex-col items-center justify-center gap-3 hover:border-[#0A1F5C] hover:shadow-md transition-all cursor-pointer relative",
+      "icon_style": "lucide-react icons, size 24 or 28, color #0A1F5C, stroke-width 1.5",
+      "badge_style": "Absolute -top-2 -right-2 bg-[#E68910] text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm ring-2 ring-white (only render if count > 0)",
+      "data_testid": "quick-action-tile"
     },
-    "mobile_store_card": {
-      "description": "Banner image top (h-24). Rounded logo overlapping banner bottom edge. Below banner: Store Name, Verified badge, Rating + Reviews, 'Since 2017', Distance, ETA. Bottom row: 1-line store story or social proof."
+    "RecentOrdersPreview": {
+      "layout": "bg-white border-[#E5E2DC] border rounded-3xl p-5 sm:p-6 pt-8 mt-8 shadow-sm",
+      "details": "Header 'Recent Orders' (h2). Stack of up to 3 order items. Each item: flex row, product thumbnail (w-14 h-14 rounded-xl bg-[#FDFBF7] object-cover border border-[#E5E2DC]), order status (Saffron if pending/transit, Navy if delivered), date. Divider borders between items (border-b border-[#E5E2DC]).",
+      "data_testid": "recent-orders-list"
     },
-    "mobile_pdp_above_fold": {
-      "description": "Image carousel (aspect-[3/4]). Urgency strip immediately below image. Title, Price, Discount. Doorstep Trial chip. Size selector chips. Trust strip (Secure/COD/Returns)."
+    "InlineEditableSections": {
+      "layout": "pt-8 space-y-4",
+      "details": "Use shadcn/ui collapsibles/accordions or conditional rendering for inline forms to prevent navigation away from the dashboard. Address list: vertical stack of white cards with edit/remove buttons.",
+      "data_testid": "inline-editable-section"
     },
-    "mobile_sticky_bottom_nav": {
-      "description": "Fixed bottom, z-50, bg-white/90 backdrop-blur-md, border-t. 5 items: Home, Categories, Search, Orders, Profile. Active state uses Accent Orange."
-    },
-    "mobile_search_overlay": {
-      "description": "Full screen modal. Header with Back button and thick Search Input. Input features rotating placeholder text. Below: 'Trending Searches' chips, 'Recent Searches' list."
+    "LogoutControl": {
+      "layout": "pt-8 flex justify-center pb-8",
+      "details": "Ghost button, text-[#E68910] hover:bg-[#E68910]/10 rounded-full px-6 py-2 transition-colors font-medium.",
+      "data_testid": "logout-button"
     }
   },
-  "content_ordering": {
-    "homepage": [
-      "Header",
-      "Hero",
-      "USP chips",
-      "Why Lokl",
-      "Offers carousel",
-      "Categories with counts",
-      "Popular in Bhilai",
-      "Selling Fast",
-      "Stores Near You",
-      "Trending",
-      "New Arrivals",
-      "Best Sellers",
-      "Recently Viewed",
-      "Customer Love",
-      "How Lokl Works",
-      "Footer",
-      "Sticky bottom nav"
+  "media": {
+    "avatar": [
+      {
+        "url": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1Mjh8MHwxfHNlYXJjaHwxfHxjYXN1YWwlMjBwb3J0cmFpdCUyMHBlcnNvbiUyMGZhY2V8ZW58MHx8fHwxNzgwMTU3NTI2fDA&ixlib=rb-4.1.0&q=85",
+        "description": "User profile avatar placeholder",
+        "category": "avatar"
+      }
+    ],
+    "product_thumbnails": [
+      {
+        "url": "https://images.unsplash.com/photo-1532453288672-3a27e9be9efd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2MzR8MHwxfHNlYXJjaHwxfHxmYXNoaW9uJTIwYXBwYXJlbCUyMHByb2R1Y3R8ZW58MHx8fHwxNzgwMTU3NTI2fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Apparel product thumbnail 1",
+        "category": "product"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1523381294911-8d3cead13475?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2MzR8MHwxfHNlYXJjaHwzfHxmYXNoaW9uJTIwYXBwYXJlbCUyMHByb2R1Y3R8ZW58MHx8fHwxNzgwMTU3NTI2fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Apparel product thumbnail 2",
+        "category": "product"
+      }
     ]
   },
-  "what_to_avoid": [
-    "No generic full-screen gradients. Keep backgrounds crisp white.",
-    "No stacked badges on product cards (strictly ONE per card).",
-    "No fake numbers or placeholder stats (all must be agent-driven).",
-    "No stock images with watermarks.",
-    "No excessive motion or parallax that hurts performance.",
-    "No off-brand colors (stick strictly to Navy, Orange, White, Slate)."
-  ],
-  "image_urls": {
-    "women_fashion": [
-      "https://images.unsplash.com/photo-1612782809364-17727da6669c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHw0fHx3b21lbiUyMGZhc2hpb24lMjBtb2RlbCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MDE0NTk5MHww&ixlib=rb-4.1.0&q=85",
-      "https://images.unsplash.com/photo-1618375601660-3e6842f5b791?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHwxfHx3b21lbiUyMGZhc2hpb24lMjBtb2RlbCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MDE0NTk5MHww&ixlib=rb-4.1.0&q=85",
-      "https://images.unsplash.com/photo-1721003080966-423d4017d09d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHwzfHx3b21lbiUyMGZhc2hpb24lMjBtb2RlbCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4MDE0NTk5MHww&ixlib=rb-4.1.0&q=85"
-    ],
-    "men_fashion": [
-      "https://images.unsplash.com/photo-1495366691023-cc4eadcc2d7e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHw0fHxtZW4lMjBmYXNoaW9uJTIwbW9kZWwlMjBzdHJlZXR8ZW58MHx8fHwxNzgwMTQ1OTkwfDA&ixlib=rb-4.1.0&q=85",
-      "https://images.unsplash.com/photo-1552252059-9d77e4059ad1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwwyfHxtZW4lMjBmYXNoaW9uJTIwbW9kZWwlMjBzdHJlZXR8ZW58MHx8fHwxNzgwMTQ1OTkwfDA&ixlib=rb-4.1.0&q=85",
-      "https://images.unsplash.com/photo-1615482572493-6d8be4ce0dc6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwxfHxtZW4lMjBmYXNoaW9uJTIwbW9kZWwlMjBzdHJlZXR8ZW58MHx8fHwxNzgwMTQ1OTkwfDA&ixlib=rb-4.1.0&q=85"
-    ],
-    "store_fronts": [
-      "https://images.unsplash.com/photo-1542581542-0d526913eb3e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwyfHxib3V0aXF1ZSUyMHN0b3JlJTIwZnJvbnQlMjBleHRlcmlvcnxlbnwwfHx8fDE3ODAxNDU5OTB8MA&ixlib=rb-4.1.0&q=85",
-      "https://images.unsplash.com/photo-1602251223185-b1f2c7e5cad7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwzfHxib3V0aXF1ZSUyMHN0b3JlJTIwZnJvbnQlMjBleHRlcmlvcnxlbnwwfHx8fDE3ODAxNDU5OTB8MA&ixlib=rb-4.1.0&q=85"
-    ]
-  }
+  "instructions_to_main_agent": [
+    "Create a mobile-first 'My Account' dashboard matching major E-commerce apps (like Myntra/Ajio).",
+    "File extensions MUST be `.js` (not `.tsx`).",
+    "DO NOT invent new colors. Strictly adhere to the tokens defined in `color_palette_tokens`.",
+    "Ensure all interactive elements have explicit `data-testid` attributes.",
+    "Implement a bottom padding (`pb-24` on the main container) to account for the existing sticky bottom nav.",
+    "All section spacings must strictly use `pt-8` with no bottom margins or paddings to maintain the required vertical rhythm.",
+    "Use `lucide-react` for all iconography to maintain a clean, consistent stroke aesthetic.",
+    "Use the exact image URLs provided in `media` for placeholders. Do not use placehold.it or via.placeholder.com."
+  ]
 }
