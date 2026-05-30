@@ -611,6 +611,11 @@ def _is_store_open_now(store: dict) -> tuple[bool, str | None]:
 @api.get("/stores")
 async def list_stores(city: Optional[str] = None, limit: int = 50):
     q = dict(_visible_store_filter())
+    # Hide stores the merchant has toggled offline — they should disappear from the
+    # public listing entirely (not just be tagged "offline"), otherwise customers
+    # land on an empty store page. The merchant dashboard / admin still see them
+    # via their own endpoints.
+    q["online"] = {"$ne": False}
     if city: q["city"] = city
     # Strip heavy multi-banner array from list view (only cover `banner` is needed for cards)
     stores = await db.stores.find(q, {"_id": 0, "banner_images": 0}).sort("distance_km", 1).to_list(limit)
@@ -635,6 +640,9 @@ async def list_stores(city: Optional[str] = None, limit: int = 50):
 async def get_store(store_id: str):
     s = await db.stores.find_one({"id": store_id, **_visible_store_filter()}, {"_id": 0})
     if not s: raise HTTPException(404, "Store not found")
+    # Treat merchant-offline stores as unavailable for the public store page too.
+    if s.get("online") is False:
+        raise HTTPException(404, "Store not found")
     merchant_online = s.get("online") is not False
     is_open_by_time, next_label = _is_store_open_now(s)
     s["is_open"] = is_open_by_time and merchant_online
@@ -998,7 +1006,14 @@ async def merchant_store_online(payload: dict, user: dict = Depends(get_current_
 
 @api.get("/merchant/products")
 async def merchant_products(user: dict = Depends(get_current_user)):
-    return await db.products.find({"merchant_id": user["sub"]}, {"_id": 0}).to_list(500)
+    # Strip heavy `images` carousel array from the list response (often 5x ~200 KB
+    # base64 strings per product), the merchant dashboard only needs the cover
+    # `image` for the row thumbnail. The full `images` array is re-fetched on
+    # demand when the merchant clicks Edit via GET /api/products/{pid}.
+    return await db.products.find(
+        {"merchant_id": user["sub"]},
+        {"_id": 0, "images": 0}
+    ).to_list(500)
 
 def _validate_l1_l2(l1_id: str, l2_id: str, gender: str):
     if l1_id not in [c["id"] for c in L1_CATEGORIES]:

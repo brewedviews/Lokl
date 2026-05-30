@@ -145,21 +145,28 @@ export default function MerchantProducts() {
     finally { setSubmitBusy(false); }
   };
 
-  const openEdit = (p) => {
-    const sizes = p.sizes || Object.keys(p.stock || {});
+  const openEdit = async (p) => {
+    // Fetch full product (with heavy `images` carousel) on demand — the list
+    // response is now stripped to keep the dashboard snappy.
+    let full = p;
+    try {
+      const { data } = await api.get(`/products/${p.id}`);
+      full = (data && data.product) ? { ...p, ...data.product } : p;
+    } catch (_) { /* fall back to list row */ }
+    const sizes = full.sizes || Object.keys(full.stock || {});
     setForm({
-      name: p.name || "",
-      price: p.price || "",
-      mrp: p.mrp || "",
-      l1_id: p.l1_id || "",
-      l2_id: p.l2_id || "",
-      gender: p.gender || "",
-      description: p.description || "",
-      images: (p.images && p.images.length ? p.images : (p.image ? [p.image] : [])),
-      stock: p.stock || sizes.reduce((acc, s) => ({ ...acc, [s]: 0 }), {}),
-      return_eligible: !!p.return_eligible,
+      name: full.name || "",
+      price: full.price || "",
+      mrp: full.mrp || "",
+      l1_id: full.l1_id || "",
+      l2_id: full.l2_id || "",
+      gender: full.gender || "",
+      description: full.description || "",
+      images: (full.images && full.images.length ? full.images : (full.image ? [full.image] : [])),
+      stock: full.stock || sizes.reduce((acc, s) => ({ ...acc, [s]: 0 }), {}),
+      return_eligible: !!full.return_eligible,
     });
-    setEditingId(p.id);
+    setEditingId(full.id);
     setOpenAdd(true);
   };
 

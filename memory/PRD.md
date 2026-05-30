@@ -3,6 +3,11 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-23) — Offline-store hiding + merchant products perf
+
+- **Offline merchants are now fully hidden from the storefront.** Updated `/api/stores` to add `online: {$ne: False}` to the visibility filter so toggled-offline stores no longer appear in the listing. Updated `/api/stores/{store_id}` to return 404 when `online == False` (kills the empty store-page deep-link). Feeds already excluded offline stores via `_visible_online_store_ids`, so nothing else changed. Verified: toggled `Anjali Boutique` offline → listing went 10→9, direct PDP returned 404. Merchant dashboard endpoints (own store/products) are untouched.
+- **Merchant Products page is now snappy.** Stripped the heavy `images` (base64 carousel) array from `GET /api/merchant/products`. The page now renders cover thumbnails via the `image` field only. On clicking Edit, `openEdit` in `MerchantProducts.jsx` fetches the full product via `GET /api/products/{pid}` to populate the images array on demand. For a merchant with 5×~200KB images per product, this drops a 100-product list from ~100 MB → ~50 KB (>99% reduction).
+
 ## Latest Iteration (Feb 2026 — Iter-22) — Vertical rhythm + footer merge
 
 - **Uniform 32px section gap** across the entire homepage. Replaced `py-8` (32+32 = 64px between sections) with `pt-8` (top-only) on every V2 section: `OffersStrip`, `HCarousel`, `CustomerLove`, and the inline `categories-v2` + `stores-near-you` sections in `Home.jsx`. Also removed the extra `pb-2` from carousel rows. Verified via DOM: visible_gap_to_next_h2 = 32px for hero→trending, trending→categories, categories→offers, offers→selling-fast, selling-fast→stores, stores→customer-love.
