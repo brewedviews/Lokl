@@ -928,23 +928,31 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
 
 @api.post("/merchant/orders/{oid}/handed-to-rider")
 async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_user)):
-    """Merchant confirms the rider has been handed the package after matching OTP."""
+    """Merchant confirms the rider has been handed the package after matching OTP.
+    In multi-store carts each merchant hands off independently — we check the
+    PER-MERCHANT state, not the global order status."""
     o = await db.orders.find_one({"id": oid, "merchant_ids": user["sub"]}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
-    if o.get("status") != "accepted":
-        raise HTTPException(400, "Order must be accepted before handoff")
+    states = dict(o.get("merchant_states") or {})
+    my_state = states.get(user["sub"]) or (o.get("status") if not states else "pending")
+    if my_state not in ("accepted",):
+        raise HTTPException(400, "Accept the order before handing it to the rider")
     now = datetime.now(timezone.utc).isoformat()
     tl = o.get("timeline", [])
-    for t in tl:
-        if t["label"] in ("Order on the way", "Handed to rider", "Rider on the way") and not t["time"]:
-            t["time"] = now; break
-    await db.orders.update_one({"id": oid}, {"$set": {"status": "on_the_way", "timeline": tl}})
-    # WhatsApp customer with the OTP — they will match with rider on arrival
+    # Mark this merchant as handed off
+    states[user["sub"]] = "handed_off"
+    all_handed = states and all(v == "handed_off" for v in states.values())
+    new_global = "on_the_way" if all_handed else o.get("status")
+    if all_handed:
+        for t in tl:
+            if t["label"] in ("Order on the way", "Handed to rider", "Rider on the way") and not t["time"]:
+                t["time"] = now; break
+    await db.orders.update_one({"id": oid}, {"$set": {"status": new_global, "merchant_states": states, "timeline": tl}})
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
-    if cust_phone:
+    if cust_phone and all_handed:
         try: notify_order_on_the_way(cust_phone, oid, o.get("otp", ""))
         except Exception: pass
-    return {"ok": True}
+    return {"ok": True, "all_handed": all_handed, "my_state": "handed_off"}
 
 
 # ===== Admin order management =====
