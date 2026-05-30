@@ -3,6 +3,30 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-29) — Per-merchant order state machine
+
+User reported: in a multi-store checkout, both merchants saw each other's items, the Accept button kept showing after one merchant accepted, and the global order total (not the merchant's subtotal) was being displayed. Also: customer order tracking showed only a single global stepper for multi-store orders.
+
+### Backend (`/app/backend/server.py`)
+- New helpers `_derive_global_status`, `_new_merchant_timeline`, `_stamp_merchant_step`. Global order status now = min of per-merchant states using ranking `pending=0 → accepted=1 → handed_off=2 → delivered=3`.
+- Order doc now persists `merchant_states: {mid: state}`, `merchant_timelines: {mid: [4-step]}`, `merchant_delivered_at: {mid: iso}`. Each merchant gets their own 4-step flow (Order placed → Merchant accepted → Order on the way → Delivered).
+- `POST /api/merchant/orders/{oid}/accept`: stamps Confirmed only on THAT merchant's timeline; global derived. All-accepted check still notifies rider.
+- `POST /api/merchant/orders/{oid}/handed-to-rider`: requires `my_state == "accepted"`, stamps OnWay on THAT merchant's timeline; global flips to `on_the_way` only when ALL handed off.
+- `POST /api/admin/orders/{oid}/mark-delivered`: now accepts optional `{merchant_id}` to mark one slice. Global flips to `delivered` only when ALL merchants delivered. `delivered_at` only stamped on global completion.
+- `POST /api/twilio/inbound` delivery OTP: marks the FIRST `handed_off` merchant as delivered (rider delivers sequentially with shared OTP).
+- `GET /api/merchant/orders`: returns `my_timeline` + `my_delivered_at` in addition to existing `my_state` + `merchant_subtotal`. Items pre-filtered to the merchant's own slice.
+- `GET /api/orders/{id}`: for multi-store, enriches response with `store_breakdown[]` (per-merchant items, subtotal, state, timeline) for customer UI consumption.
+
+### Frontend
+- `/app/frontend/src/pages/MerchantOrders.jsx`: buckets pending/accepted/onWay/history now bucket purely on `my_state` (not global). On-the-way card distinguishes "Your items handed to rider" copy for multi-store.
+- `/app/frontend/src/pages/OrderTracking.jsx`: new compact `MiniStepper` component; global stepper hidden when `is_multi_store`; multi-store-breakdown renders a labeled card per store with its own MiniStepper updating independently (uses `store_breakdown` from backend with a defensive fallback that derives breakdown from items).
+
+### Tests
+- New `/app/backend/tests/test_multi_merchant_orders.py` — 8/8 passing. Covers per-merchant create state, partial accept stays pending_merchant, all-accepted flips global, partial hand-off stays accepted, all-handed flips on_the_way, per-merchant admin delivery (one then all), `/merchant/orders` returns merchant_subtotal != global total, `/orders/{id}` returns store_breakdown.
+- Patched pre-existing tests (`test_phase1_returns.py`, `test_iter5_flow.py`) to satisfy the L2 storefront lat/lng requirement + hand-off-before-Twilio-delivery sequencing.
+- Testing agent (`iteration_13.json`): backend 100%, frontend 100%, success rate 100%. Validated end-to-end (two-merchant signup → multi-store order → independent accept/hand-off → per-store MiniSteppers on customer page).
+
+
 ## Latest Iteration (Feb 2026 — Iter-28) — Location tech + 3-rail stores + PDP context + Category hub
 
 Major end-to-end batch covering 4 phases the user asked for (L1 → L2 → P1 → C1):
