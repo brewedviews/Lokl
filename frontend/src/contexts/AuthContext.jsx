@@ -41,7 +41,11 @@ export const AuthProvider = ({ children }) => {
     return data.merchant;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // Best-effort: flip the merchant's store offline before clearing the token
+    // so customers don't continue to see an open store after the merchant
+    // logs out. Tolerates network/401 errors silently.
+    try { await api.post("/auth/logout"); } catch {}
     localStorage.removeItem("bf_token");
     setMerchant(null);
   };

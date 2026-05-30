@@ -85,17 +85,43 @@ def build_template_xlsx() -> bytes:
     info_lines = [
         "",
         "• Fill one row per product on the 'Products' sheet.",
-        "• l1 (Category) and l2 (Sub-category) are dropdowns — only listed values are accepted.",
-        "• For categories without sub-categories (Footwear, Streetwear, Kids, etc.) leave l2 blank and pick a gender.",
+        "• Click into the l1 / l2 / gender / returnable cells — a DROPDOWN arrow appears on the right.",
+        "  You cannot type custom categories: only listed values are accepted.",
+        "• See the 'L1 → L2 reference' sheet for which sub-category belongs to which category.",
+        "• For categories without sub-categories (Footwear, Streetwear, Kids, etc.) leave l2 blank.",
         "• sizes: semicolon-separated, e.g.  S;M;L;XL  or  7;8;9;10",
         "• stock_per_size: same length as sizes, e.g. 50;100;39;10 — quantity per size.",
         "• returnable: Yes / No. Defaults to No if blank. (Innerwear, perishables: keep No.)",
         "• mrp / price are in INR.",
-        "• After upload, every row appears in Products as a draft so you can add images & tweak.",
+        "• After upload, every row appears in Products as a draft — add images & tweak before go-live.",
     ]
     for i, line in enumerate(info_lines, start=2):
         info.cell(row=i, column=1, value=line)
     info.column_dimensions["A"].width = 100
+
+    # L1 → L2 reference table — gives merchants the full category tree at a glance
+    ref = wb.create_sheet("L1 → L2 reference")
+    ref["A1"] = "Category (L1)"
+    ref["B1"] = "Sub-category (L2)"
+    for c in ("A1", "B1"):
+        ref[c].font = header_font
+        ref[c].fill = header_fill
+        ref[c].alignment = Alignment(vertical="center")
+    ref.row_dimensions[1].height = 24
+    ref.column_dimensions["A"].width = 24
+    ref.column_dimensions["B"].width = 38
+    row = 2
+    for c in L1_CATEGORIES:
+        subs = L2_BY_L1.get(c["id"], [])
+        if not subs:
+            ref.cell(row=row, column=1, value=c["name"])
+            ref.cell(row=row, column=2, value="(no sub-category — leave l2 blank)").font = Font(italic=True, color="888888")
+            row += 1
+        else:
+            for s in subs:
+                ref.cell(row=row, column=1, value=c["name"])
+                ref.cell(row=row, column=2, value=s["name"])
+                row += 1
 
     buf = io.BytesIO()
     wb.save(buf)

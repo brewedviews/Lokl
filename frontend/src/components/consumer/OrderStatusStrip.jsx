@@ -41,7 +41,7 @@ export default function OrderStatusStrip() {
     <Link
       to={`/orders/${order.id}`}
       data-testid="order-status-strip"
-      className="fixed bottom-3 left-3 right-3 md:left-auto md:right-6 md:bottom-6 md:max-w-md z-40 bg-[#1A2B4C] text-white rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3 hover:shadow-3xl hover:-translate-y-0.5 transition"
+      className="fixed bottom-20 left-3 right-3 md:left-auto md:right-6 md:bottom-6 md:max-w-md z-[60] bg-[#1A2B4C] text-white rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3 hover:shadow-3xl hover:-translate-y-0.5 transition"
     >
       <div className="w-10 h-10 rounded-full bg-[#E68910] flex items-center justify-center shrink-0">
         <Icon size={18} className="text-white" />

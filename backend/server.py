@@ -118,8 +118,26 @@ async def login(payload: MerchantLogin):
     m = await db.merchants.find_one({"email": payload.email}, {"_id": 0})
     if not m or not verify_password(payload.password, m["password_hash"]):
         raise HTTPException(401, "Invalid credentials")
+    # Force the store offline on every login — the merchant must explicitly
+    # toggle it online from the dashboard. Prevents stores from accidentally
+    # showing as open after the merchant closed their browser the previous day.
+    store_id = f"store-m-{m['id']}"
+    await db.stores.update_one({"id": store_id}, {"$set": {"online": False}})
+    await db.merchants.update_one({"id": m["id"]}, {"$set": {"storefront.online": False}})
     safe = {k: v for k, v in m.items() if k != "password_hash"}
+    if safe.get("storefront"):
+        safe["storefront"]["online"] = False
     return {"token": create_token(m["id"], "merchant"), "merchant": safe}
+
+@api.post("/auth/logout")
+async def logout(user: dict = Depends(get_current_user)):
+    # Logging out flips the store offline so customers don't see it during
+    # the merchant's downtime. Same effect as the manual online toggle.
+    if user.get("role") == "merchant":
+        store_id = f"store-m-{user['sub']}"
+        await db.stores.update_one({"id": store_id}, {"$set": {"online": False}})
+        await db.merchants.update_one({"id": user["sub"]}, {"$set": {"storefront.online": False}})
+    return {"ok": True}
 
 @api.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
@@ -1145,7 +1163,6 @@ async def create_merchant_product(payload: ProductCreate, user: dict = Depends(g
     pid = f"prod-{uuid.uuid4().hex[:10]}"
     doc = {"id": pid, "merchant_id": user["sub"], "store_id": store_id,
         "store_name": m["store_name"], "store_city": m.get("city", ""),
-        "store_distance_km": store["distance_km"], "store_eta_min": store["eta_min"],
         "rating": 4.5, "paused": False, **payload.model_dump(),
         "created_at": datetime.now(timezone.utc).isoformat()}
     await db.products.insert_one(doc)
@@ -1356,7 +1373,6 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
         await db.products.insert_one({
             "id": pid, "merchant_id": user["sub"], "store_id": store_id,
             "store_name": m["store_name"], "store_city": m.get("city", ""),
-            "store_distance_km": store["distance_km"], "store_eta_min": store["eta_min"],
             "rating": 4.5, "paused": True, "needs_image": True,
             "image": "", "ai_enhanced": False, "try_at_doorstep": False,
             "created_at": datetime.now(timezone.utc).isoformat(),

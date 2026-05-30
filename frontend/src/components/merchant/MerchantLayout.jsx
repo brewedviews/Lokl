@@ -25,7 +25,7 @@ export default function MerchantLayout({ children }) {
   return (
     <div className="min-h-screen bg-white flex">
       <aside data-testid="merchant-sidebar" className="hidden md:flex w-64 border-r border-[#E5E2DC] flex-col bg-[#FDFBF7]">
-        <Link to="/" className="p-6 flex items-center gap-2 border-b border-[#E5E2DC]">
+        <Link to="/merchant/orders" data-testid="merchant-logo" className="p-6 flex items-center gap-2 border-b border-[#E5E2DC]">
           <span className="display text-2xl font-bold text-[#1A2B4C]">lokl<span className="text-[#E68910]">.</span></span>
         </Link>
         <nav className="flex-1 p-3 space-y-1">
