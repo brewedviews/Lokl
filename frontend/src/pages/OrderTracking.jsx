@@ -103,7 +103,29 @@ function MiniStepper({ activeIdx }) {
 
 function StatusHero({ order }) {
   const status = (order.status || "").toLowerCase();
+  // For multi-store, derive a richer label (Order/Partial-Order × phase) from
+  // the per-store breakdown. Cancelled slices are excluded from the "all"
+  // check so they don't block closure of the global order.
+  const STATE_RANK = { pending: 0, accepted: 1, handed_off: 2, delivered: 3 };
+  const PHASE_TITLE = { pending: "Order placed", accepted: "Order confirmed",
+                        handed_off: "Order on the way", delivered: "Order delivered" };
+  let multiTitle = null;
+  if (order.is_multi_store) {
+    const bd = order.store_breakdown || [];
+    const active = bd.filter((b) => b.state !== "cancelled");
+    if (bd.length && !active.length) {
+      multiTitle = "Order cancelled";
+    } else if (active.length) {
+      // Phase = the HIGHEST state any active slice has reached
+      const phase = active.reduce((acc, b) =>
+        (STATE_RANK[b.state] ?? 0) > (STATE_RANK[acc] ?? 0) ? b.state : acc, "pending");
+      const allAtPhase = active.every((b) => b.state === phase);
+      const base = PHASE_TITLE[phase] || "Order placed";
+      multiTitle = allAtPhase ? base : base.replace("Order ", "Partial order ");
+    }
+  }
   const title =
+    multiTitle ? multiTitle :
     status === "delivered" ? "Delivered" :
     status === "on_the_way" ? "On the way" :
     status === "cancelled" ? "Cancelled" :
@@ -111,14 +133,21 @@ function StatusHero({ order }) {
     status === "completed" ? "Completed" :
     "Order confirmed";
   const subtitle =
-    status === "delivered" ? "Hope you love it. Return-eligible items can be returned within 24 hours."
+    multiTitle && multiTitle.startsWith("Partial") ? "Each store moves at its own pace — track them below."
+    : multiTitle === "Order delivered" ? "All your stores have delivered. Hope you love it."
+    : multiTitle === "Order on the way" ? "Every store has handed off to a rider. Share the OTP on arrival."
+    : multiTitle === "Order confirmed" ? "Both stores have accepted. Packing up now."
+    : multiTitle === "Order cancelled" ? "Every slice of this order was cancelled."
+    : status === "delivered" ? "Hope you love it. Return-eligible items can be returned within 24 hours."
     : status === "on_the_way" ? "Your order is en-route. Share the OTP with the rider on arrival."
     : status === "cancelled" ? "This order was cancelled."
     : status === "returned" ? "Pickup completed. Refunds are processed offline."
     : "We've received your order. Your nearby store is packing it up now.";
+  const isDeliveredLike = multiTitle === "Order delivered" || status === "delivered" || status === "completed";
+  const isCancelledLike = multiTitle === "Order cancelled" || status === "cancelled";
   const tone =
-    status === "cancelled" ? "bg-rose-50 text-rose-700 border-rose-200"
-    : status === "delivered" || status === "completed" ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+    isCancelledLike ? "bg-rose-50 text-rose-700 border-rose-200"
+    : isDeliveredLike ? "bg-emerald-50 text-emerald-700 border-emerald-200"
     : "bg-[#E68910]/10 text-[#E68910] border-[#E68910]/30";
 
   return (
@@ -131,12 +160,12 @@ function StatusHero({ order }) {
             Order <span className="font-semibold text-[#0A1F5C]" data-testid="order-id">{order.id}</span> · Placed {new Date(order.created_at).toLocaleString()}
           </p>
         </div>
-        {status !== "cancelled" && status !== "delivered" && status !== "completed" && status !== "returned" && (
+        {!isCancelledLike && !isDeliveredLike && status !== "returned" && (
           <div className={`inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold ${tone}`}>
             <Clock size={12} /> 35–45 min
           </div>
         )}
-        {(status === "delivered" || status === "completed") && (
+        {isDeliveredLike && (
           <div className={`inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold ${tone}`}>
             <CheckCircle2 size={12} /> Delivered
           </div>

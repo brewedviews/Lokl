@@ -326,6 +326,37 @@ def test_per_merchant_slice_cancel(two_merchants):
     assert o3["status"] == "cancelled"
 
 
+def test_cancel_plus_delivered_closes_loop(two_merchants):
+    """Per screenshot: 1 store cancelled + 1 store delivered → global must
+    flip to `delivered` (not stay stuck on prior `accepted` status) so the
+    live-order floater + status hero correctly close the loop."""
+    mA, mB = two_merchants
+    o = _place_multi_order(mA, mB)
+    oid = o["id"]
+    # B accepts + hands off + delivers, A is cancelled by admin
+    requests.post(f"{API}/merchant/orders/{oid}/accept", headers=mA["h"], timeout=10).raise_for_status()
+    requests.post(f"{API}/merchant/orders/{oid}/accept", headers=mB["h"], timeout=10).raise_for_status()
+    requests.post(f"{API}/merchant/orders/{oid}/handed-to-rider", headers=mB["h"], timeout=10).raise_for_status()
+    ahdr = {"Authorization": f"Bearer {_admin_token()}"}
+    requests.post(f"{API}/admin/orders/{oid}/mark-delivered", headers=ahdr,
+                  json={"merchant_id": mB["merchant_id"]}, timeout=10).raise_for_status()
+    # At this point: A=accepted, B=delivered, global should be "accepted"
+    o1 = requests.get(f"{API}/orders/{oid}", timeout=10).json()
+    assert o1["status"] == "accepted"
+
+    # Cancel A's slice → only non-cancelled slice is B which is delivered →
+    # global must flip to "delivered" (closes the live-order floater).
+    r = requests.post(f"{API}/admin/orders/{oid}/cancel", headers=ahdr,
+                      json={"merchant_id": mA["merchant_id"], "reason": "Product Unavailable"}, timeout=10)
+    assert r.status_code == 200
+    o2 = requests.get(f"{API}/orders/{oid}", timeout=10).json()
+    assert o2["status"] == "delivered", f"expected delivered, got {o2['status']}"
+    assert o2["merchant_states"][mA["merchant_id"]] == "cancelled"
+    assert o2["merchant_states"][mB["merchant_id"]] == "delivered"
+    # delivered_at must be stamped so the customer UI shows the closure timestamp
+    assert o2.get("delivered_at")
+
+
 def test_twilio_inbound_matches_per_merchant_otp(two_merchants):
     """Rider WhatsApps store-A's OTP → only store-A's slice flips to delivered."""
     mA, mB = two_merchants

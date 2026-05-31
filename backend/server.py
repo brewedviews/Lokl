@@ -791,10 +791,15 @@ _STATE_TO_GLOBAL = {"pending": "pending_merchant", "accepted": "accepted",
                     "handed_off": "on_the_way", "delivered": "delivered"}
 
 def _derive_global_status(states: dict) -> str:
-    """Global order status = min state across all merchants (a customer's order
-    can't be 'delivered' until every store on it has delivered)."""
+    """Global order status = min state across NON-cancelled merchants. Cancelled
+    slices are excluded so a single cancelled store doesn't drag the global
+    status back to pending. If every slice is cancelled, the order itself is
+    cancelled."""
     if not states: return "pending_merchant"
-    min_state = min(states.values(), key=lambda s: _STATE_RANK.get(s, 0))
+    active = {m: s for m, s in states.items() if s != "cancelled"}
+    if not active:
+        return "cancelled"
+    min_state = min(active.values(), key=lambda s: _STATE_RANK.get(s, 0))
     return _STATE_TO_GLOBAL.get(min_state, "pending_merchant")
 
 def _new_merchant_timeline(placed_at: str) -> list:
@@ -1134,13 +1139,23 @@ async def admin_cancel_order(oid: str, request: Request, payload: Optional[dict]
         cancelled[target_mid] = reason
         states = dict(o.get("merchant_states") or {})
         states[target_mid] = "cancelled"
-        # Global cancels only when EVERY merchant slice is cancelled
-        active = [m for m in mids if states.get(m) != "cancelled"]
-        new_global = "cancelled" if not active else o.get("status")
+        # Recompute global from non-cancelled slices. If one slice is cancelled
+        # and another is already delivered, the order should close out as
+        # delivered (not stay stuck on its prior status).
+        new_global = _derive_global_status(states)
         update_doc = {"merchant_cancelled": cancelled, "merchant_states": states,
                       "status": new_global}
         if new_global == "cancelled":
             update_doc["cancel_reason"] = reason
+        if new_global == "delivered":
+            # All non-cancelled slices reached delivered — close the loop.
+            tl = o.get("timeline", [])
+            now2 = datetime.now(timezone.utc).isoformat()
+            for t in tl:
+                if t["label"] == "Delivered" and not t["time"]:
+                    t["time"] = now2; break
+            update_doc["timeline"] = tl
+            update_doc["delivered_at"] = o.get("delivered_at") or now2
         await db.orders.update_one({"id": oid}, {"$set": update_doc})
     else:
         await db.orders.update_one({"id": oid}, {"$set": {"status": "cancelled", "cancel_reason": reason}})
