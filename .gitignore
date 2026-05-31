@@ -81,8 +81,14 @@ memory/test_credentials.md
 # Mobile development
 android-sdk/
 .env
+.env.local
+.env.production
 .env.*
 *.env
 credentials.json
 *.key
+*.pem
 .credentials
+secrets/
+.emergent/
+memory/

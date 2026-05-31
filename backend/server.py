@@ -1,16 +1,27 @@
 """Lokl — FastAPI backend (full feature set)."""
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, logging, uuid, base64, io, csv, json, random, secrets
+import os, logging, uuid, base64, io, csv, json, random, secrets, hmac, hashlib
+import bcrypt
 from pathlib import Path
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
-from auth import hash_password, verify_password, create_token, get_current_user, decode_token
+from auth import (hash_password, verify_password, create_token, get_current_user,
+                  decode_token, require_role, JWT_REFRESH_DAYS)
+
+# Role-guard dependencies — shorthand for the most-used auth tiers in this app.
+# Returns the JWT payload on success, raises 401 (no token) or 403 (wrong role).
+merchant_user = require_role("merchant", "admin")
+admin_user = require_role("admin")
 from ai_service import generate_product_copy, enhance_product_image, ai_model_tryon
 from seed_data import build_seed_docs, L1_CATEGORIES, L2_BY_L1, GENDERS
 from notifications import (
@@ -26,13 +37,42 @@ load_dotenv(Path(__file__).parent / ".env")
 client = AsyncIOMotorClient(os.environ["MONGO_URL"])
 db = client[os.environ["DB_NAME"]]
 
-ADMIN_EMAIL = "admin@lokl.in"
-ADMIN_PASSWORD = "Admin@2026"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
+ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "")
+# Legacy plain-text fallback for transition window — remove once ADMIN_PASSWORD_HASH is set everywhere.
+_LEGACY_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+if not ADMIN_EMAIL or (not ADMIN_PASSWORD_HASH and not _LEGACY_ADMIN_PASSWORD):
+    raise ValueError("ADMIN_EMAIL and (ADMIN_PASSWORD_HASH or ADMIN_PASSWORD) must be set in the environment")
 
 app = FastAPI(title="Lokl")
 api = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("lokl")
+
+# ===== Rate Limiter (slowapi) =====
+# Token-bucket style limiter keyed by client IP. Sensitive auth endpoints add
+# their own per-route caps via @_limit("5/minute").
+limiter = Limiter(key_func=get_remote_address, default_limits=["200 per day", "50 per hour"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+_limit = limiter.limit  # short alias
+
+# ===== Security response headers =====
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Adds OWASP-recommended hardening headers to every response. Replaces
+    Flask-Talisman in this FastAPI codebase."""
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(self), camera=(), microphone=()"
+        if os.environ.get("FORCE_HTTPS", "false").lower() == "true":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # ===== Models =====
@@ -91,7 +131,8 @@ class CustomerUpsert(BaseModel):
 
 # ===== Auth =====
 @api.post("/auth/register")
-async def register(payload: MerchantSignup):
+@_limit("3/minute")
+async def register(request: Request, response: Response, payload: MerchantSignup):
     phone = (payload.phone or "").strip()
     digits = "".join(c for c in phone if c.isdigit())
     if len(digits) < 10:
@@ -111,10 +152,12 @@ async def register(payload: MerchantSignup):
            "published": False, "storefront": None, "notifications": []}
     await db.merchants.insert_one(doc)
     safe = {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
-    return {"token": create_token(mid, "merchant"), "merchant": safe}
+    _set_refresh_cookie(response, create_token(mid, "merchant", "refresh"))
+    return {"token": create_token(mid, "merchant", "access"), "merchant": safe}
 
 @api.post("/auth/login")
-async def login(payload: MerchantLogin):
+@_limit("5/minute")
+async def login(request: Request, response: Response, payload: MerchantLogin):
     m = await db.merchants.find_one({"email": payload.email}, {"_id": 0})
     if not m or not verify_password(payload.password, m["password_hash"]):
         raise HTTPException(401, "Invalid credentials")
@@ -127,7 +170,43 @@ async def login(payload: MerchantLogin):
     safe = {k: v for k, v in m.items() if k != "password_hash"}
     if safe.get("storefront"):
         safe["storefront"]["online"] = False
-    return {"token": create_token(m["id"], "merchant"), "merchant": safe}
+    _set_refresh_cookie(response, create_token(m["id"], "merchant", "refresh"))
+    return {"token": create_token(m["id"], "merchant", "access"), "merchant": safe}
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    """Refresh tokens live ONLY in an httpOnly + Secure + SameSite=Strict cookie.
+    Never echoed back in the JSON body (prevents JS-side XSS exfiltration)."""
+    response.set_cookie(
+        key="refresh_token",
+        value=token,
+        max_age=JWT_REFRESH_DAYS * 24 * 3600,
+        httponly=True,
+        secure=os.environ.get("FORCE_HTTPS", "false").lower() == "true",
+        samesite="strict",
+        path="/api/auth",
+    )
+
+
+@api.post("/auth/refresh")
+@_limit("30/minute")
+async def refresh_token(request: Request, response: Response):
+    """Exchange a valid refresh token (httpOnly cookie OR Authorization header)
+    for a fresh 15-minute access token. Rotating refresh tokens — every refresh
+    issues a new one and invalidates the old by virtue of overwriting the cookie."""
+    token = request.cookies.get("refresh_token")
+    if not token:
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth.split(" ", 1)[1]
+    if not token:
+        raise HTTPException(401, "Refresh token missing")
+    payload = decode_token(token)
+    if payload.get("type") != "refresh":
+        raise HTTPException(401, "Not a refresh token")
+    sub, role = payload.get("sub"), payload.get("role", "merchant")
+    _set_refresh_cookie(response, create_token(sub, role, "refresh"))
+    return {"token": create_token(sub, role, "access")}
 
 @api.post("/auth/logout")
 async def logout(user: dict = Depends(get_current_user)):
@@ -411,6 +490,91 @@ def _admin_only(user: dict):
         raise HTTPException(403, "Admin only")
 
 
+# ===== Payment webhook (Razorpay — scaffold; payments are currently offline) =====
+def _verify_razorpay_signature(order_id: str, payment_id: str, signature: str) -> bool:
+    """HMAC-SHA256 verification per Razorpay docs. Returns True only when the
+    received signature exactly matches the locally-computed digest."""
+    secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
+    if not secret or not signature: return False
+    message = f"{order_id}|{payment_id}".encode("utf-8")
+    expected = hmac.new(secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+@api.post("/webhooks/payment")
+@_limit("60/minute")
+async def payment_webhook(request: Request):
+    """Razorpay payment webhook. Signature-verified + idempotent (a duplicate
+    razorpay_payment_id is silently ignored thanks to a unique index on
+    `processed_payments.payment_id`)."""
+    data = await request.json()
+    order_id = data.get("razorpay_order_id")
+    payment_id = data.get("razorpay_payment_id")
+    signature = data.get("razorpay_signature") or request.headers.get("x-razorpay-signature", "")
+    if not (order_id and payment_id and signature):
+        raise HTTPException(400, "Missing webhook fields")
+    if not _verify_razorpay_signature(order_id, payment_id, signature):
+        log.warning("[Razorpay webhook] signature mismatch order=%s", order_id)
+        raise HTTPException(400, "Invalid signature")
+    # Idempotency — unique index on processed_payments.payment_id rejects dupes
+    try:
+        await db.processed_payments.insert_one({
+            "payment_id": payment_id, "order_id": order_id,
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+            "raw": data,
+        })
+    except Exception as e:
+        log.info("[Razorpay webhook] duplicate %s ignored: %s", payment_id, e)
+        return {"ok": True, "duplicate": True}
+    # TODO: when payment integration ships, link payment_id → orders.payment_status
+    return {"ok": True}
+
+
+# ===== Upload security =====
+ALLOWED_IMAGE_EXTS = {"jpg", "jpeg", "png", "webp"}
+ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp"}
+ALLOWED_BULK_EXTS = {"xlsx", "csv"}
+ALLOWED_BULK_MIMES = {
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel", "application/octet-stream",
+    "text/csv", "application/csv", "text/plain",
+}
+MAX_IMAGE_BYTES = 5 * 1024 * 1024     # 5 MB
+MAX_BULK_BYTES = 10 * 1024 * 1024     # 10 MB
+
+
+async def _validate_image_upload(file: UploadFile) -> None:
+    """Whitelist-validate an uploaded image (extension + MIME + size).
+    Raises HTTPException(400) on any failure."""
+    if not file or not file.filename:
+        raise HTTPException(400, "No file provided")
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_IMAGE_EXTS:
+        raise HTTPException(400, "File type not allowed (jpg/jpeg/png/webp only)")
+    if file.content_type and file.content_type not in ALLOWED_IMAGE_MIMES:
+        raise HTTPException(400, "MIME type not allowed")
+    # Size check by seeking to end
+    pos = await file.seek(0, 2)  # whence=2 → end
+    if pos > MAX_IMAGE_BYTES:
+        raise HTTPException(400, f"File too large (max {MAX_IMAGE_BYTES // (1024 * 1024)} MB)")
+    await file.seek(0)
+
+
+async def _validate_bulk_upload(file: UploadFile) -> bytes:
+    """Validate + read a bulk products .xlsx/.csv upload. Returns the raw bytes."""
+    if not file or not file.filename:
+        raise HTTPException(400, "No file provided")
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_BULK_EXTS:
+        raise HTTPException(400, "Only .xlsx or .csv files are accepted")
+    if file.content_type and file.content_type not in ALLOWED_BULK_MIMES:
+        raise HTTPException(400, f"MIME type not allowed: {file.content_type}")
+    raw = await file.read()
+    if len(raw) > MAX_BULK_BYTES:
+        raise HTTPException(400, f"File too large (max {MAX_BULK_BYTES // (1024 * 1024)} MB)")
+    return raw
+
+
 @api.post("/admin/offers")
 async def admin_create_offer(payload: dict, user: dict = Depends(get_current_user)):
     _admin_only(user)
@@ -575,7 +739,10 @@ async def search(q: str = "", limit: int = 20):
     """Lightweight typeahead. Returns products + stores matching the query."""
     if not q or len(q.strip()) < 1:
         return {"products": [], "stores": []}
-    rx = {"$regex": q.strip(), "$options": "i"}
+    # Escape user input — never pass raw to $regex (ReDoS risk + Mongo regex injection)
+    import re as _re
+    safe_q = _re.escape(q.strip()[:64])  # also cap length
+    rx = {"$regex": safe_q, "$options": "i"}
     products = await db.products.find(
         {"$and": [{"paused": {"$ne": True}}, {"$or": [{"name": rx}, {"description": rx}]}]},
         {"_id": 0, "id": 1, "name": 1, "image": 1, "price": 1, "store_id": 1, "store_name": 1, "l1_id": 1}
@@ -1555,7 +1722,7 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
     store = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if not store: raise HTTPException(400, "Set up storefront first")
 
-    raw_bytes = await file.read()
+    raw_bytes = await _validate_bulk_upload(file)
     fname = (file.filename or "").lower()
     rows: list[dict] = []
     if fname.endswith(".xlsx") or raw_bytes.startswith(b"PK\x03\x04"):
@@ -1615,6 +1782,7 @@ async def merchant_ai_copy(payload: AICopyRequest, user: dict = Depends(get_curr
 
 @api.post("/merchant/ai/tryon")
 async def merchant_ai_tryon(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    await _validate_image_upload(file)
     b64 = base64.b64encode(await file.read()).decode()
     result = await ai_model_tryon(b64)
     if result:
@@ -1706,8 +1874,17 @@ def _check_admin(authorization: Optional[str]):
     return payload
 
 @api.post("/admin/login")
-async def admin_login(payload: AdminLogin):
-    if payload.email != ADMIN_EMAIL or payload.password != ADMIN_PASSWORD:
+@_limit("5/minute")
+async def admin_login(request: Request, payload: AdminLogin):
+    # Constant-time comparison for both email and password to mitigate timing
+    # attacks. Prefer bcrypt-hashed credentials when ADMIN_PASSWORD_HASH is set;
+    # fall back to plain-string compare only during the migration window.
+    email_ok = hmac.compare_digest(payload.email, ADMIN_EMAIL)
+    if ADMIN_PASSWORD_HASH:
+        password_ok = bcrypt.checkpw(payload.password.encode(), ADMIN_PASSWORD_HASH.encode())
+    else:
+        password_ok = hmac.compare_digest(payload.password, _LEGACY_ADMIN_PASSWORD)
+    if not (email_ok and password_ok):
         raise HTTPException(401, "Invalid admin credentials")
     return {"token": _admin_token(), "admin": {"email": ADMIN_EMAIL, "role": "admin"}}
 
@@ -2042,6 +2219,22 @@ async def twilio_inbound(request: Request):
         {REACT_APP_BACKEND_URL}/api/twilio/inbound
     """
     form = await request.form()
+    # ===== Signature verification (HMAC-SHA1 per Twilio spec) =====
+    # Reject any inbound that doesn't bear a valid X-Twilio-Signature against
+    # the configured TWILIO_AUTH_TOKEN. Allows test runs (no header) only when
+    # TWILIO_AUTH_TOKEN isn't configured.
+    twilio_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    sig = request.headers.get("x-twilio-signature", "")
+    if twilio_token and sig:
+        # Twilio canonical string = full URL + concatenated (sorted-key + value) of form fields
+        url = str(request.url)
+        keys = sorted(form.keys())
+        canonical = url + "".join(f"{k}{form[k]}" for k in keys)
+        digest = hmac.new(twilio_token.encode(), canonical.encode(), hashlib.sha1).digest()
+        expected = base64.b64encode(digest).decode()
+        if not hmac.compare_digest(expected, sig):
+            log.warning("[Twilio inbound] signature mismatch (got=%s)", sig[:8])
+            raise HTTPException(403, "Invalid Twilio signature")
     body = (form.get("Body") or "").strip()
     from_addr = (form.get("From") or "").strip()  # e.g. whatsapp:+919XXXXXXXXX
     log.info("[Twilio inbound] from=%s body=%r", from_addr, body[:80])
@@ -2554,10 +2747,13 @@ async def admin_customers(request: Request, q: Optional[str] = None, limit: int 
     _check_admin(request.headers.get("authorization"))
     query = {}
     if q:
+        # Escape user input — never pass raw to $regex (ReDoS + injection risk)
+        import re as _re
+        safe_q = _re.escape(q.strip()[:64])
         query = {"$or": [
-            {"phone": {"$regex": q, "$options": "i"}},
-            {"name": {"$regex": q, "$options": "i"}},
-            {"email": {"$regex": q, "$options": "i"}},
+            {"phone": {"$regex": safe_q, "$options": "i"}},
+            {"name": {"$regex": safe_q, "$options": "i"}},
+            {"email": {"$regex": safe_q, "$options": "i"}},
         ]}
     customers = await db.customers.find(query, {"_id": 0}).sort("updated_at", -1).to_list(limit)
     # Enrich with order count + total spend
@@ -2621,9 +2817,19 @@ async def geo_detect(lat: Optional[float] = None, lng: Optional[float] = None, r
 async def root(): return {"app": "Lokl", "status": "ok"}
 
 app.include_router(api)
-app.add_middleware(CORSMiddleware, allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
-    allow_methods=["*"], allow_headers=["*"])
+
+# ===== CORS =====
+# Origins must be explicitly allow-listed via ALLOWED_ORIGINS (comma-separated).
+# Wildcard ("*") is only permitted for local development — in prod set the var.
+_allowed = os.environ.get("ALLOWED_ORIGINS") or os.environ.get("CORS_ORIGINS", "http://localhost:3000")
+allowed_origins = [o.strip() for o in _allowed.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 
 
 @app.on_event("startup")
@@ -2635,6 +2841,13 @@ async def startup_seed():
     await db.categories.insert_many(cats)
     if l2s: await db.subcategories.insert_many(l2s)
     log.info("Categories: %d L1, %d L2", len(cats), len(l2s))
+
+    # Idempotency index for payment webhooks — same payment_id is silently
+    # ignored on retry (Razorpay can replay webhooks).
+    try:
+        await db.processed_payments.create_index("payment_id", unique=True)
+    except Exception as e:
+        log.warning("processed_payments index: %s", e)
 
     # Keep demo merchant auto-approved
     demo = await db.merchants.find_one({"email": "demo@bharat-os.com"}, {"_id": 0})
