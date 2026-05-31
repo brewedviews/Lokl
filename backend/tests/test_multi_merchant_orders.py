@@ -67,7 +67,7 @@ def _seed_merchant(label):
         "name": f"MM {label} Tee", "price": 599, "mrp": 999,
         "l1_id": "l1-men", "l2_id": "l2-m-shirt", "gender": "men",
         "sizes": ["M"], "image": "data:image/jpeg;base64,/9j/AAAA",
-        "stock": {"M": 10}, "return_eligible": True,
+        "stock": {"M": 9999}, "return_eligible": True,
     }, timeout=10)
     assert p.status_code in (200, 201), p.text
     pid = p.json()["id"]

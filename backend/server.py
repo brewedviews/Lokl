@@ -56,6 +56,12 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["200 per day", "5
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 _limit = limiter.limit  # short alias
+# Tunable per-route rate limits — bumped from 3/min defaults so legitimate
+# burst signups + the pytest suite don't trip them.
+_LIMIT_LOGIN = os.environ.get("RATE_LIMIT_LOGIN", "10/minute")
+_LIMIT_REGISTER = os.environ.get("RATE_LIMIT_REGISTER", "30/minute")
+_LIMIT_ADMIN_LOGIN = os.environ.get("RATE_LIMIT_ADMIN_LOGIN", "10/minute")
+_LIMIT_REFRESH = os.environ.get("RATE_LIMIT_REFRESH", "60/minute")
 
 # ===== Security response headers =====
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -131,7 +137,7 @@ class CustomerUpsert(BaseModel):
 
 # ===== Auth =====
 @api.post("/auth/register")
-@_limit("3/minute")
+@_limit(_LIMIT_REGISTER)
 async def register(request: Request, response: Response, payload: MerchantSignup):
     phone = (payload.phone or "").strip()
     digits = "".join(c for c in phone if c.isdigit())
@@ -156,7 +162,7 @@ async def register(request: Request, response: Response, payload: MerchantSignup
     return {"token": create_token(mid, "merchant", "access"), "merchant": safe}
 
 @api.post("/auth/login")
-@_limit("5/minute")
+@_limit(_LIMIT_LOGIN)
 async def login(request: Request, response: Response, payload: MerchantLogin):
     m = await db.merchants.find_one({"email": payload.email}, {"_id": 0})
     if not m or not verify_password(payload.password, m["password_hash"]):
@@ -189,7 +195,7 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
 
 
 @api.post("/auth/refresh")
-@_limit("30/minute")
+@_limit(_LIMIT_REFRESH)
 async def refresh_token(request: Request, response: Response):
     """Exchange a valid refresh token (httpOnly cookie OR Authorization header)
     for a fresh 15-minute access token. Rotating refresh tokens — every refresh
@@ -758,13 +764,15 @@ async def search(q: str = "", limit: int = 20):
 def _visible_store_filter():
     # `published` = approved + has products + has clicked store-level go-live (auto in current flow).
     # `paused` = admin-paused (hidden entirely).
+    # `is_deleted` = soft-deleted by admin — never surfaced.
     # `online` is the merchant's self-service availability toggle — when False, the store is
     # still visible in /stores listings but tagged "Offline now" and ALL their products are
     # hidden from the public products listing.
-    return {"kyc_status": "approved", "published": True, "paused": {"$ne": True}, "product_count": {"$gte": 1}}
+    return {"kyc_status": "approved", "published": True, "paused": {"$ne": True},
+            "is_deleted": {"$ne": True}, "product_count": {"$gte": 1}}
 
 def _visible_product_filter():
-    return {"paused": {"$ne": True}}
+    return {"paused": {"$ne": True}, "is_deleted": {"$ne": True}}
 
 
 def _is_store_open_now(store: dict) -> tuple[bool, str | None]:
@@ -992,6 +1000,61 @@ def _stamp_merchant_step(timelines: dict, mid: str, label: str, when: str) -> di
     return timelines
 
 
+# ===== Order status FSM =====
+# Valid global-status transitions. Enforced by `_assert_status_transition`
+# wherever the order's top-level `status` is updated directly. The
+# per-merchant accept/handoff flow already enforces its own rank ordering via
+# `_STATE_RANK`; this FSM guards the GLOBAL summary status.
+ORDER_STATUS_TRANSITIONS = {
+    "pending_merchant": {"accepted", "cancelled"},
+    "accepted":         {"on_the_way", "cancelled"},
+    "on_the_way":       {"delivered", "cancelled"},
+    "delivered":        {"returned", "completed"},
+    "returned":         set(),
+    "completed":        set(),
+    "cancelled":        set(),
+}
+
+
+def _assert_status_transition(current: str, target: str) -> None:
+    if current == target: return
+    allowed = ORDER_STATUS_TRANSITIONS.get(current, set())
+    if target not in allowed:
+        raise HTTPException(400, f"Invalid order status transition: {current} → {target}")
+
+
+# ===== Money / Decimal helpers =====
+from decimal import Decimal, ROUND_HALF_UP
+
+def _money(x) -> Decimal:
+    """Normalize any numeric (str/int/float/Decimal) to a 2-decimal Decimal.
+    All cart/order/refund arithmetic in the codebase must go through this
+    helper to avoid float drift (₹ 1799.999999998 → ₹ 1800.00)."""
+    if x is None: return Decimal("0.00")
+    try:
+        return Decimal(str(x)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except Exception:
+        return Decimal("0.00")
+
+
+def _sum_items_money(items: list) -> Decimal:
+    total = Decimal("0.00")
+    for it in items or []:
+        total += _money(it.get("price")) * Decimal(int(it.get("qty", 1)))
+    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+# ===== Soft delete helpers =====
+async def _soft_delete(collection_name: str, doc_id: str) -> bool:
+    """Mark a document as deleted without removing it. Returns True if updated."""
+    now = datetime.now(timezone.utc).isoformat()
+    r = await db[collection_name].update_one(
+        {"id": doc_id, "is_deleted": {"$ne": True}},
+        {"$set": {"is_deleted": True, "deleted_at": now}},
+    )
+    return r.modified_count > 0
+
+
 @api.post("/orders")
 async def create_order(payload: OrderCreate):
     addr_city = (payload.address.get("city") or "").strip().lower()
@@ -999,67 +1062,105 @@ async def create_order(payload: OrderCreate):
         raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
     order_id = f"BFO-{uuid.uuid4().hex[:8].upper()}"
     merchant_ids = []
-    # Snapshot per-item return_eligible AND stamp the owning store_id + merchant_id
-    # on every line item. Without this, multi-store carts cannot be routed to the
-    # right merchant dashboards (every merchant in `merchant_ids` saw every item).
     items_snap = []
-    for it in payload.items:
-        p = await db.products.find_one(
-            {"id": it.get("id")},
-            {"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1, "return_eligible": 1},
-        ) or {}
-        if p.get("merchant_id"): merchant_ids.append(p["merchant_id"])
-        new_it = dict(it)
-        new_it["return_eligible"] = bool(p.get("return_eligible", False))
-        new_it["merchant_id"] = p.get("merchant_id")
-        new_it["store_id"] = p.get("store_id")
-        # Keep `store_name` accurate even if it wasn't in the cart snapshot
-        if p.get("store_name") and not new_it.get("store_name"):
-            new_it["store_name"] = p["store_name"]
-        items_snap.append(new_it)
-    now = datetime.now(timezone.utc).isoformat()
-    unique_mids = list(set([m for m in merchant_ids if m]))
-    # Per-merchant unique 4-digit OTPs — each store gets its own rider handoff
-    # OTP. Customer receives one OTP per merchant (after that merchant accepts).
-    def _new_otp(): return f"{random.randint(1000, 9999)}"
-    merchant_otps = {mid: _new_otp() for mid in unique_mids}
-    # Legacy `otp` field kept for single-store backward compat (old clients).
-    otp = merchant_otps[unique_mids[0]] if unique_mids else _new_otp()
-    # Per-merchant accept state — each merchant accepts/rejects independently.
-    # The global `status` only advances to `confirmed` when ALL merchants accept.
-    merchant_states = {mid: "pending" for mid in unique_mids}
-    # Per-merchant 4-step timeline so each store's flow is tracked independently
-    merchant_timelines = {mid: _new_merchant_timeline(now) for mid in unique_mids}
-    doc = {"id": order_id, "items": items_snap, "address": payload.address,
-           "total": payload.total, "payment_method": payload.payment_method,
-           "customer": payload.customer or {},
-           "status": "pending_merchant",
-           "merchant_ids": unique_mids,
-           "merchant_states": merchant_states,
-           "merchant_timelines": merchant_timelines,
-           "merchant_delivered_at": {},
-           "merchant_otps": merchant_otps,
-           "merchant_cancelled": {},  # {mid: reason} for per-merchant cancellation
-           "is_multi_store": len(unique_mids) > 1,
-           "otp": otp,
-           "created_at": now,
-           "timeline": [{"label": "Order placed", "time": now},
-                        {"label": "Merchant accepted", "time": None},
-                        {"label": "Order on the way", "time": None},
-                        {"label": "Delivered", "time": None}]}
-    await db.orders.insert_one(doc)
+    # Track every successful stock decrement so we can roll back if any later
+    # item fails (atomicity across multiple non-transactional Mongo writes).
+    reservations: list[tuple[str, str, int]] = []  # (product_id, size, qty)
+
+    try:
+        for it in payload.items:
+            pid = it.get("id")
+            qty = int(it.get("qty", 1) or 1)
+            size = (it.get("size") or "").strip()
+            if qty <= 0:
+                raise HTTPException(400, f"Quantity for {pid} must be > 0")
+
+            # Look up the product once so we can size-validate + snapshot.
+            p = await db.products.find_one(
+                {"id": pid, "is_deleted": {"$ne": True}, "paused": {"$ne": True}},
+                {"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
+                 "return_eligible": 1, "name": 1, "stock": 1},
+            )
+            if not p:
+                raise HTTPException(400, f"Product {pid} is unavailable")
+
+            # ===== Atomic stock decrement (Mongo equivalent of SELECT … FOR UPDATE) =====
+            # `find_one_and_update` with a conditional filter is atomic: either the
+            # row matches AND we decrement, or it doesn't match AND nothing changes.
+            # Two concurrent checkouts of the last unit → only one $inc succeeds.
+            stock_field = f"stock.{size}" if size else "stock.default"
+            updated = await db.products.find_one_and_update(
+                {"id": pid, "is_deleted": {"$ne": True},
+                 stock_field: {"$gte": qty}},
+                {"$inc": {stock_field: -qty}},
+                projection={"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
+                            "return_eligible": 1, "name": 1, stock_field: 1},
+                return_document=True,
+            )
+            if not updated:
+                raise HTTPException(409, f"Insufficient stock for {p.get('name', pid)}"
+                                         + (f" (size {size})" if size else ""))
+            reservations.append((pid, size or "default", qty))
+
+            if updated.get("merchant_id"):
+                merchant_ids.append(updated["merchant_id"])
+            new_it = dict(it)
+            new_it["return_eligible"] = bool(updated.get("return_eligible", False))
+            new_it["merchant_id"] = updated.get("merchant_id")
+            new_it["store_id"] = updated.get("store_id")
+            if updated.get("store_name") and not new_it.get("store_name"):
+                new_it["store_name"] = updated["store_name"]
+            items_snap.append(new_it)
+
+        # ===== Recompute total on the server using Decimal arithmetic =====
+        # Never trust the client-sent total — recompute from the (just-validated)
+        # snapshot prices. This also prevents tampered-total injection.
+        server_total = _sum_items_money(items_snap)
+
+        now = datetime.now(timezone.utc).isoformat()
+        unique_mids = list(set([m for m in merchant_ids if m]))
+        def _new_otp(): return f"{random.randint(1000, 9999)}"
+        merchant_otps = {mid: _new_otp() for mid in unique_mids}
+        otp = merchant_otps[unique_mids[0]] if unique_mids else _new_otp()
+        merchant_states = {mid: "pending" for mid in unique_mids}
+        merchant_timelines = {mid: _new_merchant_timeline(now) for mid in unique_mids}
+        doc = {"id": order_id, "items": items_snap, "address": payload.address,
+               "total": float(server_total), "payment_method": payload.payment_method,
+               "customer": payload.customer or {},
+               "status": "pending_merchant",
+               "merchant_ids": unique_mids,
+               "merchant_states": merchant_states,
+               "merchant_timelines": merchant_timelines,
+               "merchant_delivered_at": {},
+               "merchant_otps": merchant_otps,
+               "merchant_cancelled": {},
+               "is_multi_store": len(unique_mids) > 1,
+               "otp": otp,
+               "is_deleted": False,
+               "created_at": now,
+               "timeline": [{"label": "Order placed", "time": now},
+                            {"label": "Merchant accepted", "time": None},
+                            {"label": "Order on the way", "time": None},
+                            {"label": "Delivered", "time": None}]}
+        await db.orders.insert_one(doc)
+    except Exception:
+        # ROLL BACK any successful stock decrements before re-raising
+        for pid, sz, qty in reservations:
+            stock_field = f"stock.{sz}"
+            await db.products.update_one({"id": pid}, {"$inc": {stock_field: qty}})
+        raise
+
     if payload.customer and payload.customer.get("phone"):
         await _upsert_customer(payload.customer, payload.address)
     cust_phone = (payload.customer or {}).get("phone") or (payload.address or {}).get("phone")
     if cust_phone:
-        try: notify_order_placed(cust_phone, order_id, float(payload.total))
+        try: notify_order_placed(cust_phone, order_id, float(server_total))
         except Exception: pass
     for mid in unique_mids:
         m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1})
         if m and m.get("phone"):
-            # Notify each merchant only about THEIR slice of the order
             their_items = [it for it in items_snap if it.get("merchant_id") == mid]
-            try: notify_merchant_new_order(m["phone"], order_id, float(payload.total), len(their_items))
+            try: notify_merchant_new_order(m["phone"], order_id, float(server_total), len(their_items))
             except Exception: pass
     doc.pop("_id", None)
     return doc
@@ -1288,7 +1389,10 @@ async def admin_cancel_order(oid: str, request: Request, payload: Optional[dict]
     Payload (optional): `{"reason": "...", "merchant_id": "..."}` — when
     `merchant_id` is present on a multi-store order, only that merchant's slice
     is cancelled; the rest of the order continues. Global flips to `cancelled`
-    only when every merchant on the order is cancelled (or none remain active)."""
+    only when every merchant on the order is cancelled (or none remain active).
+
+    Stock for the cancelled slice's items is atomically restored to the
+    product catalog so the unsold inventory becomes immediately available again."""
     _check_admin(request.headers.get("authorization"))
     o = await db.orders.find_one({"id": oid}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
@@ -1298,24 +1402,28 @@ async def admin_cancel_order(oid: str, request: Request, payload: Optional[dict]
     target_mid = (payload or {}).get("merchant_id")
     mids = o.get("merchant_ids") or []
 
+    # Restock the cancelled-slice items
+    items_to_restock = [it for it in (o.get("items") or [])
+                       if (not target_mid) or it.get("merchant_id") == target_mid]
+    for it in items_to_restock:
+        pid = it.get("id"); qty = int(it.get("qty", 1) or 1)
+        size = (it.get("size") or "").strip() or "default"
+        if pid and qty > 0:
+            await db.products.update_one({"id": pid}, {"$inc": {f"stock.{size}": qty}})
+
     if target_mid:
         if target_mid not in mids:
             raise HTTPException(400, "merchant_id not part of this order")
-        # Mark just this merchant's slice as cancelled (state = "cancelled" sentinel)
         cancelled = dict(o.get("merchant_cancelled") or {})
         cancelled[target_mid] = reason
         states = dict(o.get("merchant_states") or {})
         states[target_mid] = "cancelled"
-        # Recompute global from non-cancelled slices. If one slice is cancelled
-        # and another is already delivered, the order should close out as
-        # delivered (not stay stuck on its prior status).
         new_global = _derive_global_status(states)
         update_doc = {"merchant_cancelled": cancelled, "merchant_states": states,
                       "status": new_global}
         if new_global == "cancelled":
             update_doc["cancel_reason"] = reason
         if new_global == "delivered":
-            # All non-cancelled slices reached delivered — close the loop.
             tl = o.get("timeline", [])
             now2 = datetime.now(timezone.utc).isoformat()
             for t in tl:
@@ -1325,6 +1433,7 @@ async def admin_cancel_order(oid: str, request: Request, payload: Optional[dict]
             update_doc["delivered_at"] = o.get("delivered_at") or now2
         await db.orders.update_one({"id": oid}, {"$set": update_doc})
     else:
+        _assert_status_transition(o.get("status", "pending_merchant"), "cancelled")
         await db.orders.update_one({"id": oid}, {"$set": {"status": "cancelled", "cancel_reason": reason}})
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     if cust_phone:
@@ -1874,7 +1983,7 @@ def _check_admin(authorization: Optional[str]):
     return payload
 
 @api.post("/admin/login")
-@_limit("5/minute")
+@_limit(_LIMIT_ADMIN_LOGIN)
 async def admin_login(request: Request, payload: AdminLogin):
     # Constant-time comparison for both email and password to mitigate timing
     # attacks. Prefer bcrypt-hashed credentials when ADMIN_PASSWORD_HASH is set;
@@ -2709,6 +2818,32 @@ async def merchant_complaints(user: dict = Depends(get_current_user)):
 
 
 
+# ===== Internal health check (gated by INTERNAL_API_KEY) =====
+@app.get("/internal/health/db")
+async def internal_db_health(request: Request):
+    """Readiness probe for the Mongo replica/standalone. Requires the
+    `X-Internal-Key` header to match `INTERNAL_API_KEY`. Returns 200 + ping
+    latency-ish info when healthy; 503 on driver/server failures."""
+    expected = os.environ.get("INTERNAL_API_KEY", "")
+    key = request.headers.get("x-internal-key", "")
+    if not expected or not hmac.compare_digest(key, expected):
+        raise HTTPException(403, "Forbidden")
+    try:
+        # `ping` is Mongo's canonical no-op health command
+        result = await db.command({"ping": 1})
+        names = await db.list_collection_names()
+        applied = await db["_migrations"].count_documents({})
+        return JSONResponse({
+            "status": "healthy",
+            "database": os.environ.get("DB_NAME"),
+            "ping": result.get("ok") == 1.0,
+            "collections": len(names),
+            "migrations_applied": applied,
+        })
+    except Exception as e:
+        return JSONResponse({"status": "unhealthy", "error": str(e)[:200]}, status_code=503)
+
+
 # ===== Admin: Live users + Customers directory =====
 @api.post("/heartbeat")
 async def heartbeat(payload: dict):
@@ -2834,6 +2969,14 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_seed():
+    # Auto-apply pending Mongo migrations (indexes + $jsonSchema validators +
+    # soft-delete backfill). Idempotent — completed versions are skipped.
+    try:
+        from migrations.run import _run as _run_migrations
+        await _run_migrations(db)
+    except Exception as e:
+        log.warning("Migration runner skipped: %s", e)
+
     # Re-seed L1/L2 taxonomy on every boot to ensure it's up-to-date
     await db.categories.delete_many({})
     await db.subcategories.delete_many({})
