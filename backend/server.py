@@ -496,44 +496,212 @@ def _admin_only(user: dict):
         raise HTTPException(403, "Admin only")
 
 
-# ===== Payment webhook (Razorpay — scaffold; payments are currently offline) =====
-def _verify_razorpay_signature(order_id: str, payment_id: str, signature: str) -> bool:
-    """HMAC-SHA256 verification per Razorpay docs. Returns True only when the
-    received signature exactly matches the locally-computed digest."""
-    secret = os.environ.get("RAZORPAY_KEY_SECRET", "")
-    if not secret or not signature: return False
-    message = f"{order_id}|{payment_id}".encode("utf-8")
-    expected = hmac.new(secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature)
-
-
 @api.post("/webhooks/payment")
 @_limit("60/minute")
 async def payment_webhook(request: Request):
-    """Razorpay payment webhook. Signature-verified + idempotent (a duplicate
-    razorpay_payment_id is silently ignored thanks to a unique index on
-    `processed_payments.payment_id`)."""
-    data = await request.json()
-    order_id = data.get("razorpay_order_id")
-    payment_id = data.get("razorpay_payment_id")
-    signature = data.get("razorpay_signature") or request.headers.get("x-razorpay-signature", "")
-    if not (order_id and payment_id and signature):
-        raise HTTPException(400, "Missing webhook fields")
-    if not _verify_razorpay_signature(order_id, payment_id, signature):
-        log.warning("[Razorpay webhook] signature mismatch order=%s", order_id)
+    """Razorpay webhook — signature verified, idempotent, amount-checked.
+
+    Handles three events end-to-end:
+      - payment.captured → flip order to status='pending_merchant' +
+        payment_status='paid', then notify merchants.
+      - payment.failed   → flip order to status='cancelled' +
+        payment_status='failed' + restock items.
+      - refund.created   → flip order to payment_status='refunded'.
+
+    Returns 200 on every successful (or duplicate / unhandled) event so
+    Razorpay stops retrying. Returns 400 ONLY on signature failure."""
+    raw = await request.body()
+    sig = request.headers.get("x-razorpay-signature", "")
+    if not verify_webhook_signature(raw, sig):
+        log.warning("[Webhook] signature mismatch")
         raise HTTPException(400, "Invalid signature")
-    # Idempotency — unique index on processed_payments.payment_id rejects dupes
     try:
-        await db.processed_payments.insert_one({
-            "payment_id": payment_id, "order_id": order_id,
-            "processed_at": datetime.now(timezone.utc).isoformat(),
-            "raw": data,
+        data = json.loads(raw)
+    except Exception:
+        raise HTTPException(400, "Invalid JSON")
+
+    event_type = data.get("event") or "unknown"
+    event_id = data.get("id") or f"{event_type}:{datetime.now(timezone.utc).timestamp()}"
+
+    # Idempotency: record-or-skip via unique index on webhook_events.razorpay_event_id
+    try:
+        await db.webhook_events.insert_one({
+            "razorpay_event_id": event_id, "event_type": event_type,
+            "raw_payload": data, "processed": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
         })
     except Exception as e:
-        log.info("[Razorpay webhook] duplicate %s ignored: %s", payment_id, e)
-        return {"ok": True, "duplicate": True}
-    # TODO: when payment integration ships, link payment_id → orders.payment_status
-    return {"ok": True}
+        # Duplicate key → already processed
+        log.info("[Webhook] duplicate %s ignored: %s", event_id, e)
+        return {"status": "already_processed"}
+
+    try:
+        if event_type == "payment.captured":
+            await _handle_payment_captured(data)
+        elif event_type == "payment.failed":
+            await _handle_payment_failed(data)
+        elif event_type == "refund.created":
+            await _handle_refund_created(data)
+        # order.paid is a duplicate of payment.captured — skip silently.
+        await db.webhook_events.update_one(
+            {"razorpay_event_id": event_id},
+            {"$set": {"processed": True,
+                      "processed_at": datetime.now(timezone.utc).isoformat()}})
+    except Exception as e:
+        log.error("[Webhook] %s handler error: %s", event_type, e)
+        await db.webhook_events.update_one(
+            {"razorpay_event_id": event_id},
+            {"$set": {"error": str(e), "failed_at": datetime.now(timezone.utc).isoformat()}})
+    return {"status": "ok"}
+
+
+async def _restock_order_items(order: dict) -> None:
+    for it in (order.get("items") or []):
+        pid = it.get("id"); qty = int(it.get("qty", 1) or 1)
+        sz = (it.get("size") or "").strip() or "default"
+        if pid and qty > 0:
+            await db.products.update_one({"id": pid}, {"$inc": {f"stock.{sz}": qty}})
+
+
+async def _handle_payment_captured(event: dict) -> None:
+    pay = (event.get("payload") or {}).get("payment", {}).get("entity") or {}
+    rp_order_id = pay.get("order_id")
+    rp_payment_id = pay.get("id")
+    amount_paise = int(pay.get("amount", 0))
+    if not rp_order_id:
+        raise ValueError("No order_id in payment.captured")
+    o = await db.orders.find_one({"razorpay_order_id": rp_order_id}, {"_id": 0})
+    if not o:
+        raise ValueError(f"No Lokl order for razorpay_order_id={rp_order_id}")
+    if o.get("payment_status") == "paid":
+        return  # idempotent
+    expected_paise = int((Decimal(str(o.get("total", 0))) * 100).quantize(Decimal("1")))
+    if amount_paise != expected_paise:
+        await audit_service.log(
+            "amount_mismatch_detected", order_id=o["id"],
+            razorpay_order_id=rp_order_id, razorpay_payment_id=rp_payment_id,
+            amount=amount_paise / 100, actor="razorpay_webhook",
+            metadata={"expected_paise": expected_paise, "received_paise": amount_paise},
+        )
+        raise ValueError(f"Amount mismatch order={o['id']} expected={expected_paise} got={amount_paise}")
+    await db.orders.update_one({"id": o["id"]}, {"$set": {
+        "status": "pending_merchant",            # release to merchant queue
+        "payment_status": "paid",
+        "razorpay_payment_id": rp_payment_id,
+        "paid_at": datetime.now(timezone.utc).isoformat(),
+    }, "$unset": {"expires_at": ""}})
+    await audit_service.log("payment_captured", order_id=o["id"],
+                            razorpay_order_id=rp_order_id, razorpay_payment_id=rp_payment_id,
+                            amount=amount_paise / 100, actor="razorpay_webhook")
+    # Now notify merchants — payment confirmed
+    for mid in (o.get("merchant_ids") or []):
+        m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1})
+        if m and m.get("phone"):
+            their = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid]
+            try: notify_merchant_new_order(m["phone"], o["id"], float(o.get("total", 0)), len(their))
+            except Exception: pass
+
+
+async def _handle_payment_failed(event: dict) -> None:
+    pay = (event.get("payload") or {}).get("payment", {}).get("entity") or {}
+    rp_order_id = pay.get("order_id")
+    if not rp_order_id: return
+    o = await db.orders.find_one({"razorpay_order_id": rp_order_id}, {"_id": 0})
+    if not o or o.get("payment_status") in ("paid", "refunded"): return
+    await db.orders.update_one({"id": o["id"]}, {"$set": {
+        "status": "cancelled",
+        "payment_status": "failed",
+        "payment_failure_reason": pay.get("error_description", "Payment failed"),
+    }})
+    await _restock_order_items(o)
+    await audit_service.log("payment_failed", order_id=o["id"],
+                            razorpay_order_id=rp_order_id,
+                            amount=float(o.get("total", 0)),
+                            actor="razorpay_webhook",
+                            metadata={"reason": pay.get("error_description", "")})
+
+
+async def _handle_refund_created(event: dict) -> None:
+    refund = (event.get("payload") or {}).get("refund", {}).get("entity") or {}
+    rp_payment_id = refund.get("payment_id")
+    rp_refund_id = refund.get("id")
+    if not rp_payment_id: return
+    o = await db.orders.find_one({"razorpay_payment_id": rp_payment_id}, {"_id": 0})
+    if not o: return
+    await db.orders.update_one({"id": o["id"]}, {"$set": {
+        "status": "refunded",
+        "payment_status": "refunded",
+        "razorpay_refund_id": rp_refund_id,
+        "refund_completed_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    await audit_service.log("refund_completed", order_id=o["id"],
+                            razorpay_payment_id=rp_payment_id,
+                            amount=float(o.get("total", 0)),
+                            actor="razorpay_webhook",
+                            metadata={"razorpay_refund_id": rp_refund_id})
+
+
+@api.post("/orders/{oid}/customer-cancel")
+@_limit("10/minute")
+async def customer_cancel_order(oid: str, request: Request, payload: Optional[dict] = None):
+    """Customer-initiated cancel — phone in body must match the order's customer.
+    Allowed only while the order is still pre-acceptance. Triggers auto-refund
+    when the order was paid via Razorpay."""
+    body = payload or {}
+    phone = (body.get("phone") or "").strip()
+    reason = (body.get("reason") or "Customer cancelled").strip()[:200]
+    if not phone:
+        raise HTTPException(400, "phone required")
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not o: raise HTTPException(404, "Order not found")
+    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    if not cust_phone or cust_phone != phone:
+        raise HTTPException(403, "Not your order")
+    if o.get("status") not in ("awaiting_payment", "pending_merchant"):
+        raise HTTPException(400, f"Cannot cancel from status: {o.get('status')}")
+    await db.orders.update_one({"id": oid}, {"$set": {
+        "status": "cancelled", "cancel_reason": reason,
+        "cancelled_by": "customer",
+        "cancelled_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    await _restock_order_items(o)
+    refund_initiated = False
+    if o.get("payment_status") == "paid" and o.get("razorpay_payment_id"):
+        try:
+            refund = refund_payment(o["razorpay_payment_id"],
+                                    Decimal(str(o.get("total", 0))), oid)
+            if refund:
+                refund_initiated = True
+                await db.orders.update_one({"id": oid}, {"$set": {
+                    "payment_status": "refund_pending",
+                    "razorpay_refund_id": refund.get("id"),
+                    "refund_initiated_at": datetime.now(timezone.utc).isoformat(),
+                }})
+                await audit_service.log("refund_initiated", order_id=oid,
+                                        razorpay_payment_id=o["razorpay_payment_id"],
+                                        amount=float(o.get("total", 0)),
+                                        actor=phone, ip_address=request.client.host if request.client else None,
+                                        metadata={"razorpay_refund_id": refund.get("id")})
+        except Exception as e:
+            log.error("[Refund] failed for %s: %s", oid, e)
+            await db.failed_refunds.insert_one({
+                "order_id": oid, "error": str(e), "amount": float(o.get("total", 0)),
+                "razorpay_payment_id": o.get("razorpay_payment_id"),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+    await audit_service.log("order_cancelled", order_id=oid,
+                            amount=float(o.get("total", 0)),
+                            actor=phone, ip_address=request.client.host if request.client else None,
+                            metadata={"reason": reason, "refund_initiated": refund_initiated})
+    return {"ok": True, "status": "cancelled", "refund_initiated": refund_initiated}
+
+
+@api.get("/admin/orders/{oid}/audit-log")
+async def admin_order_audit_log(oid: str, request: Request):
+    _check_admin(request.headers.get("authorization"))
+    entries = await db.payment_audit_log.find(
+        {"order_id": oid}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    return {"order_id": oid, "events": entries}
 
 
 # ===== Upload security =====
@@ -1142,6 +1310,35 @@ async def create_order(payload: OrderCreate):
                             {"label": "Merchant accepted", "time": None},
                             {"label": "Order on the way", "time": None},
                             {"label": "Delivered", "time": None}]}
+
+        # ===== Payment method branch =====
+        # COD: order goes straight to merchant queue (existing behavior).
+        # razorpay: order is held in `awaiting_payment` until the webhook flips
+        # payment_status=paid (or it expires). Merchants are NOT notified until
+        # the payment is captured so they don't pack against an abandoned cart.
+        pm = (payload.payment_method or "COD").lower()
+        if pm in ("razorpay", "online"):
+            try:
+                rp_order = create_razorpay_order(
+                    lokl_order_id=order_id, amount_inr=server_total,
+                    customer_phone=(payload.customer or {}).get("phone", ""),
+                    customer_name=(payload.customer or {}).get("name", ""),
+                )
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            except Exception as e:
+                raise HTTPException(502, f"Payment gateway error: {e}")
+            if rp_order is None:
+                raise HTTPException(503, "Online payment unavailable. Try COD.")
+            doc["payment_method"] = "razorpay"
+            doc["payment_status"] = "unpaid"
+            doc["razorpay_order_id"] = rp_order["id"]
+            doc["status"] = "awaiting_payment"
+            doc["expires_at"] = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+        else:
+            doc["payment_method"] = "COD"
+            doc["payment_status"] = "cod_pending"
+
         await db.orders.insert_one(doc)
     except Exception:
         # ROLL BACK any successful stock decrements before re-raising
@@ -1156,12 +1353,20 @@ async def create_order(payload: OrderCreate):
     if cust_phone:
         try: notify_order_placed(cust_phone, order_id, float(server_total))
         except Exception: pass
-    for mid in unique_mids:
-        m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1})
-        if m and m.get("phone"):
-            their_items = [it for it in items_snap if it.get("merchant_id") == mid]
-            try: notify_merchant_new_order(m["phone"], order_id, float(server_total), len(their_items))
-            except Exception: pass
+    # Only notify merchants for COD. Razorpay orders wait for webhook → paid.
+    if doc.get("payment_method") == "COD":
+        for mid in unique_mids:
+            m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1})
+            if m and m.get("phone"):
+                their_items = [it for it in items_snap if it.get("merchant_id") == mid]
+                try: notify_merchant_new_order(m["phone"], order_id, float(server_total), len(their_items))
+                except Exception: pass
+    await audit_service.log("order_initiated", order_id=order_id,
+                            razorpay_order_id=doc.get("razorpay_order_id"),
+                            amount=float(server_total),
+                            actor=cust_phone or "anonymous",
+                            metadata={"payment_method": doc.get("payment_method"),
+                                      "is_multi_store": doc.get("is_multi_store", False)})
     doc.pop("_id", None)
     return doc
 
@@ -2961,8 +3166,13 @@ app.include_router(api)
 from routes.geo import init as _init_geo
 from routes.addresses import init as _init_addresses
 from services.cache_service import cache_service
+from services.payment_service import (create_razorpay_order, refund_payment,
+                                       verify_webhook_signature, verify_payment_signature,
+                                       is_enabled as razorpay_enabled)
+from services.audit_service import AuditService
 app.include_router(_init_geo(db))
 app.include_router(_init_addresses(db, merchant_user))
+audit_service = AuditService(db)
 
 # ===== CORS =====
 # Origins must be explicitly allow-listed via ALLOWED_ORIGINS (comma-separated).
