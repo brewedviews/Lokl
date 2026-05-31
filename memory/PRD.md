@@ -3,6 +3,64 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-31) — Infra hardening: Sentry + CI/CD + Staging
+
+Strict infrastructure session. No product logic touched. Goals: observability,
+repeatable deploys, environment hygiene.
+
+### Sentry (graceful no-op when DSN unset)
+- New `/app/backend/observability.py` — `init_sentry()` lazy-imports `sentry_sdk`,
+  wires Starlette + FastAPI integrations, tags `service=lokl-backend`. Skips
+  cleanly when `SENTRY_DSN` is blank so dev/CI never spam the dashboard.
+- New `/app/frontend/src/lib/observability.js` — same pattern for `@sentry/react`,
+  tags `service=lokl-frontend`, wires `browserTracingIntegration`. Reads
+  `REACT_APP_SENTRY_*` env vars.
+- `backend/server.py` calls `init_sentry()` right after `load_dotenv`.
+- `frontend/src/index.js` calls `initSentry()` before `ReactDOM.createRoot`.
+- Installed: `sentry-sdk==2.18.0` (added to `requirements.txt`) + `@sentry/react@^8.45.0`.
+
+### GitHub Actions
+- `.github/workflows/pr.yml` — runs on PR + push to main. Three jobs:
+  backend-lint-test (ruff + pytest against a Mongo 7 service container),
+  frontend-lint-build (eslint + craco build), docker-build (multi-arch buildx
+  for both images, no push, GHA cache). Gated concurrency cancels stale runs.
+- `.github/workflows/deploy-staging.yml` — runs on push to main + manual
+  dispatch. Builds + pushes versioned (`:<sha>`) and rolling (`:staging`) tags
+  to GHCR, then SSHs to `STAGING_HOST` and runs `docker compose pull && up -d`,
+  followed by a smoke job that curls staging health endpoints. Deploy + smoke
+  steps are gated by repo variables (`STAGING_DEPLOY_ENABLED`,
+  `STAGING_SMOKE_ENABLED`) so they don't run before secrets are configured.
+- New `scripts/smoke_staging.sh` — exits non-zero on heartbeat/stores/products/
+  homepage-config failure. Verified green locally against the preview URL.
+
+### Staging environment
+- New `.env.staging.example` — staging-shaped copy of `.env.example` with
+  `SENTRY_ENVIRONMENT=staging`, separate Atlas DB (`lokl_staging`), Razorpay
+  test mode, frontend `REACT_APP_*` build args.
+- Existing `docker-compose.staging.yml` already overlays via image references
+  + `mongo` profile disabled (uses Atlas).
+
+### Env cleanup
+- `.env.example` gained an Observability section: `SENTRY_DSN`,
+  `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, `SENTRY_TRACES_SAMPLE_RATE`,
+  `SENTRY_PROFILES_SAMPLE_RATE`. Frontend section now lists `REACT_APP_SENTRY_*`
+  vars.
+- Removed duplicate Razorpay block at the bottom of `.env.example`.
+
+### Release discipline
+- New `DEPLOYMENT.md` — environments matrix, secrets/vars checklist for
+  GitHub, auto-deploy flow, manual rollback playbook (`docker compose` pinned
+  to a SHA tag), production gate (tag-driven, not auto), observability
+  references, backup checklist.
+
+### Verification
+- Backend boots cleanly with `SENTRY_DSN=""` (no-op log line).
+- Frontend compiles + renders correctly with new init module.
+- Smoke test green against the preview URL (4/4 checks passed).
+- 18/19 backend regression tests pass; 1 pre-existing failure
+  (`test_get_merchant_products_returns_images`) is from the Iter-23 perf trim
+  of `/api/merchant/products` and unrelated to this change.
+
 ## Latest Iteration (Feb 2026 — Iter-30) — Per-merchant UNIQUE 4-digit OTPs
 
 User clarified the multi-store flow needs a UNIQUE OTP per merchant (not a shared global OTP). Each store gets its own OTP. Customer receives one OTP per merchant only after that merchant accepts. Admin dashboard renders the multi-store order as one row with per-slice inline Mark Delivered + Cancel buttons + each store's OTP. Merchant only sees their own OTP.

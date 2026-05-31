@@ -1,0 +1,126 @@
+name: Deploy Staging
+
+# Triggered on push to main (post PR merge) or manually via workflow_dispatch.
+# Builds + pushes versioned images to GHCR, then runs a smoke test against the
+# deployed staging URL.
+#
+# Configure these repository secrets before enabling:
+#   STAGING_HOST           — SSH host (e.g. staging.lokl.in)
+#   STAGING_SSH_USER       — SSH user (e.g. deploy)
+#   STAGING_SSH_KEY        — private key (PEM) granted to STAGING_HOST
+#   STAGING_DEPLOY_PATH    — abs path on host (e.g. /opt/lokl)
+#   STAGING_SMOKE_URL      — public URL for smoke test (e.g. https://api.staging.lokl.in)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}/lokl
+
+jobs:
+  build-and-push:
+    name: Build & push images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      sha_tag: ${{ steps.meta.outputs.sha_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        run: |
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          echo "sha_tag=${SHA_SHORT}" >> "$GITHUB_OUTPUT"
+          echo "Image tag: ${SHA_SHORT}"
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}-backend:staging
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}-backend:${{ steps.meta.outputs.sha_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}-frontend:staging
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}-frontend:${{ steps.meta.outputs.sha_tag }}
+          build-args: |
+            REACT_APP_BACKEND_URL=${{ secrets.STAGING_API_URL }}
+            REACT_APP_SENTRY_DSN=${{ secrets.STAGING_REACT_SENTRY_DSN }}
+            REACT_APP_SENTRY_ENVIRONMENT=staging
+            REACT_APP_SENTRY_RELEASE=${{ steps.meta.outputs.sha_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to staging host
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: ${{ vars.STAGING_DEPLOY_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.STAGING_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Copy compose files
+        run: |
+          scp -i ~/.ssh/id_rsa docker-compose.yml docker-compose.staging.yml \
+            "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_HOST }}:${{ secrets.STAGING_DEPLOY_PATH }}/"
+
+      - name: Pull & restart
+        run: |
+          ssh -i ~/.ssh/id_rsa "${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_HOST }}" <<EOF
+            set -euo pipefail
+            cd "${{ secrets.STAGING_DEPLOY_PATH }}"
+            export SENTRY_RELEASE=${{ needs.build-and-push.outputs.sha_tag }}
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml \
+              --env-file .env.staging pull
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml \
+              --env-file .env.staging up -d
+            docker image prune -f
+          EOF
+
+  smoke:
+    name: Smoke test staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: ${{ vars.STAGING_SMOKE_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run smoke test
+        env:
+          STAGING_SMOKE_URL: ${{ secrets.STAGING_SMOKE_URL }}
+        run: bash scripts/smoke_staging.sh

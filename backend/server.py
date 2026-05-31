@@ -31,8 +31,13 @@ from notifications import (
     notify_rider_return_pickup, notify_return_status,
 )
 from ai_enhance import enhance_product_images
+from observability import init_sentry
 
 load_dotenv(Path(__file__).parent / ".env")
+
+# Initialize Sentry after dotenv so SENTRY_DSN from .env is honored.
+# Graceful no-op when SENTRY_DSN is unset (local / preview).
+init_sentry()
 
 client = AsyncIOMotorClient(os.environ["MONGO_URL"])
 db = client[os.environ["DB_NAME"]]
