@@ -1593,6 +1593,9 @@ async def merchant_store_online(payload: dict, user: dict = Depends(get_current_
     if not s.get("published"):
         raise HTTPException(400, "Take your store live before toggling availability")
     await db.stores.update_one({"id": sid}, {"$set": {"online": online}})
+    # Bust geo cache so the new online/offline state surfaces immediately
+    try: await cache_service.invalidate_geo()
+    except Exception: pass
     return {"ok": True, "online": online}
 
 @api.get("/merchant/products")
@@ -2953,6 +2956,14 @@ async def root(): return {"app": "Lokl", "status": "ok"}
 
 app.include_router(api)
 
+# ===== v1 geolocation routers (nearby stores, products, delivery estimate,
+# cities, customer addresses, merchant store location) =====
+from routes.geo import init as _init_geo
+from routes.addresses import init as _init_addresses
+from services.cache_service import cache_service
+app.include_router(_init_geo(db))
+app.include_router(_init_addresses(db, merchant_user))
+
 # ===== CORS =====
 # Origins must be explicitly allow-listed via ALLOWED_ORIGINS (comma-separated).
 # Wildcard ("*") is only permitted for local development — in prod set the var.
@@ -2969,6 +2980,21 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_seed():
+    # ----- MongoDB version + geo support check -----
+    try:
+        info = await client.server_info()
+        ver = info.get("version", "0.0")
+        major = int(str(ver).split(".")[0])
+        log.info("[GEO] MongoDB %s — geospatial support %s", ver, "OK" if major >= 6 else "DEGRADED (<6.0)")
+    except Exception as e:
+        log.warning("Mongo version check failed: %s", e)
+
+    # ----- Redis cache (optional; degrades gracefully) -----
+    try:
+        await cache_service.connect()
+    except Exception as e:
+        log.warning("Cache connect skipped: %s", e)
+
     # Auto-apply pending Mongo migrations (indexes + $jsonSchema validators +
     # soft-delete backfill). Idempotent — completed versions are skipped.
     try:
@@ -2976,6 +3002,13 @@ async def startup_seed():
         await _run_migrations(db)
     except Exception as e:
         log.warning("Migration runner skipped: %s", e)
+
+    # Auto-seed Bhilai delivery config (idempotent upsert)
+    try:
+        from seeds.bhilai_config import up as _seed_bhilai
+        await _seed_bhilai(db)
+    except Exception as e:
+        log.warning("Bhilai seed skipped: %s", e)
 
     # Re-seed L1/L2 taxonomy on every boot to ensure it's up-to-date
     await db.categories.delete_many({})
