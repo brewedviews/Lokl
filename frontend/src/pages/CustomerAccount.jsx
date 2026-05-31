@@ -7,9 +7,10 @@ import {
 } from "lucide-react";
 import ConsumerHeader from "../components/consumer/ConsumerHeader";
 import Footer from "../components/consumer/Footer";
-import api from "../lib/api";
+import api, { getCustomerToken, getCustomerPhone, clearCustomerSession } from "../lib/api";
 import { toast } from "sonner";
 import { getWishlist, removeFromWishlist } from "../lib/wishlist";
+import CustomerOtpLogin from "../components/consumer/CustomerOtpLogin";
 
 const BLANK_ADDR = { name: "", phone: "", label: "Home", line1: "", landmark: "", city: "Bhilai", pincode: "" };
 
@@ -51,7 +52,7 @@ function ProfileHeaderCard({ name, phone, onEdit }) {
             Lokl Member
           </span>
         </div>
-        <div className="text-sm text-[#64748B] mt-0.5">+91 {phone}</div>
+        <div className="text-sm text-[#64748B] mt-0.5">+{phone}</div>
       </div>
     </section>
   );
@@ -89,8 +90,8 @@ export default function CustomerAccount() {
   const [searchParams] = useSearchParams();
   const tabParam = searchParams.get("tab");
   const validTiles = ["orders", "returns", "addresses", "wishlist", "wallet", "coupons", "support", "profile"];
-  const [phone, setPhone] = useState(localStorage.getItem("bf_customer_phone") || "");
-  const [hasPhone, setHasPhone] = useState(!!localStorage.getItem("bf_customer_phone"));
+  const [phone, setPhone] = useState(getCustomerPhone());
+  const [hasAuth, setHasAuth] = useState(!!getCustomerToken());
   const [data, setData] = useState(null);
   const [returns, setReturns] = useState([]);
   const [wishlist, setWishlist] = useState([]);
@@ -122,7 +123,21 @@ export default function CustomerAccount() {
     refreshWishlist();
   };
 
-  useEffect(() => { if (phone) load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { if (hasAuth && phone) load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => {
+    // React to login / logout from anywhere in the app.
+    const onAuthChange = () => {
+      const t = getCustomerToken();
+      const p = getCustomerPhone();
+      setPhone(p);
+      setHasAuth(!!t);
+      if (t && p) load();
+      else { setData(null); setReturns([]); setWishlist([]); }
+    };
+    window.addEventListener("customer-auth:change", onAuthChange);
+    return () => window.removeEventListener("customer-auth:change", onAuthChange);
+    // eslint-disable-next-line
+  }, []);
   useEffect(() => {
     const onChange = () => refreshWishlist();
     window.addEventListener("wishlist:change", onChange);
@@ -130,13 +145,7 @@ export default function CustomerAccount() {
     // eslint-disable-next-line
   }, [phone]);
 
-  const enterPhone = (e) => {
-    e.preventDefault();
-    if (!/^[0-9]{10}$/.test(phone)) return toast.error("Enter a valid 10-digit number");
-    localStorage.setItem("bf_customer_phone", phone);
-    setHasPhone(true);
-    load();
-  };
+  const onLoginSuccess = (p) => { setPhone(p); setHasAuth(true); };
 
   const saveProfile = async () => {
     if (!phone) return;
@@ -166,42 +175,28 @@ export default function CustomerAccount() {
     load();
   };
 
-  const logout = () => {
+  const logout = async () => {
     if (!window.confirm("Sign out of this device?")) return;
-    localStorage.removeItem("bf_customer_phone");
-    setPhone(""); setHasPhone(false); setData(null); setReturns([]); setWishlist([]);
+    try { await api.post("/auth/logout"); } catch { /* best-effort */ }
+    clearCustomerSession();
+    setPhone(""); setHasAuth(false); setData(null); setReturns([]); setWishlist([]);
     toast.success("Signed out");
   };
 
   const addresses = data?.customer?.addresses || [];
   const orders = data?.orders || [];
 
-  // ----- Phone gate -----
-  if (!hasPhone) {
+  // ----- OTP login gate -----
+  if (!hasAuth) {
     return (
       <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
         <ConsumerHeader />
         <div className="flex-1 max-w-md w-full mx-auto px-4 sm:px-8 pt-10 pb-16">
-          <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] tracking-tight">My account</h1>
-          <p className="text-sm text-[#64748B] mt-1">Enter your number for one-tap checkout and order tracking.</p>
-          <form onSubmit={enterPhone} className="mt-6 bg-white border border-[#E5E2DC] rounded-3xl p-6 shadow-sm">
-            <div className="text-[10px] uppercase tracking-[0.2em] text-[#64748B] mb-2">Mobile number</div>
-            <div className="flex items-center gap-3">
-              <Phone size={16} className="text-[#E68910]" />
-              <input
-                data-testid="phone-lookup"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
-                placeholder="10-digit mobile"
-                className="flex-1 px-3 py-2.5 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]"
-              />
-              <button
-                type="submit"
-                data-testid="continue-account"
-                className="px-5 py-2.5 rounded-full bg-[#0A1F5C] text-white text-sm font-semibold hover:bg-[#08174A] transition"
-              >Continue</button>
-            </div>
-          </form>
+          <CustomerOtpLogin
+            title="Sign in"
+            subtitle="Enter your number to view orders, addresses, and returns."
+            onSuccess={onLoginSuccess}
+          />
         </div>
         <Footer />
       </div>

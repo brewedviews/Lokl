@@ -16,19 +16,22 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from auth import (hash_password, verify_password, create_token, get_current_user,
-                  decode_token, require_role, JWT_REFRESH_DAYS)
+                  decode_token, require_role, JWT_REFRESH_DAYS,
+                  JWT_SECRET, JWT_ALGO)
+import jwt
 
 # Role-guard dependencies — shorthand for the most-used auth tiers in this app.
 # Returns the JWT payload on success, raises 401 (no token) or 403 (wrong role).
 merchant_user = require_role("merchant", "admin")
 admin_user = require_role("admin")
+customer_user = require_role("customer", "admin")
 from ai_service import generate_product_copy, enhance_product_image, ai_model_tryon
 from seed_data import build_seed_docs, L1_CATEGORIES, L2_BY_L1, GENDERS
 from notifications import (
     notify_order_placed, notify_merchant_new_order,
     notify_order_accepted, notify_order_rejected, notify_order_delivered,
     notify_order_on_the_way, notify_order_cancelled, notify_rider_pickup,
-    notify_rider_return_pickup, notify_return_status,
+    notify_rider_return_pickup, notify_return_status, notify_customer_otp,
 )
 from ai_enhance import enhance_product_images
 from observability import init_sentry
@@ -44,10 +47,10 @@ db = client[os.environ["DB_NAME"]]
 
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
 ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "")
-# Legacy plain-text fallback for transition window — remove once ADMIN_PASSWORD_HASH is set everywhere.
-_LEGACY_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
-if not ADMIN_EMAIL or (not ADMIN_PASSWORD_HASH and not _LEGACY_ADMIN_PASSWORD):
-    raise ValueError("ADMIN_EMAIL and (ADMIN_PASSWORD_HASH or ADMIN_PASSWORD) must be set in the environment")
+# bcrypt-only. The legacy plain-text ADMIN_PASSWORD path has been removed —
+# generate a hash with:  python -c "import bcrypt; print(bcrypt.hashpw(b'<pw>', bcrypt.gensalt(12)).decode())"
+if not ADMIN_EMAIL or not ADMIN_PASSWORD_HASH:
+    raise ValueError("ADMIN_EMAIL and ADMIN_PASSWORD_HASH must be set in the environment")
 
 app = FastAPI(title="Lokl")
 api = APIRouter(prefix="/api")
@@ -67,6 +70,8 @@ _LIMIT_LOGIN = os.environ.get("RATE_LIMIT_LOGIN", "10/minute")
 _LIMIT_REGISTER = os.environ.get("RATE_LIMIT_REGISTER", "30/minute")
 _LIMIT_ADMIN_LOGIN = os.environ.get("RATE_LIMIT_ADMIN_LOGIN", "10/minute")
 _LIMIT_REFRESH = os.environ.get("RATE_LIMIT_REFRESH", "60/minute")
+_LIMIT_CUSTOMER_OTP_REQUEST = os.environ.get("RATE_LIMIT_CUSTOMER_OTP_REQUEST", "5/minute")
+_LIMIT_CUSTOMER_OTP_VERIFY = os.environ.get("RATE_LIMIT_CUSTOMER_OTP_VERIFY", "10/minute")
 
 # ===== Security response headers =====
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -204,7 +209,10 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
 async def refresh_token(request: Request, response: Response):
     """Exchange a valid refresh token (httpOnly cookie OR Authorization header)
     for a fresh 15-minute access token. Rotating refresh tokens — every refresh
-    issues a new one and invalidates the old by virtue of overwriting the cookie."""
+    issues a new one and invalidates the old by virtue of overwriting the cookie.
+    Additionally consults `revoked_refresh_jti` so explicitly-revoked tokens
+    (via logout) cannot be replayed even if the cookie was captured.
+    """
     token = request.cookies.get("refresh_token")
     if not token:
         auth = request.headers.get("authorization", "")
@@ -215,18 +223,76 @@ async def refresh_token(request: Request, response: Response):
     payload = decode_token(token)
     if payload.get("type") != "refresh":
         raise HTTPException(401, "Not a refresh token")
+    jti = payload.get("jti")
+    if jti and await db.revoked_refresh_jti.find_one({"jti": jti}, {"_id": 1}):
+        raise HTTPException(401, "Refresh token revoked")
     sub, role = payload.get("sub"), payload.get("role", "merchant")
     _set_refresh_cookie(response, create_token(sub, role, "refresh"))
     return {"token": create_token(sub, role, "access")}
 
+
+def _clear_refresh_cookie(response: Response) -> None:
+    """Mirror of _set_refresh_cookie attributes — the path/domain MUST match
+    or the browser will keep the original cookie alive."""
+    response.delete_cookie(
+        "refresh_token",
+        path="/api/auth",
+        httponly=True,
+        secure=True,
+        samesite="strict",
+    )
+
+
+async def _revoke_refresh_token(token: Optional[str]) -> None:
+    """Add the refresh token's JTI to the revocation set. Best-effort —
+    a malformed/expired token is swallowed silently because the cookie is
+    already being cleared and an attacker presenting a bad token gains nothing."""
+    if not token:
+        return
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO],
+                             options={"verify_exp": False})
+    except Exception:
+        return
+    jti = payload.get("jti")
+    if not jti or payload.get("type") != "refresh":
+        return
+    # TTL index on `expires_at` (created in startup) auto-prunes old entries.
+    expires_at = datetime.fromtimestamp(payload.get("exp", 0), tz=timezone.utc)
+    await db.revoked_refresh_jti.update_one(
+        {"jti": jti},
+        {"$set": {"jti": jti, "sub": payload.get("sub"),
+                  "role": payload.get("role"), "expires_at": expires_at}},
+        upsert=True,
+    )
+
+
 @api.post("/auth/logout")
-async def logout(user: dict = Depends(get_current_user)):
-    # Logging out flips the store offline so customers don't see it during
-    # the merchant's downtime. Same effect as the manual online toggle.
-    if user.get("role") == "merchant":
-        store_id = f"store-m-{user['sub']}"
-        await db.stores.update_one({"id": store_id}, {"$set": {"online": False}})
-        await db.merchants.update_one({"id": user["sub"]}, {"$set": {"storefront.online": False}})
+async def logout(request: Request, response: Response):
+    """Properly terminates the session:
+      1. Revokes the current refresh token (adds its JTI to the revocation set).
+      2. Clears the refresh cookie so the browser stops sending it.
+      3. For merchants, flips their store offline as a courtesy so customers
+         don't continue to see an open store after the merchant signs out.
+    Access tokens remain valid until their natural 15-min expiry — this is
+    accepted by design (short TTL keeps the blast radius small)."""
+    refresh_cookie = request.cookies.get("refresh_token")
+    await _revoke_refresh_token(refresh_cookie)
+    _clear_refresh_cookie(response)
+
+    # Best-effort merchant-store-offline side-effect — only runs if the caller
+    # presented a valid bearer token. Anonymous logout (just cookie present)
+    # still works for the cookie-clearing purpose.
+    auth_hdr = request.headers.get("authorization", "")
+    if auth_hdr.startswith("Bearer "):
+        try:
+            user = decode_token(auth_hdr.split(" ", 1)[1])
+            if user.get("type") != "refresh" and user.get("role") == "merchant":
+                store_id = f"store-m-{user['sub']}"
+                await db.stores.update_one({"id": store_id}, {"$set": {"online": False}})
+                await db.merchants.update_one({"id": user["sub"]}, {"$set": {"storefront.online": False}})
+        except Exception:
+            pass
     return {"ok": True}
 
 @api.get("/auth/me")
@@ -234,6 +300,148 @@ async def me(user: dict = Depends(get_current_user)):
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0, "password_hash": 0})
     if not m: raise HTTPException(404, "Merchant not found")
     return m
+
+
+# ============================================================================
+# Customer authentication (OTP-based, WhatsApp delivery)
+# ----------------------------------------------------------------------------
+# Customers don't have passwords — they authenticate by entering their phone
+# number and confirming a 6-digit OTP delivered via Twilio WhatsApp. The OTP
+# is hashed with bcrypt before storage so a DB leak doesn't reveal live codes.
+#
+# Issued JWT: role="customer", sub=<E.164 phone without "+", e.g. "919998887776">
+# All customer-data routes derive the phone from this `sub` claim and refuse
+# to operate on any other customer's data (URL phone param must match).
+# ============================================================================
+
+import re as _re
+
+
+def _normalize_customer_phone(raw: str) -> Optional[str]:
+    """Convert any common Indian phone format to a 12-digit E.164 string
+    (e.g. '919998887776'). Returns None if the input isn't 10/11/12 digits."""
+    if not raw:
+        return None
+    digits = _re.sub(r"\D", "", str(raw))
+    if len(digits) == 10:
+        digits = "91" + digits
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = "91" + digits[1:]
+    if len(digits) != 12 or not digits.startswith("91"):
+        return None
+    return digits
+
+
+def _ensure_customer_phone_match(user: dict, url_phone: str) -> str:
+    """Authorization guard for customer routes: the URL phone parameter
+    must equal the authenticated customer's phone (from JWT `sub`).
+
+    Admins may operate on any customer (support scenarios). Returns the
+    normalized phone the route should query against. 403 on mismatch."""
+    jwt_phone = user.get("sub", "")
+    url_norm = _normalize_customer_phone(url_phone) or url_phone
+    if user.get("role") == "admin":
+        return url_norm  # admin acts on the URL-specified customer
+    if jwt_phone != url_norm:
+        raise HTTPException(403, "Phone in URL does not match authenticated customer")
+    return jwt_phone
+
+
+class CustomerOtpRequest(BaseModel):
+    phone: str
+
+
+class CustomerOtpVerify(BaseModel):
+    phone: str
+    otp: str
+
+
+@api.post("/auth/customer/request-otp")
+@_limit(_LIMIT_CUSTOMER_OTP_REQUEST)
+async def customer_request_otp(request: Request, payload: CustomerOtpRequest):
+    """Generate a 6-digit OTP, store its bcrypt hash with a 10-minute TTL,
+    and dispatch via WhatsApp. Always returns the same shape to prevent
+    user-enumeration via response timing/structure."""
+    phone = _normalize_customer_phone(payload.phone)
+    if not phone:
+        raise HTTPException(400, "Invalid phone number")
+
+    otp = f"{secrets.randbelow(1_000_000):06d}"
+    otp_hash = hash_password(otp)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    # Upsert so a re-request for the same phone overwrites the prior OTP.
+    await db.customer_otps.update_one(
+        {"phone": phone},
+        {"$set": {
+            "phone": phone,
+            "otp_hash": otp_hash,
+            "attempts": 0,
+            "expires_at": expires_at,
+            "created_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
+
+    # Fire-and-forget delivery. The notify helper logs OTP to backend logs
+    # when CUSTOMER_OTP_DEBUG=true so dev/preview works regardless of Twilio.
+    try:
+        notify_customer_otp(phone, otp)
+    except Exception as e:
+        log.warning("OTP delivery failed for %s: %s", phone, e)
+
+    return {"ok": True, "message": "OTP sent if the phone is valid", "expires_in": 600}
+
+
+@api.post("/auth/customer/verify-otp")
+@_limit(_LIMIT_CUSTOMER_OTP_VERIFY)
+async def customer_verify_otp(request: Request, payload: CustomerOtpVerify):
+    """Verify the OTP and issue a customer JWT pair. After 5 wrong attempts
+    the OTP is invalidated and the customer must request a new one."""
+    phone = _normalize_customer_phone(payload.phone)
+    if not phone or not payload.otp:
+        raise HTTPException(400, "Invalid phone or OTP")
+
+    rec = await db.customer_otps.find_one({"phone": phone})
+    if not rec:
+        raise HTTPException(401, "OTP not found or expired — request a new one")
+
+    expires_at = rec.get("expires_at")
+    if isinstance(expires_at, datetime):
+        # Mongo returns naive UTC; normalize before comparison.
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            await db.customer_otps.delete_one({"phone": phone})
+            raise HTTPException(401, "OTP expired — request a new one")
+
+    if int(rec.get("attempts", 0)) >= 5:
+        await db.customer_otps.delete_one({"phone": phone})
+        raise HTTPException(429, "Too many attempts — request a new OTP")
+
+    if not verify_password(payload.otp.strip(), rec.get("otp_hash", "")):
+        await db.customer_otps.update_one({"phone": phone}, {"$inc": {"attempts": 1}})
+        raise HTTPException(401, "Incorrect OTP")
+
+    # Success — burn the OTP, ensure a customer doc exists, issue tokens.
+    await db.customer_otps.delete_one({"phone": phone})
+    await db.customers.update_one(
+        {"phone": phone},
+        {"$setOnInsert": {
+            "phone": phone,
+            "created_at": datetime.now(timezone.utc),
+            "addresses": [],
+        }},
+        upsert=True,
+    )
+    access = create_token(phone, "customer", "access")
+    refresh = create_token(phone, "customer", "refresh")
+    response = JSONResponse({"token": access, "phone": phone, "role": "customer"})
+    _set_refresh_cookie(response, refresh)
+    return response
+
+
+
 
 
 async def _merchant_next_route(merchant_id: str) -> str:
@@ -648,20 +856,20 @@ async def _handle_refund_created(event: dict) -> None:
 
 @api.post("/orders/{oid}/customer-cancel")
 @_limit("10/minute")
-async def customer_cancel_order(oid: str, request: Request, payload: Optional[dict] = None):
-    """Customer-initiated cancel — phone in body must match the order's customer.
-    Allowed only while the order is still pre-acceptance. Triggers auto-refund
-    when the order was paid via Razorpay."""
+async def customer_cancel_order(oid: str, request: Request, payload: Optional[dict] = None,
+                                user: dict = Depends(customer_user)):
+    """Customer-initiated cancel — caller must be authenticated AND own the
+    order (JWT phone === order's customer phone). Allowed only while the order
+    is still pre-acceptance. Triggers auto-refund when the order was paid via
+    Razorpay."""
     body = payload or {}
-    phone = (body.get("phone") or "").strip()
     reason = (body.get("reason") or "Customer cancelled").strip()[:200]
-    if not phone:
-        raise HTTPException(400, "phone required")
     o = await db.orders.find_one({"id": oid}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
-    if not cust_phone or cust_phone != phone:
+    if user.get("role") != "admin" and cust_phone != user.get("sub"):
         raise HTTPException(403, "Not your order")
+    phone = cust_phone  # downstream code still uses `phone` for notifications
     if o.get("status") not in ("awaiting_payment", "pending_merchant"):
         raise HTTPException(400, f"Cannot cancel from status: {o.get('status')}")
     await db.orders.update_one({"id": oid}, {"$set": {
@@ -1229,7 +1437,28 @@ async def _soft_delete(collection_name: str, doc_id: str) -> bool:
 
 
 @api.post("/orders")
-async def create_order(payload: OrderCreate):
+async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)):
+    # Bind the order to the authenticated customer. The phone in the payload
+    # must match the JWT `sub` — refuse to let one customer place an order
+    # under another's identity. Admins may place orders on behalf of any
+    # customer (support / phone-order scenarios).
+    cust_in = getattr(payload, "customer", None) or {}
+    if isinstance(cust_in, dict):
+        payload_phone = _normalize_customer_phone(cust_in.get("phone", ""))
+    else:
+        payload_phone = _normalize_customer_phone(getattr(cust_in, "phone", ""))
+    if not payload_phone:
+        raise HTTPException(400, "customer.phone is required")
+    if user.get("role") != "admin" and payload_phone != user.get("sub"):
+        raise HTTPException(403, "customer.phone does not match authenticated customer")
+    # Normalize the payload so downstream order/customer records use the
+    # canonical 12-digit form.
+    if isinstance(cust_in, dict):
+        cust_in["phone"] = payload_phone
+        payload.customer = cust_in
+    else:
+        cust_in.phone = payload_phone
+
     addr_city = (payload.address.get("city") or "").strip().lower()
     if addr_city not in SERVICEABLE_CITIES:
         raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
@@ -2198,14 +2427,10 @@ def _check_admin(authorization: Optional[str]):
 @api.post("/admin/login")
 @_limit(_LIMIT_ADMIN_LOGIN)
 async def admin_login(request: Request, payload: AdminLogin):
-    # Constant-time comparison for both email and password to mitigate timing
-    # attacks. Prefer bcrypt-hashed credentials when ADMIN_PASSWORD_HASH is set;
-    # fall back to plain-string compare only during the migration window.
+    # Constant-time comparison for email + bcrypt for password. Plain-text
+    # ADMIN_PASSWORD support has been removed — ADMIN_PASSWORD_HASH is required.
     email_ok = hmac.compare_digest(payload.email, ADMIN_EMAIL)
-    if ADMIN_PASSWORD_HASH:
-        password_ok = bcrypt.checkpw(payload.password.encode(), ADMIN_PASSWORD_HASH.encode())
-    else:
-        password_ok = hmac.compare_digest(payload.password, _LEGACY_ADMIN_PASSWORD)
+    password_ok = bcrypt.checkpw(payload.password.encode(), ADMIN_PASSWORD_HASH.encode())
     if not (email_ok and password_ok):
         raise HTTPException(401, "Invalid admin credentials")
     return {"token": _admin_token(), "admin": {"email": ADMIN_EMAIL, "role": "admin"}}
@@ -2687,13 +2912,17 @@ async def _upsert_customer(customer: dict, address: dict | None = None):
     await db.customers.update_one({"phone": phone}, {"$set": upd}, upsert=True)
 
 @api.post("/customer/upsert")
-async def customer_upsert(payload: CustomerUpsert):
+async def customer_upsert(payload: CustomerUpsert, user: dict = Depends(customer_user)):
+    payload_phone = _normalize_customer_phone(payload.phone) or payload.phone
+    if user.get("role") != "admin" and payload_phone != user.get("sub"):
+        raise HTTPException(403, "Cannot upsert another customer's profile")
     await _upsert_customer(payload.model_dump(), payload.address)
-    c = await db.customers.find_one({"phone": payload.phone}, {"_id": 0})
+    c = await db.customers.find_one({"phone": payload_phone}, {"_id": 0})
     return c
 
 @api.get("/customer/{phone}")
-async def get_customer(phone: str):
+async def get_customer(phone: str, user: dict = Depends(customer_user)):
+    phone = _ensure_customer_phone_match(user, phone)
     c = await db.customers.find_one({"phone": phone}, {"_id": 0})
     if not c: raise HTTPException(404, "Not found")
     orders = await db.orders.find({"customer.phone": phone}, {"_id": 0}).sort("created_at", -1).to_list(50)
@@ -2702,7 +2931,8 @@ async def get_customer(phone: str):
 
 # Customer address book CRUD
 @api.post("/customer/{phone}/addresses")
-async def add_customer_address(phone: str, payload: dict):
+async def add_customer_address(phone: str, payload: dict, user: dict = Depends(customer_user)):
+    phone = _ensure_customer_phone_match(user, phone)
     if not payload.get("line1") or not payload.get("pincode"):
         raise HTTPException(400, "line1 and pincode required")
     addr = {
@@ -2724,7 +2954,8 @@ async def add_customer_address(phone: str, payload: dict):
     return addr
 
 @api.delete("/customer/{phone}/addresses/{aid}")
-async def delete_customer_address(phone: str, aid: str):
+async def delete_customer_address(phone: str, aid: str, user: dict = Depends(customer_user)):
+    phone = _ensure_customer_phone_match(user, phone)
     await db.customers.update_one({"phone": phone}, {"$pull": {"addresses": {"id": aid}}})
     return {"ok": True}
 
@@ -2765,10 +2996,14 @@ async def _can_return_order(order: dict):
 
 
 @api.post("/orders/{oid}/returns")
-async def create_return(oid: str, payload: dict):
-    """Customer initiates a return. Payload: {item_ids: [str], reason: str, customer_phone: str}"""
+async def create_return(oid: str, payload: dict, user: dict = Depends(customer_user)):
+    """Customer initiates a return. Payload: {item_ids: [str], reason: str}.
+    Caller must own the order (JWT phone === order customer phone)."""
     o = await db.orders.find_one({"id": oid}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
+    order_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    if user.get("role") != "admin" and order_phone != user.get("sub"):
+        raise HTTPException(403, "Not your order")
     ok, reason = await _can_return_order(o)
     if not ok: raise HTTPException(400, reason)
     item_ids = payload.get("item_ids") or []
@@ -2781,9 +3016,8 @@ async def create_return(oid: str, payload: dict):
     if not chosen:
         # Default: include all eligible items
         chosen = list(elig_ids)
-    cust_phone = (payload.get("customer_phone")
-                  or (o.get("customer") or {}).get("phone")
-                  or (o.get("address") or {}).get("phone"))
+    # Customer phone is always derived from the authenticated order, never trusted from the body.
+    cust_phone = order_phone
     rid = f"RET-{uuid.uuid4().hex[:8].upper()}"
     otp = f"{random.randint(1000, 9999)}"
     now = _now_iso()
@@ -2820,7 +3054,8 @@ async def get_return(rid: str):
 
 
 @api.get("/customer/{phone}/returns")
-async def customer_returns(phone: str):
+async def customer_returns(phone: str, user: dict = Depends(customer_user)):
+    phone = _ensure_customer_phone_match(user, phone)
     rs = await db.returns.find({"customer_phone": phone}, {"_id": 0}).sort("created_at", -1).to_list(100)
     return rs
 
@@ -2968,19 +3203,22 @@ COMPLAINT_TYPES = ["return", "missing_item", "damaged_item", "delivery_issue", "
 
 
 @api.post("/orders/{oid}/complaints")
-async def create_complaint(oid: str, payload: dict):
-    """Customer raises a complaint for an order. Payload: {type, message, customer_phone}"""
+async def create_complaint(oid: str, payload: dict, user: dict = Depends(customer_user)):
+    """Customer raises a complaint for an order. Payload: {type, message}.
+    Caller must own the order (JWT phone === order customer phone)."""
     o = await db.orders.find_one({"id": oid}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
+    order_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    if user.get("role") != "admin" and order_phone != user.get("sub"):
+        raise HTTPException(403, "Not your order")
     ctype = payload.get("type") or "general"
     if ctype not in COMPLAINT_TYPES:
         raise HTTPException(400, "Invalid complaint type")
     msg = (payload.get("message") or "").strip()
     if not msg:
         raise HTTPException(400, "Message required")
-    cust_phone = (payload.get("customer_phone")
-                  or (o.get("customer") or {}).get("phone")
-                  or (o.get("address") or {}).get("phone"))
+    # Customer phone is always derived from the order, never trusted from the body.
+    cust_phone = order_phone
     cid = f"CMP-{uuid.uuid4().hex[:8].upper()}"
     now = _now_iso()
     doc = {
@@ -3016,7 +3254,8 @@ async def admin_resolve_complaint(cid: str, request: Request, payload: Optional[
 
 
 @api.get("/customer/{phone}/complaints")
-async def customer_complaints(phone: str):
+async def customer_complaints(phone: str, user: dict = Depends(customer_user)):
+    phone = _ensure_customer_phone_match(user, phone)
     docs = await db.complaints.find({"customer_phone": phone}, {"_id": 0}).sort("created_at", -1).to_list(100)
     return docs
 
@@ -3254,6 +3493,21 @@ async def startup_seed():
         await db.processed_payments.create_index("payment_id", unique=True)
     except Exception as e:
         log.warning("processed_payments index: %s", e)
+
+    # Customer-OTP TTL: documents auto-expire 10 min after `expires_at`.
+    try:
+        await db.customer_otps.create_index("phone", unique=True)
+        await db.customer_otps.create_index("expires_at", expireAfterSeconds=0)
+    except Exception as e:
+        log.warning("customer_otps indexes: %s", e)
+
+    # Revoked-refresh-token store: auto-pruned when the JWT's natural expiry
+    # passes, so the collection stays small.
+    try:
+        await db.revoked_refresh_jti.create_index("jti", unique=True)
+        await db.revoked_refresh_jti.create_index("expires_at", expireAfterSeconds=0)
+    except Exception as e:
+        log.warning("revoked_refresh_jti indexes: %s", e)
 
     # Keep demo merchant auto-approved
     demo = await db.merchants.find_one({"email": "demo@bharat-os.com"}, {"_id": 0})

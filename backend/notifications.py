@@ -75,6 +75,24 @@ def send_whatsapp(phone: str, body: str) -> bool:
 
 # ===== Domain-specific templates =====
 
+def notify_customer_otp(customer_phone: str, otp: str) -> None:
+    """Send the 6-digit login OTP to the customer's WhatsApp.
+
+    Best-effort: when Twilio is throttled / sandbox-unjoined / missing creds
+    the failure is logged and swallowed. The caller is expected to surface a
+    generic "OTP sent" message either way; the OTP itself is also written to
+    the backend log when CUSTOMER_OTP_DEBUG=true so dev/staging is usable
+    even when WhatsApp delivery fails.
+    """
+    body = (
+        f"🔐 Lokl login code: *{otp}*\n"
+        f"Valid for 10 minutes. Do not share this code with anyone."
+    )
+    if os.environ.get("CUSTOMER_OTP_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+        log.info("[OTP-DEBUG] phone=%s otp=%s", customer_phone, otp)
+    send_whatsapp(customer_phone, body)
+
+
 def notify_order_placed(customer_phone: str, order_id: str, total: float, eta_min: int = 45) -> None:
     body = (
         f"🎉 Lokl: Order *{order_id}* confirmed!\n"

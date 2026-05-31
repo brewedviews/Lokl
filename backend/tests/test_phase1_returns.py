@@ -86,7 +86,30 @@ def merchant():
     return {"email": email, "token": tok, "h": h, "p1": pid1, "p2": pid2, "merchant_id": me["id"]}
 
 
-def _place_order(merchant_fixt, *, include_returnable=True, include_nonreturnable=False):
+def _get_customer_token(phone: str = "9876543210") -> tuple[str, str]:
+    """Drive the OTP flow end-to-end against the live backend.
+    Returns (canonical_phone, jwt). Relies on CUSTOMER_OTP_DEBUG=true so
+    the OTP is logged to backend stdout/stderr where we can scrape it."""
+    import subprocess
+    requests.post(f"{API}/auth/customer/request-otp", json={"phone": phone}, timeout=10).raise_for_status()
+    time.sleep(0.5)
+    line = subprocess.check_output(
+        "grep 'OTP-DEBUG' /var/log/supervisor/backend.err.log | tail -1",
+        shell=True,
+    ).decode().strip()
+    import re as _re_local
+    m = _re_local.search(r"otp=(\d+)", line)
+    assert m, f"could not parse OTP from log line: {line!r}"
+    otp = m.group(1)
+    r = requests.post(f"{API}/auth/customer/verify-otp",
+                      json={"phone": phone, "otp": otp}, timeout=10)
+    assert r.status_code == 200, r.text
+    return r.json()["phone"], r.json()["token"]
+
+
+def _place_order(merchant_fixt, *, include_returnable=True, include_nonreturnable=False,
+                 customer_phone: str = "9876543210"):
+    cphone, ctok = _get_customer_token(customer_phone)
     items = []
     if include_returnable:
         items.append({"id": merchant_fixt["p1"], "name": "Phase1 Returnable Tee", "price": 599, "qty": 1,
@@ -97,13 +120,16 @@ def _place_order(merchant_fixt, *, include_returnable=True, include_nonreturnabl
     payload = {
         "items": items,
         "total": sum(i["price"] * i["qty"] for i in items),
-        "customer": {"name": "Phase1 Tester", "phone": f"+9199{uuid.uuid4().hex[:8]}"},
+        "customer": {"name": "Phase1 Tester", "phone": cphone},
         "address": {"name": "Phase1 Tester", "line1": "Sector 10", "city": "Bhilai", "pincode": "490020",
-                    "phone": "+919999900099"},
+                    "phone": cphone},
     }
-    r = requests.post(f"{API}/orders", json=payload, timeout=10)
+    r = requests.post(f"{API}/orders", json=payload,
+                      headers={"Authorization": f"Bearer {ctok}"}, timeout=10)
     assert r.status_code in (200, 201), r.text
-    return r.json()
+    o = r.json()
+    o["_customer_token"] = ctok  # tests reuse the token for downstream calls
+    return o
 
 
 def test_order_items_snapshot_return_eligible(merchant):
@@ -119,8 +145,8 @@ def test_cannot_return_non_delivered(merchant):
     """Returns must require status='delivered'."""
     o = _place_order(merchant)
     r = requests.post(f"{API}/orders/{o['id']}/returns", json={
-        "reason": "Damaged", "customer_phone": o["address"]["phone"],
-    }, timeout=10)
+        "reason": "Damaged",
+    }, headers={"Authorization": f"Bearer {o['_customer_token']}"}, timeout=10)
     assert r.status_code == 400, r.text
     assert "delivered" in r.json()["detail"].lower()
 
@@ -141,8 +167,8 @@ def test_full_return_flow(admin_token, merchant):
 
     # Customer raises return
     r = requests.post(f"{API}/orders/{oid}/returns", json={
-        "reason": "Damaged product", "customer_phone": o["address"]["phone"],
-    }, timeout=10)
+        "reason": "Damaged product",
+    }, headers={"Authorization": f"Bearer {o['_customer_token']}"}, timeout=10)
     assert r.status_code == 200, r.text
     ret = r.json()
     assert ret["status"] == "requested"
@@ -170,7 +196,9 @@ def test_twilio_inbound_marks_return_picked_up(admin_token, merchant):
     requests.post(f"{API}/merchant/orders/{oid}/accept", headers=merchant["h"]).raise_for_status()
     requests.post(f"{API}/merchant/orders/{oid}/handed-to-rider", headers=merchant["h"]).raise_for_status()
     requests.post(f"{API}/admin/orders/{oid}/mark-delivered", headers=ahdr).raise_for_status()
-    ret = requests.post(f"{API}/orders/{oid}/returns", json={"reason": "Quality issue", "customer_phone": o["address"]["phone"]}, timeout=10).json()
+    ret = requests.post(f"{API}/orders/{oid}/returns",
+                        json={"reason": "Quality issue"},
+                        headers={"Authorization": f"Bearer {o['_customer_token']}"}, timeout=10).json()
     rid = ret["id"]
     otp = ret["otp"]
     # Admin assigns pickup
@@ -189,18 +217,16 @@ def test_twilio_inbound_marks_return_picked_up(admin_token, merchant):
     assert state.get("picked_via") == "rider-whatsapp"
 
 
-def test_complaint_create_and_admin_list(admin_token):
+def test_complaint_create_and_admin_list(admin_token, merchant):
     """Customer raises complaint → admin lists it → resolve."""
-    # Use any existing order
     ahdr = {"Authorization": f"Bearer {admin_token}"}
-    if "order_with_both" not in S:
-        # Skip if previous test was skipped
-        pytest.skip("no seed order")
-    oid = S["order_with_both"]
+    # Place a fresh order so we have a customer token and known phone.
+    o = _place_order(merchant, customer_phone="9888777666")
+    oid = o["id"]
+    chdr = {"Authorization": f"Bearer {o['_customer_token']}"}
     r = requests.post(f"{API}/orders/{oid}/complaints", json={
         "type": "damaged_item", "message": "The package arrived damaged.",
-        "customer_phone": "+919999900099",
-    }, timeout=10)
+    }, headers=chdr, timeout=10)
     assert r.status_code == 200, r.text
     cmp = r.json()
     cid = cmp["id"]
@@ -211,8 +237,9 @@ def test_complaint_create_and_admin_list(admin_token):
     assert r.status_code == 200
     assert any(c["id"] == cid for c in r.json())
 
-    # Customer lists
-    r = requests.get(f"{API}/customer/+919999900099/complaints", timeout=10)
+    # Customer lists (must use canonical 12-digit phone from JWT)
+    cphone = cmp["customer_phone"]
+    r = requests.get(f"{API}/customer/{cphone}/complaints", headers=chdr, timeout=10)
     assert r.status_code == 200
     assert any(c["id"] == cid for c in r.json())
 

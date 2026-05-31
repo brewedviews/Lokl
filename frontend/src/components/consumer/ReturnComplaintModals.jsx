@@ -23,7 +23,6 @@ const COMPLAINT_TYPES = [
 export function ReturnModal({ order, onClose, onCreated }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const customerPhone = localStorage.getItem("bf_customer_phone") || (order?.customer?.phone || "");
 
   const eligibleItems = (order?.items || []).filter((it) => it.return_eligible);
   const [pickedIds, setPickedIds] = useState(eligibleItems.map((it) => it.id));
@@ -38,7 +37,7 @@ export function ReturnModal({ order, onClose, onCreated }) {
     setBusy(true);
     try {
       const { data } = await api.post(`/orders/${order.id}/returns`, {
-        reason, item_ids: pickedIds, customer_phone: customerPhone,
+        reason, item_ids: pickedIds,
       });
       toast.success("Return request submitted");
       onCreated && onCreated(data);
@@ -105,14 +104,13 @@ export function ComplaintModal({ order, onClose, onCreated, prefillType = "gener
   const [type, setType] = useState(prefillType);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const customerPhone = localStorage.getItem("bf_customer_phone") || (order?.customer?.phone || "");
 
   const submit = async () => {
     if (!message.trim()) return toast.error("Please describe the issue");
     setBusy(true);
     try {
       const { data } = await api.post(`/orders/${order.id}/complaints`, {
-        type, message: message.trim(), customer_phone: customerPhone,
+        type, message: message.trim(),
       });
       toast.success("Complaint raised — our team will follow up shortly");
       onCreated && onCreated(data);

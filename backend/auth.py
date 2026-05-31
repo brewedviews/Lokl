@@ -2,6 +2,7 @@
 import os
 import jwt
 import bcrypt
+import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from dotenv import load_dotenv
@@ -38,7 +39,9 @@ def create_token(user_id: str, role: str = "merchant", token_type: str = "access
     """Issue an access (short-lived) or refresh (long-lived) JWT.
 
     `token_type` is embedded in the payload so the /refresh endpoint can reject
-    access tokens being replayed as refresh tokens and vice versa."""
+    access tokens being replayed as refresh tokens and vice versa. Refresh
+    tokens additionally carry a `jti` claim so they can be revoked on logout
+    (see `revoked_refresh_jti` collection)."""
     delta = timedelta(days=JWT_REFRESH_DAYS) if token_type == "refresh" else timedelta(minutes=JWT_ACCESS_MIN)
     payload = {
         "sub": user_id,
@@ -46,6 +49,8 @@ def create_token(user_id: str, role: str = "merchant", token_type: str = "access
         "type": token_type,
         "exp": datetime.now(timezone.utc) + delta,
     }
+    if token_type == "refresh":
+        payload["jti"] = secrets.token_urlsafe(16)
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
 

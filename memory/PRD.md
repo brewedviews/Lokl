@@ -3,6 +3,90 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-32) — Auth P0 hardening
+
+Per the auth gap-analysis, only the four P0 items were addressed in this
+session. P1/P2/P3 deferred to a later auth sweep.
+
+### M1 + M2 — Customer authentication (OTP) + Order binding
+- New `customer` role JWTs, issued via WhatsApp OTP:
+  - `POST /api/auth/customer/request-otp` — body `{phone}`, generates a
+    6-digit code, bcrypt-hashes it, stores in `customer_otps` with a 10-min
+    TTL index, dispatches via Twilio WhatsApp. Rate-limited 5/min per IP.
+  - `POST /api/auth/customer/verify-otp` — 5 attempts max, on success issues
+    access (15m) + refresh (7d, httpOnly cookie) tokens, normalizes the phone
+    to E.164 12-digit, upserts the customer doc.
+- All previously-anonymous `/api/customer/{phone}/...` routes now require a
+  `customer` JWT AND enforce `URL.phone == JWT.sub` (403 on mismatch). Admins
+  pass through for support scenarios. Routes hardened:
+  - `GET /customer/{phone}`
+  - `POST /customer/{phone}/addresses`
+  - `DELETE /customer/{phone}/addresses/{aid}`
+  - `GET /customer/{phone}/returns`
+  - `GET /customer/{phone}/complaints`
+  - `POST /customer/upsert` (verified payload.phone matches JWT)
+- `POST /api/orders` requires a customer JWT and refuses payloads where
+  `customer.phone != JWT.sub` (admins exempt). Phone is normalized to the
+  canonical 12-digit form before snapshot.
+- Same enforcement applied to the customer-mutation order routes:
+  `POST /orders/{oid}/customer-cancel`, `/returns`, `/complaints`. Customer
+  phone is now derived from the order document (no longer trusted from body).
+- `CUSTOMER_OTP_DEBUG=true` preview-only env flag logs OTP to backend logs
+  so dev/staging work even when Twilio's 50/day sandbox cap is exhausted.
+- Frontend:
+  - `lib/api.js` — multi-token axios interceptor routes the right Bearer per
+    URL prefix (customer routes → `bf_customer_token`, everything else →
+    `bf_token`). 401 on customer routes auto-clears the stale session.
+  - New `components/consumer/CustomerOtpLogin.jsx` — two-step phone → OTP UI,
+    resend cooldown, change-number affordance. Reused by `/account` gate and
+    by Checkout's pre-place-order gate.
+  - `CustomerAccount.jsx` reactively reflects login/logout across tabs via
+    a `customer-auth:change` window event.
+  - `ReturnComplaintModals` no longer sends `customer_phone` — backend
+    derives it from JWT + order doc.
+
+### P2 — Admin bcrypt-only
+- Removed the legacy plain-text `ADMIN_PASSWORD` fallback from
+  `server.py:admin_login` + the env validation block. Only
+  `ADMIN_PASSWORD_HASH` is accepted now. Hash for `Admin@2026` baked into
+  `/app/backend/.env` (12-round bcrypt).
+
+### P1 — Proper logout
+- `POST /api/auth/logout` now:
+  1. Reads the refresh cookie (if present), decodes its `jti`, inserts a
+     revocation doc into `revoked_refresh_jti` (TTL-pruned at natural expiry).
+  2. `response.delete_cookie("refresh_token", path="/api/auth", …)` so the
+     browser stops sending it.
+  3. Best-effort merchant-store-offline side-effect (existing behavior).
+- `POST /api/auth/refresh` consults the revocation set and 401s on revoked
+  JTIs even if the cookie value is presented out-of-band.
+- Frontend `clearCustomerSession()` + `AuthContext.logout()` both call
+  `/api/auth/logout` and remove the localStorage tokens.
+
+### Indexes (created in `startup_seed`)
+- `customer_otps`: unique on `phone`, TTL on `expires_at`.
+- `revoked_refresh_jti`: unique on `jti`, TTL on `expires_at`.
+
+### Verification
+- Backend boots clean (Sentry init log confirmed, no startup errors).
+- Curl matrix passes:
+  - 401 on customer routes without bearer
+  - 200 on customer routes with matching JWT
+  - 403 when JWT phone ≠ URL phone (or ≠ payload.customer.phone)
+  - 403 on POST /orders with mismatched customer.phone
+  - Refresh cookie cleared on logout (verified via -c cookie jar)
+- Playwright end-to-end: phone → OTP from logs → verify → customer dashboard
+  loads with `bf_customer_token` populated in localStorage.
+- Test suite: 5/5 `test_phase1_returns.py` pass (rewritten to use OTP flow),
+  13/14 `test_iter5_flow.py` pass (the 1 pre-existing failure is the Iter-23
+  `merchant/products` images-trim — unrelated).
+
+### Out of scope (explicitly deferred per user direction)
+- P1: per-account lockout, logout-all-devices, password reset, auth audit log,
+  axios refresh interceptor.
+- P2: admin TOTP, access-token-to-memory, sessions UI, phone/email re-auth.
+- P3: jti/iss/aud claims for access tokens, CSRF, CORS hardening.
+
 ## Latest Iteration (Feb 2026 — Iter-31) — Infra hardening: Sentry + CI/CD + Staging
 
 Strict infrastructure session. No product logic touched. Goals: observability,

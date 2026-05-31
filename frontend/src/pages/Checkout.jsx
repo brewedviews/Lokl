@@ -3,16 +3,18 @@ import { useNavigate } from "react-router-dom";
 import { CreditCard, Wallet, Banknote, MapPin, Plus, CheckCircle2 } from "lucide-react";
 import ConsumerHeader from "../components/consumer/ConsumerHeader";
 import Footer from "../components/consumer/Footer";
-import api from "../lib/api";
+import api, { getCustomerPhone, getCustomerToken } from "../lib/api";
 import { useCart } from "../contexts/CartContext";
 import { toast } from "sonner";
+import CustomerOtpLogin from "../components/consumer/CustomerOtpLogin";
 
 const BLANK_ADDR = { name: "", phone: "", line1: "", landmark: "", city: "Bhilai", pincode: "", label: "Home" };
 
 export default function Checkout() {
   const { items, total, clear } = useCart();
   const nav = useNavigate();
-  const phone = localStorage.getItem("bf_customer_phone") || "";
+  const [phone, setPhone] = useState(getCustomerPhone());
+  const [hasAuth, setHasAuth] = useState(!!getCustomerToken());
   const [savedAddresses, setSavedAddresses] = useState([]);
   const [selectedId, setSelectedId] = useState("__new__");
   const [addr, setAddr] = useState({ ...BLANK_ADDR, phone });
@@ -21,7 +23,7 @@ export default function Checkout() {
 
   // Load saved addresses for returning customers
   useEffect(() => {
-    if (!phone) return;
+    if (!hasAuth || !phone) return;
     api.get(`/customer/${phone}`).then(({ data }) => {
       const list = data?.customer?.addresses || [];
       setSavedAddresses(list);
@@ -41,7 +43,7 @@ export default function Checkout() {
         setAddr((a) => ({ ...a, name: data.customer.name }));
       }
     }).catch(() => {});
-  }, [phone]);
+  }, [phone, hasAuth]);
 
   const pickSaved = (id) => {
     setSelectedId(id);
@@ -60,14 +62,14 @@ export default function Checkout() {
       return toast.error("Lokl is only serving Bhilai right now — please update your delivery city.");
     }
     if (items.length === 0) return toast.error("Cart is empty");
+    if (!hasAuth) return toast.error("Please sign in to place this order");
     setPlacing(true);
     try {
       const { data } = await api.post("/orders", {
         items, address: addr, total, payment_method: payment,
         customer: { name: addr.name, phone: addr.phone },
       });
-      // Persist for future one-tap checkout — the backend de-dupes by line1+pincode.
-      localStorage.setItem("bf_customer_phone", addr.phone);
+      // bf_customer_phone is already stored at OTP-verify time; no need to touch it here.
       clear();
       toast.success("Order confirmed!");
       nav(`/orders/${data.id}`);
@@ -75,6 +77,23 @@ export default function Checkout() {
       toast.error(e.response?.data?.detail || "Order failed");
     } finally { setPlacing(false); }
   };
+
+  // ----- OTP sign-in gate (before the customer can place an order) -----
+  if (!hasAuth) {
+    return (
+      <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
+        <ConsumerHeader />
+        <div className="flex-1 max-w-md w-full mx-auto px-4 sm:px-8 pt-10 pb-16">
+          <CustomerOtpLogin
+            title="Sign in to checkout"
+            subtitle="We use your number to deliver, send order updates, and process returns."
+            onSuccess={(p) => { setPhone(p); setHasAuth(true); setAddr((a) => ({ ...a, phone: p.slice(-10) })); }}
+          />
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]">

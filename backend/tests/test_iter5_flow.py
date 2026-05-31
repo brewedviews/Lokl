@@ -249,17 +249,31 @@ def test_update_product_images_array(approved_merchant):
 @pytest.fixture(scope="module")
 def live_order(admin_token, approved_merchant):
     """Place a real order against the approved merchant's store/product, accept it so OTP is active."""
+    import subprocess, time as _t, re as _re_local
     # Need a real product in the merchant's store (created above). Publish store first.
     tok = approved_merchant["token"]
     pub = requests.post(f"{API}/merchant/publish", headers={"Authorization": f"Bearer {tok}"}, timeout=10)
     assert pub.status_code == 200, pub.text
+    # Drive the customer OTP flow to get a customer JWT (the only way to POST /orders now).
+    cust_phone = "9998887776"
+    requests.post(f"{API}/auth/customer/request-otp", json={"phone": cust_phone}, timeout=10).raise_for_status()
+    _t.sleep(0.5)
+    log_line = subprocess.check_output(
+        "grep 'OTP-DEBUG' /var/log/supervisor/backend.err.log | tail -1", shell=True
+    ).decode().strip()
+    m = _re_local.search(r"otp=(\d+)", log_line)
+    assert m, f"Could not parse OTP from log: {log_line!r}"
+    verify = requests.post(f"{API}/auth/customer/verify-otp",
+                           json={"phone": cust_phone, "otp": m.group(1)}, timeout=10)
+    assert verify.status_code == 200, verify.text
+    cphone, ctok = verify.json()["phone"], verify.json()["token"]
     # Place order
     order = requests.post(f"{API}/orders", json={
         "items": [{"id": S["pid"], "name": "TEST_MultiImg Tee", "price": 499, "qty": 1, "size": "M"}],
-        "address": {"name": "Buyer", "phone": "+919998887776", "line1": "10 Main", "city": "Bhilai", "pincode": "490001"},
+        "address": {"name": "Buyer", "phone": cphone, "line1": "10 Main", "city": "Bhilai", "pincode": "490001"},
         "total": 499, "payment_method": "COD",
-        "customer": {"name": "Buyer", "phone": "+919998887776"}
-    }, timeout=10)
+        "customer": {"name": "Buyer", "phone": cphone}
+    }, headers={"Authorization": f"Bearer {ctok}"}, timeout=10)
     assert order.status_code == 200, order.text
     oid = order.json()["id"]
     # Accept
@@ -269,8 +283,6 @@ def live_order(admin_token, approved_merchant):
     otp = acc.json().get("otp")
     assert otp and len(otp) == 4
     # Hand off to rider so Twilio OTP-Delivered can flip it to delivered.
-    # The webhook only marks merchants currently in `handed_off` state as
-    # delivered (mirrors real-world rider flow).
     h2r = requests.post(f"{API}/merchant/orders/{oid}/handed-to-rider",
                         headers={"Authorization": f"Bearer {tok}"}, timeout=10)
     assert h2r.status_code == 200, h2r.text
