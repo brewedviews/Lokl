@@ -1,0 +1,21 @@
+# Staging override — layered on top of docker-compose.yml.
+# Usage:  docker compose -f docker-compose.yml -f docker-compose.staging.yml --env-file .env.staging up -d
+# Staging is production-shaped but uses different images, DB, and Sentry env.
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/your-org/lokl-backend:staging}
+    pull_policy: always
+    build: !reset null
+    environment:
+      ENVIRONMENT: staging
+      SENTRY_ENVIRONMENT: staging
+      FORCE_HTTPS: "true"
+    restart: always
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/your-org/lokl-frontend:staging}
+    pull_policy: always
+    build: !reset null
+    restart: always
+  mongo:
+    # Staging connects to managed Atlas — don't run a local mongo on the box.
+    profiles: ["never"]
