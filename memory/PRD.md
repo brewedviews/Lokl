@@ -3,6 +3,50 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-33) — Session A of FE migration
+
+Frontend Architecture Upgrade, Session A of 5. **No visual or behavioral
+change** to the live CRA app — this session is pure scaffolding for the
+parallel Next.js 15 app that will replace it.
+
+### Tasks delivered (2 + 3 + 4)
+- **Task 2** — Next.js 15.5 + React 19.1 + TypeScript strict + Tailwind v4
+  scaffolded at `/app/frontend-next/`. `tsconfig.json` enforces
+  `strict + noUncheckedIndexedAccess + noImplicitAny`. ESLint hard-bans
+  `any`. Production build green: **164 KB First Load JS** on the home page.
+  Dev server runs on port 3001 in parallel with the CRA app on 3000.
+- **Task 3** — Type system in `src/types/` (8 modules) derived from the
+  **actual** Mongo response shapes (audited keyset, not the user-prompt
+  template). Key divergences from the template documented inline:
+  `Product.id` not `_id`, `Product.stock` is a per-size `Record<string, number>`
+  not a scalar `stock_quantity`, `CustomerAddress.id` not `address_id`, no
+  `razorpay_*` fields on `Order` yet (reserved for future), stores use flat
+  `lat`/`lng` floats, not GeoJSON Point.
+- **Task 4** — Single typed axios client at `lib/api-client.ts` with
+  multi-token routing (`bf_customer_token` / `bf_token` / `bf_admin_token`)
+  driven by URL classifier, 401-coalesced refresh-once-and-retry, and
+  preserved `customer-auth:change` / `merchant-auth:change` /
+  `admin-auth:change` events for cross-tab sync.
+- Per-domain API wrappers covering all **70 endpoints** from the audit:
+  `auth.ts`, `stores.ts`, `products.ts`, `customers.ts`, `orders.ts`,
+  `merchant.ts`, `admin.ts`, plus `site/catalog/search/misc` in `index.ts`.
+- Carve-outs documented in the api-client header: CSV/XLSX downloads stay
+  on `fetch()`, AdminPanel's raw fetch will be wrapped by a compat shim in
+  Session C (not migrated).
+
+### Verification
+- `npx tsc --noEmit` — 0 errors
+- `npm run lint` — 0 warnings, 0 errors
+- `npm run build` — succeeded, 164 KB First Load JS
+- Dev server boots on `:3001` without warnings
+
+### Deferred to later sessions (intentional)
+- Session B: Design system (Tailwind v4 `@theme` tokens), Zustand stores
+  (customer/merchant/admin/cart/location), UI primitives.
+- Session C: App Router scaffolding for all 28 routes with loading/error.
+- Session D: SSR + image migration for 40 `<img>` tags.
+- Session E: Analytics, perf audit, cutover docs.
+
 ## Latest Iteration (Feb 2026 — Iter-32) — Auth P0 hardening
 
 Per the auth gap-analysis, only the four P0 items were addressed in this

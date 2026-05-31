@@ -1,0 +1,10 @@
+{
+  "name": "lokl-monorepo",
+  "private": true,
+  "scripts": {
+    "dev:next": "cd frontend-next && npm run dev -- --port 3001",
+    "build:next": "cd frontend-next && npm run build",
+    "lint:next": "cd frontend-next && npm run lint",
+    "type-check:next": "cd frontend-next && npx tsc --noEmit"
+  }
+}
