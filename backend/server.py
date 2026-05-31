@@ -3078,6 +3078,21 @@ async def heartbeat(payload: dict):
     await db.live_sessions.update_one({"sid": sid}, {"$set": doc, "$setOnInsert": {"first_seen": now}}, upsert=True)
     return {"ok": True}
 
+
+@api.get("/_debug/sentry")
+async def debug_sentry(request: Request):
+    """Admin-only smoke test for Sentry wiring.
+
+    Intentionally raises so the error reaches Sentry. Use this once after
+    pasting a real SENTRY_DSN to confirm the dashboard receives events.
+    Returns 503 when Sentry is disabled (graceful no-op mode).
+    """
+    _check_admin(request.headers.get("authorization"))
+    if not os.environ.get("SENTRY_DSN", "").strip():
+        raise HTTPException(503, "Sentry is disabled (SENTRY_DSN not set).")
+    raise RuntimeError("Sentry debug — intentional test exception from /api/_debug/sentry")
+
+
 @api.get("/admin/live-users")
 async def admin_live_users(request: Request):
     """Sessions seen in the last 2 minutes."""
