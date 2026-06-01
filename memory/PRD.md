@@ -3,6 +3,106 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-34) — Session B of FE migration
+
+Frontend Architecture Upgrade, Session B of 5. **No visual or behavioral
+change** to the live CRA app — this session adds the design system, UI
+primitives, and Zustand stores to the parallel Next.js app.
+
+### Tasks delivered (1 + 2 + 3 + 4)
+
+**Task 1 — Design system (Tailwind v4 `@theme`)**
+- `globals.css` rewritten with `@import "tailwindcss"` + `@theme` token block.
+  All 9 color tokens, 3 radius tokens, and bottom-nav spacing token match
+  `/app/design_guidelines.json` exactly.
+- Clash Display + Satoshi (Fontshare) loaded via `<link rel>` in
+  `app/layout.tsx` (NOT @import — Tailwind v4 expands inline and CSS spec
+  forbids late @imports).
+- Legacy custom utilities ported verbatim: `bf-glass`, `bf-fadeup`,
+  `bf-marquee`, `v2-pop-in`, `v2-shimmer`, `no-scrollbar`, `line-clamp-1/2`
+  + their `@keyframes`.
+- Runtime tokens duplicated in `design-system/tokens.ts` for non-CSS contexts
+  (Razorpay theme, chart styles).
+- Browser-verified: `body.bgColor = rgb(253,251,247)`, `h1.fontFamily`
+  resolves to `"Clash Display", Satoshi, system-ui, sans-serif`.
+
+**Task 2 — UI primitives**
+- `components/ui/Button.tsx` — variants `primary/secondary/ghost/destructive`,
+  sizes `sm/md/lg`, `isLoading` with spinner + `aria-busy`, forwardRef.
+- `components/ui/Card.tsx` — `default/lg` sizes, optional `shadow`, forwardRef.
+- `components/ui/Badge.tsx` — variants `accent/primary/muted/success/error`.
+- `components/ui/Input.tsx` — labeled, error w/ `role="alert"`, hint,
+  forwardRef, auto-generated `useId()` if `id` missing.
+- `components/ui/Skeleton.tsx` + `ProductCardSkeleton`,
+  `StoreCardSkeleton`, `OrderRowSkeleton`, `ProfileSkeleton` — layouts match
+  the real components they'll substitute for.
+- `components/ui/index.ts` — barrel.
+- `lib/utils.ts` — `cn`, `formatPrice` (en-IN INR), `formatDistance` (m vs km),
+  `formatOrderStatus` (FSM → label), `formatRelativeTime` (no external lib,
+  past dates), `truncate`, `isValidIndianPhone` (10 or 12 digits).
+
+**Task 3 — Zustand stores (6 total)**
+- `stores/customer-auth.store.ts` — key `bf_customer_token` + companion key
+  `bf_customer_phone` mirrored for legacy compat. Event `customer-auth:change`.
+- `stores/merchant-auth.store.ts` — key `bf_token`. Event `merchant-auth:change`.
+- `stores/admin-auth.store.ts` — key `bf_admin_token`. Event `admin-auth:change`.
+- `stores/cart.store.ts` — **persists under `bf_cart:next`** to avoid
+  fighting the legacy app's bare-array writer at `bf_cart`. A mirror
+  writer keeps `bf_cart` in sync (so legacy tabs see updates). Single-store
+  rule layered in with backward-compat: legacy items without `store_id` are
+  grandfathered. `_syncFromLegacy()` adopts the bare-array on first boot.
+- `stores/location.store.ts` — key `lokl_loc_v1` (NOT `bf_city` as the user
+  prompt template said — the legacy actual key wins). Event `lokl:location`.
+  Bhilai-polygon service check deferred to Session C with the LocationGate
+  component.
+- `stores/wishlist.store.ts` — key `bf_wishlist_${phone||"guest"}` per-customer
+  (LEGACY pattern preserved). Stores full ProductCard snapshots for offline
+  rendering; exposes `productIds()` selector for compat with the spec's
+  `productIds: string[]` shape. Event `wishlist:change` (CustomEvent w/
+  `{phone, list}` detail — matches legacy).
+- `stores/index.ts` — barrel + re-exports of all keys/events.
+- All stores include `_syncFromStorage` + `storage`-event listeners for
+  cross-tab + cross-app (legacy CRA ↔ Next.js) reactivity.
+
+**Task 4 — Downloads utility**
+- `lib/downloads.ts` — `merchantAnalyticsCsv`, `merchantProductsTemplate`,
+  `adminApprovalsCsv`. Uses raw `fetch()` per the api-client.ts CARVE-OUTS
+  comment. `setTimeout(revokeObjectURL, 4s)` for Safari compat.
+
+### Divergences from the user prompt (with justification)
+
+| Item | Prompt said | I shipped | Why |
+|---|---|---|---|
+| Location storage key | `bf_city` | `lokl_loc_v1` | The legacy app's actual key — a customer with location data in the old app keeps it on cutover |
+| Wishlist persistence | `productIds: string[]` | Full ProductCard snapshots, exposed `productIds()` selector | Legacy stores full cards for offline render; preserving guarantees data continuity for existing users |
+| Wishlist key | Single key | `bf_wishlist_${phone||"guest"}` | Legacy is per-phone — guest vs logged-in wishlists are separate buckets |
+| Cart persistence key | `bf_cart` | `bf_cart:next` (with mirror writer to `bf_cart`) | Zustand-persist wraps state in `{state, version}` JSON which would break the legacy app's bare-array reader. Mirror writer keeps both apps reading the same data |
+| Tailwind config form | `tailwind.config.ts` | `globals.css` `@theme` | Tailwind v4 (which shipped with `create-next-app@15`) uses CSS-first config — the JS config file is obsolete |
+| Font loading | `@import` in `globals.css` | `<link rel>` in `layout.tsx` | Tailwind v4's CSS import expands inline → CSS spec forbids any `@import` after that point |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | ✅ 0 errors |
+| `npm run lint` | ✅ 0 warnings, 0 errors |
+| `npm run build` | ✅ succeeded, 173 KB First Load JS on `/` (under 200 KB cap) |
+| Background color renders #FDFBF7 | ✅ `rgb(253, 251, 247)` |
+| h1 font-family includes Clash Display | ✅ |
+| `--color-brand-bg` token resolves | ✅ `#fdfbf7` |
+| Cart localStorage strategy | ✅ legacy `bf_cart` bare-array + Zustand `bf_cart:next` |
+| Customer token key matches legacy | ✅ `bf_customer_token` |
+| Merchant token key matches legacy | ✅ `bf_token` |
+| Admin token key matches legacy | ✅ `bf_admin_token` |
+| Cross-tab sync via `storage` event | ✅ wired in every store |
+
+### Files created/modified
+**New (16)**: `globals.css` (overwritten), `app/layout.tsx` (font link added),
+`app/page.tsx` (smoke screen, will be replaced in Session C),
+`design-system/tokens.ts`, `lib/utils.ts` (overwritten + extended),
+`lib/downloads.ts`, `components/ui/{Button,Card,Badge,Input,Skeleton,index}.tsx`,
+`stores/{customer-auth,merchant-auth,admin-auth,cart,location,wishlist,index}.store.ts`.
+
 ## Latest Iteration (Feb 2026 — Iter-33) — Session A of FE migration
 
 Frontend Architecture Upgrade, Session A of 5. **No visual or behavioral

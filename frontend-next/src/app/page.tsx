@@ -1,103 +1,80 @@
-import Image from "next/image";
+/* Smoke page — verifies @theme tokens, UI primitives, and Zustand stores
+ * render correctly. Session C replaces this with the real home feed. */
+"use client";
+
+import { Button, Card, Badge, Input, ProductCardSkeleton, StoreCardSkeleton } from "@/components/ui";
+import { useCartStore } from "@/stores";
+import { formatPrice, formatDistance, formatRelativeTime } from "@/lib/utils";
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const itemCount = useCartStore((s) => s.getItemCount());
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+  return (
+    <main className="min-h-screen bg-brand-bg p-6 sm:p-10">
+      <div className="max-w-3xl mx-auto space-y-6">
+        <header className="space-y-2">
+          <h1 className="font-display text-3xl text-brand-primary tracking-tight">
+            Lokl — Next.js scaffold (Session B)
+          </h1>
+          <p className="text-sm text-text-muted">
+            UI primitives + Zustand stores smoke screen. Cart items in store: {itemCount}.
+          </p>
+        </header>
+
+        <Card size="lg">
+          <h2 className="font-display text-xl text-brand-primary mb-4">Buttons</h2>
+          <div className="flex flex-wrap gap-3">
+            <Button variant="primary">Primary</Button>
+            <Button variant="secondary">Secondary</Button>
+            <Button variant="ghost">Ghost</Button>
+            <Button variant="destructive">Destructive</Button>
+            <Button isLoading>Loading</Button>
+            <Button size="sm">Small</Button>
+            <Button size="lg">Large</Button>
+          </div>
+        </Card>
+
+        <Card size="lg">
+          <h2 className="font-display text-xl text-brand-primary mb-4">Badges</h2>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="accent">New</Badge>
+            <Badge variant="primary">Trusted</Badge>
+            <Badge variant="muted">Paused</Badge>
+            <Badge variant="success">Delivered</Badge>
+            <Badge variant="error">Cancelled</Badge>
+          </div>
+        </Card>
+
+        <Card size="lg">
+          <h2 className="font-display text-xl text-brand-primary mb-4">Inputs</h2>
+          <div className="space-y-4">
+            <Input label="Mobile number" placeholder="10-digit mobile" />
+            <Input label="OTP" placeholder="••••••" error="Incorrect OTP" />
+            <Input label="Pincode" placeholder="490020" hint="Bhilai pincodes only." />
+          </div>
+        </Card>
+
+        <Card size="lg">
+          <h2 className="font-display text-xl text-brand-primary mb-4">Skeletons</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <ProductCardSkeleton />
+            <ProductCardSkeleton />
+          </div>
+          <div className="mt-4">
+            <StoreCardSkeleton />
+          </div>
+        </Card>
+
+        <Card size="lg">
+          <h2 className="font-display text-xl text-brand-primary mb-4">Utils</h2>
+          <ul className="text-sm space-y-2 text-text-muted">
+            <li>formatPrice(1499) → <span className="text-brand-primary font-medium">{formatPrice(1499)}</span></li>
+            <li>formatDistance(0.85) → <span className="text-brand-primary font-medium">{formatDistance(0.85)}</span></li>
+            <li>formatDistance(3.2) → <span className="text-brand-primary font-medium">{formatDistance(3.2)}</span></li>
+            <li>formatRelativeTime(now-3600s) → <span className="text-brand-primary font-medium">{formatRelativeTime(new Date(Date.now() - 3_600_000).toISOString())}</span></li>
+          </ul>
+        </Card>
+      </div>
+    </main>
   );
 }
