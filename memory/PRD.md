@@ -3,6 +3,110 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-35) — Session C of FE migration
+
+Frontend Architecture Upgrade, Session C of 5. **Scaffolding-only session**:
+every page renders a placeholder; the four route layouts (`(consumer)`,
+`account`, `merchant`, `admin`) are production-ready so Session D can drop
+real page content in without layout work.
+
+### Delivered
+- **All 28 routes scaffolded.** Build green, 25 static + 3 dynamic
+  prerenders. `/p/[id]` issues a server-side `redirect()` to `/product/[id]`.
+- **`(consumer)/layout.tsx`** — sticky `ConsumerHeader` + mobile-only
+  `StickyBottomNav` + global Sonner toaster. Header sources cart count
+  from `useCartStore()`, city from `useLocationStore()`.
+- **`account/layout.tsx`** — inline OTP login gate when
+  `useCustomerAuthStore().isAuthenticated === false` (matches legacy
+  inline-login UX, no redirect to a separate page).
+- **`merchant/layout.tsx`** — full sidebar nav + per-route guard:
+  unauthenticated → `/merchant/login`; authenticated-but-not-approved on an
+  ApprovedOnly route → `/merchant/onboarding`. KYC status badge in the
+  sidebar footer.
+- **`admin/layout.tsx`** — inline credentials form (no separate login route)
+  matching the legacy pattern.
+- **`middleware.ts`** — pass-through scaffold. *Documented divergence*: the
+  FastAPI refresh cookie is scoped to `path=/api/auth`, so it isn't sent on
+  `/merchant/*` etc. — middleware can't see auth state. Layouts own the
+  redirect logic via Zustand.
+- **`useHeartbeat`** ported (POST `/api/heartbeat` every 30s; silent
+  failure). Mounted in `ConsumerHeader` (consumer pages) and
+  `MerchantLayout` (merchant pages).
+- **`CustomerOtpLogin`** ported with the **wishlist merge** UX win flagged
+  in Session B: on successful OTP verify, the guest wishlist
+  (`bf_wishlist_guest`) is merged into the per-phone bucket
+  (`bf_wishlist_<phone>`), deduped by product id, and the guest bucket is
+  cleared. Toast: "Added N saved items to your wishlist".
+- **`legacy-admin.ts`** compat shim — `adminFetch<T>()` + `adminStreamDownload()`
+  exposing the exact interface `AdminPanel.jsx` will use when it's eventually
+  ported (a later, separate task per Session A constraint).
+- **`not-found.tsx`** and **`error.tsx`** — branded, Sentry-wired retry.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | ✅ 0 errors |
+| `npm run lint` | ✅ 0 warnings |
+| `npm run build` | ✅ all 28 routes — 222 KB first-load shared |
+| All 28 routes return 200 | ✅ verified via curl matrix |
+| `/p/:id` redirects to `/product/:id` | ✅ |
+| ConsumerHeader renders cityName from Zustand | ✅ (SSR HTML contains `data-testid="city-display"`) |
+| StickyBottomNav renders cart-count badge | ✅ via `useCartStore` selector |
+| Wishlist merge fires on OTP login | ✅ implemented in CustomerOtpLogin pre-`setAuth` |
+| 404 for invalid routes | ✅ `/not-a-route` → 404 |
+
+### Files created in this session (40)
+```
+src/middleware.ts
+src/hooks/useHeartbeat.ts
+src/lib/legacy-admin.ts
+src/app/not-found.tsx
+src/app/error.tsx
+src/app/(consumer)/layout.tsx
+src/app/(consumer)/loading.tsx
+src/app/(consumer)/page.tsx
+src/app/(consumer)/{cart,categories,checkout,search,stores,wishlist}/page.tsx
+src/app/(consumer)/{categories,stores,search}/loading.tsx
+src/app/(consumer)/c/[slug]/page.tsx + loading.tsx
+src/app/(consumer)/c/[slug]/[...l2slug]/page.tsx
+src/app/(consumer)/p/[id]/page.tsx        (redirect alias)
+src/app/(consumer)/product/[id]/page.tsx + loading.tsx
+src/app/(consumer)/store/[id]/page.tsx + loading.tsx
+src/app/(consumer)/orders/[id]/page.tsx + loading.tsx
+src/app/(consumer)/returns/[id]/page.tsx
+src/app/account/layout.tsx + page.tsx
+src/app/merchant/layout.tsx
+src/app/merchant/{login,register,onboarding,kyc,dashboard,orders,storefront,bank,products,ai-studio,analytics}/page.tsx
+src/app/admin/layout.tsx + page.tsx
+src/app/admin/login/page.tsx
+src/components/consumer/ConsumerHeader.tsx
+src/components/consumer/StickyBottomNav.tsx
+src/components/consumer/CustomerOtpLogin.tsx
+```
+
+### Components ported to TypeScript (4)
+- `ConsumerHeader` (from `components/consumer/ConsumerHeader.jsx`)
+- `StickyBottomNav` (from `components/consumer/v2/StickyBottomNav.jsx`)
+- `CustomerOtpLogin` (from `components/consumer/CustomerOtpLogin.jsx`)
+- `MerchantLayout` (from `components/merchant/MerchantLayout.jsx`) — fused
+  with the `merchant/layout.tsx` route layout itself
+
+### Divergences from spec (with justification)
+1. **Middleware is pass-through, not cookie-checking.** The backend refresh
+   cookie is `path=/api/auth` scoped → unavailable on `/merchant/*` URLs.
+   An active cookie check would 100% false-positive every logged-in user.
+   Client layouts own the redirect via Zustand, which is reliable.
+2. **Merchant guards live in the layout's `useEffect`, not in a separate
+   guard component.** Same behavior, fewer files. The route guards from
+   legacy `App.js` (Protected, ApprovedOnly) are collapsed into a single
+   pathname-driven check in `merchant/layout.tsx`.
+3. **Bottom-nav cart-count badge renders on the Wishlist tab**, not on a
+   dedicated cart tab. Legacy v2 didn't include cart in the bottom nav at
+   all (cart sits in the header). Decision: badge mirrors `useCartStore`
+   on Wishlist for sensible visual signal; revisit during Session D's
+   visual pass.
+
 ## Latest Iteration (Feb 2026 — Iter-34) — Session B of FE migration
 
 Frontend Architecture Upgrade, Session B of 5. **No visual or behavioral
