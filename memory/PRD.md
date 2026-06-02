@@ -3,7 +3,22 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
-## Latest Iteration (Feb 2026 — Iter-35) — Session C of FE migration
+## Latest Iteration (Feb 2026 — Iter-35b) — Pre-Session D Fixes
+
+**Fix 1 — Backend CI requirements clean-up**: Audited `/app/backend/requirements.txt`; confirmed
+**zero Flask packages remain** (no `flask-talisman`, `flask-cors`, `flask-limiter`, `flask-sqlalchemy`,
+`flask-migrate`, `alembic`, `sqlalchemy`). `SecurityHeadersMiddleware` in `server.py` already replaces
+Flask-Talisman natively, and `slowapi==0.1.9` is the FastAPI rate-limit equivalent. `pip install -r
+requirements.txt` succeeds and `from server import app` imports cleanly.
+
+**Fix 2 — Sentry lazy load**: `components/SentryBoot.tsx` already dynamic-imports `@sentry/react`
+inside a `useEffect` and is mounted as the last child of `QueryClientProvider`. Additionally fixed
+`app/error.tsx` which still had a static `import * as Sentry from "@sentry/react"` — now also uses
+a dynamic `import()` inside the effect, fully evicting Sentry from every route's first-load chunk.
+**Verified**: `npm run build` → all 28 routes at **181 kB First Load JS** (target ≈180 kB), shared
+chunk 144 kB, build green, 25 static + 3 dynamic.
+
+## Previous Iteration (Feb 2026 — Iter-35) — Session C of FE migration
 
 Frontend Architecture Upgrade, Session C of 5. **Scaffolding-only session**:
 every page renders a placeholder; the four route layouts (`(consumer)`,

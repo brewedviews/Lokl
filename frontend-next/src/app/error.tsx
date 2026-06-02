@@ -2,11 +2,11 @@
 
 /**
  * Route-segment error boundary. App-Router convention — file lives next to
- * the layout it protects. We forward the exception to Sentry (initialized
- * in `app/providers.tsx`) and offer the user a 1-click retry via `reset`.
+ * the layout it protects. We forward the exception to Sentry via a dynamic
+ * `import()` so the SDK stays out of every route's first-load JS chunk, and
+ * offer the user a 1-click retry via `reset`.
  */
 import { useEffect } from "react";
-import * as Sentry from "@sentry/react";
 import { Button } from "@/components/ui";
 
 export default function GlobalError({
@@ -17,7 +17,9 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    Sentry.captureException(error);
+    void import("@sentry/react").then(({ captureException }) => {
+      captureException(error);
+    });
   }, [error]);
 
   return (
