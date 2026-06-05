@@ -86,7 +86,7 @@ export function ReturnModal({
               key={r}
               type="button"
               onClick={() => setReason(r)}
-              data-testid={`ret-reason-${r.split(" ")[0].toLowerCase()}`}
+              data-testid={`ret-reason-${(r.split(" ")[0] ?? "other").toLowerCase()}`}
               className={`text-left px-4 py-2.5 rounded-xl border transition ${reason === r ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white border-[#E5E2DC] hover:border-[#1A2B4C]"}`}
             >
               {r}

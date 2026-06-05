@@ -24,6 +24,12 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "images.unsplash.com" },
       { protocol: "https", hostname: "lokl-returns-dash.preview.emergentagent.com" },
+      { protocol: "https", hostname: "customer-assets.emergentagent.com" },
+      { protocol: "https", hostname: "*.emergentagent.com" },
+      { protocol: "https", hostname: "*.amazonaws.com" },
+      { protocol: "https", hostname: "*.googleusercontent.com" },
+      { protocol: "https", hostname: "images.pexels.com" },
+      { protocol: "https", hostname: "cdn.lokl.in" },
       ...(process.env.NEXT_PUBLIC_STORAGE_HOST
         ? [{ protocol: "https" as const, hostname: process.env.NEXT_PUBLIC_STORAGE_HOST }]
         : []),

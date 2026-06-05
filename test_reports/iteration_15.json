@@ -1,0 +1,60 @@
+{
+  "summary": "Session-D Next.js (port 3001) consumer-pages migration tested. SSR pages (PDP, Store) + Cart + Wishlist + Buy-now → Checkout sign-in gate + next/image + SEO all PASS. However a CRITICAL config bug makes 70% of the client-fetched flows (Home carousels, /stores, /categories, /c/[slug], /search, /orders/[id], /returns/[id], /account OTP login) unusable when the app is loaded at http://localhost:3001 — the axios client is hard-pointed at the absolute preview URL which serves an invalid CORS preflight (Access-Control-Allow-Origin:* combined with Access-Control-Allow-Credentials:true), so every browser XHR is blocked. The fix is one line in api-client.ts (use the Next.js /api rewrite proxy instead of an absolute base URL).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "OPTIONS /api/*  (preview ingress)", "issue": "Returns 'Access-Control-Allow-Origin: *' together with 'Access-Control-Allow-Credentials: true'. This combination is rejected by every modern browser whenever the request is sent with credentials:'include' (which the Next.js axios client does). Either echo the request Origin or strip the credentials header server-side.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "lib/api-client.ts", "issue": "baseURL is set to process.env.NEXT_PUBLIC_API_URL (absolute https://lokl-returns-dash.preview.emergentagent.com). All consumer pages that fetch client-side (Home rails, Stores, Categories, /c/[slug], Search, Orders, Returns, Account) make cross-origin XHRs that the preview ingress's invalid CORS response then blocks. Should be baseURL: '' (relative) so the existing /api/:path* rewrite in next.config.ts handles it.", "selector": "lib/api-client.ts:140 (const baseURL = process.env.NEXT_PUBLIC_API_URL ?? \"\")", "priority": "CRITICAL"},
+      {"component": "ProductDetail (PDP)", "issue": "Hydration mismatch — page logs 'Minified React error #418 (Hydration failed because the server-rendered HTML didn't match the client)'. Functionally still works but throws an error overlay in dev and is a perf/SEO red flag.", "selector": "/product/[id]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Every client-fetched consumer flow (Home discovery, Stores list, Categories hub, Category L1, Search, Orders tracking, Returns tracking, Account OTP login)", "issue": "All XHRs to /api/* fail with 'CORS preflight … the value of the Access-Control-Allow-Origin header must not be the wildcard * when credentials mode is include'. The pages render their shells from SSR but stay empty because the data layer never resolves. Confirmed for: /, /stores, /categories, /c/lokl-returns-dash, /search?q=tee, /search?q=zzz... .", "affected_selectors": ["[data-testid^=store-card-]", "[data-testid^=category-tile-]", "[data-testid=crumb-l1]", "[data-testid=sort-select]", "[data-testid=gender-women]", "[data-testid=gender-men]", "[data-testid=cat-product-grid]", "[data-testid^=search-cat-]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "verified_passing": [
+    "PDP SSR /product/{id} — pdp-info, store-name-link, add-to-bag, buy-now, size-M, pdp-image all in raw HTML before JS",
+    "Store SSR /store/{id} — store-name, chip-story, chip-delivery, p-card-* all in raw HTML before JS",
+    "SEO — PDP HTML contains <title>MM A Tee — MM A 98b5 · Lokl | Lokl</title> + og:title meta",
+    "Home SSR — hero-v2 and footer present in raw HTML",
+    "Cart flow — Add-to-bag from PDP → /cart shows cart-item-{id}, cart-remove-{id} empties bag (zustand persisted, no API)",
+    "Buy-now flow — buy-now button routes to /checkout which correctly shows the OTP sign-in gate (no customer token)",
+    "Wishlist flow — heart toggle inside p-card adds item, /wishlist shows wishlist-card-{id}, wishlist-remove-{id} empties (zustand, no API)",
+    "next/image — grep -rn '<img ' /app/frontend-next/src/ returns 0 results",
+    "Production build — .next/BUILD_ID exists (f_tpi7ANJIFuHzT8UPI9e); npx next start is up on :3001",
+    "/p/[id] alias — returns 200 (server-side redirect to /product/[id] works at HTTP layer)"
+  ],
+  "unable_to_validate_due_to_cors": [
+    "Home discovery rails (OffersStrip, DiscoveryRails, CustomerLove) — empty",
+    "/stores — 0 store-card-* rendered",
+    "/categories — 0 category-tile-* rendered",
+    "/c/lokl-returns-dash — no breadcrumb / sort / gender chips / grid (page errors out)",
+    "/search?q=tee — 0 results, 0 fallback tiles (page errors out)",
+    "/orders/[id], /returns/[id] — not reachable without a customer token, and OTP login itself is blocked by CORS",
+    "/account — OTP login impossible from browser (request-otp + verify-otp both blocked)"
+  ],
+  "action_items": [
+    "Fix the api-client base URL: change /app/frontend-next/src/lib/api-client.ts line 140 from `const baseURL = process.env.NEXT_PUBLIC_API_URL ?? \"\";` to `const baseURL = \"\";` (or guard with a typeof window check). Same for legacy-admin.ts:10, downloads.ts:18 — they should also use a relative /api path so the next.config.ts rewrite proxy can do its job same-origin. server-fetch.ts is fine as-is because it only runs on the Node server.",
+    "OR (alternative) fix the ingress CORS: stop echoing Access-Control-Allow-Origin: * when Access-Control-Allow-Credentials: true is set. Echo the request Origin instead. This is a server-side fix on the FastAPI / ingress layer and would unblock browsers immediately.",
+    "Investigate PDP hydration warning (React error #418). Likely a server/client divergence in ProductGallery or ProductActions (Date/locale/random/state). Re-render in dev mode to get the exact field that differs.",
+    "Once CORS is fixed, re-run the full plan — Stores list, Categories tiles, Category L1 chips+grid, Search results+fallback, Orders stepper+modals, Returns timeline+OTP card, Account tiles."
+  ],
+  "critical_code_review_comments": [
+    "api-client.ts uses an absolute baseURL that defeats the next.config.ts rewrite proxy. In the dual-frontend session this is the single biggest blocker — the entire data layer is unusable in the browser because of one line.",
+    "PDP hydration mismatch (React #418) — must be investigated before Session E cut-over, otherwise every PDP visit will throw a client-side error that flows to Sentry.",
+    "downloads.ts and legacy-admin.ts also hard-code the absolute NEXT_PUBLIC_API_URL — same CORS exposure when those code paths are exercised."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only session; backend reachable from server-side fetches and SSR succeeds)", "frontend": "SSR + zustand flows 100% (10/10); client-fetched flows 0% (7/7 blocked by CORS)"},
+  "test_credentials": "Used localStorage zustand stores only — no auth needed for the flows that passed. OTP login could not be exercised (request-otp blocked by CORS).",
+  "seed_data_creation": "None — reused existing product prod-cf7a27405e and store store-m-m-1075f69080 from GET /api/products & /api/stores.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "SSR halves (PDP, Store, /p alias, Home shell, SEO, next/image) are GREEN. The only blocker is the api-client base URL — once that one line is changed to use the Next rewrite (or backend CORS is fixed to not return * with credentials), 100% of the unblocked flows (Stores, Categories, Category L1, Search, Orders, Returns, Account OTP) need a re-run. Existing seed: order BFO-94B797C7 (customer phone 9999988877) + return RET-F557DB5E from iteration 7 are still in DB and can be re-used for /orders/{id} and /returns/{id} once auth is reachable.",
+  "rca of the issue": "Root cause: /app/frontend-next/src/lib/api-client.ts line 140 sets `const baseURL = process.env.NEXT_PUBLIC_API_URL ?? \"\";`. With NEXT_PUBLIC_API_URL set to the absolute preview host, every browser XHR from http://localhost:3001 becomes cross-origin. The preview ingress responds with `Access-Control-Allow-Origin: *` plus `Access-Control-Allow-Credentials: true`, which the CORS spec forbids — the browser blocks the request and the data layer never resolves. SSR pages (/product, /store) work because they go through `serverFetch` (server-side, no browser, no CORS). The Next.js config (next.config.ts) already declares a /api/:path* rewrite that would have routed the call same-origin through the Next server — but it is bypassed because the axios client uses an absolute base URL. Fix: set api-client baseURL to '' so /api/... is sent relative and the rewrite handles it. Verified reproduction: curl -sI -H 'Origin: http://localhost:3001' https://lokl-returns-dash.preview.emergentagent.com/api/heartbeat → returns access-control-allow-origin: * and access-control-allow-credentials: true (invalid combo). Browser console shows 'Access to XMLHttpRequest … blocked by CORS policy' for every /api endpoint."
+}

@@ -1,0 +1,58 @@
+"use client";
+
+/** Size picker + add-to-bag + buy-now interactions. */
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Heart, ShoppingBag } from "lucide-react";
+import { toast } from "sonner";
+import { useCartStore } from "@/stores";
+import type { Product } from "@/types";
+
+export function ProductActions({ product }: { product: Product }) {
+  const router = useRouter();
+  const addItem = useCartStore((s) => s.addItem);
+  const [size, setSize] = useState<string | null>(product.sizes?.[0] || null);
+
+  const handleAdd = (): boolean => {
+    if (product.sizes?.length && !size) { toast.error("Please pick a size"); return false; }
+    const r = addItem(product, size ?? "");
+    if (!r.success && r.conflict) {
+      toast.error(`Your bag already has items from ${r.conflict.existing_store_name}. Clear it to switch stores.`);
+      return false;
+    }
+    return true;
+  };
+
+  return (
+    <>
+      {product.sizes && product.sizes.length > 0 && (
+        <div className="mt-6">
+          <div className="flex items-center justify-between mb-2.5">
+            <h4 className="text-sm font-semibold text-[#0A1F5C]">Select size</h4>
+            <span className="text-[11px] font-bold text-[#F59E0B]">Try-at-doorstep available</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {product.sizes.map((s) => (
+              <button key={s} onClick={() => setSize(s)} data-testid={`size-${s}`}
+                className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-slate-200 hover:border-[#0A1F5C]"}`}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-6 flex gap-2">
+        <button onClick={() => { if (handleAdd()) toast.success("Added to bag"); }} data-testid="add-to-bag" className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border-2 border-[#0A1F5C] text-[#0A1F5C] text-sm font-bold hover:bg-[#0A1F5C] hover:text-white transition whitespace-nowrap">
+          <ShoppingBag size={16} /> Add to bag
+        </button>
+        <button onClick={() => { if (handleAdd()) router.push("/checkout"); }} data-testid="buy-now" className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#F59E0B] text-white text-sm font-bold hover:bg-[#cc7a0a] transition whitespace-nowrap">
+          Buy now
+        </button>
+        <button aria-label="Wishlist" className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
+          <Heart size={16} />
+        </button>
+      </div>
+    </>
+  );
+}
