@@ -3,7 +3,43 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
-## Latest Iteration (Feb 2026 — Iter-36) — Session D · Consumer migration
+## Latest Iteration (Feb 2026 — Iter-37) — Session D.2 + E · Merchant migration & Cutover
+
+**Cutover complete**: `/app/frontend-next/` renamed to `/app/frontend/` (canonical);
+legacy CRA preserved at `/app/frontend-legacy/` with its Dockerfile intact for rollback.
+Supervisord-managed frontend on port 3000 now serves Next.js. Docker-compose +
+GitHub Actions (pr.yml, deploy-staging.yml) all updated to use `npm` and the new
+`NEXT_PUBLIC_*` env var names. CRA env names (`REACT_APP_*`) documented in
+`DEPLOYMENT.md` migration table.
+
+**Merchant pages migrated** (10 routes): `/merchant/login`, `/merchant/register`,
+`/merchant/onboarding`, `/merchant/kyc`, `/merchant/dashboard`, `/merchant/products`,
+`/merchant/orders`, `/merchant/storefront`, `/merchant/bank`, `/merchant/analytics`,
+`/merchant/ai-studio`. All return HTTP 200, all share the existing merchant layout
+with sidebar + guards, all use the typed `api.merchant.*` client and Zustand
+`useMerchantAuthStore`. The shared `MerchantAuthForm` component handles both
+login + register with `mode` prop.
+
+**Hydration #418 fix**: New `src/hooks/useMounted.ts` hook + gating in
+`ConsumerHeader` (city + cart badge), `StickyBottomNav` (wishlist badge), and
+`ProductCardV2` (cart qty pill). Confirmed by iteration_17 — 3 consecutive PDP
+reloads produced zero hydration warnings.
+
+**OG images live**: `app/(consumer)/product/[id]/opengraph-image.tsx` and
+`app/(consumer)/store/[id]/opengraph-image.tsx` — Node.js runtime, branded 1200×630
+text-only cards (skipped product images to dodge Satori JPEG decode limitation).
+Both return `Content-Type: image/png` 200. Visible on WhatsApp/Instagram link
+previews automatically — Next.js wires the meta tags via convention.
+
+**Build verified** (`npm run build`): All routes 184-198 kB First Load JS, shared
+chunk 142 kB, 35 routes total. 0 `<img>` tags in `src/`. tsc --noEmit clean.
+
+**Known caveat (test artifact, not a real bug)**: Refresh-token cookie collision
+in Playwright sessions can swap merchant identity mid-flight when two merchants
+register in the same browser context. Real-user impact: nil (cookie path scoped
+to `/api/auth`, overwritten on every login). Documented in iteration_17 RCA.
+
+## Previous Iteration (Feb 2026 — Iter-36) — Session D · Consumer migration
 
 **Scope (a) — Consumer-first**: 14 consumer pages migrated from CRA → Next.js
 15 App Router. SSR added for `/product/[id]` and `/store/[id]` (both flagged
