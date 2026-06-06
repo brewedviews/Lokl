@@ -31,7 +31,13 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
   const pathname = usePathname();
   const router = useRouter();
   const user = useMerchantAuthStore((s) => s.user);
-  const isAuthed = useMerchantAuthStore((s) => s.isAuthenticated);
+  const token = useMerchantAuthStore((s) => s.token);
+  // Derive isAuthed directly from token. `state.isAuthenticated` is set in
+  // onRehydrateStorage via direct mutation, which doesn't always trigger a
+  // re-render of selector-subscribers (especially on hard refresh / new tab).
+  // Reading `token` is a primitive subscription that always re-renders
+  // immediately on rehydration. Belt-and-braces against the hydration race.
+  const isAuthed = !!token;
   const setAuth = useMerchantAuthStore((s) => s.setAuth);
   const clearAuth = useMerchantAuthStore((s) => s.clearAuth);
 
@@ -60,7 +66,9 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
   // Rehydrate user after a page refresh — persisted state only keeps the
   // token (≤ 1 KB) to dodge the legacy `bf_token` quota bug.
   useEffect(() => {
-    if (isPublic || !hydrated || !isAuthed || user) return;
+    if (isPublic || !hydrated || user) return;
+    const liveToken = useMerchantAuthStore.getState().token;
+    if (!liveToken) return;  // not actually authed; the other effect will redirect
     let cancelled = false;
     api.auth.me().then((m) => {
       if (!cancelled && m) setAuth(useMerchantAuthStore.getState().token ?? "", m);
@@ -71,11 +79,16 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
       }
     });
     return () => { cancelled = true; };
-  }, [isPublic, hydrated, isAuthed, user, setAuth, clearAuth, router]);
+  }, [isPublic, hydrated, user, setAuth, clearAuth, router]);
 
   useEffect(() => {
     if (isPublic || !hydrated) return;
-    if (!isAuthed) { router.replace("/merchant/login"); return; }
+    // Read token via getState() to avoid the Next.js SSR initial-value race
+    // where selectors briefly return `null` after hydration finishes but
+    // before React flushes the next render. localStorage is the source of
+    // truth — if the persisted envelope has a JWT, we're authenticated.
+    const liveToken = useMerchantAuthStore.getState().token;
+    if (!liveToken) { router.replace("/merchant/login"); return; }
     if (userKnown && APPROVED_ONLY.includes(pathname) && !isApproved) {
       router.replace("/merchant/onboarding");
     }
@@ -84,7 +97,12 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
   if (isPublic) {
     return (<><Toaster position="top-center" richColors />{children}</>);
   }
-  if (!hydrated || !isAuthed) return null; // hydration or router.replace in flight
+  if (!hydrated) return null; // wait for Zustand persist hydration
+  // Authoritative gate: localStorage is the source of truth. The selector
+  // subscription `isAuthed` is also OK, but reading getState() removes
+  // a 1-2 frame window where it can briefly be stale.
+  const liveToken = useMerchantAuthStore.getState().token;
+  if (!isAuthed && !liveToken) return null; // router.replace in flight
 
   const links = isApproved
     ? [
