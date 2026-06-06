@@ -63,16 +63,29 @@ function ProgressStepper({ status }: { status: string }) {
 export default function OrderTrackingPage() {
   const { id } = useParams<{ id: string }>();
   const [order, setOrder] = useState<Order | null>(null);
+  const [notFoundState, setNotFoundState] = useState(false);
   const [showReturn, setShowReturn] = useState(false);
   const [showComplaint, setShowComplaint] = useState(false);
 
-  const load = () => api.orders.getById(id).then(setOrder).catch(() => {});
+  const load = () => api.orders.getById(id)
+    .then((o) => { setOrder(o); setNotFoundState(false); })
+    .catch((e: unknown) => {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status === 404) setNotFoundState(true);
+    });
   useEffect(() => {
     load();
-    const t = setInterval(load, 8000);
+    // Polling cadence: 8s for active orders. We stop the timer once status is
+    // terminal (delivered / cancelled / returned) — merchant updates after
+    // delivery are out-of-band and not worth burning the customer's battery.
+    const t = setInterval(() => {
+      const s = (order?.status || "").toLowerCase();
+      if (s === "delivered" || s === "cancelled" || s === "returned") return;
+      load();
+    }, 8000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, order?.status]);
 
   const { canReturn, returnWindowExpired, hasEligible } = useMemo(() => {
     if (!order) return { canReturn: false, returnWindowExpired: false, hasEligible: false };
@@ -87,6 +100,24 @@ export default function OrderTrackingPage() {
     const expired = Date.now() > cutoff;
     return { canReturn: !expired, returnWindowExpired: expired, hasEligible: eligible };
   }, [order]);
+
+  if (notFoundState) {
+    return (
+      <div className="min-h-screen bg-[#FDFBF7] flex flex-col" data-testid="order-not-found">
+        <div className="flex-1 grid place-items-center px-6">
+          <div className="max-w-md text-center">
+            <div className="w-12 h-12 rounded-full bg-red-100 grid place-items-center mx-auto mb-3">
+              <AlertCircle size={22} className="text-red-500" />
+            </div>
+            <h1 className="font-display text-2xl font-bold text-[#0A1F5C]">Something went wrong</h1>
+            <p className="text-sm text-[#64748B] mt-2">We couldn&apos;t find this order. It may have been cancelled or the link is broken.</p>
+            <Link href="/account" className="inline-block mt-5 px-5 py-2.5 rounded-full bg-[#E68910] text-white text-sm font-semibold">Back to my account</Link>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   if (!order) {
     return (

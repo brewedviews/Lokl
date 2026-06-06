@@ -122,6 +122,11 @@ export interface Order {
 
   // Reserved for the upcoming Razorpay integration (Iter-30+). Today: null.
   razorpay_order_id?: string | null;
+  /** Echoed back from POST /api/orders when payment_method=razorpay so the
+   * browser can open the Checkout modal without round-tripping more values. */
+  razorpay_key_id?: string;
+  amount_paise?: number;
+  amount_inr?: number;
   razorpay_payment_id?: string | null;
 
   created_at: IsoDateTime;

@@ -1668,6 +1668,15 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                             metadata={"payment_method": doc.get("payment_method"),
                                       "is_multi_store": doc.get("is_multi_store", False)})
     doc.pop("_id", None)
+    # Surface the values the customer's browser needs to open the Razorpay
+    # Checkout modal. The key id is non-secret and identical to the
+    # NEXT_PUBLIC_RAZORPAY_KEY_ID baked into the frontend bundle; echoing it
+    # here means the frontend doesn't have to assume parity between its env
+    # var and the backend's signing key.
+    if doc.get("payment_method") == "razorpay":
+        doc["razorpay_key_id"] = os.environ.get("RAZORPAY_KEY_ID", "")
+        doc["amount_paise"] = int(round(float(server_total) * 100))
+        doc["amount_inr"] = float(server_total)
     return doc
 
 @api.get("/orders/{order_id}")

@@ -1,9 +1,9 @@
 "use client";
 
-/** Size picker + add-to-bag + buy-now interactions. */
+/** Size picker + add-to-bag + buy-now + share interactions. */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Heart, ShoppingBag } from "lucide-react";
+import { Heart, ShoppingBag, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { useCartStore } from "@/stores";
 import type { Product } from "@/types";
@@ -21,6 +21,32 @@ export function ProductActions({ product }: { product: Product }) {
       return false;
     }
     return true;
+  };
+
+  const handleShare = async () => {
+    if (typeof window === "undefined") return;
+    const url = window.location.href;
+    const shareData = {
+      title: product.name,
+      text: `Check out ${product.name} for ₹${Number(product.price).toLocaleString()} on Lokl — local fashion in Bhilai`,
+      url,
+    };
+    // Native share sheet on iOS / Android / supporting browsers. We silently
+    // ignore user-cancellation (NotAllowedError / AbortError). Anything else
+    // falls through to clipboard copy.
+    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+      try { await navigator.share(shareData); return; }
+      catch (err) {
+        const e = err as { name?: string };
+        if (e?.name === "AbortError" || e?.name === "NotAllowedError") return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copied!");
+    } catch {
+      toast.error("Could not copy link");
+    }
   };
 
   return (
@@ -49,8 +75,11 @@ export function ProductActions({ product }: { product: Product }) {
         <button onClick={() => { if (handleAdd()) router.push("/checkout"); }} data-testid="buy-now" className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#F59E0B] text-white text-sm font-bold hover:bg-[#cc7a0a] transition whitespace-nowrap">
           Buy now
         </button>
-        <button aria-label="Wishlist" className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
+        <button aria-label="Wishlist" data-testid="wishlist-btn" className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
           <Heart size={16} />
+        </button>
+        <button aria-label="Share" data-testid="share-btn" onClick={handleShare} className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
+          <Share2 size={16} />
         </button>
       </div>
     </>

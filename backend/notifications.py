@@ -254,7 +254,11 @@ def notify_customer_otp(customer_phone: str, otp: str) -> None:
     backend log so testing works without a real phone.
     """
     if os.environ.get("CUSTOMER_OTP_DEBUG", "").strip().lower() in ("1", "true", "yes"):
-        log.info("[OTP-DEBUG] phone=%s otp=%s", customer_phone, otp)
+        # WARNING level on purpose — the production logger config filters INFO
+        # in preview/prod, so a debug OTP at INFO would never appear in the
+        # supervisor log. We rely on this being readable from
+        # /var/log/supervisor/backend.err.log for fork/preview testing.
+        log.warning("[OTP-DEBUG] phone=%s otp=%s", customer_phone, otp)
     send_otp_with_fallback(customer_phone, otp)
 
 
