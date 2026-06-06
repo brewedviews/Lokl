@@ -12,7 +12,7 @@
  * Pre-approval routes:        sidebar shows Onboarding + KYC links only.
  * Approved routes:            sidebar shows Orders / Products / Analytics / Storefront / Bank + Online toggle.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Toaster } from "sonner";
@@ -32,25 +32,59 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
   const router = useRouter();
   const user = useMerchantAuthStore((s) => s.user);
   const isAuthed = useMerchantAuthStore((s) => s.isAuthenticated);
+  const setAuth = useMerchantAuthStore((s) => s.setAuth);
   const clearAuth = useMerchantAuthStore((s) => s.clearAuth);
 
   const isPublic = PUBLIC.includes(pathname);
   const isApproved = user?.kyc_status === "approved";
+  // Until the rehydrated user lands, treat the merchant as "approval unknown"
+  // so we DON'T redirect them off approved-only pages. The redirect fires
+  // ONLY after `/api/auth/me` resolves and we know kyc_status for real.
+  const userKnown = !!user;
+
+  // Zustand persist is async in the App Router. Until hydration finishes
+  // the store reports `isAuthenticated=false` even when a token is on disk —
+  // we MUST NOT redirect-to-login in that window or every refresh bounces.
+  const [hydrated, setHydrated] = useState(() =>
+    typeof window !== "undefined" && useMerchantAuthStore.persist.hasHydrated()
+  );
+  useEffect(() => {
+    if (hydrated) return;
+    const unsub = useMerchantAuthStore.persist.onFinishHydration(() => setHydrated(true));
+    if (useMerchantAuthStore.persist.hasHydrated()) setHydrated(true);
+    return unsub;
+  }, [hydrated]);
 
   useHeartbeat("merchant", { mid: user?.id });
 
+  // Rehydrate user after a page refresh — persisted state only keeps the
+  // token (≤ 1 KB) to dodge the legacy `bf_token` quota bug.
   useEffect(() => {
-    if (isPublic) return;
+    if (isPublic || !hydrated || !isAuthed || user) return;
+    let cancelled = false;
+    api.auth.me().then((m) => {
+      if (!cancelled && m) setAuth(useMerchantAuthStore.getState().token ?? "", m);
+    }).catch(() => {
+      if (!cancelled) {
+        clearAuth();
+        router.replace("/merchant/login");
+      }
+    });
+    return () => { cancelled = true; };
+  }, [isPublic, hydrated, isAuthed, user, setAuth, clearAuth, router]);
+
+  useEffect(() => {
+    if (isPublic || !hydrated) return;
     if (!isAuthed) { router.replace("/merchant/login"); return; }
-    if (APPROVED_ONLY.includes(pathname) && !isApproved) {
+    if (userKnown && APPROVED_ONLY.includes(pathname) && !isApproved) {
       router.replace("/merchant/onboarding");
     }
-  }, [isAuthed, isApproved, pathname, isPublic, router]);
+  }, [hydrated, isAuthed, isApproved, pathname, isPublic, userKnown, router]);
 
   if (isPublic) {
     return (<><Toaster position="top-center" richColors />{children}</>);
   }
-  if (!isAuthed) return null; // router.replace in flight
+  if (!hydrated || !isAuthed) return null; // hydration or router.replace in flight
 
   const links = isApproved
     ? [
