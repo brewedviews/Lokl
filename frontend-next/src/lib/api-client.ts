@@ -137,7 +137,22 @@ export function clearToken(scope: Scope): void {
 // Axios singleton
 // ============================================================================
 
-const baseURL = process.env.NEXT_PUBLIC_API_URL ?? "";
+/**
+ * Browser axios calls go through the Next.js `/api/:path*` rewrite (see
+ * next.config.ts), which proxies same-origin → FastAPI. Using an absolute
+ * NEXT_PUBLIC_API_URL would (a) defeat the rewrite, and (b) trip CORS
+ * because the preview ingress returns `Access-Control-Allow-Origin: *`
+ * together with `Access-Control-Allow-Credentials: true`, a combo the
+ * browser rejects on credentialed requests. Empty baseURL = relative `/api/*`.
+ *
+ * On the rare chance this module is imported during SSR (it shouldn't —
+ * server data fetching uses `lib/server-fetch.ts`), we still need an
+ * absolute URL because Node has no notion of "same origin".
+ */
+const baseURL =
+  typeof window === "undefined"
+    ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001"
+    : "";
 
 function createApiClient(): AxiosInstance {
   const client = axios.create({

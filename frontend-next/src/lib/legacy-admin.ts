@@ -7,7 +7,9 @@
  *
  * DO NOT extend this file with new endpoints. New code must use `api-client.ts`.
  */
-const API = process.env.NEXT_PUBLIC_API_URL ?? "";
+// Empty baseURL = relative `/api/...`, routed by Next.js rewrite proxy
+// (see next.config.ts). Avoids CORS on the preview ingress.
+const API = "";
 
 function getAdminToken(): string | null {
   if (typeof window === "undefined") return null;

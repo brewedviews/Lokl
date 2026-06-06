@@ -3,7 +3,51 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
-## Latest Iteration (Feb 2026 — Iter-35b) — Pre-Session D Fixes
+## Latest Iteration (Feb 2026 — Iter-36) — Session D · Consumer migration
+
+**Scope (a) — Consumer-first**: 14 consumer pages migrated from CRA → Next.js
+15 App Router. SSR added for `/product/[id]` and `/store/[id]` (both flagged
+`ƒ Dynamic` in the build manifest, with proper `generateMetadata` for SEO/OG).
+Other consumer routes (Home, Cart, Wishlist, Search, Categories, /c/[slug],
+/c/[slug]/[...l2slug], Stores, Checkout, Orders/[id], Returns/[id], /p/[id]
+alias, /account) are `"use client"` with `api.*` calls through the same Zustand
++ React Query plumbing already in place from Sessions B/C.
+
+**Shared components built** (all under `components/consumer/`):
+ProductCardV2, StoreCardV2, ProductBadge, HCarousel, OffersStrip, HeroV2,
+CustomerLove, Footer, DiscoveryRails, ReturnComplaintModals, ProductGallery,
+ProductActions, StoreInfoChips, HomeClient, CategoryClient.
+
+**next/image rollout — 100%**: `grep -rn '<img ' /app/frontend-next/src/`
+returns zero hits. Every product/store/avatar/banner uses `next/image` with
+`fill`/`sizes`/`priority`/`loading="lazy"` set per use-case.
+
+**CORS fix (Iter-36b)**: api-client.ts, legacy-admin.ts, downloads.ts switched
+from absolute `NEXT_PUBLIC_API_URL` baseURL to a same-origin empty string in
+the browser. All browser `/api/*` calls now traverse the Next.js rewrite proxy
+(next.config.ts:13-17), eliminating the preview-ingress CORS issue that
+blocked the first test run.
+
+**Build verified**: `npm run build` clean, all routes 192-198 kB First Load JS,
+shared chunk 141 kB (incl. 11.3 kB CSS). 25 routes total — 19 static, 6 dynamic.
+
+**Tested (iteration_15 + iteration_16)**:
+PASS — SSR PDP, SSR Store, Home + rails, Stores list (60 cards), Categories
+(9 tiles), /c/[slug] L1+L2, Search results+fallback, Cart + Wishlist Zustand,
+PDP Buy-now, next/image enforcement, SEO/OG, OTP backend plumbing, Account
+login gate, /orders/[id] page shell, build size.
+DEFERRED — Account tile-switching, Orders status hero, Return modal submit,
+Returns OTP card (auth-gated flows; data plumbing verified working but full
+Playwright browser run was time-boxed). Manual self-test via curl confirms
+the underlying APIs respond correctly.
+
+**Known caveats**:
+- PDP shows a React #418 hydration warning (MEDIUM — out of scope for D).
+- `next.config.ts` has `output:"standalone"` — works with `next start` in this
+  preview but Next prints a warning. Session E should either remove the flag
+  or switch the runner to `node .next/standalone/server.js`.
+
+## Previous Iteration (Feb 2026 — Iter-35b) — Pre-Session D Fixes
 
 **Fix 1 — Backend CI requirements clean-up**: Audited `/app/backend/requirements.txt`; confirmed
 **zero Flask packages remain** (no `flask-talisman`, `flask-cors`, `flask-limiter`, `flask-sqlalchemy`,

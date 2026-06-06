@@ -15,7 +15,9 @@ async function streamDownload(
   filename: string,
   token: string | null,
 ): Promise<void> {
-  const baseURL = process.env.NEXT_PUBLIC_API_URL ?? "";
+  // Same-origin relative URL — Next.js `/api/:path*` rewrite proxies to
+  // FastAPI and dodges the preview ingress CORS preflight.
+  const baseURL = "";
   const headers: HeadersInit = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
