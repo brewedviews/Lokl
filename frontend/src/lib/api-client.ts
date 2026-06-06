@@ -44,7 +44,7 @@ import type { RefreshResponse } from "@/types";
 // ============================================================================
 export const CUSTOMER_TOKEN_KEY = "bf_customer_token";
 export const CUSTOMER_PHONE_KEY = "bf_customer_phone";
-export const MERCHANT_TOKEN_KEY = "bf_token";
+export const MERCHANT_TOKEN_KEY = "lokl_merchant_auth";
 export const ADMIN_TOKEN_KEY = "bf_admin_token";
 
 // Cross-tab events the legacy app dispatches. Preserved verbatim — Session B
@@ -108,10 +108,38 @@ function authEventFor(scope: Scope): string | null {
 
 const isBrowser = (): boolean => typeof window !== "undefined";
 
+/**
+ * Read a JWT from localStorage, transparently unwrapping the
+ * `zustand/persist` envelope shape `{"state":{"token":"eyJ..."},"version":0}`
+ * (and tolerating up to 4 levels of accidental nesting — see the
+ * `bf_token` Sentry incident, Feb 2026). Returns the raw JWT or null.
+ *
+ * Keeping the unwrap here means none of the consuming stores need to know
+ * about the envelope, and a malformed legacy value never reaches the
+ * Authorization header where it would silently fail every request.
+ */
+function unwrapPersistEnvelope(raw: string | null): string | null {
+  if (!raw) return null;
+  let value = raw;
+  for (let i = 0; i < 5; i++) {
+    if (!value.startsWith("{")) break;
+    try {
+      const parsed = JSON.parse(value) as { state?: { token?: string } };
+      const next = parsed?.state?.token;
+      if (typeof next !== "string") return null;
+      value = next;
+    } catch {
+      return null;
+    }
+  }
+  return value.startsWith("ey") ? value : null;  // looks like a JWT
+}
+
 export function getToken(scope: Scope): string | null {
   if (!isBrowser()) return null;
   const key = tokenKeyFor(scope);
-  return key ? localStorage.getItem(key) : null;
+  if (!key) return null;
+  return unwrapPersistEnvelope(localStorage.getItem(key));
 }
 
 export function setToken(scope: Scope, token: string): void {
