@@ -209,6 +209,37 @@ def send_otp_with_fallback(phone: str, otp: str) -> str:
     return "none"
 
 
+def send_with_fallback(phone: str, body: str) -> str:
+    """Best-effort delivery for ANY transactional message — WhatsApp first, SMS on failure.
+
+    Unlike `send_otp_with_fallback`, this skips the 5-second status poll because
+    order-flow notifications can't tolerate that latency in a request handler.
+    Instead we treat any Twilio-side rejection (404/400 unregistered sender,
+    daily cap exceeded, recipient not joined to sandbox, …) as "fall back now".
+    Successful submission counts as success — terminal delivery status is best
+    effort and surfaced via Twilio's own dashboard / status webhook (out of scope).
+
+    Returns `"whatsapp"`, `"sms"`, or `"none"`.
+    """
+    cli = _get_twilio()
+    if cli is None:
+        log.info("[NOTIFY mock] %s -> %s", phone, body[:80])
+        return "none"
+    # 1) Try WhatsApp.
+    to_wa = _to_whatsapp_addr(phone)
+    if to_wa:
+        try:
+            msg = cli.messages.create(from_=_whatsapp_sender(), to=to_wa, body=body)
+            log.info("[WA] %s sent (sid=%s)", to_wa, msg.sid)
+            return "whatsapp"
+        except Exception as e:
+            log.info("[WA] %s submit failed → SMS fallback: %s", to_wa, e)
+    # 2) SMS fallback.
+    if send_sms(phone, body):
+        return "sms"
+    return "none"
+
+
 # ===== Domain-specific templates =====
 
 def notify_customer_otp(customer_phone: str, otp: str) -> None:
@@ -229,110 +260,100 @@ def notify_customer_otp(customer_phone: str, otp: str) -> None:
 
 def notify_order_placed(customer_phone: str, order_id: str, total: float, eta_min: int = 45) -> None:
     body = (
-        f"🎉 Lokl: Order *{order_id}* confirmed!\n"
-        f"Amount: ₹{total:,.0f}\n"
-        f"Your store is preparing it. ETA ~{eta_min} mins.\n"
+        f"Lokl: Order {order_id} confirmed! "
+        f"Amount Rs.{total:,.0f}. Store is preparing it (ETA ~{eta_min} min). "
         f"Track: lokl.in/orders/{order_id}"
     )
-    send_whatsapp(customer_phone, body)
+    send_with_fallback(customer_phone, body)
 
 
 def notify_merchant_new_order(merchant_phone: str, order_id: str, total: float, items_count: int) -> None:
     body = (
-        f"🔔 NEW ORDER on Lokl — *{order_id}*\n"
-        f"{items_count} item(s) · ₹{total:,.0f}\n"
-        f"Open your dashboard to accept fast!"
+        f"Lokl: NEW ORDER {order_id} — {items_count} item(s) Rs.{total:,.0f}. "
+        f"Open your dashboard to accept fast."
     )
-    send_whatsapp(merchant_phone, body)
+    send_with_fallback(merchant_phone, body)
 
 
 def notify_order_accepted(customer_phone: str, order_id: str, store_name: str, otp: str = "") -> None:
-    otp_line = f"Share OTP *{otp}* with the rider on arrival from {store_name}.\n" if otp else ""
+    otp_line = f"Share OTP {otp} with the rider on arrival from {store_name}. " if otp else ""
     body = (
-        f"✅ Lokl: Your order *{order_id}* was accepted by {store_name}.\n"
-        f"{otp_line}"
-        f"Rider will pick up shortly."
+        f"Lokl: Order {order_id} accepted by {store_name}. "
+        f"{otp_line}Rider will pick up shortly."
     )
-    send_whatsapp(customer_phone, body)
+    send_with_fallback(customer_phone, body)
 
 
 def notify_order_rejected(customer_phone: str, order_id: str) -> None:
     body = (
-        f"😔 Lokl: Order *{order_id}* could not be fulfilled this time.\n"
+        f"Lokl: Order {order_id} could not be fulfilled this time. "
         f"If paid online, refund is auto-initiated (3-5 working days)."
     )
-    send_whatsapp(customer_phone, body)
+    send_with_fallback(customer_phone, body)
 
 
 def notify_rider_pickup(rider_phone: str, *, order_id: str, otp: str, customer_name: str,
                         customer_phone: str, pickup: str, drop: str, items: list[dict]) -> None:
     """Notify the registered rider when a merchant accepts an order."""
-    item_lines = "\n".join(
-        f"  • {it.get('qty', 1)}× {it.get('name', 'Item')}" for it in (items or [])
-    ) or "  (see app)"
+    item_lines = "; ".join(
+        f"{it.get('qty', 1)}x {it.get('name', 'Item')}" for it in (items or [])
+    ) or "(see app)"
     body = (
-        f"🛵 New pickup on Lokl\n"
-        f"Order: *{order_id}*\n"
-        f"OTP: *{otp}*\n\n"
-        f"Pickup: {pickup}\n"
-        f"Drop:   {drop}\n\n"
-        f"Customer: {customer_name} · {customer_phone}\n\n"
-        f"Items:\n{item_lines}\n\n"
-        f"Reply *{otp} - Delivered* once the customer hands the OTP back to you."
+        f"Lokl pickup — Order {order_id} OTP {otp}. "
+        f"Pickup: {pickup} → Drop: {drop}. "
+        f"Customer: {customer_name} ({customer_phone}). "
+        f"Items: {item_lines}. "
+        f"Reply '{otp} - Delivered' once customer hands the OTP back."
     )
-    send_whatsapp(rider_phone, body)
+    send_with_fallback(rider_phone, body)
 
 
 def notify_order_on_the_way(customer_phone: str, order_id: str, otp: str) -> None:
     body = (
-        f"🛵 Lokl: Order *{order_id}* is on the way!\n"
-        f"Share this OTP with the rider on arrival: *{otp}*\n"
+        f"Lokl: Order {order_id} is on the way! "
+        f"Share OTP {otp} with the rider on arrival. "
         f"Track: lokl.in/orders/{order_id}"
     )
-    send_whatsapp(customer_phone, body)
+    send_with_fallback(customer_phone, body)
 
 
 def notify_order_cancelled(customer_phone: str, order_id: str, reason: str) -> None:
     body = (
-        f"😔 Lokl: Order *{order_id}* was cancelled.\n"
-        f"Reason: {reason}\n"
+        f"Lokl: Order {order_id} was cancelled. Reason: {reason}. "
         f"If paid online, refund is auto-initiated (3-5 working days)."
     )
-    send_whatsapp(customer_phone, body)
+    send_with_fallback(customer_phone, body)
 
 
 def notify_order_delivered(customer_phone: str, order_id: str) -> None:
     body = (
-        f"📦 Lokl: Order *{order_id}* has been delivered.\n"
-        f"Loved it? Rate your store in 1 tap."
+        f"Lokl: Order {order_id} has been delivered. "
+        f"Loved it? Rate your store in 1 tap on lokl.in."
     )
-    send_whatsapp(customer_phone, body)
+    send_with_fallback(customer_phone, body)
 
 
 def notify_rider_return_pickup(rider_phone: str, *, return_id: str, order_id: str, otp: str,
                                 customer_name: str, pickup_addr: str, items: list[dict],
                                 reason: str = "") -> None:
     """Notify the rider for a return pickup (reverse pickup flow)."""
-    item_lines = "\n".join(
-        f"  • {it.get('qty', 1)}× {it.get('name', 'Item')}" for it in (items or [])
-    ) or "  (see app)"
+    item_lines = "; ".join(
+        f"{it.get('qty', 1)}x {it.get('name', 'Item')}" for it in (items or [])
+    ) or "(see app)"
+    reason_part = f"Reason: {reason}. " if reason else ""
     body = (
-        f"↩️ RETURN pickup on Lokl\n"
-        f"Return: *{return_id}*\n"
-        f"For order: {order_id}\n"
-        f"OTP: *{otp}*\n\n"
-        f"Pickup from: {customer_name}\n"
-        f"Address: {pickup_addr}\n"
-        + (f"Reason: {reason}\n" if reason else "")
-        + f"\nItems to collect:\n{item_lines}\n\n"
-        f"Reply *{otp} - Picked Up* once the customer hands over the items."
+        f"Lokl RETURN pickup — Return {return_id} (order {order_id}) OTP {otp}. "
+        f"Pickup from: {customer_name}, {pickup_addr}. "
+        f"{reason_part}"
+        f"Items: {item_lines}. "
+        f"Reply '{otp} - Picked Up' once the customer hands over the items."
     )
-    send_whatsapp(rider_phone, body)
+    send_with_fallback(rider_phone, body)
 
 
 def notify_return_status(customer_phone: str, return_id: str, status_label: str) -> None:
     body = (
-        f"↩️ Lokl: Return *{return_id}* update — {status_label}.\n"
+        f"Lokl: Return {return_id} update — {status_label}. "
         f"Track at lokl.in/returns/{return_id}"
     )
-    send_whatsapp(customer_phone, body)
+    send_with_fallback(customer_phone, body)

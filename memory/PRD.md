@@ -3,7 +3,41 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
-## Latest Iteration (Feb 2026 — Iter-37) — Session D.2 + E · Merchant migration & Cutover
+## Latest Iteration (Feb 2026 — Iter-38) — Twilio Production OTP + Universal SMS Fallback
+
+**Done**:
+- `backend/notifications.py` rewritten: new `send_with_fallback(phone, body)` helper
+  used by every transactional notification (order placed, accepted, rejected,
+  on-the-way, delivered, cancelled, rider pickup, return pickup, return status).
+  Tries WhatsApp first (with `whatsapp:` prefix auto-applied); on Twilio-side
+  rejection or unregistered-sender error, immediately retries the same message
+  over SMS using `TWILIO_SMS_FROM`. OTP path keeps the 5-second status poll
+  (`send_otp_with_fallback`) so we wait for terminal status before falling back.
+- WhatsApp Content Template path wired: when `TWILIO_OTP_CONTENT_SID` is set
+  (after Meta approves the `lokl_otp` template), the OTP WA leg automatically
+  switches from `body=` to `content_sid + content_variables={"1": otp}`. Zero
+  code change needed at template-approval time.
+- New `.env` keys: `TWILIO_SMS_FROM`, `TWILIO_OTP_CONTENT_SID` (empty until
+  approval). `CUSTOMER_OTP_DEBUG` flipped to `false` for production. Existing
+  `TWILIO_ACCOUNT_SID/AUTH_TOKEN/WHATSAPP_FROM` swapped to the paid account.
+
+**End-to-end verified on +917719052107**:
+- 3 SMS messages delivered (SIDs `SM42efc...`, `SMb577...`, `SMb242...`).
+- Customer OTP round-trip PASS: SMS-delivered OTP `930299` accepted by
+  `/api/auth/customer/verify-otp` → customer JWT issued.
+- Order placement (BFO-70C197FA) → customer SMS delivered.
+
+**Known Twilio account state** (not a code issue, surfaced by tests):
+- WhatsApp sender `+19894690577` is not yet a registered WhatsApp Business
+  sender — every WhatsApp send currently fails at the Twilio edge → SMS
+  fallback fires automatically. Action: register the sender in Twilio Console.
+- Account is on the **Trial tier** — sends to unverified numbers (e.g. demo
+  merchant phones) are rejected by Twilio with "unverified number" error.
+  Action: upgrade Twilio to a paid plan OR verify each merchant phone in the
+  Twilio Console. Application code is correct; the failure logs are
+  deliberately INFO-level so they don't break the order flow.
+
+## Previous Iteration (Feb 2026 — Iter-37) — Session D.2 + E · Cutover
 
 **Cutover complete**: `/app/frontend-next/` renamed to `/app/frontend/` (canonical);
 legacy CRA preserved at `/app/frontend-legacy/` with its Dockerfile intact for rollback.
