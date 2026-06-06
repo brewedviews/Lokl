@@ -1,0 +1,40 @@
+{
+  "summary": "Iter-18 stabilization: Cloudinary wiring + Admin MVP. Backend contract for Cloudinary endpoints + product/storefront/KYC persistence verified — all 16 backend pytest cases PASS. Admin dashboard at /admin renders all 5 tabs (Overview, Merchants, Stores, Products, Orders) with real data after sign-in. Found two functional bugs to flag: (1) /admin/login route still a placeholder (only the embedded /admin form works), (2) admin Sign-out leaves a malformed double-stringified Zustand envelope in bf_admin_token and does not return user to login screen. Cloudinary 502 with prefix is wired correctly (expected — stale secret).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/products/{pid}", "issue": "Returns an envelope {product, similar} — frontend / consumers must un-wrap. Iteration_17 already used this shape; flagging for new test authors."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "/admin/login route", "issue": "Page renders the placeholder 'Admin Login — placeholder / Session D replaces this with real content.' instead of the real login form. The functional login form is embedded inside /admin/page.tsx — anything that programmatically routes to /admin/login lands on a dead page.", "selector": "h1:has-text('Admin Login — placeholder')", "priority": "HIGH"},
+      {"component": "Admin Sign out", "issue": "Clicking Sign out does NOT redirect back to login and bf_admin_token becomes a malformed double-stringified Zustand envelope: '{\"state\":{\"token\":\"{\\\"state\\\":{\\\"token\\\":null},\\\"version\\\":0}\"},\"version\":0}' — the inner string was JSON-stringified into the outer envelope. URL remains /admin and the user appears still signed in until reload. Root cause: setting the token store with an already-persist-encoded string.", "selector": "button:has-text('Sign out')", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Merchant cross-route nav after login (Playwright session)", "issue": "Login as menscape@lokl.demo lands on /merchant/orders OK, but page.goto('/merchant/products') redirects to /merchant/login. Same regression iter_17 documented (refresh_token cookie / Zustand re-hydration race). Not yet fixed.", "affected_selectors": ["[data-testid=products-title]","[data-testid=storefront-title]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter18_cloudinary_wiring.py", "/app/test_reports/pytest/results_iter18.xml"],
+  "action_items": [
+    "Replace /app/frontend/src/app/admin/login/page.tsx placeholder with a real login UI (or remove the route and ensure callers go to /admin).",
+    "Fix Admin sign-out: clear the Zustand persist envelope correctly (clearAuth before persist save, and never JSON.stringify a string into state.token). Also router.replace('/admin') AFTER clear so the guard sees no token.",
+    "Re-verify the merchant refresh_token cookie collision flagged in iter_17 — still reproducible: deep links to /merchant/products redirect to /merchant/login even immediately after login on /merchant/orders.",
+    "Note: Cloudinary 502 with `Image upload failed:` prefix is correctly surfaced (expected today; flagged as external blocker on CLOUDINARY_API_SECRET rotation)."
+  ],
+  "critical_code_review_comments": [
+    "/app/frontend/src/app/admin/login/page.tsx is an 11-line placeholder shipped to production preview — blocks any router.replace('/admin/login') flows.",
+    "Admin token persistence is double-envelope-encoded on sign-out — inspect Zustand store.setState({token: null}) path in the admin auth slice; the value being written is the previous persisted string.",
+    "Backend PUT /api/merchant/products/{pid} accepts a raw dict (no Pydantic) — silently accepts unknown fields. Consider a typed Update model so frontend typos don't write garbage.",
+    "ProductCreate Pydantic schema field is `image` (singular cover URL) — review_request and the new uploads.ts client helper both speak about `image_url`. Frontend ProductForm must map the upload helper's image_url → body.image, otherwise the cover URL is silently dropped (Pydantic v2 default ignores extras). Verified in tests by sending `image` explicitly."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter18_cloudinary_wiring.py"],
+  "success_rate": {"backend": "100% (16/16 iter18 contract tests; legacy suites have pre-existing env/fixture errors unrelated to iter18)", "frontend": "~70% (admin dashboard all 5 tabs verified; admin/login + sign-out bugs; merchant deep-route nav blocked by known refresh-token race)"},
+  "test_credentials": "Admin: admin@lokl.in / Admin@2026 (verified). Demo merchant: menscape@lokl.demo / Demo@2026 (approved, KYC-gated routes accessible). Fresh merchant pattern: iter18_<hex>@lokl.in / Iter18@2026.",
+  "seed_data_creation": "Ran `cd /app/backend && python -m demo_seed` (idempotent, 10 stores · 55 products). Test inserted ~3 TEST_iter18_* products + storefront state on menscape@lokl.demo. Mongo cleanup: db.products.deleteMany({name:{$regex:'^TEST_iter18_'}}).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Admin dashboard MVP IS wired and functional via /admin (5 tabs, real data, action buttons render). Use admin@lokl.in / Admin@2026 directly at /admin — NOT /admin/login (placeholder). Cloudinary 502 with 'Image upload failed:' prefix is EXPECTED until user rotates CLOUDINARY_API_SECRET. Backend endpoint contract tests at /app/backend/tests/test_iter18_cloudinary_wiring.py provide regression coverage; run with REACT_APP_BACKEND_URL set. For merchant deep-route testing, clear cookies between login sessions in same browser context to avoid the iter_17 refresh_token collision.",
+  "rca_of_the_issue": "Two iter18-specific bugs: (1) /admin/login was never migrated from placeholder — Phase 5 dashboard rebuild moved the login form INTO /admin/page.tsx but left the legacy route file unupdated. Fix: render the same login UI as /admin or rewrite the placeholder. (2) Admin sign-out double-stringifies the token: after sign-out localStorage shows nested persist envelopes — the cleared state object was JSON-stringified back into the outer envelope's token field. Inspect the admin auth Zustand slice's clearAuth / logout action and ensure it sets state to a fresh object (token:null) rather than re-using the persist-serialised value."
+}

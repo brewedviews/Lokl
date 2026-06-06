@@ -34,6 +34,9 @@ export interface Product {
   // Visual
   image: string;
   images: string[];
+  // Cloudinary public_ids paired with `image` / `images` for lifecycle mgmt.
+  image_public_id?: string;
+  image_public_ids?: string[];
 
   // Store join (denormalized at write time for fast feed lookups)
   merchant_id: Id;

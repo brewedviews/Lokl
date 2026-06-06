@@ -133,3 +133,4 @@ websockets==16.0
 wrapt==2.2.1
 yarl==1.23.0
 zipp==3.23.1
+cloudinary==1.44.2

@@ -35,6 +35,7 @@ from notifications import (
 )
 from ai_enhance import enhance_product_images
 from observability import init_sentry
+from services import cloudinary_service
 
 load_dotenv(Path(__file__).parent / ".env")
 
@@ -104,13 +105,23 @@ class KycSubmit(BaseModel):
     pan_number: str; gst_number: Optional[str] = ""
     business_name: str; business_category: str; business_type: str; business_address: str
     bank_account_number: str; bank_ifsc: str; account_holder_name: str
-    # Docs are optional on resubmission — backend keeps the previously-uploaded blob if
-    # the field is empty this time. Validation still ensures a doc was provided on first submit.
+    # Legacy base64 doc fields — kept for backwards compatibility with the
+    # existing frontend. New uploads go directly to Cloudinary as private
+    # assets and we store only the public_id (no URL — admin generates a
+    # signed URL on demand). Backend keeps the previously-uploaded data if
+    # this submission omits the field (resubmission flow).
     pan_doc_b64: Optional[str] = ""; gst_doc_b64: Optional[str] = ""; cancelled_cheque_b64: Optional[str] = ""
+    pan_doc_public_id: Optional[str] = ""
+    gst_doc_public_id: Optional[str] = ""
+    cancelled_cheque_public_id: Optional[str] = ""
 
 class StorefrontUpdate(BaseModel):
     tagline: str; story: str; banner: str
     banners: List[str] = []
+    # Cloudinary public_ids paired with `banners` for lifecycle management.
+    banner_public_ids: List[str] = []
+    logo: Optional[str] = ""
+    logo_public_id: Optional[str] = ""
     specialties: List[str] = []; locality: Optional[str] = ""
     timing: Optional[str] = ""
     opens_at: Optional[str] = "10:00"
@@ -124,6 +135,11 @@ class ProductCreate(BaseModel):
     description: Optional[str] = ""
     sizes: List[str] = []; image: Optional[str] = ""
     images: List[str] = []
+    # Cloudinary refs. `image_public_id` pairs with `image`; `image_public_ids`
+    # pairs index-aligned with `images`. Stored alongside URLs so we can delete
+    # from Cloudinary on edit/replace.
+    image_public_id: Optional[str] = ""
+    image_public_ids: List[str] = []
     ai_enhanced: bool = False; try_at_doorstep: bool = False
     return_eligible: bool = False  # if True, customer can return within 24h of delivery
     stock: Optional[dict] = None
@@ -945,6 +961,56 @@ async def _validate_image_upload(file: UploadFile) -> None:
     if pos > MAX_IMAGE_BYTES:
         raise HTTPException(400, f"File too large (max {MAX_IMAGE_BYTES // (1024 * 1024)} MB)")
     await file.seek(0)
+
+
+# ===== Cloudinary upload endpoints =====
+@api.post("/merchant/upload-image")
+async def merchant_upload_image(
+    file: UploadFile = File(...),
+    asset_type: str = Form(...),
+    user: dict = Depends(get_current_user),
+):
+    """Upload an image to Cloudinary and return {image_url, public_id}.
+
+    asset_type ∈ {"product", "store_logo", "store_banner", "kyc"}.
+    """
+    if user.get("role") not in ("merchant", "admin"):
+        raise HTTPException(403, "Merchant access required")
+    return await cloudinary_service.upload_image(file, asset_type, user["sub"])
+
+
+@api.delete("/merchant/upload-image")
+async def merchant_delete_image(public_id: str, user: dict = Depends(get_current_user)):
+    """Delete an image from Cloudinary by public_id. Best-effort; returns ok flag."""
+    if user.get("role") not in ("merchant", "admin"):
+        raise HTTPException(403, "Merchant access required")
+    ok = cloudinary_service.delete_image(public_id)
+    return {"ok": ok}
+
+
+@api.get("/admin/kyc/{merchant_id}/signed-url")
+async def admin_kyc_signed_url(merchant_id: str, doc: str, request: Request):
+    """Generate a 1-hour signed URL for a private KYC document on Cloudinary.
+
+    `doc` must be one of: pan_doc, gst_doc, cancelled_cheque.
+    """
+    _check_admin(request.headers.get("authorization"))
+    if doc not in {"pan_doc", "gst_doc", "cancelled_cheque"}:
+        raise HTTPException(400, "Invalid doc kind")
+    m = await db.merchants.find_one(
+        {"id": merchant_id},
+        {"_id": 0, f"{doc}_public_id": 1},
+    )
+    if not m:
+        raise HTTPException(404, "Merchant not found")
+    pub_id = m.get(f"{doc}_public_id")
+    if not pub_id:
+        raise HTTPException(404, f"{doc} not uploaded")
+    url = cloudinary_service.signed_kyc_url(pub_id)
+    if not url:
+        raise HTTPException(500, "Could not sign URL")
+    return {"url": url, "expires_in_seconds": 3600}
+
 
 
 async def _validate_bulk_upload(file: UploadFile) -> bytes:
@@ -1887,12 +1953,16 @@ async def kyc_submit(payload: KycSubmit, user: dict = Depends(get_current_user))
     # Re-submitting clears any prior hold so admins see it as a fresh review.
     update = payload.model_dump()
     # Preserve previously-uploaded docs when this submission omits them (merchant just
-    # tweaked text fields after an on_hold note).
+    # tweaked text fields after an on_hold note). Covers both legacy base64 and
+    # the new Cloudinary public_id fields.
     existing = await db.merchants.find_one(
         {"id": user["sub"]},
-        {"_id": 0, "pan_doc_b64": 1, "gst_doc_b64": 1, "cancelled_cheque_b64": 1}
+        {"_id": 0,
+         "pan_doc_b64": 1, "gst_doc_b64": 1, "cancelled_cheque_b64": 1,
+         "pan_doc_public_id": 1, "gst_doc_public_id": 1, "cancelled_cheque_public_id": 1}
     ) or {}
-    for k in ("pan_doc_b64", "gst_doc_b64", "cancelled_cheque_b64"):
+    for k in ("pan_doc_b64", "gst_doc_b64", "cancelled_cheque_b64",
+              "pan_doc_public_id", "gst_doc_public_id", "cancelled_cheque_public_id"):
         if not (update.get(k) or "").strip() and existing.get(k):
             update[k] = existing[k]
     await db.merchants.update_one({"id": user["sub"]}, {"$set": {
@@ -1911,12 +1981,14 @@ async def kyc_status(user: dict = Depends(get_current_user)):
     # transferring the heavy base64 blobs back to the browser.
     raw = await db.merchants.find_one(
         {"id": user["sub"]},
-        {"_id": 0, "pan_doc_b64": 1, "gst_doc_b64": 1, "cancelled_cheque_b64": 1}
+        {"_id": 0,
+         "pan_doc_b64": 1, "gst_doc_b64": 1, "cancelled_cheque_b64": 1,
+         "pan_doc_public_id": 1, "gst_doc_public_id": 1, "cancelled_cheque_public_id": 1}
     ) or {}
     docs_present = {
-        "pan_doc": bool(raw.get("pan_doc_b64")),
-        "gst_doc": bool(raw.get("gst_doc_b64")),
-        "cancelled_cheque": bool(raw.get("cancelled_cheque_b64")),
+        "pan_doc": bool(raw.get("pan_doc_b64") or raw.get("pan_doc_public_id")),
+        "gst_doc": bool(raw.get("gst_doc_b64") or raw.get("gst_doc_public_id")),
+        "cancelled_cheque": bool(raw.get("cancelled_cheque_b64") or raw.get("cancelled_cheque_public_id")),
     }
     return {"kyc_status": m.get("kyc_status", "draft"), "merchant": m, "docs_present": docs_present}
 
@@ -1962,7 +2034,9 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_
         "tagline": payload.tagline, "story": payload.story,
         "banner": (payload.banners[0] if payload.banners else payload.banner),
         "banners": payload.banners or ([payload.banner] if payload.banner else []),
-        "logo": (payload.banners[0] if payload.banners else payload.banner),
+        "banner_public_ids": payload.banner_public_ids or [],
+        "logo": payload.logo or (payload.banners[0] if payload.banners else payload.banner),
+        "logo_public_id": payload.logo_public_id or "",
         "city": "Bhilai", "area": derived_area, "locality": derived_area,
         "address": biz_addr,
         "specialties": payload.specialties,
@@ -2114,6 +2188,19 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
     p = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0})
     if not p: raise HTTPException(404, "Product not found")
     payload.pop("id", None); payload.pop("merchant_id", None)
+    # If the cover Cloudinary asset is being replaced (different public_id),
+    # delete the previous asset to avoid orphaned Cloudinary storage.
+    new_pid = payload.get("image_public_id")
+    old_pid = p.get("image_public_id")
+    if new_pid and old_pid and new_pid != old_pid:
+        cloudinary_service.delete_image(old_pid)
+    # Same for the carousel images array — delete any old ids that are no
+    # longer in the new array.
+    if "image_public_ids" in payload:
+        old_ids = set(p.get("image_public_ids") or [])
+        new_ids = set(payload.get("image_public_ids") or [])
+        for stale in (old_ids - new_ids):
+            cloudinary_service.delete_image(stale)
     await db.products.update_one({"id": pid}, {"$set": payload})
     # If the product was just unpaused, recompute count and maybe auto-publish.
     if "paused" in payload:

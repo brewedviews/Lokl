@@ -3,24 +3,26 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Store, ArrowRight, X, ImagePlus, Clock, MapPin, Crosshair } from "lucide-react";
+import { Store, ArrowRight, X, ImagePlus, Clock, MapPin, Crosshair, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/api-error";
 import { useMerchantAuthStore } from "@/stores";
+import { uploadImage, deleteUploadedImage } from "@/lib/uploads";
 
 export default function MerchantStorefrontPage() {
   const router = useRouter();
   const merchant = useMerchantAuthStore((s) => s.user) as (typeof useMerchantAuthStore extends () => infer T ? T : never) | null;
-  type Mer = { store_name?: string; business_address?: string; storefront?: { tagline?: string; story?: string; banners?: string[]; banner?: string; locality?: string; opens_at?: string; closes_at?: string; lat?: number; lng?: number } };
+  type Mer = { store_name?: string; business_address?: string; storefront?: { tagline?: string; story?: string; banners?: string[]; banner_public_ids?: string[]; banner?: string; locality?: string; opens_at?: string; closes_at?: string; lat?: number; lng?: number } };
   const m = (merchant ?? {}) as unknown as Mer;
   const [form, setForm] = useState({
-    tagline: "", story: "", banners: [] as string[],
+    tagline: "", story: "", banners: [] as string[], banner_public_ids: [] as string[],
     locality: "", opens_at: "10:00", closes_at: "18:00",
     lat: "", lng: "",
   });
   const [saving, setSaving] = useState(false);
   const [pinning, setPinning] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (m.storefront) {
@@ -28,22 +30,39 @@ export default function MerchantStorefrontPage() {
       setForm({
         tagline: s.tagline || "", story: s.story || "",
         banners: s.banners && s.banners.length ? s.banners : (s.banner ? [s.banner] : []),
+        banner_public_ids: s.banner_public_ids && s.banner_public_ids.length ? s.banner_public_ids : [],
         locality: s.locality || "", opens_at: s.opens_at || "10:00", closes_at: s.closes_at || "18:00",
         lat: s.lat != null ? String(s.lat) : "", lng: s.lng != null ? String(s.lng) : "",
       });
     }
   }, [m.storefront]);
 
-  const pickBanner = (file: File | null) => {
+  const pickBanner = async (file: File | null) => {
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) return toast.error("Image too large (max 5MB)");
     if (form.banners.length >= 5) return toast.error("Up to 5 banners");
-    const r = new FileReader();
-    r.onload = () => setForm((f) => ({ ...f, banners: [...f.banners, r.result as string] }));
-    r.onerror = () => toast.error("Could not read image");
-    r.readAsDataURL(file);
+    setUploading(true);
+    try {
+      const { image_url, public_id } = await uploadImage(file, "store_banner");
+      setForm((f) => ({
+        ...f,
+        banners: [...f.banners, image_url],
+        banner_public_ids: [...f.banner_public_ids, public_id],
+      }));
+    } catch (e) {
+      toast.error(getErrorMessage(e));
+    } finally {
+      setUploading(false);
+    }
   };
-  const removeBanner = (idx: number) => setForm((f) => ({ ...f, banners: f.banners.filter((_, i) => i !== idx) }));
+  const removeBanner = (idx: number) => {
+    const pid = form.banner_public_ids[idx];
+    setForm((f) => ({
+      ...f,
+      banners: f.banners.filter((_, i) => i !== idx),
+      banner_public_ids: f.banner_public_ids.filter((_, i) => i !== idx),
+    }));
+    if (pid) void deleteUploadedImage(pid);
+  };
 
   const save = async () => {
     if (!form.tagline || !form.story || form.banners.length === 0) return toast.error("Tagline, story and at least 1 cover image are required");
@@ -56,6 +75,9 @@ export default function MerchantStorefrontPage() {
       await api.merchant.saveStorefront({
         tagline: form.tagline, story: form.story,
         banners: form.banners, banner: form.banners[0],
+        banner_public_ids: form.banner_public_ids,
+        logo: form.banners[0],
+        logo_public_id: form.banner_public_ids[0] || "",
         locality: form.locality, opens_at: form.opens_at, closes_at: form.closes_at,
         lat, lng, specialties: [],
       } as unknown as Parameters<typeof api.merchant.saveStorefront>[0]);
@@ -131,9 +153,9 @@ export default function MerchantStorefrontPage() {
             ))}
             {form.banners.length < 5 && (
               <label className="aspect-[4/3] rounded-xl border-2 border-dashed border-[#E5E2DC] flex flex-col items-center justify-center cursor-pointer hover:border-[#1A2B4C] text-[#595959] text-xs gap-2">
-                <ImagePlus size={20} />
-                <span>Upload</span>
-                <input data-testid="sf-banner-upload" type="file" accept="image/*" className="hidden" onChange={(e) => pickBanner(e.target.files?.[0] ?? null)} />
+                {uploading ? <Loader2 size={20} className="animate-spin" /> : <ImagePlus size={20} />}
+                <span>{uploading ? "Uploading…" : "Upload"}</span>
+                <input data-testid="sf-banner-upload" type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => pickBanner(e.target.files?.[0] ?? null)} disabled={uploading} />
               </label>
             )}
           </div>

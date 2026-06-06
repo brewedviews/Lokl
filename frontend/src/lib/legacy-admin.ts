@@ -13,7 +13,23 @@ const API = "";
 
 function getAdminToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("bf_admin_token");
+  const raw = localStorage.getItem("bf_admin_token");
+  if (!raw) return null;
+  // Zustand `persist` middleware wraps the value as
+  //   {"state":{"token":"<jwt>"},"version":0}
+  // — unwrap so raw fetch sends a plain JWT in the Authorization header
+  // (same fix the typed api-client applies for the customer/merchant stores).
+  let value = raw;
+  for (let i = 0; i < 5; i++) {
+    if (!value.startsWith("{")) break;
+    try {
+      const parsed = JSON.parse(value) as { state?: { token?: string } };
+      const next = parsed?.state?.token;
+      if (typeof next !== "string") return null;
+      value = next;
+    } catch { return null; }
+  }
+  return value.startsWith("ey") ? value : null;
 }
 
 function authHeaders(): HeadersInit {

@@ -30,6 +30,7 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "*.googleusercontent.com" },
       { protocol: "https", hostname: "images.pexels.com" },
       { protocol: "https", hostname: "cdn.lokl.in" },
+      { protocol: "https", hostname: "res.cloudinary.com" },
       ...(process.env.NEXT_PUBLIC_STORAGE_HOST
         ? [{ protocol: "https" as const, hostname: process.env.NEXT_PUBLIC_STORAGE_HOST }]
         : []),

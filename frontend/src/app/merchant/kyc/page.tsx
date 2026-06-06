@@ -4,10 +4,11 @@
 import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, FileText, Upload, Landmark, CheckCircle2, ChevronLeft, AlertCircle, PauseCircle } from "lucide-react";
+import { ArrowRight, FileText, Upload, Landmark, CheckCircle2, ChevronLeft, AlertCircle, PauseCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
+import { uploadImage } from "@/lib/uploads";
 
 const BUSINESS_TYPES = ["Proprietorship", "Partnership", "Pvt Ltd", "LLP", "OPC"];
 const BUSINESS_CATEGORIES = [
@@ -15,19 +16,13 @@ const BUSINESS_CATEGORIES = [
   "Streetwear", "Accessories", "Kids Fashion", "Beauty", "Multi-category",
 ];
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result || "").split(",")[1] || "");
-    r.onerror = reject;
-    r.readAsDataURL(file);
-  });
-}
-
 interface KycForm {
   pan_number: string; gst_number: string; business_name: string;
   business_category: string; business_type: string; business_address: string;
   bank_account_number: string; bank_ifsc: string; account_holder_name: string;
+  // Cloudinary public_ids for private KYC docs (preferred).
+  pan_doc_public_id: string; gst_doc_public_id: string; cancelled_cheque_public_id: string;
+  // Legacy base64 fields kept for backwards compatibility on resubmit.
   pan_doc_b64: string; gst_doc_b64: string; cancelled_cheque_b64: string;
 }
 interface DocsPresent { pan_doc?: boolean; gst_doc?: boolean; cancelled_cheque?: boolean }
@@ -45,9 +40,11 @@ export default function MerchantKycPage() {
   const [form, setForm] = useState<KycForm>({
     pan_number: "", gst_number: "", business_name: "", business_category: "", business_type: "",
     business_address: "", bank_account_number: "", bank_ifsc: "", account_holder_name: "",
+    pan_doc_public_id: "", gst_doc_public_id: "", cancelled_cheque_public_id: "",
     pan_doc_b64: "", gst_doc_b64: "", cancelled_cheque_b64: "",
   });
   const [files, setFiles] = useState<{ pan: string | null; gst: string | null; cheque: string | null }>({ pan: null, gst: null, cheque: null });
+  const [uploading, setUploading] = useState<{ pan: boolean; gst: boolean; cheque: boolean }>({ pan: false, gst: false, cheque: false });
 
   useEffect(() => {
     apiClient.get<{ kyc_status?: string; merchant?: Partial<KycForm> & { hold_comment?: string }; docs_present?: DocsPresent }>("/api/merchant/kyc/status")
@@ -74,17 +71,26 @@ export default function MerchantKycPage() {
 
   const set = <K extends keyof KycForm>(k: K, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
-  const handleFile = async (key: keyof KycForm, fileKey: "pan" | "gst" | "cheque", file: File | null) => {
+  const handleFile = async (publicIdKey: keyof KycForm, fileKey: "pan" | "gst" | "cheque", file: File | null) => {
     if (!file) return;
-    if (file.size > 4 * 1024 * 1024) return toast.error("Max 4 MB");
-    const b64 = await fileToBase64(file);
-    set(key, b64);
-    setFiles((p) => ({ ...p, [fileKey]: file.name }));
+    if (file.size > 5 * 1024 * 1024) return toast.error("Max 5 MB");
+    if (!file.type.startsWith("image/")) return toast.error("Only image files (JPEG/PNG/WebP) are supported. Convert PDFs to image first.");
+    setUploading((p) => ({ ...p, [fileKey]: true }));
+    try {
+      const { public_id } = await uploadImage(file, "kyc");
+      set(publicIdKey, public_id);
+      setFiles((p) => ({ ...p, [fileKey]: file.name }));
+      toast.success(`${fileKey.toUpperCase()} uploaded`);
+    } catch (e) {
+      toast.error(getErrorMessage(e));
+    } finally {
+      setUploading((p) => ({ ...p, [fileKey]: false }));
+    }
   };
 
   const validStep1 = form.pan_number.length === 10 && form.business_name && form.business_category && form.business_type && form.business_address;
   const validStep2 = form.bank_account_number && form.bank_ifsc && form.account_holder_name &&
-    (form.cancelled_cheque_b64 || kycMeta.docs_present.cancelled_cheque);
+    (form.cancelled_cheque_public_id || form.cancelled_cheque_b64 || kycMeta.docs_present.cancelled_cheque);
 
   const submit = async () => {
     setSubmitting(true);
@@ -144,8 +150,8 @@ export default function MerchantKycPage() {
             <Field label="Business category *"><select data-testid="kyc-category" value={form.business_category} onChange={(e) => set("business_category", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"><option value="">Select category</option>{BUSINESS_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
             <Field label="Business type *"><select data-testid="kyc-type" value={form.business_type} onChange={(e) => set("business_type", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"><option value="">Select type</option>{BUSINESS_TYPES.map((c) => <option key={c}>{c}</option>)}</select></Field>
             <Field label="Business address *" full><textarea data-testid="kyc-address" rows={2} value={form.business_address} onChange={(e) => set("business_address", e.target.value)} placeholder="House no, street, locality, city, pincode" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
-            <FileUpload label="PAN card (image/PDF)" testId="kyc-pan-doc" file={files.pan} onChange={(f) => handleFile("pan_doc_b64", "pan", f)} />
-            <FileUpload label="GST certificate (optional)" testId="kyc-gst-doc" file={files.gst} onChange={(f) => handleFile("gst_doc_b64", "gst", f)} />
+            <FileUpload label="PAN card (image)" testId="kyc-pan-doc" file={files.pan} busy={uploading.pan} onChange={(f) => handleFile("pan_doc_public_id", "pan", f)} />
+            <FileUpload label="GST certificate (optional, image)" testId="kyc-gst-doc" file={files.gst} busy={uploading.gst} onChange={(f) => handleFile("gst_doc_public_id", "gst", f)} />
           </div>
           <div className="flex justify-end pt-2">
             <button data-testid="kyc-next-1" disabled={!validStep1} onClick={() => setStep(2)} className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-[#1A2B4C] text-white font-semibold disabled:opacity-50">Next <ArrowRight size={14} /></button>
@@ -160,7 +166,7 @@ export default function MerchantKycPage() {
             <Field label="Account holder name *"><input data-testid="kyc-holder" value={form.account_holder_name} onChange={(e) => set("account_holder_name", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
             <Field label="Account number *"><input data-testid="kyc-account" value={form.bank_account_number} onChange={(e) => set("bank_account_number", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] tracking-wider" /></Field>
             <Field label="IFSC code *"><input data-testid="kyc-ifsc" value={form.bank_ifsc} onChange={(e) => set("bank_ifsc", e.target.value.toUpperCase())} placeholder="SBIN0001234" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" /></Field>
-            <FileUpload label="Cancelled cheque *" testId="kyc-cheque" file={files.cheque} onChange={(f) => handleFile("cancelled_cheque_b64", "cheque", f)} />
+            <FileUpload label="Cancelled cheque * (image)" testId="kyc-cheque" file={files.cheque} busy={uploading.cheque} onChange={(f) => handleFile("cancelled_cheque_public_id", "cheque", f)} />
           </div>
           <div className="flex justify-between pt-2">
             <button onClick={() => setStep(1)} className="px-5 py-3 rounded-full border border-[#E5E2DC]"><ChevronLeft size={14} className="inline" /> Back</button>
@@ -215,15 +221,15 @@ function Row({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-function FileUpload({ label, file, onChange, testId }: { label: string; file: string | null; onChange: (f: File | null) => void; testId: string }) {
+function FileUpload({ label, file, onChange, testId, busy }: { label: string; file: string | null; onChange: (f: File | null) => void; testId: string; busy?: boolean }) {
   return (
     <label className="block cursor-pointer">
       <div className="text-[11px] font-semibold uppercase tracking-widest text-[#595959] mb-1.5">{label}</div>
       <div className="px-4 py-3 rounded-xl border-2 border-dashed border-[#E5E2DC] hover:border-[#1A2B4C] transition flex items-center gap-2 text-sm">
-        <Upload size={14} className="text-[#E68910]" />
-        <span className="truncate flex-1">{file || "Choose file…"}</span>
+        {busy ? <Loader2 size={14} className="text-[#E68910] animate-spin" /> : <Upload size={14} className="text-[#E68910]" />}
+        <span className="truncate flex-1">{busy ? "Uploading…" : (file || "Choose file…")}</span>
       </div>
-      <input data-testid={testId} type="file" accept="image/*,.pdf" onChange={(e) => onChange(e.target.files?.[0] ?? null)} className="hidden" />
+      <input data-testid={testId} type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(e) => onChange(e.target.files?.[0] ?? null)} className="hidden" />
     </label>
   );
 }

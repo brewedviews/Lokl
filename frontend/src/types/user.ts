@@ -92,6 +92,9 @@ export interface MerchantStorefront {
   story: string;
   banner: string;
   banners: string[];
+  banner_public_ids?: string[];
+  logo?: string;
+  logo_public_id?: string;
   specialties: string[];
   locality: string;
   timing: string;
