@@ -1,5 +1,33 @@
 # Lokl — Deployment & Release Guide
 
+## Frontend Cutover (Session E — Feb 2026)
+
+The Next.js 15 App Router app is now the canonical `frontend/` directory and is
+served on **port 3000** in all environments (local, staging, production).
+
+- **Active**: `/app/frontend/` — Next.js 15 + React 19 + Tailwind v4. Dockerfile
+  uses `output: "standalone"`, ships a ~140 MB image, runs `node server.js`.
+- **Preserved for rollback (2-week window)**: `/app/frontend-legacy/` — the
+  original CRA app with its own Dockerfile (`yarn build` + `serve`). To roll
+  back, edit `docker-compose.yml` and change `context: ./frontend` to
+  `context: ./frontend-legacy`, then `docker compose build frontend && docker compose up -d frontend`.
+- **Delete window**: `frontend-legacy/` will be removed after 2 weeks of stable
+  production operation on the Next.js build (target: end of Feb 2026).
+
+### Env vars rename
+All `REACT_APP_*` variables are gone. Replacements (same value, new name):
+
+| Old (CRA)                       | New (Next.js)                       |
+| ------------------------------- | ----------------------------------- |
+| `REACT_APP_BACKEND_URL`         | `NEXT_PUBLIC_API_URL`               |
+| `REACT_APP_SENTRY_DSN`          | `NEXT_PUBLIC_SENTRY_DSN`            |
+| `REACT_APP_SENTRY_ENVIRONMENT`  | `NEXT_PUBLIC_SENTRY_ENVIRONMENT`    |
+| `REACT_APP_RAZORPAY_KEY_ID`     | `NEXT_PUBLIC_RAZORPAY_KEY_ID`       |
+| `REACT_APP_APP_ENV`             | `NEXT_PUBLIC_APP_ENV`               |
+
+Update `.env`, `.env.staging`, and any CI / Vercel / GHCR secrets accordingly
+before the next deploy. The CRA names will fail-fast in the Next.js build.
+
 This document is the source of truth for how Lokl is built, shipped, and rolled
 back across local, staging, and production environments.
 

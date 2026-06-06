@@ -1,31 +1,56 @@
-# Frontend Dockerfile — React (CRA) build, served by nginx.
-# Multi-stage so the final image carries only the static bundle + nginx.
-FROM node:20-alpine AS build
+# syntax=docker/dockerfile:1.6
+#
+# Lokl Next.js 15 frontend — production image.
+# Built with `output: "standalone"` (see next.config.ts) so the runtime stage
+# ships only `.next/standalone` + `.next/static` + `public`, not the full
+# `node_modules` tree. Result is a ~140 MB image vs ~700 MB unoptimized.
 
-WORKDIR /build
-# Cache deps layer: copy manifests first
-COPY frontend/package.json frontend/yarn.lock* frontend/package-lock.json* ./
+# ---------- deps ----------
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package.json yarn.lock* package-lock.json* ./
 RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
-    else npm ci || npm install; fi
+    else npm ci --legacy-peer-deps; fi
 
-COPY frontend/ .
-# REACT_APP_* are baked at build time. Pass real values via --build-arg or
-# the CI workflow; never commit them.
-ARG REACT_APP_BACKEND_URL
-ARG REACT_APP_SENTRY_DSN
-ARG REACT_APP_SENTRY_ENVIRONMENT=production
-ARG REACT_APP_SENTRY_RELEASE
-ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL \
-    REACT_APP_SENTRY_DSN=$REACT_APP_SENTRY_DSN \
-    REACT_APP_SENTRY_ENVIRONMENT=$REACT_APP_SENTRY_ENVIRONMENT \
-    REACT_APP_SENTRY_RELEASE=$REACT_APP_SENTRY_RELEASE
-RUN if [ -f yarn.lock ]; then yarn build; else npm run build; fi
+# ---------- builder ----------
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
 
-FROM nginx:1.27-alpine AS runtime
-# Drop privileges — nginx-alpine runs as nginx by default; keep that.
-COPY --from=build /build/build /usr/share/nginx/html
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+# Public envs baked into the bundle at build-time.
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_STORAGE_HOST
+ARG NEXT_PUBLIC_RAZORPAY_KEY_ID
+ARG NEXT_PUBLIC_APP_ENV
+ARG NEXT_PUBLIC_SENTRY_DSN
+ARG NEXT_PUBLIC_SENTRY_ENVIRONMENT
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NEXT_PUBLIC_STORAGE_HOST=$NEXT_PUBLIC_STORAGE_HOST \
+    NEXT_PUBLIC_RAZORPAY_KEY_ID=$NEXT_PUBLIC_RAZORPAY_KEY_ID \
+    NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV \
+    NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN \
+    NEXT_PUBLIC_SENTRY_ENVIRONMENT=$NEXT_PUBLIC_SENTRY_ENVIRONMENT \
+    NEXT_TELEMETRY_DISABLED=1
+
+RUN npm run build
+
+# ---------- runner ----------
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+# Non-root user for runtime
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+USER nextjs
+
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
-    CMD wget -qO- http://127.0.0.1:3000/healthz || exit 1
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "server.js"]

@@ -36,20 +36,31 @@ services:
       timeout: 5s
       retries: 3
 
+  # Lokl Next.js 15 frontend (Session E cutover — Feb 2026).
+  # Legacy CRA app preserved in ./frontend-legacy/ with its own Dockerfile;
+  # to roll back, swap `context: ./frontend` → `./frontend-legacy` and rebuild.
   frontend:
     build:
-      context: .
-      dockerfile: frontend/Dockerfile
+      context: ./frontend
+      dockerfile: Dockerfile
       args:
-        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-http://localhost:8001}
-        REACT_APP_SENTRY_DSN: ${REACT_APP_SENTRY_DSN:-}
-        REACT_APP_SENTRY_ENVIRONMENT: ${REACT_APP_SENTRY_ENVIRONMENT:-development}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://backend:8001}
+        NEXT_PUBLIC_STORAGE_HOST: ${NEXT_PUBLIC_STORAGE_HOST:-}
+        NEXT_PUBLIC_RAZORPAY_KEY_ID: ${NEXT_PUBLIC_RAZORPAY_KEY_ID:-}
+        NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV:-production}
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-development}
     restart: unless-stopped
     depends_on:
       - backend
     ports:
       - "3000:3000"
     networks: [lokl_net]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/', r => process.exit(r.statusCode===200?0:1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   mongo_data:

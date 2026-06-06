@@ -57,12 +57,15 @@ jobs:
         run: pytest -q --maxfail=5 --disable-warnings
 
   frontend-lint-build:
-    name: Frontend (lint + build)
+    name: Frontend (lint + typecheck + build)
     runs-on: ubuntu-latest
     env:
-      REACT_APP_BACKEND_URL: http://localhost:8001
-      REACT_APP_SENTRY_DSN: ""
-      REACT_APP_SENTRY_ENVIRONMENT: ci
+      # Next.js 15 — public envs are baked at build time. Empty string is fine for CI.
+      NEXT_PUBLIC_API_URL: http://localhost:8001
+      NEXT_PUBLIC_SENTRY_DSN: ""
+      NEXT_PUBLIC_SENTRY_ENVIRONMENT: ci
+      NEXT_PUBLIC_APP_ENV: ci
+      NEXT_TELEMETRY_DISABLED: "1"
       CI: "true"
     steps:
       - uses: actions/checkout@v4
@@ -70,20 +73,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: yarn
-          cache-dependency-path: frontend/yarn.lock
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend deps
         working-directory: frontend
-        run: yarn install --frozen-lockfile
+        run: npm ci --legacy-peer-deps
+
+      - name: Type-check (tsc --noEmit)
+        working-directory: frontend
+        run: npx tsc --noEmit
 
       - name: ESLint
         working-directory: frontend
-        run: npx eslint "src/**/*.{js,jsx}" --max-warnings=0 || true
+        run: npx eslint "src/**/*.{ts,tsx}" --max-warnings=0 || true
 
       - name: Build
         working-directory: frontend
-        run: yarn build
+        run: npm run build
 
   docker-build:
     name: Docker build (no push)

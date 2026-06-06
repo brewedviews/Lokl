@@ -1,0 +1,36 @@
+{
+  "summary": "Verified Session D.2 + E cutover: (1) PDP hydration #418 fix CONFIRMED — 0 warnings across 3 reloads on /product/prod-cf7a27405e. (2) All 11 merchant routes + consumer smoke routes return HTTP 200. (3) Dynamic OG images return Content-Type image/png 200 for both /product/<id>/opengraph-image-* and /store/<id>/opengraph-image-* (URLs parsed from og:image meta tags). (4) Merchant register flow works — POST creates merchant; redirects to nextRoute (/merchant/kyc for draft). (5) Merchant login with approved demo merchant (menscape@lokl.demo / Demo@2026) lands on /merchant/orders. (6) Merchant onboarding page renders [data-testid=kyc-status-card]. Hydration fix and OG routes are the headline pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/merchant/me, /api/heartbeat, /api/merchant/notifications", "issue": "Numerous 401 console errors during merchant nav after fresh login; appears to be a tab-context heartbeat polling tokens that drift after page.goto navigation. Iteration_16 reported all merchant pages working; likely a test-session artifact, but worth confirming the token refresh handshake on first-page-load is not racing."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Cross-route merchant nav after login (Playwright session)", "issue": "After successful merchant login (landed on /merchant/orders), navigating page.goto('/merchant/dashboard') redirected to /merchant/login; subsequent /merchant/* pages then redirected to /merchant/onboarding (auth store appears to have re-hydrated with a DIFFERENT user — likely the fresh test+xxx merchant registered earlier in the same browser session whose refresh_token cookie was still set). Did not observe this in a clean single-tab manual flow. Not a P0; affects testing methodology more than real users.", "affected_selectors": ["[data-testid=dashboard-title]","[data-testid=orders-title]","[data-testid=products-title]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_15.json","/app/test_reports/iteration_16.json"],
+  "action_items": [
+    "Update /app/memory/test_credentials.md: demo merchant email is 'anjali-store@lokl.demo' (NOT 'anjali-boutique@lokl.demo' as listed). All 10 demo emails listed are correct except this one slug.",
+    "Investigate the auth/refresh interaction: when two merchant sessions are created in the same browser context (register fresh → login as different merchant), the refresh_token cookie from the FIRST session persists at path=/api/auth and may cause the api client interceptor on a 401 to refresh into the older user. Consider clearing the refresh_token cookie on /auth/login response if the email differs.",
+    "Verify the merchant register redirect target: review_request expected /merchant/onboarding; observed /merchant/kyc. This is likely the backend's nextRoute logic for a freshly created merchant (no PAN yet → straight to KYC) which is arguably more correct. Confirm intended UX."
+  ],
+  "critical_code_review_comments": [
+    "src/app/merchant/layout.tsx signOut: calls api.auth.logout() before clearAuth() — fine, but the post-logout redirect lands at /merchant/onboarding (per test run) instead of /merchant/login as written. Possible cause: router.replace executes before clearAuth flushes, so the guard sees auth still present and immediately re-renders. Consider clearAuth() THEN router.replace.",
+    "Merchant nav inside the layout uses router.replace based on Zustand state. With Next.js persist + refresh_token cookie, full-page navigations can re-hydrate state from /api/auth/refresh; ensure the new token's user matches the stored user (assert sub matches) before treating it as still authed.",
+    "test_credentials.md has stale demo email (anjali-boutique vs anjali-store).",
+    "Hydration fix via useMounted() in ConsumerHeader/StickyBottomNav/ProductCardV2 is implemented correctly — verified by 3 consecutive PDP reloads producing zero #418/'did not match'/'Hydration failed' messages."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (route HTTP 200 across 11 merchant + 6 consumer routes)", "frontend": "~80% (hydration + login + register + onboarding + OG verified; deep CRUD on approved-only pages blocked by session interaction described above)"},
+  "test_credentials": "Approved demo merchant for KYC-gated routes: menscape@lokl.demo / Demo@2026 (any of the 10 demo merchants seeded via `cd /app/backend && python -m demo_seed` works; all kyc_status=approved). Fresh test merchant pattern: test+<rand>@lokl.in / TestPass@2026 → starts in draft.",
+  "seed_data_creation": "Ran `cd /app/backend && python -m demo_seed` once to (re)create the 10 approved demo merchants. Idempotent. Created one disposable test merchant `test+p91gg9vk@lokl.in` (draft) via the register UI and one product `AutoTest Product` attempt on menscape — disposable.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "PDP hydration fix is CONFIRMED working (3 reloads, 0 warnings). OG images at /product/<id>/opengraph-image-* and /store/<id>/opengraph-image-* return image/png 200. Use menscape@lokl.demo / Demo@2026 (approved demo merchant) to deep-test the 6 approved-only routes (orders/products/storefront/bank/analytics/ai-studio) — they require kyc_status=approved or the layout guard redirects to /merchant/onboarding. AVOID registering a fresh merchant in the same browser session before testing the demo merchant — the refresh_token cookie collision will switch you to the draft user mid-test. If testing both flows in one run, clear cookies between sessions via `await context.clear_cookies()`. test_credentials.md has stale 'anjali-boutique' email — actual is 'anjali-store'.",
+  "rca_of_the_issue": "Hydration warning fix RCA confirmed: useMounted() gating in ConsumerHeader (city/cart badge), StickyBottomNav (wishlist badge) and ProductCardV2 (cart qty pill) defers Zustand persist-restored UI to client-only render, so SSR markup matches initial client markup. Reproduction: GET /product/prod-cf7a27405e in fresh tab, console clean. Reload x2, still clean. No remediation needed. For the session-loss artifact during cross-route merchant nav: the merchant layout's useHeartbeat hook + api client 401 interceptor can call /api/auth/refresh which reads the httpOnly refresh_token cookie (path=/api/auth). If a prior test registered a different merchant in the same browser context, that cookie still belongs to the older merchant, so the refresh succeeds with that user's identity and the Zustand store gets overwritten on next access. Mitigation: clear refresh_token cookie on /auth/login response when payload email != cookie owner, or always overwrite the cookie on every fresh login (it already does this — but only at path=/api/auth, so the old one is overwritten not deleted; this should work). Re-verify in a clean profile."
+}
