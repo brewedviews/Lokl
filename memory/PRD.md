@@ -3,6 +3,67 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+## Latest Iteration (Feb 2026 — Iter-39) — Stabilization: Cloudinary + Admin MVP + Merchant Products Restore
+
+**Done**:
+- **Cloudinary backend integration** (`backend/services/cloudinary_service.py`):
+  upload_image / delete_image / signed_kyc_url / is_configured. KYC docs use
+  `type=private`; products/storefront banners are public. All assets
+  organised under `lokl/products`, `lokl/stores`, `lokl/banners`, `lokl/kyc`.
+- New endpoints (server.py ~lines 950-1000):
+  - `POST /api/merchant/upload-image` (multipart, requires merchant JWT,
+    asset_type ∈ {product, store_logo, store_banner, kyc})
+  - `DELETE /api/merchant/upload-image?public_id=...`
+  - `GET /api/admin/kyc/{merchant_id}/signed-url?doc=pan_doc|gst_doc|cancelled_cheque`
+- **Mongo schema migration** (backwards-compatible):
+  - `products`: new `image_public_id` (string), `image_public_ids` (array)
+    paired with existing `image` / `images` URL fields.
+  - `stores`: new `banner_public_ids` (array), `logo_public_id` (string).
+  - `merchants`: new `pan_doc_public_id`, `gst_doc_public_id`,
+    `cancelled_cheque_public_id` for private KYC refs.
+- **PUT /api/merchant/products** now deletes the previous Cloudinary asset
+  when the merchant uploads a replacement (`image_public_id` differs) and
+  prunes any carousel ids no longer in the payload — no Cloudinary orphans.
+- **Merchant Products page rebuilt** (`app/merchant/products/page.tsx`):
+  full CRUD modal with image upload (1-5), L1/L2 category, gender,
+  per-size stock, return-eligible toggle. Bulk-action bar (publish, pause,
+  delete), bulk xlsx import + template download. Sidebar soft-nav works.
+- **Storefront page**: banner upload switched to Cloudinary (was base64).
+- **KYC page**: doc uploads switched to Cloudinary (private). 5 MB cap,
+  image-only MIME (jpeg/png/webp). PDFs no longer accepted.
+- **Admin dashboard MVP migrated to Next.js** (`app/admin/page.tsx`):
+  5 tabs — Overview, Merchants, Stores, Products, Orders. Uses
+  `legacy-admin.ts` shim. Real-data verified (126 merchants, 100 products,
+  351 orders, ₹0 today revenue against menscape store).
+- **Admin sign-out bug fix**: `admin-auth.store.ts`'s `_syncFromStorage`
+  used to read the raw persist envelope into `state.token`, causing the
+  next persist save to double-stringify. Now unwraps with the same JWT
+  detector the typed `api-client.ts` uses. `clearAuth` also wipes the
+  localStorage key to defeat any pre-existing malformed envelope.
+- **`/admin/login` placeholder replaced** with a `redirect("/admin")` —
+  the embedded login form in `admin/layout.tsx` handles the unauth state.
+- **`legacy-admin.ts` token unwrap**: raw fetch path now reads the same
+  Zustand envelope correctly, fixing the "Invalid header string"
+  500 that was crashing admin API calls on first render.
+- **Migration script** (`backend/migrations/004_migrate_base64_to_cloudinary.py`):
+  idempotent base64 → Cloudinary backfill for `products` + `stores`. Not
+  auto-run; trigger manually via `python -m migrations.run 004`. Reports
+  products_scanned, stores_scanned, images_migrated, failures, elapsed.
+  **Blocked** until Cloudinary API secret is rotated.
+
+**Production readiness** (assessed at end of iter-39):
+- Cloudinary uploads return **HTTP 502 `[prodenv:30dc5d5..] Request
+  forbidden`** because the `CLOUDINARY_API_SECRET` value in `/app/backend/.env`
+  is not authorised for `CLOUDINARY_CLOUD_NAME=doojqkyff`. User is rotating
+  this on their side. ALL other wiring verified by 16/16 iter18 contract
+  tests + manual e2e (`/app/backend/tests/test_iter18_cloudinary_wiring.py`).
+
+**Known unresolved** (carried from iter17):
+- Merchant deep-link / hard-refresh on `/merchant/products` etc. redirects
+  back to `/merchant/login`. Soft sidebar-nav works. Root cause is a
+  Zustand-persist hydration race vs the layout's auth guard — out of scope
+  for the iter-39 stabilization session.
+
 ## Latest Iteration (Feb 2026 — Iter-38) — Twilio Production OTP + Universal SMS Fallback
 
 **Done**:

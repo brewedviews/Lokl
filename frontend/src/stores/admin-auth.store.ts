@@ -38,14 +38,38 @@ export const useAdminAuthStore = create<AdminAuthStore>()(
       clearAuth: () => {
         set({ isAuthenticated: false, token: null });
         if (typeof window !== "undefined") {
+          // Belt-and-braces: remove the key entirely so any stale, malformed
+          // persist envelope (e.g. double-stringified data from a previous
+          // iter18 build) is wiped — otherwise `_syncFromStorage` could try to
+          // unwrap it on next page load.
+          localStorage.removeItem(ADMIN_TOKEN_KEY);
           window.dispatchEvent(new Event(ADMIN_AUTH_EVENT));
         }
       },
 
       _syncFromStorage: () => {
         if (typeof window === "undefined") return;
-        const token = localStorage.getItem(ADMIN_TOKEN_KEY);
-        set({ isAuthenticated: !!token, token: token ?? null });
+        // The localStorage value is a Zustand persist envelope —
+        //   {"state":{"token":"<jwt>"},"version":0}
+        // Reading the raw envelope and assigning it as `state.token` would
+        // cause the next persist save to nest the envelope inside itself
+        // (double-stringification, observed by iter18). Unwrap to the JWT.
+        const raw = localStorage.getItem(ADMIN_TOKEN_KEY);
+        let token: string | null = null;
+        if (raw) {
+          let value = raw;
+          for (let i = 0; i < 5; i++) {
+            if (!value.startsWith("{")) break;
+            try {
+              const parsed = JSON.parse(value) as { state?: { token?: string | null } };
+              const next = parsed?.state?.token;
+              if (typeof next !== "string") { value = ""; break; }
+              value = next;
+            } catch { value = ""; break; }
+          }
+          token = value && value.startsWith("ey") ? value : null;
+        }
+        set({ isAuthenticated: !!token, token });
       },
     }),
     {

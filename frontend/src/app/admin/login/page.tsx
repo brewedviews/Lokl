@@ -1,11 +1,13 @@
-/** Scaffold placeholder — Session D will replace with real content. */
-export default function AdminLoginPage() {
-  return (
-    <div className="p-6 sm:p-10 text-brand-primary">
-      <h1 className="text-2xl font-display tracking-tight">Admin Login — placeholder</h1>
-      <p className="text-text-muted text-sm mt-2">
-        Session D replaces this with real content.
-      </p>
-    </div>
-  );
+/**
+ * `/admin/login` now redirects to `/admin` because the actual login form is
+ * embedded inside `admin/layout.tsx` (rendered when the user is not yet
+ * authenticated). This file used to be a placeholder shipped to preview —
+ * iter18 testing flagged that anything programmatically routing to
+ * `/admin/login` (e.g. `router.replace("/admin/login")` in legacy code paths)
+ * was landing on a dead page.
+ */
+import { redirect } from "next/navigation";
+
+export default function AdminLoginRedirectPage() {
+  redirect("/admin");
 }
