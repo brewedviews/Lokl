@@ -1,18 +1,37 @@
-"""External notification helpers (WhatsApp via Twilio).
+"""External notification helpers (WhatsApp + SMS via Twilio).
 
 All functions are no-ops when the relevant env vars are missing or when the
 recipient phone is invalid — they log a warning and return False rather than
 raising, so they can be safely called from any route handler without
 breaking the primary flow if the 3rd-party is down.
+
+### OTP delivery contract
+`notify_customer_otp()` uses `send_otp_with_fallback()` which:
+  1. Tries WhatsApp first. If `TWILIO_OTP_CONTENT_SID` is set we send the
+     Meta-approved template (`HX...` with `content_variables={"1": otp}`);
+     otherwise we send a plain WhatsApp body (sandbox path).
+  2. Polls Twilio for ~5s. If the WA message ends in `failed`/`undelivered`
+     OR never reaches `delivered`/`read`/`sent` by the deadline, the same OTP
+     is sent again over SMS using `TWILIO_SMS_FROM`.
+  3. SMS body is intentionally short — Twilio bills per 160-char segment.
+
+All non-OTP notifications still use `send_whatsapp()` directly (best-effort).
 """
 from __future__ import annotations
 
 import logging
 import os
 import re
+import time
 from typing import Optional
 
 log = logging.getLogger("lokl.notify")
+
+# Status values Twilio returns. See https://www.twilio.com/docs/sms/send-messages#monitor-the-status-of-your-message
+_TERMINAL_OK = {"delivered", "read", "sent"}
+_TERMINAL_FAIL = {"failed", "undelivered"}
+_POLL_BUDGET_SEC = 5.0
+_POLL_INTERVAL = 0.7
 
 _twilio_client = None  # lazy-init
 
@@ -34,8 +53,8 @@ def _get_twilio():
         return None
 
 
-def _to_whatsapp_addr(phone: str) -> Optional[str]:
-    """Normalize a phone string to `whatsapp:+91XXXXXXXXXX`. Returns None if invalid."""
+def _to_e164(phone: str) -> Optional[str]:
+    """Normalize a phone string to E.164 `+91XXXXXXXXXX`. Returns None if invalid."""
     if not phone:
         return None
     digits = re.sub(r"\D", "", phone)
@@ -45,15 +64,27 @@ def _to_whatsapp_addr(phone: str) -> Optional[str]:
         digits = f"91{digits[1:]}"
     if not digits.startswith("91") or len(digits) != 12:
         return None
-    return f"whatsapp:+{digits}"
+    return f"+{digits}"
+
+
+def _to_whatsapp_addr(phone: str) -> Optional[str]:
+    e164 = _to_e164(phone)
+    return f"whatsapp:{e164}" if e164 else None
+
+
+def _whatsapp_sender() -> str:
+    """Return the configured WhatsApp sender, adding the `whatsapp:` prefix if missing."""
+    s = (os.environ.get("TWILIO_WHATSAPP_FROM") or "whatsapp:+14155238886").strip()
+    return s if s.startswith("whatsapp:") else f"whatsapp:{s}"
 
 
 def send_whatsapp(phone: str, body: str) -> bool:
-    """Send a WhatsApp message via Twilio. Returns True on success.
+    """Send a free-form WhatsApp message via Twilio. Returns True on submission success.
 
-    Twilio sandbox requires the recipient to first send `join <code>` to the
-    sandbox number — for un-joined numbers Twilio returns a 4xx error which we
-    log and swallow so the order flow is unaffected.
+    NOTE: this is the "session" path — it works in the Twilio sandbox or, in
+    production, only within a 24-hour window after the customer has messaged
+    your business. For un-templated cold sends to a production number, prefer
+    `send_whatsapp_template()`.
     """
     cli = _get_twilio()
     if cli is None:
@@ -63,9 +94,8 @@ def send_whatsapp(phone: str, body: str) -> bool:
     if not to_addr:
         log.warning("[WA] invalid phone: %r", phone)
         return False
-    sender = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
     try:
-        msg = cli.messages.create(from_=sender, to=to_addr, body=body)
+        msg = cli.messages.create(from_=_whatsapp_sender(), to=to_addr, body=body)
         log.info("[WA] %s sent (sid=%s)", to_addr, msg.sid)
         return True
     except Exception as e:
@@ -73,24 +103,128 @@ def send_whatsapp(phone: str, body: str) -> bool:
         return False
 
 
+def _send_whatsapp_for_otp(phone: str, otp: str) -> Optional[str]:
+    """Send the OTP over WhatsApp. Returns the message SID on submission success.
+
+    Prefers the approved Content template when `TWILIO_OTP_CONTENT_SID` is set,
+    otherwise falls back to a plain body (works on the sandbox or session window).
+    """
+    cli = _get_twilio()
+    if cli is None:
+        return None
+    to_addr = _to_whatsapp_addr(phone)
+    if not to_addr:
+        return None
+    content_sid = (os.environ.get("TWILIO_OTP_CONTENT_SID") or "").strip()
+    try:
+        if content_sid:
+            # Production path: pre-approved Meta template referenced by HX... SID.
+            import json
+            msg = cli.messages.create(
+                from_=_whatsapp_sender(),
+                to=to_addr,
+                content_sid=content_sid,
+                content_variables=json.dumps({"1": str(otp)}),
+            )
+        else:
+            # Interim path until template approval lands.
+            body = f"Your Lokl verification code is {otp}. Valid for 10 minutes."
+            msg = cli.messages.create(from_=_whatsapp_sender(), to=to_addr, body=body)
+        log.info("[OTP-WA] %s submitted (sid=%s)", to_addr, msg.sid)
+        return msg.sid
+    except Exception as e:
+        log.warning("[OTP-WA] submit failed for %s: %s", to_addr, e)
+        return None
+
+
+def _poll_message_status(sid: str, budget_sec: float = _POLL_BUDGET_SEC) -> str:
+    """Poll Twilio for terminal status. Returns the last observed status.
+
+    Time-budgeted so the request handler doesn't hang. If the message is still
+    `queued`/`sending`/`accepted` at the deadline we treat it as "not yet delivered"
+    and signal fallback — better to send a duplicate SMS than to leave a user
+    stranded waiting for a code that may never arrive.
+    """
+    cli = _get_twilio()
+    if cli is None:
+        return "unknown"
+    deadline = time.monotonic() + budget_sec
+    last = "queued"
+    while time.monotonic() < deadline:
+        try:
+            m = cli.messages(sid).fetch()
+            last = (m.status or "").lower()
+            if last in _TERMINAL_OK or last in _TERMINAL_FAIL:
+                return last
+        except Exception as e:
+            log.warning("[OTP-WA] status poll failed (sid=%s): %s", sid, e)
+            return "fetch_error"
+        time.sleep(_POLL_INTERVAL)
+    return last  # likely still `queued` / `sending`
+
+
+def send_sms(phone: str, body: str) -> bool:
+    """Send a plain SMS via Twilio. Returns True on submission success."""
+    cli = _get_twilio()
+    if cli is None:
+        log.info("[SMS mock] %s -> %s", phone, body[:80])
+        return False
+    to_e164 = _to_e164(phone)
+    if not to_e164:
+        log.warning("[SMS] invalid phone: %r", phone)
+        return False
+    sender = (os.environ.get("TWILIO_SMS_FROM") or "").strip()
+    if not sender:
+        log.warning("[SMS] TWILIO_SMS_FROM is not configured — skipping fallback")
+        return False
+    try:
+        msg = cli.messages.create(from_=sender, to=to_e164, body=body)
+        log.info("[SMS] %s sent (sid=%s)", to_e164, msg.sid)
+        return True
+    except Exception as e:
+        log.warning("[SMS] send to %s failed: %s", to_e164, e)
+        return False
+
+
+def send_otp_with_fallback(phone: str, otp: str) -> str:
+    """Deliver an OTP with WhatsApp → SMS fallback.
+
+    Returns one of: `"whatsapp"`, `"sms"`, `"none"`. The caller doesn't use this
+    value today (delivery is fire-and-forget) but it's useful for tests and
+    future analytics.
+    """
+    # Attempt WhatsApp first.
+    wa_sid = _send_whatsapp_for_otp(phone, otp)
+    if wa_sid:
+        status = _poll_message_status(wa_sid)
+        if status in _TERMINAL_OK:
+            return "whatsapp"
+        log.info("[OTP] WA status=%s — falling back to SMS for %s", status, phone)
+
+    # SMS fallback.
+    sms_body = f"Your Lokl verification code is {otp}. Valid for 10 minutes."
+    if send_sms(phone, sms_body):
+        return "sms"
+    log.warning("[OTP] All channels failed for %s", phone)
+    return "none"
+
+
 # ===== Domain-specific templates =====
 
 def notify_customer_otp(customer_phone: str, otp: str) -> None:
-    """Send the 6-digit login OTP to the customer's WhatsApp.
+    """Send the 6-digit login OTP to the customer.
 
-    Best-effort: when Twilio is throttled / sandbox-unjoined / missing creds
-    the failure is logged and swallowed. The caller is expected to surface a
-    generic "OTP sent" message either way; the OTP itself is also written to
-    the backend log when CUSTOMER_OTP_DEBUG=true so dev/staging is usable
-    even when WhatsApp delivery fails.
+    Production: tries WhatsApp first → SMS fallback after ~5s. Both channels
+    use the exact wording our Meta-approved template expects, so once
+    `TWILIO_OTP_CONTENT_SID` is set the WhatsApp leg automatically switches
+    to the template path.
+
+    Dev/preview: when `CUSTOMER_OTP_DEBUG=true` we also log the OTP to the
+    backend log so testing works without a real phone.
     """
-    body = (
-        f"🔐 Lokl login code: *{otp}*\n"
-        f"Valid for 10 minutes. Do not share this code with anyone."
-    )
     if os.environ.get("CUSTOMER_OTP_DEBUG", "").strip().lower() in ("1", "true", "yes"):
         log.info("[OTP-DEBUG] phone=%s otp=%s", customer_phone, otp)
-    send_whatsapp(customer_phone, body)
+    send_otp_with_fallback(customer_phone, otp)
 
 
 def notify_order_placed(customer_phone: str, order_id: str, total: float, eta_min: int = 45) -> None:
