@@ -91,24 +91,37 @@ export interface HomeStats {
 // Site config (admin-editable homepage)
 // ============================================================================
 
-export interface HeroSlide {
-  id: string;
-  title: string;
-  subtitle?: string;
+/** Iter-26 — CMS-driven homepage shape. Matches the backend
+ *  GET /api/site/homepage-config response: a single doc with editable
+ *  hero, sections, plus optional offers/text-override extensions. */
+export interface HeroConfig {
   image?: string;
-  cta_label?: string;
-  cta_href?: string;
+  eyebrow?: string;
+  title_line1?: string;
+  title_line2?: string;
+  subtitle?: string;
+  cta_primary_label?: string;
+  cta_primary_link?: string;
+  cta_secondary_label?: string;
+  cta_secondary_link?: string;
+  show_stats?: boolean;
+  show_usp_chips?: boolean;
+}
+
+export interface HomepageSection {
+  id: string;
+  label: string;
+  enabled: boolean;
+  rank: number;
 }
 
 export interface HomepageConfig {
-  hero: HeroSlide[];
-  sections: Array<{
-    id: string;
-    title: string;
-    kind: string;
-    payload?: unknown;
-    enabled: boolean;
-  }>;
+  id?: string;
+  hero?: HeroConfig;
+  sections?: HomepageSection[];
+  // Forward-compat slots — admins may publish these later without a backend change.
+  offers?: unknown[];
+  text_overrides?: Record<string, string>;
 }
 
 // Re-exports so consumers can `import { Product, Store } from "@/types"`.

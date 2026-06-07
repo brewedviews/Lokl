@@ -19,15 +19,16 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Shield, Users, Store as StoreIcon, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2 } from "lucide-react";
+import { Shield, Users, Store as StoreIcon, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
 import { useAdminAuthStore } from "@/stores";
 import { ReturnsTab } from "@/components/admin/ReturnsTab";
 import { CustomersTab } from "@/components/admin/CustomersTab";
 import { BankRequestsTab } from "@/components/admin/BankRequestsTab";
 import { LiveMetricsTab } from "@/components/admin/LiveMetricsTab";
+import { CmsTab } from "@/components/admin/CmsTab";
 
-type Tab = "stats" | "live" | "merchants" | "bank" | "stores" | "products" | "orders" | "returns" | "customers";
+type Tab = "stats" | "live" | "merchants" | "bank" | "stores" | "products" | "orders" | "returns" | "customers" | "cms";
 
 interface Stats {
   submitted_kyc: number;
@@ -68,6 +69,7 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ size?: n
   { id: "orders", label: "Orders", icon: ShoppingBag },
   { id: "returns", label: "Returns", icon: RotateCcw },
   { id: "customers", label: "Customers", icon: UserSquare2 },
+  { id: "cms", label: "Homepage CMS", icon: LayoutPanelTop },
 ];
 
 export default function AdminDashboardPage() {
@@ -113,6 +115,7 @@ export default function AdminDashboardPage() {
         {tab === "orders" && <OrdersTab />}
         {tab === "returns" && <ReturnsTab />}
         {tab === "customers" && <CustomersTab />}
+        {tab === "cms" && <CmsTab />}
       </main>
     </div>
   );

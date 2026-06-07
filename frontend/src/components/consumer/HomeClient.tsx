@@ -36,12 +36,27 @@ interface OfferDoc { id: string; title: string; subtitle?: string; image?: strin
 interface TestimonialDoc { id: string; name: string; city: string; quote?: string; message?: string; rating?: number; avatar?: string }
 interface HomeStatsDoc { fastest_eta_min?: number }
 interface HeroConfigDoc { image?: string; eyebrow?: string; title_line1?: string; title_line2?: string; subtitle?: string }
+interface SectionDoc { id: string; label: string; enabled: boolean; rank: number }
+
+// Iter-26 — Default section order used if the CMS config endpoint fails.
+// Matches the iter-23 spec so the page never goes blank.
+const DEFAULT_SECTIONS: SectionDoc[] = [
+  { id: "hero",          label: "Hero",          enabled: true, rank: 1 },
+  { id: "trending",      label: "Trending Now",  enabled: true, rank: 2 },
+  { id: "categories",    label: "Shop by Category", enabled: true, rank: 3 },
+  { id: "selling_fast",  label: "Selling Fast",  enabled: true, rank: 4 },
+  { id: "offers",        label: "Offers For You", enabled: true, rank: 5 },
+  { id: "recent",        label: "Recently Added", enabled: true, rank: 6 },
+  { id: "stores",        label: "Popular Stores", enabled: true, rank: 7 },
+  { id: "testimonials",  label: "Testimonials",  enabled: true, rank: 8 },
+];
 
 export function HomeClient() {
   const lat = useLocationStore((s) => s.lat);
   const lng = useLocationStore((s) => s.lng);
   const [stats, setStats] = useState<HomeStatsDoc | null>(null);
   const [hero, setHero] = useState<HeroConfigDoc | null>(null);
+  const [sections, setSections] = useState<SectionDoc[]>(DEFAULT_SECTIONS);
   const [offers, setOffers] = useState<OfferDoc[]>([]);
   const [trending, setTrending] = useState<ProductCard[]>([]);
   const [sellingFast, setSellingFast] = useState<ProductCard[]>([]);
@@ -53,9 +68,10 @@ export function HomeClient() {
   useEffect(() => {
     api.site.homeStats().then((r) => setStats(r as unknown as HomeStatsDoc)).catch(() => {});
     api.site.homepageConfig().then((cfg) => {
-      const heroPayload = (cfg as unknown as { hero?: HeroConfigDoc }).hero ?? null;
-      setHero(heroPayload);
-    }).catch(() => {});
+      const c = cfg as unknown as { hero?: HeroConfigDoc; sections?: SectionDoc[] };
+      if (c.hero) setHero(c.hero);
+      if (Array.isArray(c.sections) && c.sections.length > 0) setSections(c.sections);
+    }).catch(() => { /* fall back to DEFAULT_SECTIONS */ });
     api.catalog.offers().then((r) => setOffers(r as unknown as OfferDoc[])).catch(() => {});
     api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
     api.products.popularInCity(10).then(setTrending).catch(() => {});
@@ -73,56 +89,47 @@ export function HomeClient() {
   const storesRail = nearby.length > 0 ? nearby : popularStores;
   const storesTitle = nearby.length > 0 ? "Stores near you" : "Popular stores in Bhilai";
 
+  // Iter-26 — Section registry. Keys MUST match the section IDs the CMS
+  // publishes from `site_config.sections[].id` (popular_in_city / categories
+  // / offers / selling_fast / stores / recently_viewed / customer_love).
+  const sectionRenderers: Record<string, React.ReactNode> = {
+    hero: <HeroV2 key="hero" stats={stats} hero={hero} />,
+    popular_in_city: trending.length > 0 ? (
+      <HCarousel key="trending" title="Trending now" subtitle="Most ordered products nearby this week" testid="home-trending" link="/categories" linkLabel="See all">
+        {trending.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+      </HCarousel>
+    ) : null,
+    categories: <ShopByCategory key="categories" />,
+    selling_fast: sellingFast.length > 0 ? (
+      <HCarousel key="selling_fast" title="Selling fast" subtitle="Don't miss out — limited stock" testid="home-selling-fast" link="/categories">
+        {sellingFast.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+      </HCarousel>
+    ) : null,
+    offers: offers.length > 0 ? <OffersStrip key="offers" offers={offers} /> : null,
+    recently_viewed: recent.length > 0 ? (
+      <HCarousel key="recent" title="Recently added" subtitle="Fresh drops from Bhilai stores" testid="home-recent" link="/categories" linkLabel="See all">
+        {recent.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+      </HCarousel>
+    ) : null,
+    stores: storesRail.length > 0 ? (
+      <HCarousel key="stores" title={storesTitle} subtitle="Trusted local merchants delivering today" testid="home-stores" link="/stores" linkLabel="See all">
+        {storesRail.map((s) => <StoreCardV2 key={s.id} s={s} />)}
+      </HCarousel>
+    ) : null,
+    customer_love: <CustomerLove key="testimonials" items={testimonials} />,
+  };
+
+  const orderedSections = [...sections]
+    .filter((s) => s.enabled !== false)
+    .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
+    .map((s) => sectionRenderers[s.id])
+    .filter(Boolean);
+
   return (
     <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
       <main className="flex-1">
-        {/* 1. Hero */}
-        <HeroV2 stats={stats} hero={hero} />
-
-        {/* 2. Trending Now */}
-        {trending.length > 0 && (
-          <HCarousel title="Trending now" subtitle="Most ordered products nearby this week" testid="home-trending" link="/categories" linkLabel="See all">
-            {trending.map((p) => <ProductCardV2 key={p.id} p={p} />)}
-          </HCarousel>
-        )}
-
-        {/* 3. Shop by Category */}
-        <ShopByCategory />
-
-        {/* 4. Selling Fast */}
-        {sellingFast.length > 0 && (
-          <HCarousel title="Selling fast" subtitle="Don't miss out — limited stock" testid="home-selling-fast" link="/categories">
-            {sellingFast.map((p) => <ProductCardV2 key={p.id} p={p} />)}
-          </HCarousel>
-        )}
-
-        {/* 5. Offers For You */}
-        {offers.length > 0 && <OffersStrip offers={offers} />}
-
-        {/* 6. Recently Added */}
-        {recent.length > 0 && (
-          <HCarousel title="Recently added" subtitle="Fresh drops from Bhilai stores" testid="home-recent" link="/categories" linkLabel="See all">
-            {recent.map((p) => <ProductCardV2 key={p.id} p={p} />)}
-          </HCarousel>
-        )}
-
-        {/* 7. Popular Stores in Bhilai */}
-        {storesRail.length > 0 && (
-          <HCarousel title={storesTitle} subtitle="Trusted local merchants delivering today" testid="home-stores" link="/stores" linkLabel="See all">
-            {storesRail.map((s) => <StoreCardV2 key={s.id} s={s} />)}
-          </HCarousel>
-        )}
-
-        {/* 8. Testimonials — CustomerLove returns null when items is empty,
-            so the section, heading, container, and bottom spacing all
-            collapse with no layout shift. When real reviews land later this
-            section will re-emerge automatically at the same position. */}
-        <CustomerLove items={testimonials} />
+        {orderedSections}
       </main>
-
-      {/* 9. Footer — always has its own top-gap so even when testimonials are
-          absent there's breathing room between the last home rail and the
-          dark footer block. */}
       <Footer />
     </div>
   );
