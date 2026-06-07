@@ -1,0 +1,37 @@
+{
+  "summary": "Iter-19 / Phase-3 — All 3 ported features verified end-to-end after rebuild. (1) Multi-store cart max=2 rule enforced with exact toast wording. (2) Inline size strip on ProductCardV2 (`Select size` → pills → add). (3) Merchant Online/Offline toggle in sidebar flips state, shows sonner toast, persists via POST /api/merchant/store/online. Backend: 6/6 pytest cases pass. CRITICAL: the deployed .next bundle was 35 min stale vs source edits — testing agent triggered `yarn build` + `sudo supervisorctl restart frontend` to surface the iter-44 code; without that step ALL 3 features were silently broken in the preview URL.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/merchant/dashboard main pane (post-login)", "issues": ["The dashboard main content area renders nearly empty/black under the Menscape header in the screenshot — only the 'Welcome back, Menscape' line and 'Open AI Studio' button are visible. Unrelated to iter-44 but worth flagging for the next dashboard polish pass."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter19_online_toggle.py",
+    "/app/test_reports/pytest/results_iter19_online.xml"
+  ],
+  "action_items": [
+    "CI/Deploy: ensure `yarn build` runs after every iter source change before users hit the preview — iter-44 features were entirely invisible in the production bundle until I rebuilt. Consider switching the supervisor frontend to `next dev` for the preview env, or adding a post-edit build hook so source-only fixes don't appear deployed when they aren't."
+  ],
+  "critical_code_review_comments": [
+    "ProductCardV2.handleAdd correctly reveals the inline strip for sizes.length>1, but the toast wording is hardcoded with `&` join — if a future cart-limit raise to MAX=3 ships, the join('& ') produces `A & B & C` which reads oddly. Use a small `formatList` helper.",
+    "OnlineToggle.tsx calls api.merchant.storeState() once on mount and never re-syncs; if the merchant pauses/unpauses elsewhere or admin flips them, the in-component state is stale until full page reload. Consider re-fetching on window focus or after each flip.",
+    "Backend POST /api/merchant/store/online accepts a raw dict; missing `online` key silently coerces to False (verified in test). This is benign today but should use Pydantic so junk payloads don't accidentally take merchants offline."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter19_online_toggle.py",
+    "/app/frontend/.next (rebuilt via `yarn build`)"
+  ],
+  "success_rate": {"backend": "100% (6/6 iter19 online-toggle contract tests)", "frontend": "100% on the 3 iter-44 features (cart max-2, inline size strip, merchant online toggle) after rebuild"},
+  "test_credentials": "Demo merchant menscape@lokl.demo / Demo@2026 (approved + published, 13 products, can_toggle=true) verified live.",
+  "seed_data_creation": "No new seed run required — demo merchants already present from prior iter18 seed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Frontend is served by `next start` (production bundle from /app/frontend/.next). When iter source files change, you MUST run `cd /app/frontend && yarn build && sudo supervisorctl restart frontend` before testing — hot-reload is NOT in effect. Test products with multiple stores+sizes on home feed: prod-demo-3125435a (Anjali, sizes [S,M,L,XL]), prod-demo-8a42708e (Menscape, multi-size), prod-a91fa50d8b (Iter5 ImgStore ec9a, multi-size). For single-size add-immediate testing use prod-73c10b0eeb (Menscape, sizes []). Merchant store/state endpoint contract: {published, online, paused, product_count, can_toggle}.",
+  "rca_of_the_issue": "Initial test run failed every iter-44 assertion: home card showed 'Add' label (legacy) and silently added sizes[0] to cart on click, no inline strip rendered. Root cause: /app/frontend/.next/BUILD_ID stamped 23:33 UTC while /app/frontend/src/components/consumer/v2/ProductCardV2.tsx + cart.store.ts + OnlineToggle.tsx were last modified at 00:08-00:09 UTC (~35 min AFTER the build). Since the supervisor runs `next start` (production), the preview URL was serving a pre-iter-44 chunk. Mitigation applied: ran `yarn build` (29.76 s, success) then `supervisorctl restart frontend`; re-ran all UI tests and every iter-44 assertion now passes including the verbatim toast wording 'Your bag already has items from Anjali Store & Menscape. Lokl allows up to 2 stores per order.' Action for the main agent: codify a build-on-edit hook or switch the preview to next dev for the cutover period."
+}

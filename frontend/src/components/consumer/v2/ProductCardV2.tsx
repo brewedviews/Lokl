@@ -49,16 +49,35 @@ export function ProductCardV2({ p, compact = false }: Props) {
   const eta = p.store_eta_min ?? p.eta_min ?? 45;
   const sizes = (p.sizes ?? []).slice(0, 4);
 
-  const handleAdd = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const defaultSize = p.sizes?.[0] ?? "";
-    const r = addItem(p, defaultSize);
+  // Iter-44 — when a product has >1 sizes, the Add tap reveals an inline
+  // size strip instead of silently dropping `sizes[0]` into the bag. After
+  // the customer picks a size we add the line and collapse the strip.
+  const [pickingSize, setPickingSize] = useState(false);
+
+  const doAdd = (chosenSize: string) => {
+    const r = addItem(p, chosenSize);
     if (!r.success && r.conflict) {
-      toast.error(`Your bag already has items from ${r.conflict.existing_store_name}. Clear the bag to switch stores.`);
+      toast.error(
+        `Your bag already has items from ${r.conflict.existing_store_names.join(" & ")}. Lokl allows up to ${r.conflict.max_stores} stores per order.`,
+      );
       return;
     }
     toast.success(`${p.name} added`);
+    setPickingSize(false);
+  };
+
+  const handleAdd = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sizesArr = p.sizes ?? [];
+    if (sizesArr.length > 1) { setPickingSize(true); return; }
+    doAdd(sizesArr[0] ?? "");
+  };
+
+  const handlePickSize = (e: React.MouseEvent, s: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    doAdd(s);
   };
 
   const handleStep = (e: React.MouseEvent, delta: number) => {
@@ -127,13 +146,26 @@ export function ProductCardV2({ p, compact = false }: Props) {
         </div>
       </Link>
       <div className="px-2 pb-2.5">
-        {qty === 0 ? (
+        {pickingSize && qty === 0 ? (
+          <div data-testid={`p-card-sizes-${p.id}`} className="flex flex-wrap gap-1.5 py-0.5">
+            {(p.sizes ?? []).slice(0, 6).map((s) => (
+              <button
+                key={s}
+                onClick={(e) => handlePickSize(e, s)}
+                data-testid={`p-card-size-${p.id}-${s}`}
+                className="min-w-[34px] px-2 py-1 rounded-full bg-white border border-[#0A1F5C]/30 text-[11px] font-bold text-[#0A1F5C] hover:bg-[#0A1F5C] hover:text-white transition active:scale-95"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        ) : qty === 0 ? (
           <button
             onClick={handleAdd}
             data-testid={`p-card-add-${p.id}`}
             className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 rounded-full bg-[#F59E0B] text-white text-[12px] font-bold active:scale-95 transition shadow-[0_4px_12px_rgba(245,158,11,0.32)]"
           >
-            <ShoppingBag size={13} /> Add
+            <ShoppingBag size={13} /> {(p.sizes?.length ?? 0) > 1 ? "Select size" : "Add"}
           </button>
         ) : (
           <div className="flex items-center justify-between gap-1 py-1 px-1 rounded-full bg-[#F59E0B] text-white" data-testid={`p-card-qty-${p.id}`}>

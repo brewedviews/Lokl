@@ -17,7 +17,7 @@ export function ProductActions({ product }: { product: Product }) {
     if (product.sizes?.length && !size) { toast.error("Please pick a size"); return false; }
     const r = addItem(product, size ?? "");
     if (!r.success && r.conflict) {
-      toast.error(`Your bag already has items from ${r.conflict.existing_store_name}. Clear it to switch stores.`);
+      toast.error(`Your bag already has items from ${r.conflict.existing_store_names.join(" & ")}. Lokl allows up to ${r.conflict.max_stores} stores per order.`);
       return false;
     }
     return true;

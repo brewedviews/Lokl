@@ -6,11 +6,11 @@
  * Legacy line shape:
  *   { key, id, name, price, image, size, store_name, store_eta_min, qty }
  *
- * Iter-32 added a per-customer ownership rule on /api/orders, but the cart
- * itself stayed multi-store. Per the Session B spec we now enforce single
- * store on add. Backward-compat: legacy lines without `store_id` are
- * grandfathered in — the conflict check only triggers when both sides have
- * a store_id (which all NEW lines will).
+ * Iter-44 — Multi-store cart limit. The customer may stack items from up to
+ * MAX_STORES_PER_CART (=2) distinct stores. Adding a 3rd unique store
+ * returns `{success:false, conflict}` so the UI can warn the customer.
+ * Backward-compat: legacy lines without `store_id` are grandfathered — the
+ * uniqueness check counts only items with a real `store_id`.
  *
  * Persistence shape: zustand/persist wraps state in `{state, version}`. The
  * legacy app reads `localStorage.bf_cart` as a bare JSON array. We solve the
@@ -23,6 +23,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type { CartConflict, CartItem, ProductCard, RupeeAmount } from "@/types";
 
 export const CART_KEY = "bf_cart";
+export const MAX_STORES_PER_CART = 2;
 
 // ---------------------------------------------------------------------------
 // State + actions
@@ -30,8 +31,6 @@ export const CART_KEY = "bf_cart";
 
 interface CartState {
   items: CartItem[];
-  storeId: string | null;
-  storeName: string | null;
 }
 
 interface CartActions {
@@ -43,20 +42,31 @@ interface CartActions {
   removeItem: (productId: string, size: string) => void;
   updateQty: (productId: string, size: string, qty: number) => void;
   clearCart: () => void;
-  replaceCart: (storeId: string, storeName: string, items: CartItem[]) => void;
   getTotal: () => RupeeAmount;
   getItemCount: () => number;
   getLineTotal: (productId: string, size: string) => RupeeAmount;
+  getStoreIds: () => string[];
   /** Hydrate from the legacy bare-array `bf_cart` shape if present. */
   _syncFromLegacy: () => void;
 }
 
 type CartStore = CartState & CartActions;
 
-const INITIAL: CartState = { items: [], storeId: null, storeName: null };
+const INITIAL: CartState = { items: [] };
 
 const cartKeyFor = (productId: string, size: string) =>
   `${productId}-${size || "free"}`;
+
+// Returns the [id, name] pairs of every distinct store currently in the bag.
+function distinctStores(items: CartItem[]): Array<{ id: string; name: string }> {
+  const seen = new Map<string, string>();
+  for (const i of items) {
+    if (i.store_id && !seen.has(i.store_id)) {
+      seen.set(i.store_id, i.store_name ?? "another store");
+    }
+  }
+  return Array.from(seen, ([id, name]) => ({ id, name }));
+}
 
 // ---------------------------------------------------------------------------
 // Legacy bare-array writer — keeps `bf_cart` readable by the legacy CRA app
@@ -79,19 +89,25 @@ export const useCartStore = create<CartStore>()(
       addItem: (product, size, qty = 1) => {
         const state = get();
         const itemStoreId = product.store_id;
-        // Single-store rule — only applied when both sides know the store id.
+        const stores = distinctStores(state.items);
+
+        // Max-2-stores rule — only applies when the new line has a real
+        // store_id AND it's a store we haven't seen yet in the bag.
         if (
-          state.storeId &&
           itemStoreId &&
-          state.storeId !== itemStoreId
+          !stores.some((s) => s.id === itemStoreId) &&
+          stores.length >= MAX_STORES_PER_CART
         ) {
+          const first = stores[0] ?? { id: "", name: "another store" };
           return {
             success: false,
             conflict: {
-              existing_store_id: state.storeId,
-              existing_store_name: state.storeName ?? "another store",
+              existing_store_id: first.id,
+              existing_store_name: first.name,
+              existing_store_names: stores.map((s) => s.name),
               new_store_id: itemStoreId,
               new_store_name: product.store_name ?? "the new store",
+              max_stores: MAX_STORES_PER_CART,
             },
           };
         }
@@ -120,13 +136,7 @@ export const useCartStore = create<CartStore>()(
           nextItems = [...state.items, line];
         }
 
-        set({
-          items: nextItems,
-          // Lock the cart's store identity on first add (or carry forward if
-          // it was already set).
-          storeId: state.storeId ?? itemStoreId ?? null,
-          storeName: state.storeName ?? product.store_name ?? null,
-        });
+        set({ items: nextItems });
         mirrorToLegacyBareArray(nextItems);
         return { success: true };
       },
@@ -134,14 +144,7 @@ export const useCartStore = create<CartStore>()(
       removeItem: (productId, size) => {
         const key = cartKeyFor(productId, size);
         const nextItems = get().items.filter((i) => i.key !== key);
-        // When the cart empties, release the store lock so the next product
-        // can come from anywhere.
-        const isEmpty = nextItems.length === 0;
-        set({
-          items: nextItems,
-          storeId: isEmpty ? null : get().storeId,
-          storeName: isEmpty ? null : get().storeName,
-        });
+        set({ items: nextItems });
         mirrorToLegacyBareArray(nextItems);
       },
 
@@ -161,11 +164,6 @@ export const useCartStore = create<CartStore>()(
         mirrorToLegacyBareArray([]);
       },
 
-      replaceCart: (storeId, storeName, items) => {
-        set({ storeId, storeName, items });
-        mirrorToLegacyBareArray(items);
-      },
-
       getTotal: () =>
         get().items.reduce((sum, i) => sum + i.price * i.qty, 0),
 
@@ -178,6 +176,8 @@ export const useCartStore = create<CartStore>()(
         return line ? line.price * line.qty : 0;
       },
 
+      getStoreIds: () => distinctStores(get().items).map((s) => s.id),
+
       _syncFromLegacy: () => {
         if (typeof window === "undefined") return;
         try {
@@ -187,13 +187,7 @@ export const useCartStore = create<CartStore>()(
           // The legacy app writes a bare ARRAY. Zustand-persist writes an
           // OBJECT. Only adopt the legacy shape — let persist hydrate its own.
           if (Array.isArray(parsed)) {
-            const items = parsed as CartItem[];
-            const firstWithStore = items.find((i) => !!i.store_id);
-            set({
-              items,
-              storeId: firstWithStore?.store_id ?? null,
-              storeName: firstWithStore?.store_name ?? null,
-            });
+            set({ items: parsed as CartItem[] });
           }
         } catch {
           // Malformed legacy cart — leave the store untouched.

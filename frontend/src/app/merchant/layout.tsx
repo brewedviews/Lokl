@@ -20,6 +20,7 @@ import { Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark } f
 import { useMerchantAuthStore } from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { api } from "@/lib/api";
+import { OnlineToggle } from "@/components/merchant/OnlineToggle";
 
 const PUBLIC = ["/merchant/login", "/merchant/register"];
 const APPROVED_ONLY = [
@@ -148,6 +149,11 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
           })}
         </nav>
         <div className="p-3 border-t border-card-border">
+          {isApproved && (
+            <div className="mb-2">
+              <OnlineToggle />
+            </div>
+          )}
           <div className="px-3 py-2">
             <div className="text-[10px] text-text-muted uppercase">Signed in</div>
             <div className="font-semibold text-sm text-brand-primary truncate">{user?.store_name}</div>
