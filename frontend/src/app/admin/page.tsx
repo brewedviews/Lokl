@@ -19,11 +19,15 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Shield, Users, Store as StoreIcon, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw } from "lucide-react";
+import { Shield, Users, Store as StoreIcon, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2 } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
 import { useAdminAuthStore } from "@/stores";
+import { ReturnsTab } from "@/components/admin/ReturnsTab";
+import { CustomersTab } from "@/components/admin/CustomersTab";
+import { BankRequestsTab } from "@/components/admin/BankRequestsTab";
+import { LiveMetricsTab } from "@/components/admin/LiveMetricsTab";
 
-type Tab = "stats" | "merchants" | "stores" | "products" | "orders";
+type Tab = "stats" | "live" | "merchants" | "bank" | "stores" | "products" | "orders" | "returns" | "customers";
 
 interface Stats {
   submitted_kyc: number;
@@ -50,14 +54,20 @@ interface AdminProduct {
 interface AdminOrder {
   id: string; total: number; status: string; created_at: string;
   store_names?: string[]; customer?: { name?: string; phone?: string };
+  otp?: string; merchant_ids?: string[];
+  store_breakdown?: Array<{ merchant_id: string; store_name: string; items: Array<{ name?: string; qty?: number; size?: string }>; subtotal: number; state: string; otp?: string; delivered_at?: string; cancel_reason?: string }>;
 }
 
 const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ size?: number }> }> = [
   { id: "stats", label: "Overview", icon: BarChart3 },
+  { id: "live", label: "Live", icon: Activity },
   { id: "merchants", label: "Merchants", icon: Users },
+  { id: "bank", label: "Bank/Address", icon: Landmark },
   { id: "stores", label: "Stores", icon: StoreIcon },
   { id: "products", label: "Products", icon: Package },
   { id: "orders", label: "Orders", icon: ShoppingBag },
+  { id: "returns", label: "Returns", icon: RotateCcw },
+  { id: "customers", label: "Customers", icon: UserSquare2 },
 ];
 
 export default function AdminDashboardPage() {
@@ -95,10 +105,14 @@ export default function AdminDashboardPage() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         {tab === "stats" && <StatsTab />}
+        {tab === "live" && <LiveMetricsTab />}
         {tab === "merchants" && <MerchantsTab />}
+        {tab === "bank" && <BankRequestsTab />}
         {tab === "stores" && <StoresTab />}
         {tab === "products" && <ProductsTab />}
         {tab === "orders" && <OrdersTab />}
+        {tab === "returns" && <ReturnsTab />}
+        {tab === "customers" && <CustomersTab />}
       </main>
     </div>
   );
@@ -259,6 +273,9 @@ function StoresTab() {
   const [items, setItems] = useState<AdminStoreItem[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [deleteFor, setDeleteFor] = useState<AdminStoreItem | null>(null);
+  const [deleteOtp, setDeleteOtp] = useState("");
+  const [deleteSent, setDeleteSent] = useState(false);
 
   const load = async () => {
     try { setItems(await adminFetch<AdminStoreItem[]>("/api/admin/stores")); }
@@ -275,6 +292,37 @@ function StoresTab() {
       void load();
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(null); }
+  };
+
+  const requestDeleteOtp = async (s: AdminStoreItem) => {
+    setDeleteFor(s); setDeleteOtp(""); setDeleteSent(false);
+    try {
+      const r = await adminFetch<{ ok: boolean; otp_demo?: string }>(`/api/admin/stores/${s.id}/request-delete-otp`, { method: "POST" });
+      setDeleteSent(true);
+      // The backend MOCKS the email and returns the OTP in dev. Prefill so QA flows are smooth.
+      if (r.otp_demo) setDeleteOtp(r.otp_demo);
+      toast.success("OTP sent (mock — prefilled for demo)");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+      setDeleteFor(null);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteFor) return;
+    if (deleteOtp.length !== 6) { toast.error("Enter the 6-digit OTP"); return; }
+    setBusy(deleteFor.id);
+    try {
+      await adminFetch<{ ok: boolean }>(`/api/admin/stores/${deleteFor.id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ otp: deleteOtp }),
+      });
+      toast.success(`Deleted ${deleteFor.name}`);
+      setDeleteFor(null);
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally { setBusy(null); }
   };
 
   const filtered = items.filter((s) => !q || s.name.toLowerCase().includes(q.toLowerCase()));
@@ -297,14 +345,37 @@ function StoresTab() {
                 <td className="px-4 py-3 text-[#595959]">{s.locality || "—"}</td>
                 <td className="px-4 py-3 text-right">{s.product_count ?? 0}</td>
                 <td className="px-4 py-3"><span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${s.paused ? "bg-red-100 text-red-500" : s.published ? "bg-[#4F7363]/15 text-[#4F7363]" : "bg-zinc-100 text-zinc-700"}`}>{s.paused ? "paused" : s.published ? "live" : "draft"}</span></td>
-                <td className="px-4 py-3 text-right">
+                <td className="px-4 py-3 text-right space-x-3 whitespace-nowrap">
                   <button onClick={() => toggle(s)} disabled={busy === s.id} data-testid={`store-toggle-${s.id}`} className="text-xs font-semibold text-[#E68910] hover:underline disabled:opacity-50">{s.paused ? "Unpause" : "Pause"}</button>
+                  <button onClick={() => requestDeleteOtp(s)} disabled={busy === s.id} data-testid={`store-delete-${s.id}`} className="text-xs font-semibold text-red-500 hover:underline disabled:opacity-50">Delete</button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {deleteFor && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setDeleteFor(null)}>
+          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl max-w-md w-full p-6" data-testid="store-delete-modal">
+            <div className="font-display text-xl font-bold text-[#0A1F5C]">Delete {deleteFor.name}?</div>
+            <p className="text-xs text-[#595959] mt-2">
+              This wipes the store, its products, the merchant account, and all related orders. An OTP has been sent to the admin inbox (mocked in dev).
+            </p>
+            <input value={deleteOtp} onChange={(e) => setDeleteOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="6-digit OTP" data-testid="store-delete-otp"
+              className="mt-4 w-full px-4 py-3 rounded-xl border border-[#E5E2DC] text-center font-mono text-lg tracking-[0.4em]" />
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button onClick={() => setDeleteFor(null)} className="px-4 py-2 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC]">Cancel</button>
+              <button onClick={confirmDelete} disabled={!deleteSent || busy === deleteFor.id || deleteOtp.length !== 6}
+                data-testid="store-delete-confirm"
+                className="px-4 py-2 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-50">
+                {busy === deleteFor.id ? "Deleting…" : "Confirm delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -380,6 +451,8 @@ function ProductsTab() {
 function OrdersTab() {
   const [items, setItems] = useState<AdminOrder[]>([]);
   const [filter, setFilter] = useState<string>("live");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = async () => {
     try {
@@ -390,6 +463,39 @@ function OrdersTab() {
   useEffect(() => { void load(); }, [filter]);
 
   const totalRevenue = useMemo(() => items.filter((o) => o.status === "delivered").reduce((s, o) => s + Number(o.total || 0), 0), [items]);
+
+  const markDelivered = async (o: AdminOrder, merchant_id?: string) => {
+    setBusy(`${o.id}-${merchant_id ?? "all"}`);
+    try {
+      await adminFetch(`/api/admin/orders/${o.id}/mark-delivered`, {
+        method: "POST",
+        body: JSON.stringify(merchant_id ? { merchant_id } : {}),
+      });
+      toast.success("Marked delivered");
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally { setBusy(null); }
+  };
+
+  const cancel = async (o: AdminOrder, merchant_id?: string) => {
+    const reason = window.prompt("Cancellation reason:");
+    if (!reason) return;
+    setBusy(`${o.id}-c-${merchant_id ?? "all"}`);
+    try {
+      await adminFetch(`/api/admin/orders/${o.id}/cancel`, {
+        method: "POST",
+        body: JSON.stringify(merchant_id ? { reason, merchant_id } : { reason }),
+      });
+      toast.success("Order cancelled");
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally { setBusy(null); }
+  };
+
+  const LIVE_STATES = ["pending_merchant", "accepted", "preparing", "on_the_way", "handed_off"];
+  const isLive = (s?: string) => !!s && LIVE_STATES.includes(s);
 
   return (
     <div data-testid="admin-orders-panel">
@@ -402,24 +508,97 @@ function OrdersTab() {
           <option value="all">All</option>
         </select>
       </div>
-      <div className="bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-[#FDFBF7] text-left text-xs uppercase text-[#595959]">
-            <tr><th className="px-4 py-3">Order ID</th><th className="px-4 py-3">Store(s)</th><th className="px-4 py-3">Customer</th><th className="px-4 py-3 text-right">Total</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Placed</th></tr>
-          </thead>
-          <tbody>
-            {items.map((o) => (
-              <tr key={o.id} className="border-t border-[#E5E2DC]" data-testid={`order-row-${o.id}`}>
-                <td className="px-4 py-3 font-mono text-xs text-[#0A1F5C]">{o.id}</td>
-                <td className="px-4 py-3 text-[#595959]">{(o.store_names || []).join(", ") || "—"}</td>
-                <td className="px-4 py-3 text-[#595959]">{o.customer?.name || o.customer?.phone || "—"}</td>
-                <td className="px-4 py-3 text-right font-semibold">₹{Number(o.total).toLocaleString()}</td>
-                <td className="px-4 py-3"><span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-[#0A1F5C]/10 text-[#0A1F5C]">{o.status}</span></td>
-                <td className="px-4 py-3 text-xs text-[#595959]">{o.created_at?.slice(0, 16).replace("T", " ")}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="space-y-3">
+        {items.map((o) => {
+          const isExpanded = expanded === o.id;
+          const live = isLive(o.status);
+          return (
+            <div key={o.id} className="bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden" data-testid={`order-row-${o.id}`}>
+              <div className="px-4 py-3 flex items-start gap-3 flex-wrap">
+                <button onClick={() => setExpanded(isExpanded ? null : o.id)}
+                  data-testid={`order-toggle-${o.id}`}
+                  className="font-mono text-xs text-[#0A1F5C] underline-offset-2 hover:underline">
+                  {o.id}
+                </button>
+                <div className="flex-1 min-w-[200px]">
+                  <div className="text-xs text-[#595959]">{(o.store_names || []).join(", ") || "—"} · {o.customer?.name || o.customer?.phone || "—"}</div>
+                  <div className="text-[11px] text-[#595959]">{o.created_at?.slice(0, 16).replace("T", " ")}</div>
+                </div>
+                <div className="text-right">
+                  <div className="font-semibold text-[#0A1F5C]">₹{Number(o.total).toLocaleString()}</div>
+                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-[#0A1F5C]/10 text-[#0A1F5C]">{o.status}</span>
+                </div>
+                {live && (
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => markDelivered(o)} disabled={!!busy}
+                      data-testid={`order-deliver-${o.id}`}
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#4F7363] text-white disabled:opacity-50">
+                      Mark delivered
+                    </button>
+                    <button onClick={() => cancel(o)} disabled={!!busy}
+                      data-testid={`order-cancel-${o.id}`}
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-50">
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {isExpanded && (
+                <div className="border-t border-[#E5E2DC] bg-[#FDFBF7] px-4 py-3 text-sm" data-testid={`order-detail-${o.id}`}>
+                  {(o.store_breakdown ?? []).length > 0 ? (
+                    <div className="space-y-3">
+                      {(o.store_breakdown ?? []).map((b) => (
+                        <div key={b.merchant_id} className="bg-white rounded-xl border border-[#E5E2DC] p-3">
+                          <div className="flex items-start justify-between gap-3 flex-wrap">
+                            <div className="min-w-0">
+                              <div className="font-semibold text-[#0A1F5C]">{b.store_name}</div>
+                              <div className="text-xs text-[#595959]">₹{b.subtotal.toLocaleString()} · {b.items.length} item(s)</div>
+                              {b.otp && isLive(b.state) && (
+                                <div className="text-xs text-[#E68910] mt-1">Delivery OTP: <span className="font-mono font-bold text-base">{b.otp}</span></div>
+                              )}
+                              {b.cancel_reason && <div className="text-xs text-red-500 mt-1">Cancelled: {b.cancel_reason}</div>}
+                              {b.delivered_at && <div className="text-xs text-[#4F7363] mt-1">Delivered {b.delivered_at.slice(0, 16).replace("T", " ")}</div>}
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-[#0A1F5C]/10 text-[#0A1F5C]">{b.state}</span>
+                              {isLive(b.state) && (
+                                <>
+                                  <button onClick={() => markDelivered(o, b.merchant_id)} disabled={!!busy}
+                                    data-testid={`order-deliver-${o.id}-${b.merchant_id}`}
+                                    className="px-2 py-1 rounded-full text-[10px] font-semibold bg-[#4F7363] text-white disabled:opacity-50">
+                                    Deliver slice
+                                  </button>
+                                  <button onClick={() => cancel(o, b.merchant_id)} disabled={!!busy}
+                                    data-testid={`order-cancel-${o.id}-${b.merchant_id}`}
+                                    className="px-2 py-1 rounded-full text-[10px] font-semibold bg-red-500 text-white disabled:opacity-50">
+                                    Cancel slice
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <ul className="mt-2 text-xs text-[#595959] list-disc list-inside">
+                            {b.items.map((it, i) => (
+                              <li key={i}>{it.name || "Item"} {it.size ? `(${it.size})` : ""} × {it.qty ?? 1}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-[#595959]">No store breakdown available.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {items.length === 0 && (
+          <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]">
+            No orders in this state.
+          </div>
+        )}
       </div>
     </div>
   );
