@@ -1,0 +1,146 @@
+{
+  "summary": "Iter-23 full verification of the Feb-26 home reorder + responsive header audit. ALL spec items pass: section order on desktop AND mobile, ShopByCategory 6-tile grid (3x2 mobile, 1x6 desktop), paused slugs hidden from home but /c/streetwear still loads (5 products), desktop single-row header (68px), mobile 2-row header (108px) with row-2 sticky search and nav-stores/merchant/account hidden via display:none, search-suggestion typeahead (debounce + ESC + Enter -> /search?q=..., empty/<2 chars no dropdown), Location popover guest mode with Detect + login CTA + outside-click dismiss, no horizontal overflow at 320/375/390/430/768/1024/1440/1920, store cards show top-left VERIFIED + top-right CLOSED pills, CustomerLove still renders for the 4 seeded reviews and self-collapses (early returns null) when items is empty. Backend regression 8/8 green. Admin tabs still mount with zero console errors.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Location popover saved-address picker for a logged-in customer",
+        "issue": "Planting only localStorage.bf_customer_phone (per test_credentials.md instruction) does NOT flip the LocationChip into 'logged-in' mode because LocationChip reads `phone` from useCustomerAuthStore, not from localStorage directly. The store is hydrated from the customer JWT (bf_customer_token), so without a real OTP login the popover still shows the guest login CTA. This is a test-harness limitation, not a product bug — backend GET /api/v1/addresses/<phone> returns {addresses:[]} correctly (verified via curl). For an exhaustive UI verification, the customer-auth store would need to be hydrated by planting a token whose JWT 'sub' claim matches the phone, OR the dev docs should be updated to say 'plant bf_customer_token' rather than 'bf_customer_phone'.",
+        "affected_selectors": ["location-saved-<id>", "location-login-cta"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter23_home_reorder.py",
+    "/app/test_reports/pytest/iter23.xml"
+  ],
+  "verification_details": {
+    "section_order_desktop_1440x900": {
+      "status": "PASS",
+      "y_positions": {
+        "home-trending": 412,
+        "shop-by-category": 909,
+        "home-selling-fast": 1245,
+        "offers-strip": 1742,
+        "home-recent": 2032,
+        "home-stores": 2529,
+        "customer-love": 2858
+      }
+    },
+    "section_order_mobile_390x844": {
+      "status": "PASS",
+      "y_positions": {
+        "home-trending": 424,
+        "shop-by-category": 842,
+        "home-selling-fast": 1265,
+        "offers-strip": 1683,
+        "home-recent": 1944,
+        "home-stores": 2362,
+        "customer-love": 2682
+      }
+    },
+    "shop_by_category": {
+      "status": "PASS",
+      "evidence": [
+        "6 tiles render (men/women/footwear/accessories/kids/beauty) at both viewports.",
+        "Desktop 1440px: all 6 tiles share top=1005 (single row).",
+        "Mobile 390px: 2 unique row tops (929, 1103) -> 3 cols x 2 rows.",
+        "Paused slugs streetwear/electronics/sports NOT rendered on home (all present=false).",
+        "/c/streetwear still loads and shows 5 products (paused, not deleted)."
+      ]
+    },
+    "header_desktop": {
+      "status": "PASS",
+      "height_px": 68,
+      "single_row": true,
+      "evidence": "logo/city/search/nav-stores/nav-merchant/nav-account/nav-cart top values 14-24px (all on one row)."
+    },
+    "header_mobile_390": {
+      "status": "PASS",
+      "height_px": 108,
+      "evidence": [
+        "Row 1: logo(top=14), city(top=11), cart(top=14)",
+        "Row 2: search-input visible at top=68, width=306px",
+        "nav-stores, nav-merchant, nav-account computed display=none (lg:hidden) on mobile",
+        "bottom-nav present: nav-home, nav-categories, nav-wishlist, nav-wallet, nav-profile"
+      ]
+    },
+    "horizontal_overflow_audit": {
+      "status": "PASS",
+      "evidence": "scrollWidth == innerWidth at 320, 375, 390, 430, 768, 1024, 1440, 1920."
+    },
+    "search_suggestions": {
+      "status": "PASS",
+      "evidence": [
+        "Typing 'shirt' -> dropdown after debounce with 4 product rows + see-all CTA.",
+        "ESC dismisses dropdown.",
+        "Empty input -> no dropdown.",
+        "1 char ('a') -> no dropdown.",
+        "Enter submits -> navigates to /search?q=shirt."
+      ]
+    },
+    "location_popover_guest": {
+      "status": "PASS",
+      "evidence": [
+        "Click city-display -> location-popover renders.",
+        "location-detect button visible.",
+        "location-login-cta visible (guest).",
+        "Outside-click dismisses popover."
+      ]
+    },
+    "product_rails_card_count": {
+      "status": "PASS",
+      "evidence": [
+        "home-trending: 9 unique products (DB has 9 popular). <=10 OK.",
+        "home-selling-fast: 10 unique products. =10 OK.",
+        "home-recent: 10 unique products. =10 OK."
+      ]
+    },
+    "store_card_markers": {
+      "status": "PASS",
+      "evidence": "10 store cards in home-stores rail, each shows VERIFIED (top-left) + CLOSED (top-right) pills; ETA and distance render."
+    },
+    "customer_love_conditional": {
+      "status": "PASS",
+      "evidence": [
+        "Seed has 4 published testimonials -> customer-love section renders between Popular Stores and Footer (y=2858 desktop, 2682 mobile).",
+        "CustomerLove.tsx line 15: `if (!items || items.length === 0) return null;` confirms zero-state collapse."
+      ]
+    },
+    "admin_panel_smoke": {
+      "status": "PASS",
+      "evidence": "Admin login successful, 9 tabs visible (Overview/Live/Merchants/Bank/Address/Stores/Products/Orders/Returns/Customers), zero non-network console errors."
+    },
+    "backend_pytest_8_of_8": {
+      "status": "PASS",
+      "evidence": [
+        "/api/categories/counts returns all 6 required slugs + streetwear/electronics/sports.",
+        "/api/search?q=shirt returns {products, stores}.",
+        "/api/v1/addresses/<phone> returns {addresses: []}.",
+        "/api/testimonials returns 4 seeded rows.",
+        "/api/products/popular|selling-fast|new-arrivals respect limit=10.",
+        "/api/categories/counts still includes streetwear (paused, not deleted)."
+      ]
+    }
+  },
+  "action_items": [
+    "(Optional / doc tweak) Update /app/memory/test_credentials.md instruction 'plant bf_customer_phone to fake login' — the consumer header LocationChip reads from useCustomerAuthStore which is hydrated from the JWT token bf_customer_token, so the phone localStorage key alone does not enable the saved-address branch of the popover. Recommend updating the doc OR exposing a small dev-only auth bypass that hydrates the store from bf_customer_phone for E2E tests."
+  ],
+  "critical_code_review_comments": [
+    "ConsumerHeader.tsx is 423 lines — close to the 700-line ceiling but acceptable. Consider extracting LocationChip and SearchSuggestions into their own files for testability.",
+    "ShopByCategory.tsx VISIBLE list is a hardcoded local constant — easy to re-enable streetwear/electronics/sports later by adding a slug, which matches the spec intent. Good.",
+    "HomeClient.tsx conditional render `{trending.length > 0 && <HCarousel.../>}` and equivalents mean an empty-DB home page would collapse those rails — matches CustomerLove's pattern. Consistent and correct.",
+    "LocationChip uses `phone` from the customer-auth zustand store but the SavedAddress[] fetch only fires when popover opens (open && phone) — efficient. Good."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter23_home_reorder.py (new)"
+  ],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "test_credentials": "Admin: admin@lokl.in / Admin@2026 (verified working). Customer login was attempted via localStorage.bf_customer_phone planting per docs, but the LocationChip is driven by the customer-auth store (bf_customer_token / JWT) not the phone string — see integration_issues.",
+  "seed_data_creation": "None. Used the existing seed (4 testimonials, 6 visible categories + 3 paused, 9-10 products per rail, 10 popular stores).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-23 home-reorder spec is fully implemented and verified. The only open thread is the test-harness/doc note about bf_customer_phone vs bf_customer_token for the LocationChip saved-address branch. /c/streetwear still loads (paused-not-deleted). HCarousel cards each carry TWO testids (p-card-<id> for the card link + p-card-add-<id> for the Add button) — count cards using unique product IDs or by halving the matched-element count."
+}
