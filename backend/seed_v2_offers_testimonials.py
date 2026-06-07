@@ -49,13 +49,17 @@ async def main():
         print(f"Seeded {len(OFFERS)} offers")
     else:
         print("Offers already seeded")
+    # Iter-24 — testimonials are NO LONGER seeded as `published`. Per the
+    # Feb-26 spec the homepage testimonial section must stay collapsed until
+    # at least one REAL customer review lands. We still upsert the rows so
+    # the admin panel has something to play with, but with published=False.
     if await db.testimonials.count_documents({}) == 0:
         for t in TESTIMONIALS:
             await db.testimonials.insert_one({
-                "id": f"tes-{uuid.uuid4().hex[:8]}", **t, "published": True,
+                "id": f"tes-{uuid.uuid4().hex[:8]}", **t, "published": False,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
-        print(f"Seeded {len(TESTIMONIALS)} testimonials")
+        print(f"Seeded {len(TESTIMONIALS)} testimonials (unpublished)")
     else:
         print("Testimonials already seeded")
 

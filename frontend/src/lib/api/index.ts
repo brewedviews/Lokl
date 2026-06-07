@@ -69,6 +69,19 @@ export const searchApi = {
     const r = await apiClient.get<SearchResults>("/api/search", { params: { q } });
     return r.data;
   },
+
+  /** GET /api/search/trending — last 30 days, falls back to a hand-picked
+   *  list when the search_queries collection is empty. */
+  trending: async (limit = 8): Promise<Array<{ q: string; count?: number }>> => {
+    const r = await apiClient.get<Array<{ q: string; count?: number }>>("/api/search/trending", { params: { limit } });
+    return r.data;
+  },
+
+  /** POST /api/search/track — fire-and-forget for analytics. */
+  track: async (q: string): Promise<{ ok: boolean }> => {
+    const r = await apiClient.post<{ ok: boolean }>("/api/search/track", { q });
+    return r.data;
+  },
 };
 
 /** Misc cross-cutting endpoint we couldn't put anywhere else. */

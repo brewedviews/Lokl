@@ -21,6 +21,7 @@ interface LocationState {
   lng: number | null;
   citySlug: string;
   cityName: string;
+  cluster: string | null;        // Iter-24 — Bhilai area/neighbourhood
   radiusKm: number;
   permission: Permission;
   hasAsked: boolean;
@@ -29,9 +30,14 @@ interface LocationState {
 interface LocationActions {
   setLocation: (lat: number, lng: number) => void;
   setCity: (slug: string, name: string) => void;
+  setCluster: (cluster: string | null) => void;
   setRadius: (km: number) => void;
   setPermission: (p: Permission) => void;
   requestLocation: () => Promise<void>;
+  /** Iter-24 — if the browser already has geolocation permission granted,
+   *  auto-fetch the position without prompting. No-op when permission is
+   *  prompt/denied/unknown so first-time visitors still see the dialog. */
+  autoDetectIfGranted: () => Promise<void>;
 }
 
 type LocationStore = LocationState & LocationActions;
@@ -41,6 +47,7 @@ const INITIAL: LocationState = {
   lng: null,
   citySlug: "bhilai",
   cityName: "Bhilai",
+  cluster: null,
   radiusKm: 5,
   permission: "unknown",
   hasAsked: false,
@@ -59,6 +66,7 @@ export const useLocationStore = create<LocationStore>()(
       },
 
       setCity: (citySlug, cityName) => set({ citySlug, cityName }),
+      setCluster: (cluster) => set({ cluster }),
       setRadius: (radiusKm) => set({ radiusKm }),
       setPermission: (permission) => set({ permission }),
 
@@ -89,6 +97,36 @@ export const useLocationStore = create<LocationStore>()(
           set({ permission: "denied" });
         }
       },
+
+      autoDetectIfGranted: async () => {
+        // Iter-24 — silent auto-detect. We only proceed when the browser's
+        // permission API says the user has ALREADY granted geolocation;
+        // otherwise we leave the chip on the persisted city/cluster so
+        // first-time visitors aren't surprise-prompted on page load.
+        if (typeof navigator === "undefined" || !navigator.geolocation) return;
+        try {
+          // `permissions` isn't typed for the `geolocation` name in all
+          // TS lib versions — guard with `any` rather than over-typing.
+          const perms = (navigator as Navigator & { permissions?: { query: (q: { name: PermissionName }) => Promise<PermissionStatus> } }).permissions;
+          if (!perms?.query) return;
+          const status = await perms.query({ name: "geolocation" as PermissionName });
+          if (status.state !== "granted") return;
+          // Permission already granted — fetch without prompting.
+          const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              timeout: 8_000, enableHighAccuracy: true, maximumAge: 60_000,
+            });
+          });
+          set({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            permission: "granted",
+          });
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event(LOCATION_EVENT));
+          }
+        } catch { /* silent — user-permission flip races are fine */ }
+      },
     }),
     {
       name: LOCATION_KEY,
@@ -98,6 +136,7 @@ export const useLocationStore = create<LocationStore>()(
         lng: state.lng,
         citySlug: state.citySlug,
         cityName: state.cityName,
+        cluster: state.cluster,
         radiusKm: state.radiusKm,
         hasAsked: state.hasAsked,
       }),

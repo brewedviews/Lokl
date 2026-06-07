@@ -38,3 +38,6 @@ export {
   useWishlistStore,
   WISHLIST_EVENT,
 } from "./wishlist.store";
+
+export { useSearchOverlay } from "./search-overlay.store";
+

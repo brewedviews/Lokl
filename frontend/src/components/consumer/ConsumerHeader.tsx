@@ -3,27 +3,26 @@
 /**
  * ConsumerHeader — sticky glass header.
  *
- * Feb-26 mobile-first redesign:
- *   • Desktop (md+): single row — Logo · Location chip · Search · Stores
- *     · For Merchants · Profile · Cart.
- *   • Mobile (<md): TWO rows so the search bar doesn't have to compete with
- *     other controls for horizontal space.
- *       Row 1 — Logo · Location chip · Cart
- *       Row 2 — Full-width search bar with suggestion dropdown.
+ * Feb-26 refinement (iter-24):
+ *   • Mobile (<lg): SINGLE row — Logo · LocationChip (flex-1) · Cart.
+ *     The permanent search bar that used to sit in row-2 is GONE; mobile
+ *     search now lives behind the central pill in the bottom nav, which
+ *     opens the slide-up SearchOverlay (Zepto/Blinkit pattern).
+ *   • Desktop (≥lg): single row — Logo · LocationChip · big Search · Stores
+ *     · For Merchants · Profile · Cart. The Search input claims as much of
+ *     the row as possible so the header doesn't have wasted whitespace.
  *
- * The whole header sticks to the top of the viewport on scroll, including
- * the mobile second row. The suggestion dropdown anchors to the input on
- * both breakpoints and dismisses on outside-click + Escape.
- *
- * Location chip is clickable — opens a popover with "Detect my location"
- * + saved-address picks (when the customer is logged in).
+ * LocationChip handles its own auto-detect on mount and its own popover —
+ * see the LocationChip component below.
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Loader2, MapPin, Search, ShoppingBag, Store as StoreIcon, User, X, Crosshair } from "lucide-react";
-import { useCartStore, useLocationStore, useCustomerAuthStore } from "@/stores";
+import { Loader2, MapPin, Search, ShoppingBag, Store as StoreIcon, User, X, Crosshair, Home as HomeIcon } from "lucide-react";
+import {
+  useCartStore, useLocationStore, useCustomerAuthStore,
+} from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { useMounted } from "@/hooks/useMounted";
 import { api } from "@/lib/api";
@@ -46,20 +45,16 @@ export function ConsumerHeader() {
   const router = useRouter();
   const mounted = useMounted();
   const cartCount = useCartStore((s) => s.getItemCount());
-  const city = useLocationStore((s) => s.cityName);
   const customerPhone = useCustomerAuthStore((s) => s.phone);
   useHeartbeat(customerPhone ? "customer" : "guest", { phone: customerPhone });
 
-  // ─── Search ──────────────────────────────────────────────────────
+  // ─── Desktop search ─────────────────────────────────────────────
   const [q, setQ] = useState("");
   const [suggestions, setSuggestions] = useState<SuggestResponse | null>(null);
   const [suggLoading, setSuggLoading] = useState(false);
   const [suggOpen, setSuggOpen] = useState(false);
   const desktopSearchRef = useRef<HTMLDivElement | null>(null);
-  const mobileSearchRef = useRef<HTMLDivElement | null>(null);
 
-  // Debounced suggestion fetch. The cancellation token avoids a race when
-  // the user types fast — only the freshest token writes back to state.
   useEffect(() => {
     const term = q.trim();
     if (term.length < 2) { setSuggestions(null); setSuggLoading(false); return; }
@@ -79,17 +74,14 @@ export function ConsumerHeader() {
     const term = q.trim();
     if (!term) return;
     setSuggOpen(false);
+    api.search.track(term).catch(() => { /* fire-and-forget */ });
     router.push(`/search?q=${encodeURIComponent(term)}`);
   };
 
-  // Outside-click + ESC close for the suggestion dropdown.
   useEffect(() => {
     if (!suggOpen) return;
     const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (!desktopSearchRef.current?.contains(t) && !mobileSearchRef.current?.contains(t)) {
-        setSuggOpen(false);
-      }
+      if (!desktopSearchRef.current?.contains(e.target as Node)) setSuggOpen(false);
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSuggOpen(false); };
     document.addEventListener("mousedown", onDown);
@@ -98,22 +90,22 @@ export function ConsumerHeader() {
   }, [suggOpen]);
 
   return (
-    <header
-      data-testid="consumer-header"
-      className="sticky top-0 z-50 bf-glass border-b border-card-border"
-    >
-      {/* ─── Row 1 ───────────────────────────────────────────────── */}
-      <div className="max-w-7xl mx-auto px-4 lg:px-8 py-2.5 lg:py-3 flex items-center gap-3 lg:gap-6">
+    <header data-testid="consumer-header" className="sticky top-0 z-50 bf-glass border-b border-card-border">
+      <div className="max-w-7xl mx-auto px-4 lg:px-8 py-2.5 lg:py-3 flex items-center gap-2 lg:gap-5">
+        {/* Logo */}
         <Link href="/" data-testid="brand-logo" className="flex items-center shrink-0">
           <span className="font-display text-2xl lg:text-3xl font-bold tracking-tight text-brand-primary">
             lokl<span className="text-brand-accent">.</span>
           </span>
         </Link>
 
-        <LocationChip cityName={mounted ? city : "Bhilai"} phone={customerPhone} />
+        {/* Location chip — takes the rest of the mobile row */}
+        <div className="flex-1 lg:flex-none lg:min-w-[220px] min-w-0">
+          <LocationChip phone={customerPhone} />
+        </div>
 
-        {/* Desktop-only inline search */}
-        <div ref={desktopSearchRef} className="hidden lg:flex flex-1 relative">
+        {/* Desktop search — expanded to chew up the rest of the row */}
+        <div ref={desktopSearchRef} className="hidden lg:flex flex-[3] relative min-w-0">
           <SearchInput
             q={q}
             onChange={(v) => { setQ(v); setSuggOpen(true); }}
@@ -162,27 +154,6 @@ export function ConsumerHeader() {
           {mounted && cartCount > 0 && <span className="text-xs font-semibold" data-testid="cart-badge">{cartCount}</span>}
         </Link>
       </div>
-
-      {/* ─── Row 2 (mobile only) — Floating full-width search ─────── */}
-      <div ref={mobileSearchRef} className="lg:hidden relative px-4 pb-2.5">
-        <form onSubmit={submitSearch}>
-          <SearchInput
-            q={q}
-            onChange={(v) => { setQ(v); setSuggOpen(true); }}
-            onSubmit={() => submitSearch()}
-            onFocus={() => setSuggOpen(true)}
-            fullWidth
-          />
-        </form>
-        {suggOpen && q.trim().length >= 2 && (
-          <SuggestPanel
-            loading={suggLoading}
-            data={suggestions}
-            q={q}
-            onPick={() => setSuggOpen(false)}
-          />
-        )}
-      </div>
     </header>
   );
 }
@@ -190,18 +161,15 @@ export function ConsumerHeader() {
 // ─── Subcomponents ─────────────────────────────────────────────────
 
 function SearchInput({
-  q, onChange, onSubmit, onFocus, fullWidth,
+  q, onChange, onSubmit, onFocus,
 }: {
   q: string;
   onChange: (v: string) => void;
   onSubmit: () => void;
   onFocus: () => void;
-  fullWidth?: boolean;
 }) {
   return (
-    <div
-      className={`flex items-center gap-2 px-3 lg:px-4 py-2 lg:py-2.5 bg-white border border-card-border rounded-full focus-within:border-brand-primary transition ${fullWidth ? "w-full" : ""}`}
-    >
+    <div className="flex items-center gap-2 px-4 py-2.5 bg-white border border-card-border rounded-full focus-within:border-brand-primary transition w-full">
       <Search size={16} className="text-text-secondary shrink-0" />
       <input
         data-testid="search-input"
@@ -209,7 +177,7 @@ function SearchInput({
         onChange={(e) => onChange(e.target.value)}
         onFocus={onFocus}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onSubmit(); } }}
-        placeholder="Search kurtas, sneakers, stores…"
+        placeholder="Search kurtas, sneakers, stores nearby…"
         className="bg-transparent flex-1 outline-none text-sm min-w-0"
         autoComplete="off"
       />
@@ -254,17 +222,11 @@ function SuggestPanel({
         <div className="py-1">
           <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-widest text-text-secondary">Stores</div>
           {stores.slice(0, 4).map((s) => (
-            <Link
-              key={s.id}
-              href={`/store/${s.id}`}
-              onClick={onPick}
+            <Link key={s.id} href={`/store/${s.id}`} onClick={onPick}
               data-testid={`search-sugg-store-${s.id}`}
-              className="flex items-center gap-3 px-4 py-2 hover:bg-[#FDFBF7]"
-            >
+              className="flex items-center gap-3 px-4 py-2 hover:bg-[#FDFBF7]">
               <div className="relative w-9 h-9 rounded-lg overflow-hidden bg-slate-100 shrink-0">
-                {s.banner && (
-                  <Image src={s.banner} alt={s.name} fill sizes="36px" className="object-cover" />
-                )}
+                {s.banner && <Image src={s.banner} alt={s.name} fill sizes="36px" className="object-cover" />}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold text-brand-primary line-clamp-1">{s.name}</div>
@@ -278,17 +240,11 @@ function SuggestPanel({
         <div className="py-1 border-t border-slate-100">
           <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-widest text-text-secondary">Products</div>
           {products.slice(0, 6).map((p) => (
-            <Link
-              key={p.id}
-              href={`/p/${p.id}`}
-              onClick={onPick}
+            <Link key={p.id} href={`/p/${p.id}`} onClick={onPick}
               data-testid={`search-sugg-product-${p.id}`}
-              className="flex items-center gap-3 px-4 py-2 hover:bg-[#FDFBF7]"
-            >
+              className="flex items-center gap-3 px-4 py-2 hover:bg-[#FDFBF7]">
               <div className="relative w-9 h-9 rounded-lg overflow-hidden bg-slate-100 shrink-0">
-                {p.image && (
-                  <Image src={p.image} alt={p.name} fill sizes="36px" className="object-cover" />
-                )}
+                {p.image && <Image src={p.image} alt={p.name} fill sizes="36px" className="object-cover" />}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold text-brand-primary line-clamp-1">{p.name}</div>
@@ -299,12 +255,9 @@ function SuggestPanel({
         </div>
       )}
       {!loading && (
-        <Link
-          href={`/search?q=${encodeURIComponent(q)}`}
-          onClick={onPick}
+        <Link href={`/search?q=${encodeURIComponent(q)}`} onClick={onPick}
           data-testid="search-sugg-see-all"
-          className="block px-4 py-2.5 text-xs font-semibold text-brand-accent hover:bg-[#FDFBF7] border-t border-slate-100"
-        >
+          className="block px-4 py-2.5 text-xs font-semibold text-brand-accent hover:bg-[#FDFBF7] border-t border-slate-100">
           {empty ? `No quick matches — search all of Lokl for "${q}"` : `See all results for "${q}" →`}
         </Link>
       )}
@@ -312,14 +265,60 @@ function SuggestPanel({
   );
 }
 
-function LocationChip({ cityName, phone }: { cityName: string; phone: string | null }) {
+/**
+ * LocationChip — auto-detect + smart popover.
+ *
+ * Display priority (highest first):
+ *   1. Logged-in customer's default saved address  →  "Home • Smriti Nagar"
+ *   2. Resolved Bhilai cluster                     →  "Smriti Nagar"
+ *   3. Generic Bhilai city                          →  "Delivering to Bhilai"
+ *
+ * On mount we call `useLocationStore.autoDetectIfGranted()` which silently
+ * fetches the position ONLY when the browser already has the permission —
+ * first-time visitors are not surprise-prompted. After we have lat/lng we
+ * resolve the cluster via GET /api/v1/location/cluster.
+ *
+ * Tap the chip:
+ *   • Permission granted → popover with saved addresses + "Add address" CTA.
+ *     The "Detect" button is HIDDEN because we already auto-detected.
+ *   • Permission denied / prompt → popover keeps the "Detect" button so the
+ *     user can opt-in (we surface the browser geolocation dialog), plus a
+ *     manual fallback (saved addresses if any).
+ */
+function LocationChip({ phone }: { phone: string | null }) {
+  const mounted = useMounted();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
+  const lat = useLocationStore((s) => s.lat);
+  const lng = useLocationStore((s) => s.lng);
+  const cluster = useLocationStore((s) => s.cluster);
+  const cityName = useLocationStore((s) => s.cityName);
+  const permission = useLocationStore((s) => s.permission);
   const requestLocation = useLocationStore((s) => s.requestLocation);
   const setLocation = useLocationStore((s) => s.setLocation);
+  const setCluster = useLocationStore((s) => s.setCluster);
+  const autoDetect = useLocationStore((s) => s.autoDetectIfGranted);
   const ref = useRef<HTMLDivElement | null>(null);
 
+  // Silent auto-detect on mount. Cheap no-op when permission isn't granted.
+  useEffect(() => { void autoDetect(); }, [autoDetect]);
+
+  // Resolve the cluster every time lat/lng changes (after detect OR after
+  // the user picks a saved address). The endpoint is forgiving — it caps
+  // out-of-Bhilai coords and just returns the closest cluster.
+  useEffect(() => {
+    if (lat == null || lng == null) return;
+    let alive = true;
+    apiClient.get<{ cluster: string | null; nearest_cluster: string }>(
+      `/api/v1/location/cluster?lat=${lat}&lng=${lng}`,
+    )
+      .then((r) => { if (alive) setCluster(r.data.cluster ?? r.data.nearest_cluster); })
+      .catch(() => { /* silent — chip stays on cached value */ });
+    return () => { alive = false; };
+  }, [lat, lng, setCluster]);
+
+  // Saved-address fetch — only when popover opens for a logged-in customer.
   useEffect(() => {
     if (!open || !phone) return;
     apiClient.get<{ addresses: SavedAddress[] }>(`/api/v1/addresses/${phone}`)
@@ -327,6 +326,7 @@ function LocationChip({ cityName, phone }: { cityName: string; phone: string | n
       .catch(() => setAddresses([]));
   }, [open, phone]);
 
+  // Outside-click close.
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -345,49 +345,55 @@ function LocationChip({ cityName, phone }: { cityName: string; phone: string | n
   const pickAddress = (a: SavedAddress) => {
     const coords = a.location?.coordinates;
     if (coords && coords.length === 2) {
-      const [lng, lat] = coords;
-      setLocation(lat, lng);
+      const [lng_, lat_] = coords;
+      setLocation(lat_, lng_);
     }
     setOpen(false);
   };
 
+  // Build the chip label.
+  const defaultAddr = addresses.find((a) => a.is_default) || addresses[0];
+  const addrPreview = defaultAddr ? clipAddress(defaultAddr) : null;
+  const primary = mounted ? (
+    addrPreview ? addrPreview.label
+    : cluster ? cluster
+    : cityName || "Bhilai"
+  ) : "Bhilai";
+  const secondary = mounted ? (
+    addrPreview ? addrPreview.preview
+    : cluster ? "Delivering to"
+    : null
+  ) : null;
+
+  const showDetect = permission !== "granted";
+
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative w-full lg:w-auto">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         data-testid="city-display"
-        className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white border border-card-border text-sm hover:border-brand-primary transition max-w-[42vw] lg:max-w-none"
         aria-haspopup="dialog"
         aria-expanded={open}
+        className="flex items-center gap-2 w-full lg:w-auto lg:max-w-none px-3 py-2 rounded-full bg-white border border-card-border text-sm hover:border-brand-primary transition min-w-0"
       >
         <MapPin size={15} className="text-brand-accent shrink-0" />
-        <span className="font-medium truncate" suppressHydrationWarning>{cityName}</span>
+        <div className="flex-1 min-w-0 text-left leading-tight">
+          {secondary && <div className="text-[9px] uppercase tracking-widest text-text-secondary line-clamp-1" suppressHydrationWarning>{secondary}</div>}
+          <div className="text-[12px] font-semibold text-brand-primary line-clamp-1" suppressHydrationWarning>{primary}</div>
+        </div>
+        <svg width="10" height="6" viewBox="0 0 10 6" className="shrink-0 text-brand-primary/60"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" /></svg>
       </button>
       {open && (
         <div
           data-testid="location-popover"
           role="dialog"
-          className="absolute left-0 top-full mt-2 w-72 bg-white border border-card-border rounded-2xl shadow-[0_16px_40px_rgba(10,31,92,0.18)] z-50 overflow-hidden"
+          className="absolute left-0 top-full mt-2 w-[280px] sm:w-[320px] bg-white border border-card-border rounded-2xl shadow-[0_16px_40px_rgba(10,31,92,0.18)] z-50 overflow-hidden"
         >
-          <button
-            type="button"
-            onClick={detect}
-            disabled={busy}
-            data-testid="location-detect"
-            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#FDFBF7] disabled:opacity-60 text-left"
-          >
-            <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center shrink-0">
-              {busy ? <Loader2 size={16} className="animate-spin text-brand-accent" /> : <Crosshair size={16} className="text-brand-accent" />}
-            </div>
-            <div>
-              <div className="text-sm font-bold text-brand-primary">Detect my location</div>
-              <div className="text-[11px] text-text-secondary">We&apos;ll match you to the nearest serviceable area</div>
-            </div>
-          </button>
+          {/* Saved addresses (logged-in only) */}
           {phone && addresses.length > 0 && (
-            <div className="border-t border-card-border">
-              <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-widest text-text-secondary">Saved addresses</div>
+            <div>
+              <div className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-widest text-text-secondary">Saved addresses</div>
               {addresses.map((a) => (
                 <button
                   key={a.address_id}
@@ -396,27 +402,82 @@ function LocationChip({ cityName, phone }: { cityName: string; phone: string | n
                   data-testid={`location-saved-${a.address_id}`}
                   className="w-full flex items-start gap-3 px-4 py-2.5 hover:bg-[#FDFBF7] text-left"
                 >
-                  <MapPin size={14} className="text-brand-primary shrink-0 mt-0.5" />
+                  <div className="w-7 h-7 rounded-full bg-brand-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                    {(a.label || "").toLowerCase().includes("office")
+                      ? <StoreIcon size={13} className="text-brand-primary" />
+                      : <HomeIcon size={13} className="text-brand-primary" />}
+                  </div>
                   <div className="min-w-0">
                     <div className="text-xs font-bold text-brand-primary">{a.label || "Address"}</div>
                     <div className="text-[11px] text-text-secondary line-clamp-1">{a.full_address}</div>
                   </div>
                 </button>
               ))}
+              <Link
+                href="/account/addresses"
+                onClick={() => setOpen(false)}
+                data-testid="location-manage"
+                className="block border-t border-card-border px-4 py-2.5 text-[12px] font-semibold text-brand-accent hover:bg-[#FDFBF7]"
+              >
+                Manage addresses →
+              </Link>
             </div>
           )}
-          {!phone && (
+
+          {/* Detect — only when permission isn't already granted */}
+          {showDetect && (
+            <button
+              type="button"
+              onClick={detect}
+              disabled={busy}
+              data-testid="location-detect"
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#FDFBF7] disabled:opacity-60 text-left border-t border-card-border first:border-t-0"
+            >
+              <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center shrink-0">
+                {busy ? <Loader2 size={16} className="animate-spin text-brand-accent" /> : <Crosshair size={16} className="text-brand-accent" />}
+              </div>
+              <div>
+                <div className="text-sm font-bold text-brand-primary">Detect my location</div>
+                <div className="text-[11px] text-text-secondary">We&apos;ll match you to the nearest serviceable area</div>
+              </div>
+            </button>
+          )}
+
+          {/* Add-address / login CTA */}
+          {phone ? (
+            addresses.length === 0 && (
+              <Link
+                href="/account/addresses"
+                onClick={() => setOpen(false)}
+                data-testid="location-add"
+                className="block border-t border-card-border px-4 py-3 text-xs font-semibold text-brand-accent hover:bg-[#FDFBF7]"
+              >
+                + Add an address
+              </Link>
+            )
+          ) : (
             <Link
               href="/account/login"
               onClick={() => setOpen(false)}
               data-testid="location-login-cta"
               className="block border-t border-card-border px-4 py-3 text-xs text-text-secondary hover:bg-[#FDFBF7]"
             >
-              Log in to pick a saved address →
+              Log in to save your address →
             </Link>
           )}
         </div>
       )}
     </div>
   );
+}
+
+function clipAddress(a: SavedAddress): { label: string; preview: string } {
+  const label = a.label || "Address";
+  // "Home • Smriti Nagar"-style line: prefer the comma-separated locality
+  // fragment when present, falling back to the first ~24 chars of the full
+  // address. This keeps the chip readable on a 320px viewport.
+  const full = (a.full_address || "").trim();
+  const seg = full.split(",").map((s) => s.trim()).find((s) => s.length > 2 && s.length < 30);
+  const preview = seg || (full.length > 28 ? full.slice(0, 26) + "…" : full || (a.city_name ?? "Bhilai"));
+  return { label, preview };
 }

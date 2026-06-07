@@ -1,96 +1,87 @@
 "use client";
 
 /**
- * StickyBottomNav — ported from legacy v2 component.
- * Mobile-only, hidden on /merchant + /admin routes.
- * Cart badge is sourced from useCartStore instead of legacy CartContext.
+ * Mobile-only sticky bottom navigation. Hidden on /merchant + /admin routes.
+ *
+ * Iter-24 — Quick-commerce pattern: five items, central search overlay
+ * trigger. Wallet was removed (was inactive/coming-soon). Cart already
+ * lives top-right in the consumer header so we don't double up.
+ *
+ *   [ Home ] [ Categories ] [ Search ] [ Wishlist ] [ Profile ]
+ *
+ * Tapping Search opens the SearchOverlay via a tiny Zustand store rather
+ * than prop-drilling, so any other component (banner CTA, empty-state, ...)
+ * can pop the overlay later without touching this file.
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Grid3x3, Heart, Wallet, User } from "lucide-react";
-import { toast } from "sonner";
-import { useWishlistStore } from "@/stores";
+import { Home, Grid3x3, Heart, Search as SearchIcon, User } from "lucide-react";
+import { useSearchOverlay, useWishlistStore } from "@/stores";
 import { useMounted } from "@/hooks/useMounted";
 import { cn } from "@/lib/utils";
-
-interface NavItem {
-  to: string | null;
-  label: string;
-  icon: React.ComponentType<{ size?: number }>;
-  test: string;
-  soon?: boolean;
-}
-
-const ITEMS: readonly NavItem[] = [
-  { to: "/",           label: "Home",       icon: Home,     test: "nav-home" },
-  { to: "/categories", label: "Categories", icon: Grid3x3,  test: "nav-categories" },
-  { to: "/wishlist",   label: "Wishlist",   icon: Heart,    test: "nav-wishlist" },
-  { to: null,          label: "Wallet",     icon: Wallet,   test: "nav-wallet", soon: true },
-  { to: "/account",    label: "Profile",    icon: User,     test: "nav-profile" },
-];
 
 export function StickyBottomNav() {
   const pathname = usePathname();
   const mounted = useMounted();
-  // Iter-46 — the Wishlist icon now reads the wishlist count, NOT the cart
-  // count. The legacy `count` variable bled the cart badge onto the heart
-  // icon, so adding a product to the bag falsely lit up "Wishlist".
   const wishlistCount = useWishlistStore((s) => s.products.length);
+  const showSearch = useSearchOverlay((s) => s.show);
 
   if (pathname.startsWith("/merchant") || pathname.startsWith("/admin")) return null;
+
+  const isActive = (href: string) => href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
     <nav
       data-testid="sticky-bottom-nav"
-      className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-white border-t border-card-border shadow-[0_-2px_12px_rgba(10,31,92,0.06)]"
+      className="lg:hidden fixed bottom-0 inset-x-0 z-50 bg-white border-t border-card-border shadow-[0_-2px_12px_rgba(10,31,92,0.06)]"
       style={{ paddingBottom: "max(0.25rem, env(safe-area-inset-bottom))" }}
     >
       <ul className="grid grid-cols-5 px-1 pt-1">
-        {ITEMS.map((it) => {
-          const Icon = it.icon;
-          if (it.soon) {
-            return (
-              <li key={it.test} className="flex items-center justify-center">
-                <button
-                  type="button"
-                  data-testid={it.test}
-                  onClick={() => toast.message("Lokl Wallet — coming soon")}
-                  className="w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl text-slate-500 hover:text-slate-700 transition"
-                >
-                  <span className="relative">
-                    <Icon size={20} />
-                    <span className="absolute -top-1.5 -right-3 bg-slate-400 text-white text-[7px] font-bold px-1 py-[1px] rounded-full uppercase tracking-wider">Soon</span>
-                  </span>
-                  <span className="text-[10px] font-medium">{it.label}</span>
-                </button>
-              </li>
-            );
-          }
-          const target = it.to ?? "/";
-          const isActive = target === "/" ? pathname === "/" : pathname.startsWith(target);
-          return (
-            <li key={it.test} className="flex items-center justify-center">
-              <Link
-                href={target}
-                data-testid={it.test}
-                className={cn(
-                  "w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition",
-                  isActive ? "text-brand-accent-alt" : "text-slate-600",
-                )}
-              >
-                <span className="relative">
-                  <Icon size={20} />
-                  {it.label === "Wishlist" && mounted && wishlistCount > 0 && (
-                    <span className="absolute -top-1 -right-2 bg-brand-accent text-white text-[9px] font-bold px-1.5 rounded-full" data-testid="wishlist-badge">
-                      {wishlistCount}
-                    </span>
-                  )}
+        <li className="flex items-center justify-center">
+          <Link href="/" data-testid="nav-home" className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/") ? "text-brand-accent-alt" : "text-slate-600")}>
+            <Home size={20} />
+            <span className="text-[10px] font-medium">Home</span>
+          </Link>
+        </li>
+        <li className="flex items-center justify-center">
+          <Link href="/categories" data-testid="nav-categories" className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/categories") ? "text-brand-accent-alt" : "text-slate-600")}>
+            <Grid3x3 size={20} />
+            <span className="text-[10px] font-medium">Categories</span>
+          </Link>
+        </li>
+        <li className="flex items-center justify-center">
+          <button
+            type="button"
+            onClick={() => showSearch()}
+            data-testid="nav-search"
+            className="w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition text-slate-600 hover:text-brand-accent-alt"
+          >
+            <span className="relative">
+              <span className="absolute -inset-1.5 rounded-full bg-brand-accent/15 -z-10" />
+              <SearchIcon size={20} />
+            </span>
+            <span className="text-[10px] font-medium">Search</span>
+          </button>
+        </li>
+        <li className="flex items-center justify-center">
+          <Link href="/wishlist" data-testid="nav-wishlist" className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/wishlist") ? "text-brand-accent-alt" : "text-slate-600")}>
+            <span className="relative">
+              <Heart size={20} />
+              {mounted && wishlistCount > 0 && (
+                <span className="absolute -top-1 -right-2 bg-brand-accent text-white text-[9px] font-bold px-1.5 rounded-full" data-testid="wishlist-badge">
+                  {wishlistCount}
                 </span>
-                <span className="text-[10px] font-medium">{it.label}</span>
-              </Link>
-            </li>
-          );
-        })}
+              )}
+            </span>
+            <span className="text-[10px] font-medium">Wishlist</span>
+          </Link>
+        </li>
+        <li className="flex items-center justify-center">
+          <Link href="/account" data-testid="nav-profile" className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/account") ? "text-brand-accent-alt" : "text-slate-600")}>
+            <User size={20} />
+            <span className="text-[10px] font-medium">Profile</span>
+          </Link>
+        </li>
       </ul>
     </nav>
   );

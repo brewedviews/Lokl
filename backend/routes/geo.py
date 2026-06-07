@@ -209,4 +209,60 @@ def init(db):
         if not cfg: raise HTTPException(404, "City not found")
         return cfg
 
+    # Iter-24 — neighbourhood / area cluster reverse-lookup. Given a lat/lng
+    # we return the nearest Bhilai area name so the consumer header can show
+    # "Smriti Nagar" instead of just "Bhilai". The lookup is intentionally a
+    # tiny hard-coded table keyed by approximate centroids — fancy enough for
+    # the pilot, no third-party geocoder bill. Out-of-Bhilai coordinates fall
+    # through to the parent city detector (returns `cluster=None`).
+    BHILAI_CLUSTERS = [
+        # (name, lat, lng)
+        ("Smriti Nagar",   21.1938, 81.3509),
+        ("Junwani",        21.2046, 81.3370),
+        ("Risali",         21.2167, 81.3833),
+        ("Nehru Nagar",    21.1944, 81.3147),
+        ("Supela",         21.1922, 81.3128),
+        ("Vaishali Nagar", 21.2056, 81.3617),
+        ("Kohka",          21.2278, 81.3508),
+        ("Bhilai Nagar",   21.1937, 81.3509),
+        ("Power House",    21.2014, 81.3417),
+        ("Sector 6",       21.2114, 81.3796),
+        ("Sector 10",      21.2052, 81.3914),
+        ("Bhilai 3",       21.2294, 81.3658),
+        ("Khursipar",      21.2153, 81.3953),
+        ("Hudco",          21.2206, 81.3286),
+        ("Jamul",          21.1681, 81.3681),
+    ]
+
+    @router.get("/location/cluster")
+    async def location_cluster(lat: float = Query(..., ge=-90, le=90),
+                               lng: float = Query(..., ge=-180, le=180)):
+        """Resolve a lat/lng to the nearest Bhilai cluster.
+
+        Returns `{cluster, distance_km, in_service}`. When the customer is
+        outside Bhilai's max_delivery_radius_km we still return the closest
+        cluster but mark `in_service=False` so the UI can warn them.
+        """
+        from math import radians, sin, cos, asin, sqrt
+        def hav(a_lat: float, a_lng: float, b_lat: float, b_lng: float) -> float:
+            r_lat1, r_lat2 = radians(a_lat), radians(b_lat)
+            d_lat = radians(b_lat - a_lat)
+            d_lng = radians(b_lng - a_lng)
+            h = sin(d_lat / 2) ** 2 + cos(r_lat1) * cos(r_lat2) * sin(d_lng / 2) ** 2
+            return 2 * 6371 * asin(sqrt(h))
+
+        best = min(BHILAI_CLUSTERS, key=lambda c: hav(lat, lng, c[1], c[2]))
+        dist = round(hav(lat, lng, best[1], best[2]), 2)
+
+        slug = await detect_customer_city(db, lat, lng)
+        in_service = slug == "bhilai"
+        return {
+            "cluster": best[0] if in_service else None,
+            "nearest_cluster": best[0],
+            "distance_km": dist,
+            "in_service": in_service,
+            "city_slug": slug,
+        }
+
     return router
+
