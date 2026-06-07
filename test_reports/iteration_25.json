@@ -1,0 +1,78 @@
+{
+  "summary": "Iter-25 — Full verification of Lokl Homepage CMS, dynamic consumer rendering, seed idempotency and Cloudinary cleanup dry-run. Backend: 12/12 pytest pass (public /api/site/homepage-config returns 8 sections in rank order + hero; admin PUT persists hero.subtitle + section enabled toggle + section reorder, all visible via subsequent GET; seed runs twice and second run prints 'homepage config already up-to-date (no changes)'; migrations.006_cloudinary_cleanup --dry-run runs clean and only lists resources under lokl/products|stores|banners — never lokl/kyc; products/stores list endpoints return zero items). Frontend: admin login (admin@lokl.in / Admin@2026) succeeds, CMS tab visible & clickable, cms-panel renders all 8 sections each with cms-toggle/cms-up/cms-down + hero subtitle input + Publish button. End-to-end CMS write through UI: editing hero subtitle in CmsTab + clicking cms-save persisted to backend and the consumer homepage reflected the new subtitle inside the hero-v2 block on next load. Toggling 'offers.enabled' via UI persisted (verified via API + UI restore). Hiding the 'stores' section via PUT made [data-testid=home-stores] disappear from the consumer DOM. State restored to defaults after each test.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "verification_details": {
+    "public_homepage_config": {
+      "status": 200,
+      "id": "homepage",
+      "sections_count": 8,
+      "section_order": ["hero","popular_in_city","categories","selling_fast","offers","recently_viewed","stores","customer_love"],
+      "ranks": [10,20,30,40,50,60,70,80],
+      "hero_keys_present": ["image","eyebrow","title_line1","title_line2","subtitle","cta_primary_label","cta_primary_link","cta_secondary_label","cta_secondary_link"]
+    },
+    "admin_login": {
+      "endpoint": "POST /api/auth/admin/login (probed 3 candidate paths; resolver works)",
+      "credentials": "admin@lokl.in / Admin@2026",
+      "result": "200 + bearer token"
+    },
+    "admin_cms_panel": {
+      "data_testids_present": [
+        "admin-tab-cms","cms-panel","cms-save","cms-hero-subtitle",
+        "cms-section-hero","cms-section-popular_in_city","cms-section-categories","cms-section-selling_fast","cms-section-offers","cms-section-recently_viewed","cms-section-stores","cms-section-customer_love",
+        "cms-toggle-* (8/8)","cms-up-* (8/8)","cms-down-* (8/8)"
+      ],
+      "ui_save_toast": "'Homepage published — customers see changes within 60s' rendered"
+    },
+    "cms_persistence_via_ui": {
+      "hero_subtitle_edit": "Edited via cms-hero-subtitle + clicked cms-save; GET /api/site/homepage-config returned the new subtitle; consumer home reloaded and hero-v2 text contained the new subtitle.",
+      "section_toggle": "offers.enabled toggled True→False via cms-toggle-offers + cms-save; GET reflected the change; restored.",
+      "section_reorder": "API-level reorder verified in pytest (swap ranks of offers and prior section, GET reflects new order)."
+    },
+    "consumer_homepage": {
+      "hero_v2_renders": true,
+      "shop_by_category_renders": "Yes — 6 category tiles (Men/Women/Footwear/Accessories/Kids/Beauty & Personal Care). Hydrates ~1.5s after initial paint (client-side fetch).",
+      "offers_carousel_renders": "Yes — 4 limited-time campaign tiles visible.",
+      "empty_carousels": "popular_in_city / selling_fast / recently_viewed / stores / customer_love render null (expected — DB empty, per spec)."
+    },
+    "section_visibility_toggle_e2e": {
+      "hide_stores_via_admin_put": "GET /api/site/homepage-config returned stores.enabled=false; reloaded consumer home; [data-testid=home-stores] absent from DOM; restored."
+    },
+    "seed_idempotency": {
+      "first_run_stdout": "inserted/refreshed (varies depending on prior state)",
+      "second_run_stdout_contains": "homepage config already up-to-date (no changes)",
+      "exit_codes": "0 / 0"
+    },
+    "cloudinary_cleanup_dry_run": {
+      "exit_code": 0,
+      "prefixes_scanned": ["lokl/products","lokl/stores","lokl/banners"],
+      "lokl_kyc_referenced": false
+    },
+    "db_cleanup_state": {
+      "GET_/api/products?limit=5": "returned 0 items",
+      "GET_/api/stores?limit=5": "returned 0 items",
+      "admin_user_login": "succeeds"
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter25_cms.py",
+    "/app/test_reports/pytest/iter25.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:1113 DEFAULT_HOMEPAGE_SECTIONS and seeds/homepage_config.py:DEFAULT_HOMEPAGE_SECTIONS disagree on order/labels (server.py has offers@40, selling_fast@50, stores@60, recently_viewed@70 with label 'Stores near you' & 'Recently viewed' vs seed's selling_fast@40, offers@50, recently_viewed@60, stores@70 with labels 'Selling fast', 'Offers for you', 'Recently added', 'Popular stores in Bhilai'). Currently inconsequential because the seed inserts first and `_get_site_config` only adds *missing* ids — but on a fresh DB without the seed, GET will return the server.py defaults which are NOT what the spec describes. Single source of truth recommended (import the seed constants into server.py or vice versa).",
+    "server.py:1135 `_get_site_config` writes to Mongo (insert/update) inside a GET handler. The public route is unauthenticated, so any anonymous request that races during cold-start triggers a write. Move the auto-heal into seed/startup or guard with an in-process flag.",
+    "server.py:1180 PUT /api/admin/site/homepage-config calls `await _get_site_config()` purely to merge hero — this issues an extra Mongo read + potential write per admin save. Cheap but worth noting.",
+    "Cloudinary cleanup migration has no `--yes` / interactive confirmation guard before non-dry-run destructive deletes; relies entirely on the caller passing `--dry-run` first. Add a `[yN] confirm` prompt or require `--force` for the destructive path.",
+    "CmsTab data-testids 'cms-hero-subtitle' etc. were verified present; the schema-shape preview (consumer home re-render via reload) works but the CMS panel does not offer a live preview inside admin (would be a nice-to-have)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter25_cms.py (new)"
+  ],
+  "success_rate": { "backend": "100% (12/12 pytest)", "frontend": "100% (admin CMS CRUD + consumer reflect)" },
+  "test_credentials": "Admin admin@lokl.in / Admin@2026 — verified working via /api/auth/admin/login.",
+  "seed_data_creation": "None permanent. All hero-subtitle / section-toggle / section-reorder mutations were restored to defaults after each test (final state verified via GET — subtitle=='Hand-picked fashion from trusted Bhilai stores.', all 8 sections enabled, default rank ordering).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Homepage CMS feature is fully shipped and verified end-to-end. Key gotcha: DEFAULT_HOMEPAGE_SECTIONS lives in two places (server.py and seeds/homepage_config.py) with diverging order/labels; harmless today because the seed runs first, but a fresh DB w/o the seed would surface the server.py defaults. consumer home dynamic rendering works via [data-testid=home-stores], [data-testid=hero-v2], [data-testid=shop-by-category]; client-hydration takes ~1.5s after first paint so any future Playwright assertions on home should wait for hydration (use wait_for_selector + a short sleep, not networkidle which times out due to long-poll/realtime sockets). Cloudinary dry-run is safe; the destructive path lacks a confirmation prompt — flag before any operator actually runs it. /api/site/homepage-config is unauthenticated and self-heals (writes on GET) — fine for now but should be moved into startup/seed."
+}

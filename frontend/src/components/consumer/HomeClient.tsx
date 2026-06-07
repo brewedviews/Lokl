@@ -39,16 +39,18 @@ interface HeroConfigDoc { image?: string; eyebrow?: string; title_line1?: string
 interface SectionDoc { id: string; label: string; enabled: boolean; rank: number }
 
 // Iter-26 — Default section order used if the CMS config endpoint fails.
-// Matches the iter-23 spec so the page never goes blank.
+// IDs MUST match the keys in `sectionRenderers` below AND the backend's
+// `DEFAULT_HOMEPAGE_SECTIONS` in server.py (hero, popular_in_city, categories,
+// selling_fast, offers, recently_viewed, stores, customer_love).
 const DEFAULT_SECTIONS: SectionDoc[] = [
-  { id: "hero",          label: "Hero",          enabled: true, rank: 1 },
-  { id: "trending",      label: "Trending Now",  enabled: true, rank: 2 },
-  { id: "categories",    label: "Shop by Category", enabled: true, rank: 3 },
-  { id: "selling_fast",  label: "Selling Fast",  enabled: true, rank: 4 },
-  { id: "offers",        label: "Offers For You", enabled: true, rank: 5 },
-  { id: "recent",        label: "Recently Added", enabled: true, rank: 6 },
-  { id: "stores",        label: "Popular Stores", enabled: true, rank: 7 },
-  { id: "testimonials",  label: "Testimonials",  enabled: true, rank: 8 },
+  { id: "hero",            label: "Hero",                       enabled: true, rank: 10 },
+  { id: "popular_in_city", label: "Trending now",               enabled: true, rank: 20 },
+  { id: "categories",      label: "Shop by category",           enabled: true, rank: 30 },
+  { id: "selling_fast",    label: "Selling fast",               enabled: true, rank: 40 },
+  { id: "offers",          label: "Offers for you",             enabled: true, rank: 50 },
+  { id: "recently_viewed", label: "Recently added",             enabled: true, rank: 60 },
+  { id: "stores",          label: "Popular stores",             enabled: true, rank: 70 },
+  { id: "customer_love",   label: "Loved by Bhilai shoppers",   enabled: true, rank: 80 },
 ];
 
 export function HomeClient() {
