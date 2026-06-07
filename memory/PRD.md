@@ -4,6 +4,28 @@
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
 
+## Iter-47 (Feb 2026) — Home reorder + responsive header audit
+
+**Done** (verified iter-23, 100% pass — backend 8/8, frontend 100% across 8 viewports):
+
+**Section order** on BOTH desktop & mobile (HomeClient.tsx):
+1. Hero → 2. Trending Now → 3. Shop by Category → 4. Selling Fast → 5. Offers For You → 6. Recently Added → 7. Popular Stores → 8. Testimonials (conditional) → 9. Footer.
+
+**New `ShopByCategory.tsx`** — Six tiles only: Men, Women, Footwear, Accessories, Kids, Beauty & Personal Care. Streetwear/Electronics/Sports remain seeded but are filtered OUT of the home grid (their `/c/<slug>` pages still load — paused, not deleted). Mobile = 3×2 grid; Desktop = 1×6 row.
+
+**Consumer Header redesign** (ConsumerHeader.tsx, rewritten):
+- Breakpoint moved from `md:` (768px) to `lg:` (1024px) so tablets (768px) get the cleaner 2-row layout — fixed the prior tablet overflow.
+- **Mobile/Tablet (<lg)**: Row 1 = Logo + LocationChip + Cart; Row 2 = full-width sticky search input.
+- **Desktop (≥lg)**: single row — Logo + Location + Search + Stores + For Merchants + Profile + Cart (height 68px).
+- **Search typeahead** — 250 ms debounced calls to `api.search.suggest`; dropdown shows store + product rows with `search-sugg-store-<id>` / `search-sugg-product-<id>` test ids; ESC + outside-click dismiss; Enter navigates to `/search?q=…`.
+- **LocationChip popover** — `Detect my location` button (uses geolocation API via `useLocationStore.requestLocation`), saved-address list (`GET /api/v1/addresses/<phone>`) when logged in, login CTA when guest.
+
+**Testimonials conditional** — `CustomerLove.tsx` early-returns `null` when `items.length === 0`; spec confirms the section collapses entirely (no heading, no spacing, no container) and will auto-reappear when reviews land.
+
+**Responsiveness audit** — `scrollWidth ≤ innerWidth + 1` at 320 / 375 / 390 / 430 / 768 / 1024 / 1440 / 1920 px. No clipped CTAs, no overlap.
+
+
+
 ## Iter-46 (Feb 2026) — Phase 2: Three reported UI bugs — FIXED
 
 **Done** (verified iter-22, 100% pass):
