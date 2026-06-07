@@ -4,6 +4,27 @@
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
 
+## Iter-25 (Feb 2026) — Header/Location UX polish + Footer breathing room
+
+**Done** (smoke-verified across all 8 viewports, 320 → 1920 px):
+
+- **LocationChip is now SINGLE-LINE everywhere** — no eyebrow "DELIVERING TO" row, no vertical stack.
+  - **Mobile (<lg)**: `"Delivering in <value>"` prefix included.
+    - Cluster: `"Delivering in Smriti Nagar"`
+    - Saved address: `"Delivering in Home · <preview>"`
+    - Fallback: `"Delivering in Bhilai"`
+  - **Desktop (≥lg)**: just `<value>` — chip stays compact (max-w 200 px).
+    - Saved address → title only (`"Home"`)
+    - Cluster → cluster name (`"Smriti Nagar"`)
+    - Fallback → `"Bhilai"`
+  - Chip height is **35 px** on every viewport (was 50 px on the two-line layout).
+
+- **Desktop search bar expanded** — switched from `flex-[3]` to `flex-1` and shrunk LocationChip's desktop width to fixed `200 px`. Search input at 1440 px now renders **569 px wide** (was 526 px). The wrapper `gap-4` keeps proper breathing room before Stores · For Merchants · Profile · Cart.
+
+- **Footer spacing restored** — `Footer.tsx` now applies `mt-12 md:mt-16` by default (was `mt-8`). HomeClient passes `topGap=true` (was `false`), so when testimonials are absent the gap between Popular Stores and the dark footer block is **48 px on mobile / 64 px on desktop** (was 0 px, which read as clipped).
+
+
+
 ## Iter-24 (Feb 2026) — Header + Location UX refinement
 
 **Done** (verified iter-24, backend 9/9, frontend 100% across 8 viewports):

@@ -91,7 +91,7 @@ export function ConsumerHeader() {
 
   return (
     <header data-testid="consumer-header" className="sticky top-0 z-50 bf-glass border-b border-card-border">
-      <div className="max-w-7xl mx-auto px-4 lg:px-8 py-2.5 lg:py-3 flex items-center gap-2 lg:gap-5">
+      <div className="max-w-7xl mx-auto px-4 lg:px-8 py-2.5 lg:py-3 flex items-center gap-2 lg:gap-4">
         {/* Logo */}
         <Link href="/" data-testid="brand-logo" className="flex items-center shrink-0">
           <span className="font-display text-2xl lg:text-3xl font-bold tracking-tight text-brand-primary">
@@ -99,13 +99,15 @@ export function ConsumerHeader() {
           </span>
         </Link>
 
-        {/* Location chip — takes the rest of the mobile row */}
-        <div className="flex-1 lg:flex-none lg:min-w-[220px] min-w-0">
+        {/* Location chip — fills the row on mobile, fixed-ish on desktop so
+            the search input claims as much of the free row as possible. */}
+        <div className="flex-1 lg:flex-none lg:w-[200px] min-w-0">
           <LocationChip phone={customerPhone} />
         </div>
 
-        {/* Desktop search — expanded to chew up the rest of the row */}
-        <div ref={desktopSearchRef} className="hidden lg:flex flex-[3] relative min-w-0">
+        {/* Desktop search — flex-1 to expand into ALL remaining space, with
+            healthy gap-4 around it for breathing room next to the nav icons. */}
+        <div ref={desktopSearchRef} className="hidden lg:flex flex-1 relative min-w-0">
           <SearchInput
             q={q}
             onChange={(v) => { setQ(v); setSuggOpen(true); }}
@@ -351,19 +353,30 @@ function LocationChip({ phone }: { phone: string | null }) {
     setOpen(false);
   };
 
-  // Build the chip label.
+  // Build the chip label. The Feb-26 spec asks for a SINGLE LINE in every
+  // case to keep the header chrome calm — no eyebrow row, no two-tier text.
+  //
+  // Mobile  → "Delivering in <value>"   (prefix included)
+  // Desktop → "<value>"                  (no prefix; the chip is tighter)
+  //
+  // Resolution order for <value>:
+  //   1. Saved default address  →  "<Title> · <preview>" (mobile) / "<Title>" (desktop)
+  //   2. Resolved cluster        →  "Smriti Nagar"
+  //   3. City fallback           →  "Bhilai"
   const defaultAddr = addresses.find((a) => a.is_default) || addresses[0];
   const addrPreview = defaultAddr ? clipAddress(defaultAddr) : null;
-  const primary = mounted ? (
+  // Mobile value can be longer because the chip flexes to fill the row.
+  const mobileValue = mounted ? (
+    addrPreview ? `${addrPreview.label} · ${addrPreview.preview}`
+    : cluster ? cluster
+    : cityName || "Bhilai"
+  ) : "Bhilai";
+  // Desktop chip is fixed-ish width — keep it short.
+  const desktopValue = mounted ? (
     addrPreview ? addrPreview.label
     : cluster ? cluster
     : cityName || "Bhilai"
   ) : "Bhilai";
-  const secondary = mounted ? (
-    addrPreview ? addrPreview.preview
-    : cluster ? "Delivering to"
-    : null
-  ) : null;
 
   const showDetect = permission !== "granted";
 
@@ -375,12 +388,18 @@ function LocationChip({ phone }: { phone: string | null }) {
         data-testid="city-display"
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="flex items-center gap-2 w-full lg:w-auto lg:max-w-none px-3 py-2 rounded-full bg-white border border-card-border text-sm hover:border-brand-primary transition min-w-0"
+        className="flex items-center gap-2 w-full lg:w-auto lg:max-w-[200px] px-3 py-2 rounded-full bg-white border border-card-border text-sm hover:border-brand-primary transition min-w-0"
       >
         <MapPin size={15} className="text-brand-accent shrink-0" />
-        <div className="flex-1 min-w-0 text-left leading-tight">
-          {secondary && <div className="text-[9px] uppercase tracking-widest text-text-secondary line-clamp-1" suppressHydrationWarning>{secondary}</div>}
-          <div className="text-[12px] font-semibold text-brand-primary line-clamp-1" suppressHydrationWarning>{primary}</div>
+        <div className="flex-1 min-w-0 text-left">
+          {/* Mobile — single line with "Delivering in" prefix */}
+          <div className="lg:hidden text-[12px] font-semibold text-brand-primary truncate" suppressHydrationWarning>
+            Delivering in <span className="font-bold">{mobileValue}</span>
+          </div>
+          {/* Desktop — short label only */}
+          <div className="hidden lg:block text-[12px] font-semibold text-brand-primary truncate" suppressHydrationWarning>
+            {desktopValue}
+          </div>
         </div>
         <svg width="10" height="6" viewBox="0 0 10 6" className="shrink-0 text-brand-primary/60"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" /></svg>
       </button>

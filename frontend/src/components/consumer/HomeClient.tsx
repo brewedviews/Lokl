@@ -120,8 +120,10 @@ export function HomeClient() {
         <CustomerLove items={testimonials} />
       </main>
 
-      {/* 9. Footer */}
-      <Footer topGap={false} />
+      {/* 9. Footer — always has its own top-gap so even when testimonials are
+          absent there's breathing room between the last home rail and the
+          dark footer block. */}
+      <Footer />
     </div>
   );
 }

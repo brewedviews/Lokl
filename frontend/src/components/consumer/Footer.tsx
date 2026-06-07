@@ -9,7 +9,7 @@ export function Footer({ topGap = true }: { topGap?: boolean }) {
   return (
     <footer
       data-testid="footer"
-      className={`bg-[#0A1F5C] text-white pb-20 md:pb-0 ${topGap ? "mt-8" : ""}`}
+      className={`bg-[#0A1F5C] text-white pb-20 md:pb-0 ${topGap ? "mt-12 md:mt-16" : ""}`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-8 py-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <div className="flex items-center gap-3 min-w-0">
