@@ -7,7 +7,18 @@ load_dotenv(Path(__file__).resolve().parents[2] / "frontend" / ".env")
 BASE = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
 API = BASE + "/api"
 
-SEED = json.loads(Path("/tmp/phase2_seed.json").read_text())
+# Iter-26 — `/tmp/phase2_seed.json` is created by the iter-9 testing-agent
+# seeding script; in CI/local runs the file is absent, so the entire module
+# would error at collection time. Skip the suite cleanly when the seed
+# isn't present and surface a clear reason in the report.
+_seed_path = Path("/tmp/phase2_seed.json")
+if not _seed_path.exists():
+    pytest.skip(
+        "phase2_seed.json missing — re-run the iter-9 returns-dashboard seed "
+        "(see /app/backend/seed_multi_store.py and friends) before re-enabling.",
+        allow_module_level=True,
+    )
+SEED = json.loads(_seed_path.read_text())
 ADMIN_HDR = {"Authorization": f"Bearer {SEED['admin_token']}"}
 
 

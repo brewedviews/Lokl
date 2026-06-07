@@ -17,7 +17,7 @@
  *  4. Product moderation — list, pause/unpause/delete.
  *  5. Order monitoring — list with status filter.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Shield, Users, Store as StoreIcon, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2 } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
@@ -174,13 +174,13 @@ function MerchantsTab() {
   const [filter, setFilter] = useState<string>("submitted");
   const [busy, setBusy] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const url = filter === "all" ? "/api/admin/merchants" : `/api/admin/merchants?status=${filter}`;
       setItems(await adminFetch<Merchant[]>(url));
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
-  };
-  useEffect(() => { void load(); }, [filter]);
+  }, [filter]);
+  useEffect(() => { void load(); }, [load]);
 
   const approve = async (mid: string) => {
     setBusy(mid);
@@ -454,13 +454,13 @@ function OrdersTab() {
   const [busy, setBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const url = filter === "all" ? "/api/admin/orders" : `/api/admin/orders?status=${filter}`;
       setItems(await adminFetch<AdminOrder[]>(url));
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
-  };
-  useEffect(() => { void load(); }, [filter]);
+  }, [filter]);
+  useEffect(() => { void load(); }, [load]);
 
   const totalRevenue = useMemo(() => items.filter((o) => o.status === "delivered").reduce((s, o) => s + Number(o.total || 0), 0), [items]);
 
@@ -580,7 +580,7 @@ function OrdersTab() {
                           </div>
                           <ul className="mt-2 text-xs text-[#595959] list-disc list-inside">
                             {b.items.map((it, i) => (
-                              <li key={i}>{it.name || "Item"} {it.size ? `(${it.size})` : ""} × {it.qty ?? 1}</li>
+                              <li key={`${b.merchant_id}-${i}-${it.name ?? "item"}`}>{it.name || "Item"} {it.size ? `(${it.size})` : ""} × {it.qty ?? 1}</li>
                             ))}
                           </ul>
                         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
@@ -52,7 +52,7 @@ export default function CustomerAccountPage() {
     if (tabParam && VALID_TILES.includes(tabParam as TileKey)) setActiveTile(tabParam as TileKey);
   }, [tabParam]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!phone) return;
     try {
       const { customer, orders } = await api.customers.get(phone);
@@ -65,9 +65,9 @@ export default function CustomerAccountPage() {
       const r = await api.customers.listReturns(phone);
       setReturns(Array.isArray(r) ? r : []);
     } catch { setReturns([]); }
-  };
+  }, [phone]);
 
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [phone]);
+  useEffect(() => { void load(); }, [load]);
 
   const saveProfile = async () => {
     if (!phone) return;

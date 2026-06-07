@@ -7,8 +7,14 @@ WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc build-essential libffi-dev && rm -rf /var/lib/apt/lists/*
 COPY backend/requirements.txt .
-RUN pip install --prefix=/install -r requirements.txt \
-    && pip install --prefix=/install "gunicorn==23.0.0" "uvicorn[standard]==0.30.6"
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip setuptools wheel && \
+    pip install --prefer-binary \
+        --prefix=/install \
+        -r requirements.txt
+RUN pip install --prefer-binary \
+    --prefix=/install \
+    "gunicorn==23.0.0" "uvicorn[standard]==0.30.6"
 
 FROM python:3.11-slim AS runtime
 

@@ -7,7 +7,7 @@
  *  GET /api/admin/customers?q=&limit=200   — directory (already enriched with order_count + total_spend)
  *  GET /api/admin/customers/{phone}        — { customer, orders[] }
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Search, X } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
@@ -34,19 +34,19 @@ export function CustomersTab() {
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<CustomerDetail | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const url = q ? `/api/admin/customers?q=${encodeURIComponent(q)}` : "/api/admin/customers";
       setItems(await adminFetch<CustomerRow[]>(url));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
-  };
+  }, [q]);
 
   useEffect(() => {
     const t = setTimeout(() => { void load(); }, 250);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [load]);
 
   const openDetail = async (c: CustomerRow) => {
     try {

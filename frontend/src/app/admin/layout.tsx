@@ -8,7 +8,7 @@
  * Per Session A constraint: AdminPanel.jsx itself is NOT ported in this
  * session — it'll use the `lib/legacy-admin.ts` compat shim in a later sweep.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Toaster, toast } from "sonner";
 import { Button, Card, Input } from "@/components/ui";
 import { useAdminAuthStore } from "@/stores";
@@ -16,11 +16,16 @@ import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/api-error";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const [hydrated, setHydrated] = useState(false);
   const isAuthed = useAdminAuthStore((s) => s.isAuthenticated);
   const setAuth = useAdminAuthStore((s) => s.setAuth);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Iter-26 — wait one render for Zustand persist to rehydrate, otherwise
+  // a hard refresh flashes the login form before the token lands.
+  useEffect(() => { setHydrated(true); }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,6 +38,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       toast.error(getErrorMessage(err));
     } finally { setBusy(false); }
   };
+
+  if (!hydrated) {
+    return (
+      <div className="min-h-screen bg-brand-bg flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-brand-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
   if (isAuthed) {
     return (<><Toaster position="top-center" richColors />{children}</>);

@@ -11,7 +11,7 @@
  * change_type ∈ {bank, address}. `new_values` carries the merchant's
  * proposed payload — we render it as a clean field list, not raw JSON.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Landmark, MapPin, RefreshCw } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
@@ -40,13 +40,13 @@ export function BankRequestsTab() {
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("pending");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const url = filter === "all" ? "/api/admin/change-requests" : `/api/admin/change-requests?status=${filter}`;
       setItems(await adminFetch<ChangeRequest[]>(url));
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
-  };
-  useEffect(() => { void load(); }, [filter]);
+  }, [filter]);
+  useEffect(() => { void load(); }, [load]);
 
   const approve = async (cr: ChangeRequest) => {
     setBusy(cr.id);

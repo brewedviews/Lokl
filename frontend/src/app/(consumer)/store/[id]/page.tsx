@@ -59,7 +59,7 @@ export default async function StorePage(
         {banners.length > 1 ? (
           <div className="flex h-full overflow-x-auto snap-x snap-mandatory no-scrollbar">
             {banners.map((b, i) => (
-              <div key={i} className="relative w-full h-full shrink-0 snap-center">
+              <div key={b || `banner-${i}`} className="relative w-full h-full shrink-0 snap-center">
                 <Image src={b} alt={`${store.name} ${i + 1}`} fill priority={i === 0} sizes="100vw" className="object-cover" />
               </div>
             ))}

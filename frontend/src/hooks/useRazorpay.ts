@@ -68,7 +68,6 @@ export function useRazorpay() {
     s.async = true;
     s.onload = () => setLoaded(true);
     s.onerror = () => {
-      // eslint-disable-next-line no-console
       console.error("[Razorpay] checkout.js failed to load");
     };
     document.body.appendChild(s);

@@ -82,8 +82,8 @@ export default function MerchantAnalyticsPage() {
         <div className="lg:col-span-2 bg-white border border-[#E5E2DC] rounded-2xl p-6">
           <h3 className="font-display text-lg font-bold text-[#1A2B4C] mb-4 flex items-center gap-2"><TrendingUp size={16} /> Revenue trend</h3>
           <div className="flex items-end gap-1.5 h-48">
-            {stats.trend.map((d, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center">
+            {stats.trend.map((d) => (
+              <div key={d.date} className="flex-1 flex flex-col items-center">
                 {/* Dynamic bar height — inline style by design */}
                 <div className="w-full bg-[#1A2B4C] rounded-t-lg hover:bg-[#E68910] transition" style={{ height: `${(d.revenue / trendMax) * 100}%` }} title={`₹${Math.round(d.revenue)}`} />
               </div>
@@ -98,7 +98,7 @@ export default function MerchantAnalyticsPage() {
           <h3 className="font-display text-lg font-bold text-[#1A2B4C] mb-4">Top products</h3>
           <div className="space-y-3">
             {stats.top_products.map((p, i) => (
-              <div key={i} className="flex items-center gap-3">
+              <div key={`${p.name}-${i}`} className="flex items-center gap-3">
                 <div className="w-7 h-7 rounded-full bg-[#E68910]/10 text-[#E68910] flex items-center justify-center font-bold text-xs">{i + 1}</div>
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-sm text-[#1A2B4C] truncate">{p.name}</div>

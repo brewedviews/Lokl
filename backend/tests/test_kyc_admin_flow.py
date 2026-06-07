@@ -13,7 +13,7 @@ import pytest
 BASE = os.environ.get("REACT_APP_BACKEND_URL", "https://lokl-returns-dash.preview.emergentagent.com").rstrip("/")
 API = f"{BASE}/api"
 
-ADMIN_EMAIL = "admin@bharat-os.com"
+ADMIN_EMAIL = "admin@lokl.in"
 ADMIN_PASSWORD = "Admin@2026"
 
 TINY_PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"

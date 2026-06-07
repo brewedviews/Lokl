@@ -26,7 +26,7 @@ export default function StoresPage() {
         </p>
         {loading ? (
           <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5">
-            {Array.from({ length: 8 }).map((_, i) => <StoreCardSkeleton key={i} />)}
+            {Array.from({ length: 8 }).map((_, i) => <StoreCardSkeleton key={`sk-${i}`} />)}
           </div>
         ) : list.length === 0 ? (
           <div className="mt-8 bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center">

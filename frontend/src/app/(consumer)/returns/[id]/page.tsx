@@ -61,7 +61,7 @@ export default function ReturnTrackingPage() {
           <h2 className="font-display text-xl font-bold text-[#1A2B4C] mb-5">Return timeline</h2>
           <div className="space-y-4">
             {(ret.timeline || []).map((t: OrderTimelineEntry, idx: number) => (
-              <div key={idx} className="flex items-center gap-3">
+              <div key={t.status || `step-${idx}`} className="flex items-center gap-3">
                 {t.at ? <CheckCircle2 size={20} className="text-[#4F7363]" /> : <Circle size={20} className="text-[#E5E2DC]" />}
                 <div className="flex-1">
                   <div className="font-semibold text-[#1A2B4C]">{t.note || t.status}</div>

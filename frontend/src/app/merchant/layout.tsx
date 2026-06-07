@@ -2,15 +2,18 @@
 
 /**
  * MerchantLayout — sidebar nav + per-route auth/approval guard.
- * Ported from legacy `components/merchant/MerchantLayout.jsx`.
  *
  * Guards (legacy App.js parity):
  *   • Public routes        : /merchant/login, /merchant/register
  *   • Protected (auth req.) : onboarding, kyc, dashboard
  *   • ApprovedOnly (kyc=="approved"): orders, storefront, bank, products, ai-studio, analytics
  *
- * Pre-approval routes:        sidebar shows Onboarding + KYC links only.
- * Approved routes:            sidebar shows Orders / Products / Analytics / Storefront / Bank + Online toggle.
+ * Iter-26 — Hydration-wait pattern. Zustand-persist is async in the App
+ * Router so `isAuthenticated` is briefly `false` after a hard refresh
+ * even when a valid JWT lives in localStorage. The accreted complexity of
+ * persist.hasHydrated() + getState() reads had a race window that bounced
+ * approved merchants off /merchant/products. We replace that with the
+ * "wait one render for setHydrated(true), then read state normally" pattern.
  */
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -31,48 +34,31 @@ const APPROVED_ONLY = [
 export default function MerchantLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [hydrated, setHydrated] = useState(false);
+
   const user = useMerchantAuthStore((s) => s.user);
   const token = useMerchantAuthStore((s) => s.token);
-  // Derive isAuthed directly from token. `state.isAuthenticated` is set in
-  // onRehydrateStorage via direct mutation, which doesn't always trigger a
-  // re-render of selector-subscribers (especially on hard refresh / new tab).
-  // Reading `token` is a primitive subscription that always re-renders
-  // immediately on rehydration. Belt-and-braces against the hydration race.
-  const isAuthed = !!token;
+  const isAuthed = useMerchantAuthStore((s) => s.isAuthenticated);
   const setAuth = useMerchantAuthStore((s) => s.setAuth);
   const clearAuth = useMerchantAuthStore((s) => s.clearAuth);
 
   const isPublic = PUBLIC.includes(pathname);
   const isApproved = user?.kyc_status === "approved";
-  // Until the rehydrated user lands, treat the merchant as "approval unknown"
-  // so we DON'T redirect them off approved-only pages. The redirect fires
-  // ONLY after `/api/auth/me` resolves and we know kyc_status for real.
   const userKnown = !!user;
 
-  // Zustand persist is async in the App Router. Until hydration finishes
-  // the store reports `isAuthenticated=false` even when a token is on disk —
-  // we MUST NOT redirect-to-login in that window or every refresh bounces.
-  const [hydrated, setHydrated] = useState(() =>
-    typeof window !== "undefined" && useMerchantAuthStore.persist.hasHydrated()
-  );
-  useEffect(() => {
-    if (hydrated) return;
-    const unsub = useMerchantAuthStore.persist.onFinishHydration(() => setHydrated(true));
-    if (useMerchantAuthStore.persist.hasHydrated()) setHydrated(true);
-    return unsub;
-  }, [hydrated]);
+  // Step 1 — wait one render for Zustand persist to finish rehydrating.
+  useEffect(() => { setHydrated(true); }, []);
 
   useHeartbeat("merchant", { mid: user?.id });
 
-  // Rehydrate user after a page refresh — persisted state only keeps the
-  // token (≤ 1 KB) to dodge the legacy `bf_token` quota bug.
+  // Step 2 — once hydrated, rehydrate the `user` object from /auth/me if we
+  // only have a token (persisted state keeps token only to dodge the legacy
+  // bf_token quota bug).
   useEffect(() => {
-    if (isPublic || !hydrated || user) return;
-    const liveToken = useMerchantAuthStore.getState().token;
-    if (!liveToken) return;  // not actually authed; the other effect will redirect
+    if (!hydrated || isPublic || user || !token) return;
     let cancelled = false;
     api.auth.me().then((m) => {
-      if (!cancelled && m) setAuth(useMerchantAuthStore.getState().token ?? "", m);
+      if (!cancelled && m) setAuth(token, m);
     }).catch(() => {
       if (!cancelled) {
         clearAuth();
@@ -80,16 +66,13 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
       }
     });
     return () => { cancelled = true; };
-  }, [isPublic, hydrated, user, setAuth, clearAuth, router]);
+  }, [hydrated, isPublic, user, token, setAuth, clearAuth, router]);
 
+  // Step 3 — auth + approval guard. Only fires AFTER hydration so a hard
+  // refresh on /merchant/products no longer bounces back to login.
   useEffect(() => {
-    if (isPublic || !hydrated) return;
-    // Read token via getState() to avoid the Next.js SSR initial-value race
-    // where selectors briefly return `null` after hydration finishes but
-    // before React flushes the next render. localStorage is the source of
-    // truth — if the persisted envelope has a JWT, we're authenticated.
-    const liveToken = useMerchantAuthStore.getState().token;
-    if (!liveToken) { router.replace("/merchant/login"); return; }
+    if (!hydrated || isPublic) return;
+    if (!isAuthed) { router.replace("/merchant/login"); return; }
     if (userKnown && APPROVED_ONLY.includes(pathname) && !isApproved) {
       router.replace("/merchant/onboarding");
     }
@@ -98,12 +81,16 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
   if (isPublic) {
     return (<><Toaster position="top-center" richColors />{children}</>);
   }
-  if (!hydrated) return null; // wait for Zustand persist hydration
-  // Authoritative gate: localStorage is the source of truth. The selector
-  // subscription `isAuthed` is also OK, but reading getState() removes
-  // a 1-2 frame window where it can briefly be stale.
-  const liveToken = useMerchantAuthStore.getState().token;
-  if (!isAuthed && !liveToken) return null; // router.replace in flight
+  if (!hydrated) {
+    return (
+      <div className="min-h-screen bg-brand-bg flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-brand-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+  // After hydration, if we genuinely have no token the redirect-to-login
+  // effect is already queued — render nothing meanwhile.
+  if (!isAuthed) return null;
 
   const links = isApproved
     ? [

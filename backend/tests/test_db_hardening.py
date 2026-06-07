@@ -12,9 +12,15 @@ import asyncio, os, uuid, pytest, requests
 from pathlib import Path
 from dotenv import load_dotenv
 
+load_dotenv(Path(__file__).resolve().parents[2] / "frontend" / ".env.local")
 load_dotenv(Path(__file__).resolve().parents[2] / "frontend" / ".env")
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-BASE = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
+# Post Next.js migration (iter-37 cutover) the frontend env key is
+# NEXT_PUBLIC_API_URL. The legacy CRA name REACT_APP_BACKEND_URL is
+# accepted as a fallback so the test still runs against older preview envs.
+BASE = (os.environ.get("NEXT_PUBLIC_API_URL")
+        or os.environ.get("REACT_APP_BACKEND_URL")
+        or "http://localhost:8001").rstrip("/")
 API = BASE + "/api"
 ADMIN_EMAIL = "admin@lokl.in"
 ADMIN_PASS = "Admin@2026"

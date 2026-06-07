@@ -2666,8 +2666,10 @@ async def admin_cr_reject(cid: str, request: Request, body: dict = None):
 async def admin_export(request: Request, period: Optional[str] = "30d"):
     _check_admin(request.headers.get("authorization"))
     start, end = _period_window(period or "30d")
-    merchants = await db.merchants.find({"kyc_submitted_at": {"$ne": None},
-        "kyc_submitted_at": {"$gte": start.isoformat(), "$lte": end.isoformat()}}, {"_id": 0}).to_list(2000)
+    merchants = await db.merchants.find(
+        {"kyc_submitted_at": {"$gte": start.isoformat(), "$lte": end.isoformat()}},
+        {"_id": 0},
+    ).to_list(2000)
     crs = await db.change_requests.find({"created_at": {"$gte": start.isoformat(), "$lte": end.isoformat()}},
         {"_id": 0, "supporting_doc_b64": 0}).to_list(2000)
     buf = io.StringIO()

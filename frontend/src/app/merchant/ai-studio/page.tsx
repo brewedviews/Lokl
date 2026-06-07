@@ -138,12 +138,12 @@ export default function AiStudioPage() {
                 <div><div className="text-[10px] uppercase tracking-widest text-[#E68910] font-semibold mb-1">Description</div><p className="text-sm text-[#1C1C1C] leading-relaxed">{copy.description}</p></div>
                 {copy.highlights && copy.highlights.length > 0 && (
                   <div><div className="text-[10px] uppercase tracking-widest text-[#E68910] font-semibold mb-1">Highlights</div>
-                    <ul className="text-sm text-[#1C1C1C] space-y-1">{copy.highlights.map((h, i) => <li key={i} className="flex gap-2"><Check size={14} className="text-[#4F7363] mt-0.5 shrink-0" />{h}</li>)}</ul>
+                    <ul className="text-sm text-[#1C1C1C] space-y-1">{copy.highlights.map((h) => <li key={h} className="flex gap-2"><Check size={14} className="text-[#4F7363] mt-0.5 shrink-0" />{h}</li>)}</ul>
                   </div>
                 )}
                 {copy.tags && copy.tags.length > 0 && (
                   <div><div className="text-[10px] uppercase tracking-widest text-[#E68910] font-semibold mb-1 flex items-center gap-1"><Tag size={11} /> Hashtags</div>
-                    <div className="flex flex-wrap gap-1.5">{copy.tags.map((t, i) => <span key={i} className="px-2.5 py-1 rounded-full bg-white border border-[#E5E2DC] text-xs">#{String(t).replace(/^#/, "")}</span>)}</div>
+                    <div className="flex flex-wrap gap-1.5">{copy.tags.map((t) => <span key={t} className="px-2.5 py-1 rounded-full bg-white border border-[#E5E2DC] text-xs">#{String(t).replace(/^#/, "")}</span>)}</div>
                   </div>
                 )}
                 {copy.campaign_copy && (

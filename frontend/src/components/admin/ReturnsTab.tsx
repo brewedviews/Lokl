@@ -10,7 +10,7 @@
  *  GET  /api/admin/complaints                    — list complaints (optional ?status=)
  *  POST /api/admin/complaints/{cid}/resolve      — body: {note?}
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
@@ -56,7 +56,7 @@ export function ReturnsTab() {
   const [view, setView] = useState<"returns" | "complaints">("returns");
   const [filter, setFilter] = useState<string>("all");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const [r, a, c] = await Promise.all([
         adminFetch<ReturnItem[]>(filter === "all" ? "/api/admin/returns" : `/api/admin/returns?status=${filter}`),
@@ -67,8 +67,8 @@ export function ReturnsTab() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
-  };
-  useEffect(() => { void load(); }, [filter]);
+  }, [filter]);
+  useEffect(() => { void load(); }, [load]);
 
   const advance = async (r: ReturnItem, action: string) => {
     setBusy(r.id);
