@@ -1,0 +1,36 @@
+{
+  "summary": "Backlog phase verified end-to-end. Backend: 7/7 pytest cases pass in /app/backend/tests/test_backlog_lokl_prefix.py — (a) LOKL- order id prefix on a fresh OTP-driven order matches ^LOKL-[0-9A-F]{8}$ (e.g. LOKL-XXXXXXXX), (b) the new order is retrievable via GET /api/orders/{id}, (c) legacy BFO- ids in admin feed still look up cleanly, (d) POST /api/admin/complaints/INVALID-ID-XYZ/resolve now correctly returns 404 (regression from iter-20 silent-200 fixed at server.py:3352-3353), (e) a valid open complaint still resolves 200 with {ok:true}, (f) GET /api/v1/cities/bhilai returns eta_config + max_delivery_radius_km, (g) /api/v1/cities/detect classifies Delhi vs Bhilai correctly. Frontend: 4/4 location-banner specs pass (Delhi coords → banner with exact spec text 'We don't deliver to your area yet — you're browsing Bhilai for now.'; X-icon dismiss sets lokl_loc_banner_dismissed_v1=1 and persists across hard reload; Bhilai coords → banner hidden; missing lokl_loc_v1 → banner hidden). Dynamic ETA hook verified: in-footprint Bhilai coords yield 21-45 min ETAs across 10 cards (base 15 + 4×km, matches eta_config), out-of-footprint Delhi coords fall back to static 45-90 min — NO 3,600+ regression. Admin regression: 9/9 tabs (Overview/Live/Merchants/Bank-Address/Stores/Products/Orders/Returns/Customers) load with zero console errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_backlog_lokl_prefix.py",
+    "/app/test_reports/pytest/results_iter21_backlog.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "LocationBanner uses GET /api/v1/cities/detect on every (lat,lng) change with no debouncing — fine today because lat/lng only changes when the customer regrants location, but if a future GPS-tracking feature streams updates, add a 1s debounce.",
+    "useCityConfig.cache is a module-level Map with no TTL — eta_config will not refresh until the tab is closed. Acceptable for a config that changes server-side rarely; flag if delivery pricing tiers ever need a live-bust.",
+    "Out-of-footprint detection in useDeliveryEta caps at max_delivery_radius_km and falls back to static minutes. Note the per_km calculation uses straight-line km from the card's `store_distance_km`; if the backend distance computation is haversine, in-city ETAs are slightly optimistic. Not a correctness bug.",
+    "Order id LOKL-{8 hex chars} → uuid.uuid4().hex[:8].upper() yields ~4B unique ids. At ~250 orders so far the collision probability is negligible; raise to 12 chars if volume ever exceeds 1M orders/yr."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_backlog_lokl_prefix.py"
+  ],
+  "success_rate": {
+    "backend": "100% (7/7 backlog contract tests)",
+    "frontend": "100% (4/4 banner specs + 2/2 ETA specs + 9/9 admin tab regression)"
+  },
+  "test_credentials": "admin@lokl.in / Admin@2026 (verified). Customer OTP scraped via /var/log/supervisor/backend.err.log [OTP-DEBUG] (CUSTOMER_OTP_DEBUG=true confirmed working).",
+  "seed_data_creation": "One backlog-test order placed via OTP-flow (phone 919876501234, customer 'Backlog Tester'). New customer row visible at top of admin Customers tab.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backlog phase complete. Next: Phase 2 per user task order. Confirmed regression-free: order id LOKL- prefix is live, BFO- ids still readable, /api/admin/complaints/{cid}/resolve now 404s on unknown ids, LocationBanner is opt-out (dismissable + persisted), and useDeliveryEta correctly caps at max_delivery_radius_km. Test order id pattern is ^LOKL-[0-9A-F]{8}$. Banner localStorage keys: state at lokl_loc_v1 (Zustand persisted), dismiss flag at lokl_loc_banner_dismissed_v1. Bhilai serviceable test coords: (21.21, 81.38). Out-of-footprint test coords: (28.61, 77.21) — Delhi. New backend test file pattern follows the OTP-driven order-placement fixture from /app/backend/tests/test_phase1_returns.py — reuse for future order-related contracts.",
+  "rca_of_the_issue": "N/A — no bugs surfaced this iteration. Iter-20's silent-200 on unknown complaint resolve is fixed and verified."
+}

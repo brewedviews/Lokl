@@ -15,12 +15,15 @@ import { toast } from "sonner";
 import { ProductBadge } from "./ProductBadge";
 import { useCartStore, useWishlistStore } from "@/stores";
 import { useMounted } from "@/hooks/useMounted";
+import { useDeliveryEta } from "@/hooks/useDeliveryEta";
 import type { ProductCard as ProductCardType } from "@/types";
 
 type AnyProduct = ProductCardType & {
   sizes?: string[];
   store_eta_min?: number | null;
   eta_min?: number | null;
+  store_distance_km?: number | null;
+  distance_km?: number | null;
   badge?: string;
   low_stock_size?: string;
   social_proof?: string;
@@ -46,7 +49,13 @@ export function ProductCardV2({ p, compact = false }: Props) {
   const inCart = mounted ? items.find((i) => i.id === p.id) : undefined;
   const qty = inCart?.qty ?? 0;
   const discount = p.mrp && p.price && p.mrp > p.price ? Math.round((1 - p.price / p.mrp) * 100) : 0;
-  const eta = p.store_eta_min ?? p.eta_min ?? 45;
+  // Dynamic ETA — uses the city's delivery config + the store distance when
+  // available. Falls back to the static `eta_min` baked into the doc.
+  const staticEta = p.store_eta_min ?? p.eta_min ?? 45;
+  const eta = useDeliveryEta({
+    distanceKm: p.store_distance_km ?? p.distance_km ?? null,
+    fallback: staticEta,
+  });
   const sizes = (p.sizes ?? []).slice(0, 4);
 
   // Iter-44 — when a product has >1 sizes, the Add tap reveals an inline

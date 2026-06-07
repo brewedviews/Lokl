@@ -1528,7 +1528,10 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
     addr_city = (payload.address.get("city") or "").strip().lower()
     if addr_city not in SERVICEABLE_CITIES:
         raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
-    order_id = f"BFO-{uuid.uuid4().hex[:8].upper()}"
+    # Order ID prefix — branded "LOKL-" since iter-45. Pre-existing orders
+    # with "BFO-" ids stay valid; lookups are by full id so the prefix is
+    # purely cosmetic. The DB has no constraint on the prefix.
+    order_id = f"LOKL-{uuid.uuid4().hex[:8].upper()}"
     merchant_ids = []
     items_snap = []
     # Track every successful stock decrement so we can roll back if any later
@@ -3345,7 +3348,9 @@ async def admin_complaints(request: Request, status: Optional[str] = None):
 async def admin_resolve_complaint(cid: str, request: Request, payload: Optional[dict] = None):
     _check_admin(request.headers.get("authorization"))
     note = (payload or {}).get("note", "")
-    await db.complaints.update_one({"id": cid}, {"$set": {"status": "resolved", "resolved_at": _now_iso(), "resolution_note": note}})
+    res = await db.complaints.update_one({"id": cid}, {"$set": {"status": "resolved", "resolved_at": _now_iso(), "resolution_note": note}})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Complaint not found")
     return {"ok": True}
 
 

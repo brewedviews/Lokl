@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import Image from "next/image";
 import { Star, MapPin, Zap, ShieldCheck } from "lucide-react";
+import { useDeliveryEta } from "@/hooks/useDeliveryEta";
 import type { StoreCard as StoreCardType } from "@/types";
 
 type AnyStore = StoreCardType & {
@@ -22,6 +25,12 @@ export function StoreCardV2({ s }: { s: AnyStore }) {
   const proof = s.social_proof
     || (s.orders_today && s.orders_today >= 5 ? `${s.orders_today} orders delivered today` : null)
     || (s.review_count && s.review_count >= 50 ? `Trusted by ${s.review_count}+ customers` : null);
+  // Dynamic eta — when a granted location yields `distance_km`, run it
+  // through the city config. Otherwise fall back to the static value.
+  const eta = useDeliveryEta({
+    distanceKm: s.distance_km ?? null,
+    fallback: s.eta_min ?? 45,
+  });
   return (
     <Link
       href={`/store/${s.id}`}
@@ -65,7 +74,7 @@ export function StoreCardV2({ s }: { s: AnyStore }) {
         </div>
         <div className="text-[11px] flex items-center gap-2 flex-wrap text-[#475569]">
           <span className="inline-flex items-center gap-1"><MapPin size={11} className="text-[#0A1F5C]" />{(s.distance_km ?? 1.5).toFixed(1)} km</span>
-          <span className="inline-flex items-center gap-1"><Zap size={11} className="text-[#F59E0B]" />{s.eta_min || 45} min</span>
+          <span className="inline-flex items-center gap-1"><Zap size={11} className="text-[#F59E0B]" />{eta} min</span>
         </div>
         {proof && (
           <div className="text-[10px] font-semibold text-[#F59E0B] pt-1 border-t border-slate-100 mt-1">{proof}</div>

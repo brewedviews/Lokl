@@ -92,7 +92,9 @@ export function BankRequestsTab() {
       </div>
       {items.length === 0 ? (
         <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center text-sm text-[#595959]">
-          Nothing in this state.
+          {filter === "pending"
+            ? "No bank or address change requests waiting on approval."
+            : "Nothing in this state."}
         </div>
       ) : (
         <div className="space-y-3">
