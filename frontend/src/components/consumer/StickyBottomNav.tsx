@@ -9,7 +9,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Grid3x3, Heart, Wallet, User } from "lucide-react";
 import { toast } from "sonner";
-import { useCartStore } from "@/stores";
+import { useWishlistStore } from "@/stores";
 import { useMounted } from "@/hooks/useMounted";
 import { cn } from "@/lib/utils";
 
@@ -32,7 +32,10 @@ const ITEMS: readonly NavItem[] = [
 export function StickyBottomNav() {
   const pathname = usePathname();
   const mounted = useMounted();
-  const count = useCartStore((s) => s.getItemCount());
+  // Iter-46 — the Wishlist icon now reads the wishlist count, NOT the cart
+  // count. The legacy `count` variable bled the cart badge onto the heart
+  // icon, so adding a product to the bag falsely lit up "Wishlist".
+  const wishlistCount = useWishlistStore((s) => s.products.length);
 
   if (pathname.startsWith("/merchant") || pathname.startsWith("/admin")) return null;
 
@@ -77,9 +80,9 @@ export function StickyBottomNav() {
               >
                 <span className="relative">
                   <Icon size={20} />
-                  {it.label === "Wishlist" && mounted && count > 0 && (
-                    <span className="absolute -top-1 -right-2 bg-brand-accent text-white text-[9px] font-bold px-1.5 rounded-full" data-testid="cart-badge">
-                      {count}
+                  {it.label === "Wishlist" && mounted && wishlistCount > 0 && (
+                    <span className="absolute -top-1 -right-2 bg-brand-accent text-white text-[9px] font-bold px-1.5 rounded-full" data-testid="wishlist-badge">
+                      {wishlistCount}
                     </span>
                   )}
                 </span>

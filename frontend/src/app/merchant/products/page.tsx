@@ -143,8 +143,11 @@ export default function MerchantProductsPage() {
 
   const openEdit = async (p: Product) => {
     try {
-      const r = await apiClient.get<Product & { image_public_id?: string; image_public_ids?: string[]; stock?: Record<string, number>; sizes?: string[]; l1_id?: string; l2_id?: string; gender?: string; mrp?: number; return_eligible?: boolean; images?: string[] }>(`/api/products/${p.id}`);
-      const d = r.data;
+      // GET /api/products/{pid} returns { product, similar }, so we have to
+      // unwrap before populating the form. Reading the top-level fields was
+      // the iter-44 regression that opened the edit modal blank.
+      const r = await apiClient.get<{ product: Product & { image_public_id?: string; image_public_ids?: string[]; stock?: Record<string, number>; sizes?: string[]; l1_id?: string; l2_id?: string; gender?: string; mrp?: number; return_eligible?: boolean; images?: string[] } }>(`/api/products/${p.id}`);
+      const d = r.data.product;
       setEditingId(p.id);
       setForm({
         name: d.name || "",

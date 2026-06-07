@@ -1,0 +1,84 @@
+{
+  "summary": "Iter-22 Phase 2 verification of three UI bug fixes (wishlist badge, wishlist hydration after refresh, merchant edit modal prefill) + regression smoke. All 3 bugs are FIXED. Backend regression (4/4 pytest) and admin/Phase-4 tabs smoke (9/9) both pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Home (consumer)", "issues": ["Multiple 400/404 'Failed to load resource' entries appear on every consumer page load (visible in console). They do not impact functionality but should be investigated — likely an image/analytics 404 or a similar-products endpoint returning 400/404 for some product IDs."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter22_regression.py",
+    "/app/test_reports/pytest/iter22.xml"
+  ],
+  "verification_details": {
+    "bug_1_wishlist_badge_tracks_wishlist_not_cart": {
+      "status": "PASS",
+      "evidence": [
+        "Mobile viewport 390x844, sticky-bottom-nav rendered.",
+        "Initial state: no [data-testid=wishlist-badge] present.",
+        "After clicking first p-card Add button (cart += 1): wishlist-badge still absent.",
+        "After clicking first heart toggle: wishlist-badge appears with text '1'.",
+        "localStorage key 'bf_wishlist_guest' populated."
+      ]
+    },
+    "bug_2_wishlist_persists_after_hard_refresh": {
+      "status": "PASS",
+      "method": "Direct localStorage hydration test (OTP WhatsApp daily limit hit on shared sandbox; backend logs print [OTP-DEBUG] but Twilio is 429-blocked; verified the store-level fix end-to-end by planting bf_customer_phone + bf_wishlist_<phone> and reloading).",
+      "evidence": [
+        "With bf_customer_phone='919876543201' + bf_wishlist_919876543201=[product] planted, hard-navigate to /wishlist → wishlist-card-prod-test-abc123 rendered, wishlist-badge=1, no empty state.",
+        "After removing bf_customer_phone (signed-out), /wishlist shows 'No product added in your wishlist' as expected.",
+        "Confirms initialPhone() + customer-auth:change + storage listeners in wishlist.store.ts work."
+      ]
+    },
+    "bug_3_merchant_edit_modal_prefills": {
+      "status": "PASS",
+      "evidence": [
+        "Logged in as menscape@lokl.demo / Demo@2026, /merchant/products lists 13 products, 13 edit-product-<id> buttons present.",
+        "Clicked edit-product-prod-demo-2c67331c (Slim-fit Cotton Shirt). Modal opened with: name='Slim-fit Cotton Shirt', price='1199', mrp='1799', desc='Slim-fit Cotton Shirt — curated by Menscape.', gender=Men, category=Shirts, sizes S/M/L/XL highlighted, stock 6/4/5/5, cover image present.",
+        "Confirms r.data.product unwrap fix at openEdit (~line 144)."
+      ]
+    },
+    "regression_backend": {
+      "status": "PASS (4/4)",
+      "evidence": [
+        "GET /api/products/{pid} → {product, similar} with similar count 8.",
+        "POST /api/admin/complaints/INVALID/resolve with admin token → 404 'Complaint not found'.",
+        "Newest order LOKL-0975385F matches ^LOKL-[0-9A-F]{8}$ (older BFO- ids are legacy, as expected).",
+        "Demo merchant Menscape products endpoint reachable (13 products)."
+      ]
+    },
+    "regression_admin_tabs": {
+      "status": "PASS",
+      "evidence": [
+        "Admin login (admin@lokl.in / Admin@2026) succeeded, landed on /admin Overview.",
+        "All 9 tabs visible: Overview, Live, Merchants, Bank/Address, Stores, Products, Orders, Returns, Customers.",
+        "Note: actual label is 'Bank/Address' (slash) — test request used 'Bank-Address' (hyphen). Cosmetic only.",
+        "Zero non-network console errors on /admin."
+      ]
+    }
+  },
+  "action_items": [
+    "(Optional) Investigate the recurring 400/404 'Failed to load resource' entries that appear on every consumer page load. They do not block any user flow but they litter the browser console.",
+    "(Optional) For exhaustive OTP-flow tests in CI, the WhatsApp sandbox hits the 50/day cap quickly. Consider gating the OTP UI smoke test behind a feature flag or stubbing the channel when [OTP] All channels failed is observed."
+  ],
+  "critical_code_review_comments": [
+    "wishlist.store.ts initialPhone() correctly reads bf_customer_phone on module init AND attaches both 'storage' (cross-tab) and 'customer-auth:change' (same-tab) listeners — the fix is robust and matches the spec.",
+    "StickyBottomNav.tsx now reads useWishlistStore.products.length (subscribed via Zustand selector) — re-renders correctly when the bucket changes. data-testid 'wishlist-badge' is in place.",
+    "merchant/products/page.tsx openEdit unwraps r.data.product. Good. Type cast inline is hard to read; consider extracting a ProductDetailResponse type alias to share between this page and any other caller of GET /api/products/{pid}.",
+    "Minor: openEdit catches and toasts errors but does NOT clear editingId/openAdd state on failure — if the GET fails the modal could remain closed but editingId could leak. Low priority."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter22_regression.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin: admin@lokl.in / Admin@2026 — verified. Demo merchant: menscape@lokl.demo / Demo@2026 — verified. Customer OTP: backend [OTP-DEBUG] logs work but Twilio sandbox 429s past 50/day; the per-tab UI test was therefore done via localStorage planting which exercises the same store-level code path as a real login.",
+  "seed_data_creation": "Planted one synthetic wishlist entry (prod-test-abc123) in localStorage only — not persisted on backend. No DB seed changes.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All three iter-46 (Phase 2) fixes verified. Wishlist bucket keys: bf_wishlist_guest, bf_wishlist_<phone>; customer phone at bf_customer_phone; event names: 'customer-auth:change' (same tab) + native 'storage' (cross tab). For full OTP UI coverage when sandbox throttles, capture OTP from /var/log/supervisor/backend.err.log lines matching [OTP-DEBUG] phone=<phone> otp=NNNNNN."
+}

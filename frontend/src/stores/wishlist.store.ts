@@ -51,6 +51,16 @@ function bucketKey(phone: string): string {
   return `bf_wishlist_${phone || "guest"}`;
 }
 
+/** Read the logged-in customer's phone from localStorage (legacy companion
+ *  key `bf_customer_phone`). Falls back to "guest" pre-login and during SSR.
+ *  Iter-46 — fixes the bug where a hard refresh stranded the wishlist on the
+ *  guest bucket while the customer was actually authenticated. */
+function initialPhone(): string {
+  if (typeof window === "undefined") return "guest";
+  try { return localStorage.getItem("bf_customer_phone") || "guest"; }
+  catch { return "guest"; }
+}
+
 function readBucket(phone: string): ProductCard[] {
   if (typeof window === "undefined") return [];
   try {
@@ -75,8 +85,8 @@ function writeBucket(phone: string, list: ProductCard[]): void {
 }
 
 export const useWishlistStore = create<WishlistStore>((set, get) => ({
-  phone: "guest",
-  products: typeof window === "undefined" ? [] : readBucket("guest"),
+  phone: initialPhone(),
+  products: typeof window === "undefined" ? [] : readBucket(initialPhone()),
 
   setPhone: (rawPhone) => {
     const phone = rawPhone ?? "guest";
@@ -124,5 +134,17 @@ if (typeof window !== "undefined") {
     if (e.key === bucketKey(phone)) {
       useWishlistStore.getState()._hydrate();
     }
+    // Customer phone changed in another tab (login/logout) → swap bucket.
+    if (e.key === "bf_customer_phone") {
+      useWishlistStore.getState().setPhone(e.newValue);
+    }
+  });
+  // Same-tab auth change — fired by customer-auth.store on setAuth/clearAuth.
+  window.addEventListener("customer-auth:change", () => {
+    try {
+      const phone = localStorage.getItem("bf_customer_phone") || "guest";
+      const current = useWishlistStore.getState().phone;
+      if (phone !== current) useWishlistStore.getState().setPhone(phone);
+    } catch { /* private-mode */ }
   });
 }
