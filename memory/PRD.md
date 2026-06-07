@@ -4,6 +4,36 @@
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
 
+## Iter-26 (Feb 2026) — Homepage CMS + Test-data wipe
+
+**Done** (iter-25 testing agent: 100% backend 12/12 pytest, 100% admin+consumer e2e):
+
+**Database**
+- All test products / stores / merchants / customers / orders / returns / complaints / OTPs wiped via `/app/backend/migrations/005_delete_test_data.py`. Only `admin@lokl.in` preserved.
+- Order IDs are UUIDs, no counter reset required.
+
+**Backend**
+- `GET /api/site/homepage-config` (public) and `GET/PUT /api/admin/site/homepage-config` (admin) at `server.py:1152-1188`. PUT validates section/hero shape and merges hero fields against `DEFAULT_HERO` allow-list.
+- `_get_site_config()` auto-heals missing section IDs into existing docs so CMS schema additions never break the public render.
+- `DEFAULT_HOMEPAGE_SECTIONS` order corrected to match spec: hero, popular_in_city, categories, selling_fast, offers, recently_viewed, stores, customer_love (ranks 10-80).
+- New seed `/app/backend/seeds/homepage_config.py` (idempotent) — `python -m seeds.run homepage_config` inserts default config on a fresh DB, prints "already up-to-date" on repeat runs, and merges newly-added hero fields without clobbering admin edits.
+- New migration `/app/backend/migrations/006_cloudinary_cleanup.py` — deletes `lokl/products`, `lokl/stores`, `lokl/banners` prefixes from Cloudinary; explicitly preserves `lokl/kyc`. Requires explicit `--force` to run destructively; `--dry-run` enumerates only.
+
+**Admin UI**
+- New `/app/frontend/src/components/admin/CmsTab.tsx` — Homepage CMS panel (`data-testid=cms-panel`) with reorder (up/down per section), enable/disable toggle, hero banner editor (image URL, eyebrow, subtitle, two-line title, primary+secondary CTAs), live preview, and Publish action. All controls carry stable `data-testid`s: `cms-section-<id>`, `cms-toggle-<id>`, `cms-up-<id>`, `cms-down-<id>`, `cms-hero-*`, `cms-save`.
+- Wired into `/app/frontend/src/app/admin/page.tsx` as a new "Homepage CMS" tab (`admin-tab-cms`).
+
+**Consumer**
+- `/app/frontend/src/components/consumer/HomeClient.tsx` rewritten to render homepage sections dynamically from the CMS payload (`config.sections` ordered by rank, filtered by enabled flag). Per-section renderers map CMS section IDs → React nodes (hero, popular_in_city, categories, selling_fast, offers, recently_viewed, stores, customer_love). DEFAULT_SECTIONS fallback ensures the page never goes blank if the CMS endpoint fails.
+- Verified end-to-end: hero subtitle edit + Publish → consumer homepage shows new subtitle on next load; section toggle hides the corresponding rail; rank reorder swaps the visible order.
+
+**Known follow-ups (non-blocking)**:
+- `_get_site_config()` writes inside an unauthenticated GET — fine for cold start but could be moved to seed/startup.
+- CMS doesn't yet offer an in-admin live preview pane (next nice-to-have).
+- Cloudinary cleanup destructive run still requires manual operator confirmation (`--force`).
+
+
+
 ## Iter-25 (Feb 2026) — Header/Location UX polish + Footer breathing room
 
 **Done** (smoke-verified across all 8 viewports, 320 → 1920 px):

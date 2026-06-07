@@ -57,7 +57,13 @@ def _list_prefix(prefix: str) -> list[str]:
 
 def main():
     dry_run = "--dry-run" in sys.argv
+    force = "--force" in sys.argv or "--yes" in sys.argv
     _configure()
+
+    if not dry_run and not force:
+        print("ERROR: destructive run requires --force (or use --dry-run first).")
+        print("       Example: python -m migrations.006_cloudinary_cleanup --force")
+        sys.exit(2)
 
     grand_total = 0
     for prefix in PREFIXES_TO_DELETE:

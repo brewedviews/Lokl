@@ -1110,15 +1110,18 @@ async def list_l2(l1_id: str):
 
 
 # ============ Lokl V2 — Site CMS ============
+# IMPORTANT: keep these defaults in sync with /app/backend/seeds/homepage_config.py
+# (the seed is the canonical authored ordering; this constant is the fallback
+# used only when neither the seed has run nor any admin has saved a config).
 DEFAULT_HOMEPAGE_SECTIONS = [
-    {"id": "hero",            "label": "Hero",                "enabled": True, "rank": 10},
-    {"id": "popular_in_city", "label": "Trending now",        "enabled": True, "rank": 20},
-    {"id": "categories",      "label": "Shop by category",    "enabled": True, "rank": 30},
-    {"id": "offers",          "label": "Offers carousel",     "enabled": True, "rank": 40},
-    {"id": "selling_fast",    "label": "Selling fast",        "enabled": True, "rank": 50},
-    {"id": "stores",          "label": "Stores near you",     "enabled": True, "rank": 60},
-    {"id": "recently_viewed", "label": "Recently viewed",     "enabled": True, "rank": 70},
-    {"id": "customer_love",   "label": "Loved by Bhilai shoppers", "enabled": True, "rank": 80},
+    {"id": "hero",            "label": "Hero",                       "enabled": True, "rank": 10},
+    {"id": "popular_in_city", "label": "Trending now",               "enabled": True, "rank": 20},
+    {"id": "categories",      "label": "Shop by category",           "enabled": True, "rank": 30},
+    {"id": "selling_fast",    "label": "Selling fast",               "enabled": True, "rank": 40},
+    {"id": "offers",          "label": "Offers for you",             "enabled": True, "rank": 50},
+    {"id": "recently_viewed", "label": "Recently added",             "enabled": True, "rank": 60},
+    {"id": "stores",          "label": "Popular stores in Bhilai",   "enabled": True, "rank": 70},
+    {"id": "customer_love",   "label": "Loved by Bhilai shoppers",   "enabled": True, "rank": 80},
 ]
 DEFAULT_HERO = {
     "image": "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png",
