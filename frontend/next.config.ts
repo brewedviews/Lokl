@@ -23,9 +23,11 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "images.unsplash.com" },
-      { protocol: "https", hostname: "lokl-returns-dash.preview.emergentagent.com" },
+      // `*.emergentagent.com` below covers the preview host AND the production
+      // `*.emergent.host`-served frontend's images proxy — no env-specific entry needed.
       { protocol: "https", hostname: "customer-assets.emergentagent.com" },
       { protocol: "https", hostname: "*.emergentagent.com" },
+      { protocol: "https", hostname: "*.emergent.host" },
       { protocol: "https", hostname: "*.amazonaws.com" },
       { protocol: "https", hostname: "*.googleusercontent.com" },
       { protocol: "https", hostname: "images.pexels.com" },
