@@ -4,6 +4,27 @@
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
 
+## Iter-46 (Feb 2026) — Phase 2: Three reported UI bugs — FIXED
+
+**Done** (verified iter-22, 100% pass):
+- **Bug 1 — Wishlist badge mirrored cart count**: `StickyBottomNav.tsx` was reading `useCartStore.getItemCount()` for the heart icon. Switched to `useWishlistStore.products.length`. Badge data-testid renamed `cart-badge` → `wishlist-badge`.
+- **Bug 2 — Wishlist empty after hard refresh**: `wishlist.store.ts` initialized phone="guest" at module load and never re-bound to the authenticated customer. New `initialPhone()` reads `bf_customer_phone` on init. New listeners on `customer-auth:change` (same-tab) and the native `storage` event (cross-tab) auto-swap the bucket when the customer logs in/out.
+- **Bug 3 — Merchant Product edit modal opened blank**: `openEdit()` was reading `r.data.name` directly from `GET /api/products/{pid}`, but the response shape is `{product:{...}, similar:[...]}`. Now unwraps `r.data.product` before populating the form.
+
+## Iter-45 (Feb 2026) — Backlog: Order #, Location gate, Dynamic ETA
+
+**Done** (verified iter-21, 100% pass):
+- **Order ID prefix migration BFO → LOKL**: `server.py:1531` generates `LOKL-XXXXXXXX`. Existing BFO orders remain valid (id-based lookups, no prefix constraint).
+- **Soft serviceability banner**: New `LocationBanner.tsx` mounted in consumer layout. Calls `GET /api/v1/cities/detect?lat&lng` whenever the location store updates; surfaces a dismissable amber banner for non-Bhilai shoppers. Checkout still enforces Bhilai-only server-side.
+- **Dynamic ETA on cards**: New `useCityConfig` (session-cached) + `useDeliveryEta` hooks. `ProductCardV2` and `StoreCardV2` now compute ETA from `distance_km` × city `eta_config` (base_prep + per_km + peak_multiplier). Caps at `max_delivery_radius_km` so out-of-footprint distances return the static fallback (fixes the 3,600-minute display bug observed during development).
+
+### Still deferred (post-launch)
+- **AI Product Image Enhancement** (Gemini Nano Banana) — separate session.
+- **`bf_` localStorage key cleanup** — intentional cross-app compat with legacy CRA; clean up after CRA is decommissioned.
+- Minor: investigate the 400/404 console noise on consumer pages (non-blocking, surfaced by iter-22).
+
+
+
 ## Iter-44 (Feb 2026) — Phase 3: Feature Parity Recovery (Customer + Merchant)
 
 **Done** (verified via iter-19 testing agent, 100% pass on all 3 features):
