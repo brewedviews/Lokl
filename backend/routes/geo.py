@@ -216,7 +216,9 @@ def init(db):
     # the pilot, no third-party geocoder bill. Out-of-Bhilai coordinates fall
     # through to the parent city detector (returns `cluster=None`).
     BHILAI_CLUSTERS = [
-        # (name, lat, lng)
+        # (name, lat, lng) — distinct centroids only. Smriti Nagar is the
+        # canonical name for the 21.1938,81.3509 hub (was duplicated with
+        # "Bhilai Nagar" pre-iter-25 which made min() non-deterministic).
         ("Smriti Nagar",   21.1938, 81.3509),
         ("Junwani",        21.2046, 81.3370),
         ("Risali",         21.2167, 81.3833),
@@ -224,7 +226,6 @@ def init(db):
         ("Supela",         21.1922, 81.3128),
         ("Vaishali Nagar", 21.2056, 81.3617),
         ("Kohka",          21.2278, 81.3508),
-        ("Bhilai Nagar",   21.1937, 81.3509),
         ("Power House",    21.2014, 81.3417),
         ("Sector 6",       21.2114, 81.3796),
         ("Sector 10",      21.2052, 81.3914),

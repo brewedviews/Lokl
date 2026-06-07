@@ -4,6 +4,27 @@
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
 
+## Iter-24 (Feb 2026) — Header + Location UX refinement
+
+**Done** (verified iter-24, backend 9/9, frontend 100% across 8 viewports):
+
+**Backend**
+- **`GET /api/v1/location/cluster?lat&lng`** — new reverse-lookup that maps coordinates to the nearest Bhilai neighbourhood from a 14-entry hardcoded table (Smriti Nagar, Junwani, Risali, Nehru Nagar, Supela, Vaishali Nagar, Kohka, Power House, Sectors 6/10, Bhilai 3, Khursipar, Hudco, Jamul). Returns `{cluster, nearest_cluster, distance_km, in_service, city_slug}`. Out-of-Bhilai coords surface `cluster=null` so the UI falls back to a city label.
+- **Testimonials zero-state** — depublished the 4 seeded testimonials (`db.testimonials.update_many({}, $set: published=false)`) and updated `seed_v2_offers_testimonials.py` to insert NEW rows with `published=false`. Public `/api/testimonials` now returns `[]`.
+
+**Frontend**
+- **Mobile header (<lg)** — collapsed to a SINGLE row `[Logo · LocationChip (flex-1) · Cart]`. Permanent row-2 search bar DELETED. Header height 55 px.
+- **Desktop header (≥lg)** — search input promoted to `flex-[3]` so it claims the slack between LocationChip and Stores; no wasted whitespace. Header height 68 px.
+- **`LocationChip`** — now auto-detects on mount via new `useLocationStore.autoDetectIfGranted()` (silent — only fires when `navigator.permissions` says geolocation is already granted; first-time visitors are never surprise-prompted). After lat/lng lands the chip resolves to the nearest Bhilai cluster and shows `DELIVERING TO · <Cluster>`. Logged-in customers with saved addresses see `<Label> · <Address preview>`. Popover content adapts: Detect button HIDDEN when permission already granted; Saved-address list shown when phone present; guest CTA otherwise.
+- **`SearchOverlay`** (new) — Zepto/Blinkit-style slide-up panel. Full-width sticky input, Recent searches (localStorage `lokl_recent_searches`, max 6, clear-all), Popular searches (`GET /api/search/trending`), live debounced suggestions (`GET /api/search?q=`). Submit (`Enter`) tracks via `POST /api/search/track`. ESC + X + outside-click close.
+- **`StickyBottomNav`** — items now `[Home · Categories · Search · Wishlist · Profile]`. Wallet removed. Central Search button opens the overlay via tiny new `useSearchOverlay` Zustand store.
+- **`SearchOverlayHost`** (new) — wires the overlay into the consumer layout without making the layout client.
+- **Testimonials** — `CustomerLove` already self-collapses when `items.length === 0` — confirmed gap between `home-stores` and `<footer>` is `0 px` at every viewport when no published rows exist; section auto-reappears when even ONE published row lands.
+
+**Code-review fixes** — deduplicated `BHILAI_CLUSTERS` (`Bhilai Nagar` had the exact same centroid as `Smriti Nagar`; now `Smriti Nagar` is the single canonical name → `min()` is deterministic).
+
+
+
 ## Iter-47 (Feb 2026) — Home reorder + responsive header audit
 
 **Done** (verified iter-23, 100% pass — backend 8/8, frontend 100% across 8 viewports):
