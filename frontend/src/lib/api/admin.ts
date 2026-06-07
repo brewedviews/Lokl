@@ -113,7 +113,9 @@ export async function trackAssetClick(
 ): Promise<void> {
   try {
     await apiClient.post("/api/analytics/click", { asset_type, asset_id, redirect_url });
-  } catch {
-    // Analytics must never block a navigation — swallow silently.
+  } catch (e) {
+    // Analytics must never block a navigation — swallow silently in prod,
+    // but surface in dev so we can diagnose a broken endpoint.
+    if (process.env.NODE_ENV !== "production") console.warn("[analytics] trackAssetClick failed", e);
   }
 }

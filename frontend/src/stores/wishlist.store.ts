@@ -79,8 +79,9 @@ function writeBucket(phone: string, list: ProductCard[]): void {
     localStorage.setItem(bucketKey(phone), JSON.stringify(list));
     const detail: WishlistDetail = { phone, list };
     window.dispatchEvent(new CustomEvent(WISHLIST_EVENT, { detail }));
-  } catch {
-    // Quota — wishlist becomes session-only. Not worth surfacing.
+  } catch (e) {
+    // Quota / private-mode — wishlist becomes session-only. Not worth a toast.
+    if (process.env.NODE_ENV !== "production") console.warn("[wishlist] writeBucket failed", e);
   }
 }
 
@@ -145,6 +146,8 @@ if (typeof window !== "undefined") {
       const phone = localStorage.getItem("bf_customer_phone") || "guest";
       const current = useWishlistStore.getState().phone;
       if (phone !== current) useWishlistStore.getState().setPhone(phone);
-    } catch { /* private-mode */ }
+    } catch (e) {
+      if (process.env.NODE_ENV !== "production") console.warn("[wishlist] customer-auth:change handler failed (private-mode?)", e);
+    }
   });
 }

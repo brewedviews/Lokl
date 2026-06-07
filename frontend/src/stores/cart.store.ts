@@ -76,8 +76,9 @@ function mirrorToLegacyBareArray(items: CartItem[]) {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(CART_KEY, JSON.stringify(items));
-  } catch {
+  } catch (e) {
     // Quota exceeded etc. — non-fatal; the Zustand-persist copy still works.
+    if (process.env.NODE_ENV !== "production") console.warn("[cart] mirrorToLegacyBareArray failed", e);
   }
 }
 
@@ -189,8 +190,9 @@ export const useCartStore = create<CartStore>()(
           if (Array.isArray(parsed)) {
             set({ items: parsed as CartItem[] });
           }
-        } catch {
+        } catch (e) {
           // Malformed legacy cart — leave the store untouched.
+          if (process.env.NODE_ENV !== "production") console.warn("[cart] legacy bare-array adoption failed", e);
         }
       },
     }),

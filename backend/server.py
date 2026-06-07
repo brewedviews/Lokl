@@ -1763,7 +1763,9 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
 
         now = datetime.now(timezone.utc).isoformat()
         unique_mids = list(set([m for m in merchant_ids if m]))
-        def _new_otp(): return f"{random.randint(1000, 9999)}"
+        # CSPRNG (secrets) — these OTPs gate order delivery / WhatsApp verification, must not be predictable.
+        _otp_rng = secrets.SystemRandom()
+        def _new_otp(): return f"{_otp_rng.randint(1000, 9999)}"
         merchant_otps = {mid: _new_otp() for mid in unique_mids}
         otp = merchant_otps[unique_mids[0]] if unique_mids else _new_otp()
         merchant_states = {mid: "pending" for mid in unique_mids}
@@ -3293,7 +3295,9 @@ async def create_return(oid: str, payload: dict, user: dict = Depends(customer_u
     # Customer phone is always derived from the authenticated order, never trusted from the body.
     cust_phone = order_phone
     rid = f"RET-{uuid.uuid4().hex[:8].upper()}"
-    otp = f"{random.randint(1000, 9999)}"
+    # CSPRNG (secrets) — this OTP authorises reverse-pickup of physical goods; predictable random would let
+    # anyone with the order ID intercept the parcel.
+    otp = f"{secrets.SystemRandom().randint(1000, 9999)}"
     now = _now_iso()
     doc = {
         "id": rid,
