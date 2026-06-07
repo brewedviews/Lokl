@@ -4,6 +4,50 @@
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
 
+## Iter-26b (Feb 2026) — Full Homepage Asset CMS + Click Analytics
+
+**Done** (iter-26 testing agent: 100% backend 16/16 pytest, 100% admin CMS UI + consumer click tracking):
+
+**Rollback first**
+- New seed `/app/backend/seeds/rollback_homepage_assets.py` restores pre-iter26 Bhilai Globe Chowk hero + original Unsplash L1 category images + original offer images. Removed the now-superseded `refresh_homepage_assets.py`.
+
+**Backend (server.py:1056-1230 + cloudinary_service.py:FOLDER_MAP)**
+- `GET /api/admin/categories`, `PUT /api/admin/categories/{id}` — name, image, redirect_url, order.
+- `GET /api/admin/subcategories[?l1_id=]`, `PUT /api/admin/subcategories/{id}` — same shape for L2.
+- `GET /api/admin/offers` (incl. unpublished), `PUT /api/admin/offers/{id}` — title, subtitle, image, cta_label, cta_link, redirect_url, background, rank, published, expires_at.
+- `POST /api/admin/cms/upload` — Cloudinary multipart upload, lands in `lokl/cms/*`, returns `{image_url, public_id, format, width, height, bytes}`. 5 MB ceiling enforced.
+- `GET /api/admin/cms/search-destinations?q=` — unified picker, returns 5 buckets (stores/products/categories/subcategories/offers), max 8/bucket.
+- `POST /api/analytics/click` (public) — logs `{asset_type, asset_id, redirect_url, ts, ua}` to `asset_clicks`. Returns 400 on invalid asset_type (hardened in post-test review).
+- `GET /api/admin/analytics/top-clicks?asset_type=<>&days=7|30&limit=10` — admin aggregation.
+- DEFAULT_HERO extended with `mobile_image` and `redirect_url` keys.
+- `migrations/006_cloudinary_cleanup.py` now also cleans `lokl/cms` prefix.
+
+**Frontend (Admin → CMS → Homepage Assets)**
+- `CmsTab.tsx` rewritten as a parent with 5 sub-tabs: Sections | Hero | L1 Categories | L2 Sub-Categories | Offers (`cms-subtab-<id>`).
+- `cms/ImageUploadField.tsx` — dual Cloudinary upload + URL paste, recommended-dimensions hint, 5 MB validation, live preview, remove button.
+- `cms/DestinationPicker.tsx` — debounced search across 5 destination buckets + Custom URL free-text field (mandatory per spec).
+- `cms/HeroEditor.tsx` — desktop image (1920×700), mobile image (1080×1350), eyebrow, two-line title, subtitle, primary CTA label + link, redirect URL via DestinationPicker, live preview pane that links to the configured redirect.
+- `cms/L1CategoriesEditor.tsx` — 9 L1 rows, per-row image (800×800) + name + redirect + save + preview.
+- `cms/L2SubcategoriesEditor.tsx` — collapsible by parent L1, per-L2 image (600×600) + name + redirect + save.
+- `cms/OffersEditor.tsx` — full CRUD (create, edit, reorder up/down, publish toggle, delete) with image (1200×675) + destination picker + per-row save.
+- `cms/TopClicksWidget.tsx` — 3-column 7d/30d top-clicks dashboard at the bottom of the CMS tab.
+
+**Consumer-side wiring**
+- `HeroV2.tsx` — wraps banner in `<Link href={hero.redirect_url}>` when set; uses `mobile_image` on mobile; fires `trackAssetClick("hero","homepage",url)` on click. Falls back to `cta_primary_link` when redirect blank.
+- `ShopByCategory.tsx` — uses `category.redirect_url` when set (defaults to `/c/{slug}`); fires `trackAssetClick("category", row.id, url)` on every click.
+- `OffersStrip.tsx` — uses `offer.redirect_url` (falls back to `cta_link`); fires `trackAssetClick("offer", offer.id, url)`.
+
+**Test artefacts**
+- `/app/backend/tests/test_iter26_cms.py` (new) — 16 tests covering rollback, admin reads/writes, Cloudinary upload + size validation, analytics POST/GET with validation.
+- `/app/test_reports/iteration_26.json` — full pass report.
+
+**Known follow-ups (non-blocking, deferred)**:
+- Add a TTL index on `asset_clicks` to keep the collection lean (~90d retention).
+- Optional: server-side allow-list for `redirect_url` (must start with `/` or known host) — currently admins are trusted.
+- Optional: require `q.length >= 2` on the destination picker once DB is populated to avoid large scans.
+
+
+
 ## Iter-26 (Feb 2026) — Homepage CMS + Test-data wipe
 
 **Done** (iter-25 testing agent: 100% backend 12/12 pytest, 100% admin+consumer e2e):

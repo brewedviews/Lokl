@@ -1179,7 +1179,7 @@ async def log_asset_click(payload: dict, request: Request):
     Body: {asset_type: 'hero'|'category'|'subcategory'|'offer', asset_id: str, redirect_url: str}"""
     asset_type = (payload.get("asset_type") or "").strip()
     if asset_type not in {"hero", "category", "subcategory", "offer"}:
-        return {"ok": False}
+        raise HTTPException(400, "Invalid asset_type — must be hero|category|subcategory|offer")
     await db.asset_clicks.insert_one({
         "asset_type": asset_type,
         "asset_id": str(payload.get("asset_id") or "")[:128],

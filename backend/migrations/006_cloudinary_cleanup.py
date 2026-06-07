@@ -17,7 +17,7 @@ import cloudinary
 import cloudinary.api
 
 
-PREFIXES_TO_DELETE = ["lokl/products", "lokl/stores", "lokl/banners"]
+PREFIXES_TO_DELETE = ["lokl/products", "lokl/stores", "lokl/banners", "lokl/cms"]
 PRESERVE_PREFIXES = ["lokl/kyc"]  # safety net — never touch these
 
 
