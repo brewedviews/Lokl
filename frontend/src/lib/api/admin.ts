@@ -75,9 +75,13 @@ export const adminApi = {
   uploadCmsImage: async (file: File): Promise<CmsUploadResponse> => {
     const fd = new FormData();
     fd.append("file", file);
-    // NOTE: do NOT set Content-Type — axios will auto-set multipart/form-data
-    // with the proper boundary when it sees a FormData body.
-    const r = await apiClient.post<CmsUploadResponse>("/api/admin/cms/upload", fd);
+    // The shared axios instance defaults Content-Type to application/json;
+    // for a multipart upload we must blank it so the browser sets the
+    // correct multipart boundary itself. Without this FastAPI's File(...)
+    // dependency fails to parse the body and returns 422.
+    const r = await apiClient.post<CmsUploadResponse>("/api/admin/cms/upload", fd, {
+      headers: { "Content-Type": undefined as unknown as string },
+    });
     return r.data;
   },
 

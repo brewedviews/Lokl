@@ -4,6 +4,18 @@
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
 
+## Iter-26c (Feb 2026) — 422 hotfix on Admin CMS image upload
+
+**Reported by user**: "Request failed with status code 422" when uploading L1 category tile images.
+
+**Root cause**: The shared axios singleton (`src/lib/api-client.ts:189`) sets a default `Content-Type: application/json` header on every request. In the browser, FormData uploads must let the browser set `Content-Type: multipart/form-data; boundary=...` itself — the app/json default overrides this so FastAPI's `File(...)` parser sees an empty body and 422s with `body.file required`. (Backend was fine; backend curl tests have always passed.)
+
+**Fix**: `uploadCmsImage` in `src/lib/api/admin.ts` now passes `headers: { 'Content-Type': undefined }` at the request level. Axios 1.x then lets the browser set the multipart Content-Type with the correct boundary.
+
+**Regression test**: Browser-accurate Node repro (using global `FormData`/`Blob` from undici) confirms the bug → 422 and the fix → 200. Test script at `/app/frontend/scripts-browser-repro.js` (deleted after run; logic preserved in this PRD entry for future debugging).
+
+
+
 ## Iter-26b (Feb 2026) — Full Homepage Asset CMS + Click Analytics
 
 **Done** (iter-26 testing agent: 100% backend 16/16 pytest, 100% admin CMS UI + consumer click tracking):
