@@ -96,6 +96,7 @@ export interface HomeStats {
  *  hero, sections, plus optional offers/text-override extensions. */
 export interface HeroConfig {
   image?: string;
+  mobile_image?: string;
   eyebrow?: string;
   title_line1?: string;
   title_line2?: string;
@@ -104,6 +105,7 @@ export interface HeroConfig {
   cta_primary_link?: string;
   cta_secondary_label?: string;
   cta_secondary_link?: string;
+  redirect_url?: string;
   show_stats?: boolean;
   show_usp_chips?: boolean;
 }

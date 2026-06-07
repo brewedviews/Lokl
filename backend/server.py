@@ -1055,6 +1055,174 @@ async def admin_delete_offer(oid: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
+# ============ Lokl V2 — Homepage Asset CMS (iter-26) ============
+# Admin can edit hero, L1/L2 category tiles, and offers via these endpoints.
+# Front-of-house (public) endpoints reuse the existing /categories, /offers,
+# /site/homepage-config — these admin routes add the writes + analytics.
+
+ALLOWED_OFFER_FIELDS = {
+    "title", "subtitle", "image", "cta_label", "cta_link",
+    "background", "rank", "published", "expires_at", "redirect_url",
+}
+
+
+@api.put("/admin/offers/{oid}")
+async def admin_update_offer(oid: str, payload: dict, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    update = {k: v for k, v in payload.items() if k in ALLOWED_OFFER_FIELDS}
+    if "rank" in update:
+        update["rank"] = int(update["rank"])
+    if "published" in update:
+        update["published"] = bool(update["published"])
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    r = await db.offers.update_one({"id": oid}, {"$set": update})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Offer not found")
+    doc = await db.offers.find_one({"id": oid}, {"_id": 0})
+    return doc
+
+
+@api.get("/admin/offers")
+async def admin_list_offers(user: dict = Depends(get_current_user)):
+    """Includes unpublished offers, sorted by rank — public /offers does not."""
+    _admin_only(user)
+    rows = await db.offers.find({}, {"_id": 0}).sort("rank", 1).to_list(100)
+    return rows
+
+
+@api.get("/admin/categories")
+async def admin_list_categories(user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    rows = await db.categories.find({}, {"_id": 0}).sort("order", 1).to_list(100)
+    return rows
+
+
+ALLOWED_CATEGORY_FIELDS = {"name", "image", "redirect_url", "order"}
+
+
+@api.put("/admin/categories/{cid}")
+async def admin_update_category(cid: str, payload: dict, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    update = {k: v for k, v in payload.items() if k in ALLOWED_CATEGORY_FIELDS}
+    if "order" in update:
+        update["order"] = int(update["order"])
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    r = await db.categories.update_one({"id": cid}, {"$set": update})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Category not found")
+    doc = await db.categories.find_one({"id": cid}, {"_id": 0})
+    return doc
+
+
+@api.get("/admin/subcategories")
+async def admin_list_subcategories(user: dict = Depends(get_current_user), l1_id: Optional[str] = None):
+    _admin_only(user)
+    q = {"l1_id": l1_id} if l1_id else {}
+    rows = await db.subcategories.find(q, {"_id": 0}).to_list(500)
+    return rows
+
+
+@api.put("/admin/subcategories/{sid}")
+async def admin_update_subcategory(sid: str, payload: dict, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    update = {k: v for k, v in payload.items() if k in ALLOWED_CATEGORY_FIELDS}
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    r = await db.subcategories.update_one({"id": sid}, {"$set": update})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Sub-category not found")
+    doc = await db.subcategories.find_one({"id": sid}, {"_id": 0})
+    return doc
+
+
+@api.post("/admin/cms/upload")
+async def admin_cms_upload(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    """Cloudinary upload for any CMS image asset. Returns the secure_url
+    that admins can copy/paste into hero/category/offer image fields."""
+    _admin_only(user)
+    return await cloudinary_service.upload_image(file, "cms", user.get("sub", "admin"))
+
+
+@api.get("/admin/cms/search-destinations")
+async def admin_search_destinations(q: str = "", user: dict = Depends(get_current_user)):
+    """Unified destination picker — searches Stores, Products, L1, L2 and Offers.
+    Returns up to 8 of each kind. `q` is case-insensitive substring match."""
+    _admin_only(user)
+    needle = (q or "").strip()
+    rx = {"$regex": _re.escape(needle), "$options": "i"} if needle else None
+
+    async def _scan(coll, name_field, route_fn, limit=8):
+        cur = coll.find({name_field: rx} if rx else {}, {"_id": 0}).limit(limit)
+        out = []
+        async for d in cur:
+            out.append({
+                "label": d.get(name_field, ""),
+                "url": route_fn(d),
+                "kind": coll.name,
+                "id": d.get("id", ""),
+            })
+        return out
+
+    results = {
+        "stores":        await _scan(db.stores, "name", lambda d: f"/store/{d.get('id','')}"),
+        "products":      await _scan(db.products, "name", lambda d: f"/product/{d.get('id','')}"),
+        "categories":    await _scan(db.categories, "name", lambda d: f"/c/{d.get('slug','')}"),
+        "subcategories": await _scan(db.subcategories, "name", lambda d: f"/c/{d.get('slug','')}"),
+        "offers":        await _scan(db.offers, "title", lambda d: f"/offers/{d.get('id','')}"),
+    }
+    return results
+
+
+# ===== Click analytics =====
+@api.post("/analytics/click")
+async def log_asset_click(payload: dict, request: Request):
+    """Public — called from homepage when a CMS asset is clicked.
+    Body: {asset_type: 'hero'|'category'|'subcategory'|'offer', asset_id: str, redirect_url: str}"""
+    asset_type = (payload.get("asset_type") or "").strip()
+    if asset_type not in {"hero", "category", "subcategory", "offer"}:
+        return {"ok": False}
+    await db.asset_clicks.insert_one({
+        "asset_type": asset_type,
+        "asset_id": str(payload.get("asset_id") or "")[:128],
+        "redirect_url": str(payload.get("redirect_url") or "")[:512],
+        "ts": datetime.now(timezone.utc),
+        "ua": request.headers.get("user-agent", "")[:200],
+    })
+    return {"ok": True}
+
+
+@api.get("/admin/analytics/top-clicks")
+async def admin_top_clicks(
+    user: dict = Depends(get_current_user),
+    asset_type: str = "hero",
+    days: int = 7,
+    limit: int = 10,
+):
+    _admin_only(user)
+    if asset_type not in {"hero", "category", "subcategory", "offer"}:
+        raise HTTPException(400, "Bad asset_type")
+    days = max(1, min(days, 90))
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    pipeline = [
+        {"$match": {"asset_type": asset_type, "ts": {"$gte": since}}},
+        {"$group": {
+            "_id": {"asset_id": "$asset_id", "redirect_url": "$redirect_url"},
+            "count": {"$sum": 1},
+        }},
+        {"$sort": {"count": -1}},
+        {"$limit": int(limit)},
+    ]
+    rows = []
+    async for r in db.asset_clicks.aggregate(pipeline):
+        rows.append({
+            "asset_id": r["_id"].get("asset_id", ""),
+            "redirect_url": r["_id"].get("redirect_url", ""),
+            "count": int(r["count"]),
+        })
+    return {"asset_type": asset_type, "days": days, "rows": rows}
+
+
+
+
 @api.get("/testimonials")
 async def list_testimonials(limit: int = 12):
     rows = await db.testimonials.find({"published": True}, {"_id": 0}).sort("rank", 1).to_list(limit)
@@ -1125,12 +1293,14 @@ DEFAULT_HOMEPAGE_SECTIONS = [
 ]
 DEFAULT_HERO = {
     "image": "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png",
+    "mobile_image": "",
     "eyebrow": "Serving Bhilai",
     "title_line1": "Delivered in minutes from",
     "title_line2": "stores next door.",
     "subtitle": "Hand-picked fashion from trusted Bhilai stores.",
     "cta_primary_label": "Shop Women", "cta_primary_link": "/c/women",
     "cta_secondary_label": "Shop Men", "cta_secondary_link": "/c/men",
+    "redirect_url": "",  # iter-26 CMS — overrides cta_primary_link when set (whole banner clickable)
     "show_stats": True, "show_usp_chips": True,
 }
 

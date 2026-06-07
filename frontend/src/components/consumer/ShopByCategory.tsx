@@ -19,9 +19,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { api } from "@/lib/api";
+import { trackAssetClick } from "@/lib/api/admin";
 import type { CategoryCount } from "@/types";
 
-type CategoryRow = CategoryCount & { slug: string; product_count?: number };
+type CategoryRow = CategoryCount & { slug: string; id?: string; product_count?: number; redirect_url?: string };
 
 // Display order + display name overrides. The spec spells "Beauty &
 // Personal Care" but the DB row is just "Beauty" — we override here.
@@ -64,10 +65,12 @@ export function ShopByCategory() {
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3 sm:gap-4">
           {VISIBLE.map(({ slug, label }) => {
             const row = byCat.get(slug);
+            const href = row?.redirect_url || `/c/${slug}`;
             return (
               <Link
                 key={slug}
-                href={`/c/${slug}`}
+                href={href}
+                onClick={() => void trackAssetClick("category", row?.id || slug, href)}
                 data-testid={`home-cat-${slug}`}
                 className="group bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-[0_2px_8px_rgba(10,31,92,0.06)] hover:shadow-md transition active:scale-95"
               >

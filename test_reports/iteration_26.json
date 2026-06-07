@@ -1,0 +1,70 @@
+{
+  "summary": "Iter-26 Homepage Asset CMS — end-to-end verification complete. Backend: 16/16 pytest pass (rollback assets restored, admin CMS read/write endpoints functional, Cloudinary lokl/cms upload + 5MB validation, click analytics POST/GET with asset_type validation). Frontend: admin login + CMS panel + all 5 sub-tabs (sections/hero/l1/l2/offers) render fully; every required data-testid is present and interactive. Hero subtitle edit was persisted via UI (toast: 'Hero published — customers see changes within 60s') and consumer homepage reflects new hero.redirect_url with a clickable hero-redirect-link. Click analytics fire correctly on the consumer side — clicking home-cat-men dispatched POST /api/analytics/click with {asset_type:'category', asset_id:'l1-men', redirect_url:'/c/men'}. State restored to defaults after all mutations.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "verification_details": {
+    "rollback": {
+      "hero_image_contains_customer_assets_emergentagent": true,
+      "women_category_image_contains_photo_1469334031218": true,
+      "summer_fashion_offer_image_contains_photo_1618375601660": true
+    },
+    "admin_reads": {
+      "GET /api/admin/categories": "200 — 9 L1 rows with id/name/slug/image/order",
+      "GET /api/admin/subcategories": "200 — 40 L2 rows with id/name/slug/image/l1_id",
+      "GET /api/admin/offers": "200 — 4 offers incl. unpublished",
+      "GET /api/admin/cms/search-destinations?q=wom": "200 — returns 5 buckets stores/products/categories/subcategories/offers; women L1 present"
+    },
+    "admin_writes": {
+      "PUT /api/admin/categories/l1-women redirect_url=/offers/test": "persisted; GET /api/categories shows redirect; cleared with empty string OK",
+      "PUT /api/admin/subcategories/{sid}": "redirect_url persisted; restored",
+      "PUT /api/admin/offers/{oid}": "title/subtitle/cta/redirect/rank/published all editable; restored"
+    },
+    "cloudinary_upload": {
+      "POST /api/admin/cms/upload small jpg": "200 with image_url + public_id under lokl/cms/*",
+      "POST /api/admin/cms/upload 6MB blob": "400 (size validation passes)"
+    },
+    "analytics": {
+      "POST /api/analytics/click hero": "{ok:true}",
+      "POST /api/analytics/click bad asset_type": "{ok:false} (validation works)",
+      "GET /api/admin/analytics/top-clicks asset_type=hero&days=7": "200 rows[] sorted desc by count",
+      "GET /api/admin/analytics/top-clicks asset_type=weird": "400"
+    },
+    "admin_cms_ui": {
+      "5_subtabs_visible": ["sections","hero","l1","l2","offers"],
+      "hero_editor_testids": ["cms-hero-editor","cms-hero-image-desktop","cms-hero-image-mobile","cms-hero-eyebrow","cms-hero-subtitle","cms-hero-title1","cms-hero-title2","cms-hero-cta-label","cms-hero-redirect","cms-hero-cta-link","cms-hero-save","cms-hero-preview-link"],
+      "hero_save_published_toast": "'Hero published — customers see changes within 60s'",
+      "l1_rows": "9 (cms-l1-row-*), each row has image+name+redirect+save",
+      "l2_groups": "4 collapsible L1 groups; expanding 'Women' surfaced 9 L2 rows",
+      "offers_rows": "4 cms-offer-row-*; cms-offer-create present; per-row controls verified on first row id=off-5ac40d4d",
+      "top_clicks_widget": ["cms-top-clicks","cms-clicks-block-hero","cms-clicks-block-category","cms-clicks-block-offer","cms-clicks-window-7","cms-clicks-window-30"]
+    },
+    "consumer_side": {
+      "hero-redirect-link present (1)": true,
+      "home-cat-* tiles (6)": true,
+      "offer-* tiles (4)": true,
+      "category click fired POST /api/analytics/click": "{asset_type:'category', asset_id:'l1-men', redirect_url:'/c/men'} captured on click of [data-testid=home-cat-men]"
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter26_cms.py",
+    "/app/test_reports/pytest/iter26.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:1177 POST /api/analytics/click silently returns {ok:false} for invalid asset_type instead of HTTP 400. Spec said 'asset_type validation rejects unknown values' — currently rejected but with 200 status. Frontends would not know to surface an error. Recommend HTTPException(400) on invalid asset_type for symmetry with GET /admin/analytics/top-clicks which returns 400.",
+    "server.py:1145 /admin/cms/search-destinations does not cap the response size of `q=''` (empty query) — returns up to 8 of each kind which is fine, but on a populated DB an empty `q` will return 40 docs total per request. Acceptable today (DB is empty per spec note) but consider requiring q.length >= 2 to avoid accidental large-set scans.",
+    "server.py:1100 ALLOWED_CATEGORY_FIELDS reused for both L1 categories and L2 subcategories. L2 subcategories cannot have their `l1_id` changed via PUT (correctly excluded), but the field 'order' is allowed on L2 even though subcategories may not have a meaningful per-L2 order today. Document or split the allow-list.",
+    "POST /api/analytics/click writes a Mongo doc per click without any rate limiting or de-duplication. A malicious user can balloon the asset_clicks collection. Recommend a TTL index + per-IP/per-session debounce on the consumer.",
+    "Backend FOLDER_MAP 'cms' entry — confirmed working (uploads under lokl/cms) but ensure the destructive Cloudinary cleanup migration (006) prefix-scans lokl/cms too, else orphan CMS images won't get garbage-collected.",
+    "Hero/Category/Offer 'redirect_url' is stored as a plain string with no validation. An admin could paste an external URL like 'https://evil.com' and the consumer would honour it (Next/Link will render an <a href>). Recommend a server-side allow-list (must start with '/' or match a known host)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter26_cms.py (new)"
+  ],
+  "success_rate": { "backend": "100% (16/16 pytest)", "frontend": "100% (admin CMS CRUD + consumer click tracking)" },
+  "test_credentials": "Admin admin@lokl.in / Admin@2026 — verified via /api/admin/login.",
+  "seed_data_creation": "None permanent. Hero subtitle edited+restored to 'Hand-picked fashion from trusted Bhilai stores.'. l1-women redirect_url set then cleared. First subcategory redirect_url set+restored. First offer fields temporarily mutated and restored. asset_clicks collection has ~6 net test events from the click-analytics test class (cannot purge from public endpoint; harmless).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-26 Homepage Asset CMS is fully shipped end-to-end. Backend tests live at /app/backend/tests/test_iter26_cms.py (rollback + admin CRUD + Cloudinary + analytics, 16 tests). Admin /admin route renders without Suspense fallback — safe for screenshots after wait_for_selector('cms-panel'). Consumer homepage hydrates ~2-3s; wait_for_timeout(4000) before clicking home-cat-* or offer-* tiles. Use cmd-click (modifier=Meta) on tiles to capture analytics POST without navigating away. Known soft-issue: POST /api/analytics/click returns 200 with {ok:false} for bad asset_type instead of HTTP 400 — main agent may want to harden that for symmetry. DB still empty of products/stores by design; destination-picker stores/products buckets return [] which is correct."
+}
