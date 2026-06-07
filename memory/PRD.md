@@ -3,6 +3,22 @@
 ## Vision
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
+
+## Iter-44 (Feb 2026) — Phase 3: Feature Parity Recovery (Customer + Merchant)
+
+**Done** (verified via iter-19 testing agent, 100% pass on all 3 features):
+- **Multi-store cart limit (max 2 stores)** — `src/stores/cart.store.ts` refactored: `addItem` now uses `distinctStores(items)` and rejects a 3rd unique `store_id` with `{success:false, conflict}`. `CartConflict` extended with `existing_store_names[]` and `max_stores`. Conflict toast wording updated in `ProductCardV2.tsx` and `ProductActions.tsx`.
+- **Inline size-selector on product cards** — `ProductCardV2.tsx`: when `p.sizes.length > 1`, the CTA reads "Select size" and tapping it reveals an inline pill strip (`p-card-sizes-<id>` + `p-card-size-<id>-<size>`) instead of silently adding `sizes[0]`. Single-size / sizeless products still use the immediate "Add" path.
+- **Merchant Online/Offline toggle** — New `src/components/merchant/OnlineToggle.tsx` (ported from legacy CRA `OnlineToggle.jsx`), mounted in `app/merchant/layout.tsx` sidebar above the user block. Only renders when `state.can_toggle === true` (published + ≥1 product + not paused). Wires `api.merchant.storeState()` + `api.merchant.setOnline()`.
+
+**Build note**: Frontend supervisor runs `next start`, so source edits require `cd /app/frontend && yarn build && sudo supervisorctl restart frontend` to surface in the preview bundle (testing agent enforced this).
+
+**Open (deferred to Phase 4)**:
+- Admin Gap-Filling: Bank approvals, store deletion, cancel order, Returns tab, Delivery OTP UI, Customers tab, live metrics.
+- Backlog: Location/serviceability gate (Bhilai geofence), Dynamic ETA, Order Number migration (BFO→LOKL), `bf_` key cleanup, AI Image Enhancement (Gemini Nano Banana).
+- Phase 2 (3 reported UI bugs): Wishlist count, Wishlist page empty, Product edit blank — still pending manual reproduction.
+
+
 ## Latest Iteration (Feb 2026 — Iter-39) — Stabilization: Cloudinary + Admin MVP + Merchant Products Restore
 
 **Done**:
