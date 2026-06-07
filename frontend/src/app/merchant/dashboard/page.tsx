@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { TrendingUp, ShoppingBag, Users, Sparkles, Package } from "lucide-react";
+import { TrendingUp, ShoppingBag, Users, Package } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { useMerchantAuthStore } from "@/stores";
 
@@ -27,9 +26,6 @@ export default function MerchantDashboardPage() {
           <p className="text-sm text-[#595959]">Welcome back, {merchant?.owner_name?.split(" ")[0]}</p>
           <h1 data-testid="dashboard-title" className="font-display text-4xl md:text-5xl font-bold text-[#1A2B4C] mt-1">{merchant?.store_name}</h1>
         </div>
-        <Link href="/merchant/ai-studio" data-testid="quick-ai-studio" className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-[#E68910] text-white font-semibold hover:bg-[#C9770E]">
-          <Sparkles size={16} /> Open AI Studio
-        </Link>
       </div>
 
       {stats && (

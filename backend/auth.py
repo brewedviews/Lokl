@@ -41,8 +41,17 @@ def create_token(user_id: str, role: str = "merchant", token_type: str = "access
     `token_type` is embedded in the payload so the /refresh endpoint can reject
     access tokens being replayed as refresh tokens and vice versa. Refresh
     tokens additionally carry a `jti` claim so they can be revoked on logout
-    (see `revoked_refresh_jti` collection)."""
-    delta = timedelta(days=JWT_REFRESH_DAYS) if token_type == "refresh" else timedelta(minutes=JWT_ACCESS_MIN)
+    (see `revoked_refresh_jti` collection).
+
+    Admin access tokens get an 8h TTL — admins work in the dashboard for hours
+    and the short JWT_ACCESS_MIN we use for customers/merchants made the panel
+    silently 401 mid-task (the visible 'Signature has expired' bug in iter-26)."""
+    if token_type == "refresh":
+        delta = timedelta(days=JWT_REFRESH_DAYS)
+    elif role == "admin":
+        delta = timedelta(hours=8)
+    else:
+        delta = timedelta(minutes=JWT_ACCESS_MIN)
     payload = {
         "sub": user_id,
         "role": role,

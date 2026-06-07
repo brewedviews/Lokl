@@ -1,7 +1,7 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
-import { MapPin, Bike } from "lucide-react";
+import { Bike } from "lucide-react";
 import { trackAssetClick } from "@/lib/api/admin";
 
 const FALLBACK_HERO_IMG =
@@ -27,7 +27,6 @@ interface Stats {
 export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfig | null }) {
   const img = hero?.image || FALLBACK_HERO_IMG;
   const mobileImg = hero?.mobile_image || img;
-  const eyebrow = hero?.eyebrow || "Serving Bhilai";
   const t1 = hero?.title_line1 || "Delivered in minutes from";
   const t2 = hero?.title_line2 || "stores next door.";
   const sub = hero?.subtitle || "Hand-picked fashion from trusted Bhilai stores.";
@@ -59,9 +58,6 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
       <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/95 via-[#FDFBF7]/80 to-[#FDFBF7]/30 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
       <div className="relative px-5 md:px-10 lg:px-12 py-6 md:py-10 min-h-[300px] md:min-h-[320px] flex flex-col justify-between md:justify-center max-w-2xl">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white shadow-sm text-[11px] font-semibold mb-3 md:mb-4 self-start text-[#0A1F5C] uppercase tracking-wide">
-            <MapPin size={12} className="text-[#F59E0B]" /> {eyebrow}
-          </div>
           <h1 className="font-display text-[28px] leading-[1.1] md:text-4xl lg:text-5xl font-bold tracking-tight text-[#0A1F5C]">
             {t1} <span className="text-[#F59E0B]">{t2}</span>
           </h1>

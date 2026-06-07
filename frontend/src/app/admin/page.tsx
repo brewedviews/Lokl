@@ -176,6 +176,11 @@ function MerchantsTab() {
   const [items, setItems] = useState<Merchant[]>([]);
   const [filter, setFilter] = useState<string>("submitted");
   const [busy, setBusy] = useState<string | null>(null);
+  // Inline Hold form state — replaces the legacy window.prompt() flow that
+  // shipped a 400 to the backend when the user dismissed the native prompt
+  // (the empty-string `reason` was being sent on Cancel).
+  const [holdingFor, setHoldingFor] = useState<string | null>(null);
+  const [holdComment, setHoldComment] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -206,15 +211,24 @@ function MerchantsTab() {
     finally { setBusy(null); }
   };
   const hold = async (mid: string) => {
-    const reason = window.prompt("Hold comment (what to fix):");
-    if (!reason) return;
+    const reason = holdComment.trim();
+    if (!reason) {
+      toast.error("Hold reason is required");
+      return;
+    }
     setBusy(mid);
     try {
       await adminFetch<{ ok: boolean }>(`/api/admin/merchants/${mid}/hold`, { method: "POST", body: JSON.stringify({ reason }) });
       toast.success("Merchant put on hold");
+      setHoldingFor(null);
+      setHoldComment("");
       void load();
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(null); }
+  };
+  const openHold = (mid: string) => {
+    setHoldingFor(mid);
+    setHoldComment("");
   };
 
   const openKycDoc = async (mid: string, doc: "pan_doc" | "gst_doc" | "cancelled_cheque") => {
@@ -258,11 +272,28 @@ function MerchantsTab() {
                   <button onClick={() => openKycDoc(m.id, "cancelled_cheque")} data-testid={`kyc-cheque-${m.id}`} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[#E5E2DC] hover:border-[#0A1F5C]"><FileText size={11} /> Cheque</button>
                   {m.kyc_status === "submitted" && <>
                     <button onClick={() => approve(m.id)} disabled={busy === m.id} data-testid={`approve-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#4F7363] text-white disabled:opacity-50">Approve</button>
-                    <button onClick={() => hold(m.id)} disabled={busy === m.id} data-testid={`hold-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#E68910] text-white disabled:opacity-50">Hold</button>
+                    <button onClick={() => openHold(m.id)} disabled={busy === m.id} data-testid={`hold-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#E68910] text-white disabled:opacity-50">Hold</button>
                     <button onClick={() => reject(m.id)} disabled={busy === m.id} data-testid={`reject-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-50">Reject</button>
                   </>}
                 </div>
               </div>
+              {holdingFor === m.id && (
+                <div className="mt-3 p-3 bg-[#FFF8E7] border border-[#F5D599] rounded-xl space-y-2" data-testid={`hold-form-${m.id}`}>
+                  <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Reason for hold (required)</label>
+                  <textarea
+                    value={holdComment}
+                    onChange={(e) => setHoldComment(e.target.value)}
+                    data-testid={`hold-comment-${m.id}`}
+                    rows={2}
+                    placeholder="e.g. PAN card image is blurry — please re-upload"
+                    className="w-full px-3 py-2 rounded-lg border border-[#E5E2DC] text-sm bg-white focus:border-[#0A1F5C] outline-none"
+                  />
+                  <div className="flex items-center justify-end gap-2">
+                    <button onClick={() => { setHoldingFor(null); setHoldComment(""); }} data-testid={`hold-cancel-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC] text-[#595959]">Cancel</button>
+                    <button onClick={() => hold(m.id)} disabled={busy === m.id || !holdComment.trim()} data-testid={`hold-confirm-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#E68910] text-white disabled:opacity-40">{busy === m.id ? "Saving…" : "Confirm Hold"}</button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

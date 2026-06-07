@@ -85,7 +85,7 @@ export default function MerchantOnboardingPage() {
                status === "rejected" ? "Please review the comments below and resubmit." :
                status === "on_hold" ? "Our team needs you to fix one thing before we can approve." :
                status === "submitted" ? "Our team will verify your documents within 24 hours." :
-               "Complete your KYC to unlock your AI-powered storefront."}
+               "Complete your KYC to unlock your Lokl storefront."}
             </div>
           </div>
         </div>

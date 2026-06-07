@@ -250,6 +250,18 @@ function createApiClient(): AxiosInstance {
         // token + emit the legacy `*-auth:change` event so guards across the
         // app react (legacy CustomerAccount listens to it today).
         clearToken(scope);
+        // Hard-bounce to the login surface so the user isn't stuck staring at
+        // a panel that silently 401s every interaction. Admin uses the inline
+        // login gate at /admin; merchant uses /merchant/login.
+        if (typeof window !== "undefined") {
+          const onAdminPath = window.location.pathname.startsWith("/admin");
+          const onMerchantPath = window.location.pathname.startsWith("/merchant");
+          if (scope === "admin" && onAdminPath && window.location.pathname !== "/admin") {
+            window.location.assign("/admin");
+          } else if (scope === "merchant" && onMerchantPath && !window.location.pathname.endsWith("/login")) {
+            window.location.assign("/merchant/login");
+          }
+        }
         return Promise.reject(refreshErr);
       }
     },

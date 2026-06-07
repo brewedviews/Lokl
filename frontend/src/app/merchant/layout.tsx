@@ -28,7 +28,7 @@ import { OnlineToggle } from "@/components/merchant/OnlineToggle";
 const PUBLIC = ["/merchant/login", "/merchant/register"];
 const APPROVED_ONLY = [
   "/merchant/orders", "/merchant/storefront", "/merchant/bank",
-  "/merchant/products", "/merchant/ai-studio", "/merchant/analytics",
+  "/merchant/products", "/merchant/analytics",
 ];
 
 export default function MerchantLayout({ children }: { children: React.ReactNode }) {

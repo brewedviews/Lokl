@@ -97,19 +97,19 @@ export function HomeClient() {
   const sectionRenderers: Record<string, React.ReactNode> = {
     hero: <HeroV2 key="hero" stats={stats} hero={hero} />,
     popular_in_city: trending.length > 0 ? (
-      <HCarousel key="trending" title="Trending now" subtitle="Most ordered products nearby this week" testid="home-trending" link="/categories" linkLabel="See all">
+      <HCarousel key="trending" title="Trending now" subtitle="Most ordered products nearby this week" testid="home-trending">
         {trending.map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
     ) : null,
     categories: <ShopByCategory key="categories" />,
     selling_fast: sellingFast.length > 0 ? (
-      <HCarousel key="selling_fast" title="Selling fast" subtitle="Don't miss out — limited stock" testid="home-selling-fast" link="/categories">
+      <HCarousel key="selling_fast" title="Selling fast" subtitle="Don't miss out — limited stock" testid="home-selling-fast">
         {sellingFast.map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
     ) : null,
     offers: offers.length > 0 ? <OffersStrip key="offers" offers={offers} /> : null,
     recently_viewed: recent.length > 0 ? (
-      <HCarousel key="recent" title="Recently added" subtitle="Fresh drops from Bhilai stores" testid="home-recent" link="/categories" linkLabel="See all">
+      <HCarousel key="recent" title="Recently added" subtitle="Fresh drops from Bhilai stores" testid="home-recent">
         {recent.map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
     ) : null,

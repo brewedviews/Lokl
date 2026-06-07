@@ -174,7 +174,7 @@ export function ProductCardV2({ p, compact = false }: Props) {
             data-testid={`p-card-add-${p.id}`}
             className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 rounded-full bg-[#F59E0B] text-white text-[12px] font-bold active:scale-95 transition shadow-[0_4px_12px_rgba(245,158,11,0.32)]"
           >
-            <ShoppingBag size={13} /> {(p.sizes?.length ?? 0) > 1 ? "Select size" : "Add"}
+            <ShoppingBag size={13} /> Add to Cart
           </button>
         ) : (
           <div className="flex items-center justify-between gap-1 py-1 px-1 rounded-full bg-[#F59E0B] text-white" data-testid={`p-card-qty-${p.id}`}>

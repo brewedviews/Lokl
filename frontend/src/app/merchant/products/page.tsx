@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Package, Plus, Sparkles, Download, ExternalLink, Upload, X, Star, Edit3, Loader2 } from "lucide-react";
+import { Package, Plus, Download, ExternalLink, Upload, X, Star, Edit3, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
@@ -225,9 +225,6 @@ export default function MerchantProductsPage() {
             <input ref={bulkInputRef} data-testid="bulk-csv" type="file" accept=".xlsx,.csv" className="hidden"
               onChange={(e) => { handleBulkUpload(e.target.files?.[0]); if (bulkInputRef.current) bulkInputRef.current.value = ""; }} />
           </label>
-          <a href="/merchant/ai-studio" data-testid="open-ai-studio" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#1A2B4C] text-white text-sm font-semibold hover:bg-[#0F1D38]">
-            <Sparkles size={14} /> AI Studio
-          </a>
           <button onClick={() => { setEditingId(null); setForm(blankForm); setOpenAdd(true); }} data-testid="add-product-btn" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#E68910] text-white text-sm font-semibold hover:bg-[#C9770E]">
             <Plus size={14} /> Add product
           </button>

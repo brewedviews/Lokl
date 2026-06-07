@@ -2,7 +2,7 @@
  * Slim consumer footer — single strip on desktop, wraps on mobile.
  * Ported visual parity from the legacy CRA Footer.jsx.
  */
-import { Mail, MapPin, Phone, Camera, Send, Globe } from "lucide-react";
+import { Mail, MapPin, Phone, Lock } from "lucide-react";
 
 export function Footer({ topGap = true }: { topGap?: boolean }) {
   const year = new Date().getFullYear();
@@ -21,14 +21,13 @@ export function Footer({ topGap = true }: { topGap?: boolean }) {
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] opacity-85" data-testid="footer-contact">
-          <span className="inline-flex items-center gap-1.5"><MapPin size={12} className="text-[#F59E0B]" /> Bhilai · Durg · Raipur</span>
-          <a href="mailto:hello@lokl.in" className="inline-flex items-center gap-1.5 hover:text-[#F59E0B] transition" data-testid="footer-email"><Mail size={12} className="text-[#F59E0B]" /> hello@lokl.in</a>
-          <a href="tel:+917000070000" className="inline-flex items-center gap-1.5 hover:text-[#F59E0B] transition" data-testid="footer-phone"><Phone size={12} className="text-[#F59E0B]" /> +91 70000 70000</a>
+          <span className="inline-flex items-center gap-1.5"><MapPin size={12} className="text-[#F59E0B]" /> Bhilai</span>
+          <a href="mailto:hello@shoplokl.in" className="inline-flex items-center gap-1.5 hover:text-[#F59E0B] transition" data-testid="footer-email"><Mail size={12} className="text-[#F59E0B]" /> hello@shoplokl.in</a>
+          <a href="tel:+917719052107" className="inline-flex items-center gap-1.5 hover:text-[#F59E0B] transition" data-testid="footer-phone"><Phone size={12} className="text-[#F59E0B]" /> +91 7719052107</a>
         </div>
-        <div className="flex items-center gap-2" data-testid="footer-social">
-          <a href="#" aria-label="Instagram" className="w-7 h-7 rounded-full bg-white/10 hover:bg-[#F59E0B] grid place-items-center transition"><Camera size={13} /></a>
-          <a href="#" aria-label="Twitter"   className="w-7 h-7 rounded-full bg-white/10 hover:bg-[#F59E0B] grid place-items-center transition"><Send size={13} /></a>
-          <a href="#" aria-label="Facebook"  className="w-7 h-7 rounded-full bg-white/10 hover:bg-[#F59E0B] grid place-items-center transition"><Globe size={13} /></a>
+        <div className="flex items-center gap-3 text-[11px] opacity-50" data-testid="footer-legal">
+          <span className="inline-flex items-center gap-1 cursor-not-allowed" data-testid="footer-privacy"><Lock size={10} /> Privacy Policy</span>
+          <span className="inline-flex items-center gap-1 cursor-not-allowed" data-testid="footer-terms"><Lock size={10} /> Terms &amp; Conditions</span>
         </div>
       </div>
       <div className="border-t border-white/10">
