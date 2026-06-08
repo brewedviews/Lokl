@@ -5,6 +5,46 @@ Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot lock
 
 
 
+## Iter-29 (Feb 2026) — Deferred features Items 1, 2, 4 (Item 6 deferred)
+
+User selected 3 of 4 remaining deferred items for this session, Item 6 (Excel exports, ~2h) deferred to the next session. All passed `testing_agent_v3_fork` iteration_29.json (backend pytest 10/10, frontend 100% Items 1/2/4).
+
+### Item 1 — Merchant Phone OTP Login (P0) ✅
+- **Backend** (`/app/backend/server.py`):
+  - `POST /api/auth/merchant/request-otp` (rate-limited `RATE_LIMIT_MERCHANT_OTP_REQUEST=5/min`): normalizes phone to last-10-digit canonical, looks up `db.merchants.find_one({phone_canonical})`. 404 with "No merchant account found. Please register first." if absent — intentional enumeration (merchant funnel is closed). Generates 6-digit OTP via `secrets.randbelow`, bcrypt-hashed, 10-min TTL upsert into `merchant_login_otps`. Twilio WhatsApp → SMS fallback via new `notify_merchant_otp` helper.
+  - `POST /api/auth/merchant/verify-otp` (rate-limited `=10/min`): same 5-attempt lockout + bcrypt verification as customer OTP. On success returns `{token, merchant}` envelope byte-identical to email login, sets refresh cookie. JWT subject is `merchant_id`, role=`merchant`.
+  - TTL index registered on `merchant_login_otps` collection.
+  - Bonus fix: email login's `storefront.online` dotted update was crashing for brand-new merchants where `storefront: null` — both email login and the new OTP-verify now guard with `isinstance(m.get("storefront"), dict)`.
+- **Frontend**:
+  - `/app/frontend/src/components/merchant/MerchantOtpLogin.tsx` — two-phase form (phone → 6-digit OTP) with 60s resend countdown, `Change number` back button.
+  - `/app/frontend/src/components/merchant/MerchantAuthForm.tsx` — adds `[data-testid="merchant-login-tabs"]` on the login screen only. Tab state lives inside the component; Email Login tab is the default and unchanged.
+  - `/app/frontend/src/lib/api/auth.ts` — new `requestMerchantOtp(phone)` + `verifyMerchantOtp(phone, otp)`.
+
+### Item 2 — Mandatory Merchant Location (Bhilai area + pincode + pin) (P0) ✅
+- **Bhilai fixture** (`/app/frontend/src/data/bhilai-areas.ts`): 12 areas (Sector 1/2/4/6/7/9, Supela, Nehru Nagar, Smriti Nagar, Risali, Kumhari, Jamul) with pincode + default lat/lng.
+- **Backend** (`/app/backend/server.py`):
+  - `StorefrontUpdate` schema (line 122) extended with `area`, `area_label`, `pincode`.
+  - `storefront_update` (line 2384) enforces lat/lng (400 "Pin your store…"), area (400 "Please select your area before saving."), and pincode (400 "Pincode is required.") in that order. Persists `area_slug`, `area_label`, `pincode`, and GeoJSON `location: {type: "Point", coordinates: [lng, lat]}` on the store doc so future radius queries with a 2dsphere index work.
+- **Frontend** (`/app/frontend/src/app/merchant/storefront/page.tsx`):
+  - `[data-testid="sf-area-picker"]` searchable native select above the location pin.
+  - `[data-testid="sf-pincode"]` numeric input (6 digits max). Picking an area auto-fills pincode and seeds lat/lng to the area centroid, but resets `pinPlaced=false` so the merchant must confirm via "Use current location".
+  - Inline error testids: `sf-area-error`, `sf-pincode-error`, `sf-pin-error`. Pin helper card `sf-pin-helper` appears only when area picked + pin not yet confirmed.
+  - On return / edit, the form pre-fills from `m.storefront.area_slug` + `pincode`; if saved coords exist, `pinPlaced=true` so the helper doesn't reappear.
+
+### Item 4 — L2 Category Navigation Gender Propagation (P0) ✅
+- **Audit finding**: L1 categories have no `gender` field in MongoDB; instead the L1 SLUG carries gender (`men`, `women`, `kids` → gendered; everything else → neutral). Backend product gender values are `women`, `men`, `unisex`, `kids`.
+- **Frontend** (`/app/frontend/src/components/consumer/CategoryClient.tsx`):
+  - New `genderFromL1Slug(slug)` helper returns `"women" | "men" | "kids" | ""`.
+  - `useSearchParams()` reads `?gender=` from the URL. State priority: **URL > slug-derived > ""**. The bug was a stale `""` fallback that always rendered as "Everyone".
+  - L2 tile hrefs on the L1 page append `?gender=<l1-derived>` so deep links round-trip context.
+  - Re-seeds gender on `useEffect([urlGender, derivedGender])` so client-side nav between two gendered categories resets the chip selection.
+
+### Out of scope (deferred to next session)
+- **Item 6** — Excel exports for admin (install `openpyxl`, 6 endpoints, frontend buttons). Estimated ~2h.
+
+
+
+
 ## Iter-27 (Feb 2026) — Deferred features Items 3, 5, 7 (3-of-7 chosen)
 
 User selected 3 items to ship properly with E2E verification rather than 7 half-baked. All passed `testing_agent_v3_fork` iteration_28.json (backend 11/11 pytest, frontend 100% Items 3/5/7).
