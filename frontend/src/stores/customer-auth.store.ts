@@ -1,15 +1,24 @@
 /**
- * Customer-auth Zustand store. Drop-in replacement for the legacy
- * localStorage reads + `customer-auth:change` event listeners in the CRA app.
+ * Customer-auth Zustand store.
  *
- * Migration day: the same key (`bf_customer_token`) + same event name means
- * an open browser tab on the old app shares a token with the new app.
+ * iter-27 (Item 3 fix) — Two-key model to avoid the persist-envelope collision:
  *
- * Hydration quirk:
- *   • Persisted state is `{ token, phone }` only — never the full Customer
- *     doc (avoids stale denormalized fields and keeps localStorage small).
- *   • `isAuthenticated` is computed from the presence of `token` after
- *     onRehydrateStorage runs.
+ *   1. `bf_customer_token` (RAW JWT mirror, legacy-compatible)
+ *      • Written by `setAuth`, removed by `clearAuth`.
+ *      • Consumed by `lib/api-client.ts` (Authorization header) AND by the
+ *        legacy CRA app on the same origin.
+ *      • Value: a bare JWT string. NEVER a JSON envelope.
+ *
+ *   2. `bf_customer_auth_v1` (zustand-persist envelope)
+ *      • Owned exclusively by this store.
+ *      • Holds `{ state: { token, phone }, version }` — Zustand's own format.
+ *      • The two keys never share a name, so `_syncFromStorage` reading the
+ *        raw mirror can never accidentally stuff the envelope back into
+ *        `state.token` (the bug that broke logout in iter-27 testing).
+ *
+ * Migration: any open browser tab with a deeply-nested envelope at
+ * `bf_customer_token` is healed on first store init by `_cleanupLegacyEnvelope`,
+ * which unwraps to a raw JWT (or removes the key if it's not a real token).
  */
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
@@ -32,8 +41,11 @@ interface CustomerAuthActions {
 
 type CustomerAuthStore = CustomerAuthState & CustomerAuthActions;
 
+/** Legacy raw-JWT mirror. Read by api-client and the old CRA app. */
 export const CUSTOMER_TOKEN_KEY = "bf_customer_token";
 export const CUSTOMER_PHONE_KEY = "bf_customer_phone";
+/** Zustand-persist key (state envelope). MUST differ from CUSTOMER_TOKEN_KEY. */
+const CUSTOMER_AUTH_STORE_KEY = "bf_customer_auth_v1";
 export const CUSTOMER_AUTH_EVENT = "customer-auth:change";
 
 const INITIAL: CustomerAuthState = {
@@ -43,6 +55,43 @@ const INITIAL: CustomerAuthState = {
   user: null,
 };
 
+/**
+ * Heal historical localStorage state that pre-dates the two-key split.
+ * Earlier builds let zustand-persist write its envelope to `bf_customer_token`,
+ * which sometimes nested up to 4 levels deep. Unwrap to a raw JWT here so the
+ * api-client never sees JSON and the store's `_syncFromStorage` reads a bare
+ * token. Runs exactly once at module init.
+ */
+function cleanupLegacyEnvelope(): void {
+  if (typeof window === "undefined") return;
+  const raw = localStorage.getItem(CUSTOMER_TOKEN_KEY);
+  if (!raw || !raw.startsWith("{")) return;  // already a raw JWT or absent
+  let value = raw;
+  for (let i = 0; i < 5; i++) {
+    if (!value.startsWith("{")) break;
+    try {
+      const parsed = JSON.parse(value) as { state?: { token?: string | null } };
+      const next = parsed?.state?.token;
+      if (typeof next !== "string") {
+        // null/missing token deep in the envelope → user is effectively signed out.
+        localStorage.removeItem(CUSTOMER_TOKEN_KEY);
+        return;
+      }
+      value = next;
+    } catch {
+      localStorage.removeItem(CUSTOMER_TOKEN_KEY);
+      return;
+    }
+  }
+  if (value.startsWith("ey")) {
+    localStorage.setItem(CUSTOMER_TOKEN_KEY, value);
+  } else {
+    localStorage.removeItem(CUSTOMER_TOKEN_KEY);
+  }
+}
+
+cleanupLegacyEnvelope();
+
 export const useCustomerAuthStore = create<CustomerAuthStore>()(
   persist(
     (set, get) => ({
@@ -51,8 +100,9 @@ export const useCustomerAuthStore = create<CustomerAuthStore>()(
       setAuth: (token, phone, user = null) => {
         set({ isAuthenticated: true, token, phone, user });
         if (typeof window !== "undefined") {
-          // Mirror the legacy companion key (some consumer components still
-          // read this raw before the migration is complete).
+          // Write the legacy RAW-JWT mirror so api-client + the old CRA app
+          // both see a usable bearer token. Never write an envelope here.
+          localStorage.setItem(CUSTOMER_TOKEN_KEY, token);
           localStorage.setItem(CUSTOMER_PHONE_KEY, phone);
           window.dispatchEvent(new Event(CUSTOMER_AUTH_EVENT));
         }
@@ -61,7 +111,11 @@ export const useCustomerAuthStore = create<CustomerAuthStore>()(
       clearAuth: () => {
         set({ ...INITIAL });
         if (typeof window !== "undefined") {
+          // Hard-clear both the raw mirror AND the persist envelope, so a
+          // refresh in the same tab cannot rehydrate the user.
+          localStorage.removeItem(CUSTOMER_TOKEN_KEY);
           localStorage.removeItem(CUSTOMER_PHONE_KEY);
+          localStorage.removeItem(CUSTOMER_AUTH_STORE_KEY);
           window.dispatchEvent(new Event(CUSTOMER_AUTH_EVENT));
         }
       },
@@ -73,29 +127,36 @@ export const useCustomerAuthStore = create<CustomerAuthStore>()(
 
       _syncFromStorage: () => {
         if (typeof window === "undefined") return;
-        const token = localStorage.getItem(CUSTOMER_TOKEN_KEY);
+        // Read the RAW-JWT mirror — never the persist envelope. Anything
+        // that doesn't look like a JWT is treated as signed-out.
+        const raw = localStorage.getItem(CUSTOMER_TOKEN_KEY);
+        const token = raw && raw.startsWith("ey") ? raw : null;
         const phone = localStorage.getItem(CUSTOMER_PHONE_KEY);
         set({
           isAuthenticated: !!token,
-          token: token ?? null,
+          token: token,
           phone: phone ?? null,
           // Don't blow away `user` — it's a runtime cache the other tab can't share.
         });
       },
     }),
     {
-      name: CUSTOMER_TOKEN_KEY,
+      name: CUSTOMER_AUTH_STORE_KEY,
       storage: createJSONStorage(() => localStorage),
-      // The legacy app stores the raw JWT string at `bf_customer_token`.
-      // Zustand-persist wraps state in {state, version} JSON; that would
-      // break the bare-string reader in the legacy api.js. We work around it
-      // with a custom partializer that ONLY persists fields readable on their
-      // own + a separate raw mirror set/cleared in setAuth/clearAuth above.
       partialize: (state) => ({ token: state.token, phone: state.phone }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
-        // Mark auth based on whether the rehydrated token survived.
-        state.isAuthenticated = !!state.token;
+        // After rehydration trust the RAW-JWT mirror as the source of truth.
+        // This way a legacy CRA logout (which cleared the mirror but not the
+        // envelope) still propagates as a sign-out in this app.
+        if (typeof window !== "undefined") {
+          const raw = localStorage.getItem(CUSTOMER_TOKEN_KEY);
+          const token = raw && raw.startsWith("ey") ? raw : null;
+          state.token = token;
+          state.isAuthenticated = !!token;
+        } else {
+          state.isAuthenticated = !!state.token;
+        }
       },
     },
   ),

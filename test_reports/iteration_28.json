@@ -1,0 +1,23 @@
+{
+  "summary": "Iter-28 RETEST: Item 3 customer auth store collision bug FIXED and fully validated end-to-end. Items 5 and 7 regression-tested and all pass. Backend pytest 11/11 PASS (re-run of test_iter27.py). Frontend Item 3: OTP login writes raw JWT to bf_customer_token (179 chars, starts 'ey', NOT envelope) + zustand persist envelope at bf_customer_auth_v1. Sign out fully clears all keys, dashboard disappears, OTP form returns, reload still shows OTP form. Fresh browser context (no localStorage) correctly shows OTP form. Item 5: KYC submitted merchant sees kyc-pulse + 'Your KYC is being reviewed' + 'This usually takes a few hours.' — polling sustains after 12s — admin approve flips status and page auto-navigates to /merchant/storefront within ~3s. Item 7 admin UI: Hero (1 paused, 1 nonclick), L1 Categories (9 paused, 9 nonclick), Offers (4 paused, 4 nonclick) all rendered with data-testids. Item 7 consumer hero: paused=false/non_clickable=false → hero-redirect-link, non_clickable=true → hero-static, paused=true → hero section disappears. All states restored to defaults at end.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter27.py",
+    "/app/test_reports/pytest/iter28.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Two-key model in customer-auth.store.ts (bf_customer_token raw JWT + bf_customer_auth_v1 zustand envelope) is sound. cleanupLegacyEnvelope() runs once at module init and heals deeply-nested envelopes from older builds. clearAuth() removes all three keys (token, phone, persist envelope). _syncFromStorage reads ONLY the raw mirror — never the envelope — so the recursive nesting bug is structurally impossible to recur.",
+    "Hero paused contract: /api/site/homepage-config strips hero to {paused: true} only when paused — verified across UI + pytest. non_clickable=true persists alongside other hero fields, correctly toggling consumer between hero-redirect-link and hero-static.",
+    "Admin CMS Homepage tab exposes data-testid for every paused/non_clickable toggle (cms-hero-*, cms-l1-*-<slug>, cms-offer-*-<id>). Hero sub-tab is reachable via 'Hero banner' button text (strict-mode match works with .first)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (11/11 pytest)", "frontend": "100% (Items 3, 5, 7 all PASS)"},
+  "test_credentials": "Admin admin@lokl.in / Admin@2026. Customer OTP via /var/log/supervisor/backend.err.log [OTP-DEBUG] lines (CUSTOMER_OTP_DEBUG=true). Fresh merchant TEST_iter28b_*@lokl.in / Iter28@2026 registered per run.",
+  "seed_data_creation": "None persistent — Item 5 registers a fresh TEST_iter28b_*@lokl.in merchant per run (KYC submit → approve flow). Items A/B/C of consumer hero test mutate /api/admin/site/homepage-config but the script always restores hero={paused:false, non_clickable:false} at the end (verified in logs).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Item 3 (customer auth) regression is locked: the two-key store model (bf_customer_token raw JWT + bf_customer_auth_v1 zustand envelope) survives login, cross-page nav, fresh-context isolation, sign-out, and reload. Item 5 KYC pulse → approve → /merchant/storefront redirect works within ~3-12s (polling interval is 10s). For Item 5 the merchant token must be planted at localStorage['lokl_merchant_auth'] as JSON {state:{token:<jwt>}, version:0} — plain bf_token alone is not enough on the Next.js build. test_iter27.py covers backend regression for Items 3/5/7 and passes 11/11.",
+  "rca of the issue": "Iter-27 bug was a name collision: zustand persist `name` = 'bf_customer_token' AND state field also called `token`. _syncFromStorage stuffed the envelope JSON back into state.token, and persist re-wrote, nesting forever. Fix in this iteration: persist now writes to 'bf_customer_auth_v1' (envelope), setAuth mirrors the raw JWT to 'bf_customer_token' (legacy api-client + CRA consumer), _syncFromStorage reads ONLY the raw mirror and ignores non-'ey'-prefixed values. clearAuth removes all three keys. cleanupLegacyEnvelope unwraps up to 5 levels of historical nesting on first paint."
+}
