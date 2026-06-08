@@ -21,19 +21,41 @@ export default function MerchantOnboardingPage() {
   const [notifs, setNotifs] = useState<Notif[]>([]);
 
   useEffect(() => {
-    const load = () => {
-      apiClient.get<KycStatusResp>("/api/merchant/kyc/status").then((r) => setData(r.data)).catch(() => {});
+    let lastSeen: string | undefined;
+    const load = async () => {
+      try {
+        const r = await apiClient.get<KycStatusResp>("/api/merchant/kyc/status");
+        setData(r.data);
+        const next = r.data?.kyc_status;
+        // Auto-redirect the moment admin moves the merchant out of "submitted"/"draft":
+        // approved → storefront, rejected → /merchant/kyc to fix issues.
+        // Previously the page just kept re-polling forever with a "KYC under review"
+        // banner even after the admin approved.
+        if (next && next !== lastSeen) {
+          lastSeen = next;
+          if (next === "approved") {
+            updateUser({ kyc_status: "approved" as Parameters<typeof updateUser>[0]["kyc_status"] });
+            router.replace("/merchant/storefront");
+            return;
+          }
+          if (next === "rejected" || next === "on_hold") {
+            updateUser({ kyc_status: next as Parameters<typeof updateUser>[0]["kyc_status"] });
+            router.replace("/merchant/kyc");
+            return;
+          }
+        }
+      } catch { /* keep polling */ }
       apiClient.get<Notif[]>("/api/merchant/notifications").then((r) => setNotifs(r.data)).catch(() => {});
     };
-    load();
-    // Smart redirect on first load
+    void load();
+    // Smart redirect on first load (existing behavior, kept)
     apiClient.get<{ path?: string; route?: string }>("/api/merchant/next-route").then(({ data: nr }) => {
       const route = nr?.path || nr?.route;
       if (route && route !== "/merchant/onboarding") router.replace(route);
     }).catch(() => {});
-    const i = setInterval(load, 8000);
+    const i = setInterval(load, 10000);
     return () => clearInterval(i);
-  }, [router]);
+  }, [router, updateUser]);
 
   const status = (data?.kyc_status as string) || merchant?.kyc_status || "draft";
   const holdComment = data?.merchant?.hold_comment;

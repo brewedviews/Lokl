@@ -101,8 +101,15 @@ export default function CustomerAccountPage() {
   const logout = async () => {
     if (!window.confirm("Sign out of this device?")) return;
     try { await apiClient.post("/api/auth/logout", {}); } catch { /* best-effort */ }
+    try { localStorage.removeItem("bf_customer_token"); localStorage.removeItem("bf_customer_phone"); } catch { /* private-mode */ }
     clearAuth();
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("customer-auth:change"));
     toast.success("Signed out");
+    // Hard-reload /account so the layout re-evaluates auth and shows OTP form.
+    // We use window.location instead of next/navigation router to also clear
+    // any in-memory client-side cache (Order/Address pages were holding stale
+    // state after a sign-out in the previous iteration).
+    if (typeof window !== "undefined") window.location.assign("/account");
   };
 
   const addresses = customer?.addresses ?? [];
