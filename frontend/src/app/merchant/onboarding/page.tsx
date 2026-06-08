@@ -99,14 +99,22 @@ export default function MerchantOnboardingPage() {
               {status === "approved" ? "KYC approved — you're in!" :
                status === "rejected" ? "KYC needs attention" :
                status === "on_hold" ? "KYC on hold — action needed" :
-               status === "submitted" ? "KYC under review" :
+               status === "submitted" ? (
+                 <span className="inline-flex items-center gap-2">
+                   <span data-testid="kyc-pulse" className="relative inline-flex h-2.5 w-2.5">
+                     <span className="absolute inline-flex h-full w-full rounded-full bg-[#E68910] opacity-75 animate-ping" />
+                     <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#E68910]" />
+                   </span>
+                   Your KYC is being reviewed
+                 </span>
+               ) :
                "Let's get started"}
             </div>
             <div className="text-sm text-[#595959] mt-0.5">
               {status === "approved" ? "Set up your storefront and start adding products." :
                status === "rejected" ? "Please review the comments below and resubmit." :
                status === "on_hold" ? "Our team needs you to fix one thing before we can approve." :
-               status === "submitted" ? "Our team will verify your documents within 24 hours." :
+               status === "submitted" ? "This usually takes a few hours. We'll move you forward automatically the moment you're approved — no need to refresh." :
                "Complete your KYC to unlock your Lokl storefront."}
             </div>
           </div>

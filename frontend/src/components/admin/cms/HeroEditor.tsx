@@ -101,6 +101,27 @@ export function HeroEditor() {
           </div>
           <Field label="Primary CTA link (fallback)" v={hero.cta_primary_link || ""} onChange={(v) => set("cta_primary_link", v)} testid="cms-hero-cta-link" />
         </div>
+
+        {/* iter-27 (Item 7) — admin toggles */}
+        <div className="flex flex-wrap items-center gap-5 pt-3 border-t border-[#F1F5F9]">
+          <Toggle
+            label="Make non-clickable"
+            hint="Render as a static banner (no link)."
+            checked={!!hero.non_clickable}
+            onChange={(v) => set("non_clickable", v)}
+            testid="cms-hero-nonclick"
+          />
+          <Toggle
+            label="Paused"
+            hint="Hide from the customer homepage. Stays editable here."
+            checked={!!hero.paused}
+            onChange={(v) => set("paused", v)}
+            testid="cms-hero-paused"
+          />
+          {hero.paused && (
+            <span className="ml-auto px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E] text-[10px] font-bold uppercase tracking-wider">Paused — hidden from customers</span>
+          )}
+        </div>
       </section>
 
       {/* Live preview */}
@@ -144,6 +165,25 @@ function Field({ label, v, onChange, testid }: { label: string; v: string; onCha
         type="text" value={v} onChange={(e) => onChange(e.target.value)} data-testid={testid}
         className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none"
       />
+    </label>
+  );
+}
+
+/** iter-27 (Item 7) — shared inline checkbox used across CMS editors. */
+function Toggle({ label, hint, checked, onChange, testid }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void; testid: string }) {
+  return (
+    <label className="inline-flex items-start gap-2 cursor-pointer select-none">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        data-testid={testid}
+        className="mt-0.5 h-3.5 w-3.5 accent-[#0A1F5C]"
+      />
+      <span className="leading-tight">
+        <span className="block text-[11px] font-bold text-[#0A1F5C]">{label}</span>
+        {hint && <span className="block text-[10px] text-[#94A3B8]">{hint}</span>}
+      </span>
     </label>
   );
 }

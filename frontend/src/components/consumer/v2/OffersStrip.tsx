@@ -14,6 +14,8 @@ interface Offer {
   redirect_url?: string;
   background?: string;
   bg?: string;
+  non_clickable?: boolean;
+  paused?: boolean;
 }
 
 export function OffersStrip({ offers }: { offers: Offer[] }) {
@@ -26,30 +28,52 @@ export function OffersStrip({ offers }: { offers: Offer[] }) {
       </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-8 px-4 sm:px-8 max-w-7xl mx-auto">
         {offers.map((o) => {
+          // iter-27 (Item 7) — backend already filters paused offers, but guard
+          // here too in case a stale cache slips through.
+          if (o.paused) return null;
           const href = o.redirect_url || o.cta_link || o.cta_href || "/categories";
+          const cardClass = "snap-start shrink-0 w-[78vw] sm:w-[340px] rounded-2xl overflow-hidden relative shadow-[0_8px_24px_rgba(10,31,92,0.12)] transition";
+          const cardStyle = { background: o.background || o.bg || "#0A1F5C" };
+          const inner = (
+            <div className="aspect-[16/9] relative">
+              {o.image && (
+                <Image src={o.image} alt={o.title} fill sizes="(max-width: 640px) 78vw, 340px" loading="lazy" className="object-cover opacity-70" />
+              )}
+              <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/30 to-transparent" />
+              <div className="absolute inset-0 p-5 flex flex-col justify-center text-white">
+                <div className="text-[10px] uppercase tracking-widest font-bold opacity-90">Limited time</div>
+                <div className="text-xl font-display font-bold mt-1 leading-tight">{o.title}</div>
+                <div className="text-sm opacity-95 mt-1">{o.subtitle}</div>
+                {!o.non_clickable && (
+                  <div className="mt-3 inline-flex items-center gap-1 text-xs font-bold">
+                    {o.cta_label || "Shop now"} →
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+          if (o.non_clickable) {
+            return (
+              <div
+                key={o.id}
+                data-testid={`offer-${o.id}`}
+                className={`${cardClass} cursor-default`}
+                style={cardStyle}
+              >
+                {inner}
+              </div>
+            );
+          }
           return (
             <Link
               key={o.id}
               href={href}
               onClick={() => void trackAssetClick("offer", o.id, href)}
               data-testid={`offer-${o.id}`}
-              className="snap-start shrink-0 w-[78vw] sm:w-[340px] rounded-2xl overflow-hidden relative shadow-[0_8px_24px_rgba(10,31,92,0.12)] active:scale-[0.98] transition"
-              style={{ background: o.background || o.bg || "#0A1F5C" }}
+              className={`${cardClass} active:scale-[0.98]`}
+              style={cardStyle}
             >
-              <div className="aspect-[16/9] relative">
-                {o.image && (
-                  <Image src={o.image} alt={o.title} fill sizes="(max-width: 640px) 78vw, 340px" loading="lazy" className="object-cover opacity-70" />
-                )}
-                <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/30 to-transparent" />
-                <div className="absolute inset-0 p-5 flex flex-col justify-center text-white">
-                  <div className="text-[10px] uppercase tracking-widest font-bold opacity-90">Limited time</div>
-                  <div className="text-xl font-display font-bold mt-1 leading-tight">{o.title}</div>
-                  <div className="text-sm opacity-95 mt-1">{o.subtitle}</div>
-                  <div className="mt-3 inline-flex items-center gap-1 text-xs font-bold">
-                    {o.cta_label || "Shop now"} →
-                  </div>
-                </div>
-              </div>
+              {inner}
             </Link>
           );
         })}

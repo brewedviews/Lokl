@@ -108,6 +108,8 @@ export interface HeroConfig {
   redirect_url?: string;
   show_stats?: boolean;
   show_usp_chips?: boolean;
+  paused?: boolean;
+  non_clickable?: boolean;
 }
 
 export interface HomepageSection {

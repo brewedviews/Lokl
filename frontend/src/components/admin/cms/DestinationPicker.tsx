@@ -77,7 +77,6 @@ export function DestinationPicker({ value, onChange, testid, placeholder }: Prop
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onFocus={() => setOpen(true)}
           placeholder={placeholder || "Redirect URL (e.g. /c/women) or pick →"}
           data-testid={`${testid}-input`}
           className="flex-1 px-2 py-1.5 text-[11px] bg-transparent outline-none"

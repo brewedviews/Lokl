@@ -18,6 +18,8 @@ export interface CmsCategory {
   image?: string;
   redirect_url?: string;
   order?: number;
+  paused?: boolean;
+  non_clickable?: boolean;
 }
 
 export interface CmsSubcategory {
@@ -27,6 +29,8 @@ export interface CmsSubcategory {
   l1_id: string;
   image?: string;
   redirect_url?: string;
+  paused?: boolean;
+  non_clickable?: boolean;
 }
 
 export interface CmsOffer {
@@ -41,6 +45,8 @@ export interface CmsOffer {
   rank: number;
   published: boolean;
   expires_at?: string | null;
+  paused?: boolean;
+  non_clickable?: boolean;
 }
 
 export type CmsDestinationKind =

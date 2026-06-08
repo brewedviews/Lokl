@@ -17,6 +17,8 @@ interface HeroConfig {
   redirect_url?: string;
   cta_primary_label?: string;
   cta_primary_link?: string;
+  paused?: boolean;
+  non_clickable?: boolean;
 }
 
 interface Stats {
@@ -25,6 +27,9 @@ interface Stats {
 
 /** Hero card with cream wash over Bhilai backdrop. Ported from CRA HeroV2.jsx. */
 export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfig | null }) {
+  // iter-27 (Item 7) — admin paused this hero. Hide entirely from consumers.
+  if (hero?.paused) return null;
+
   const img = hero?.image || FALLBACK_HERO_IMG;
   const mobileImg = hero?.mobile_image || img;
   const t1 = hero?.title_line1 || "Delivered in minutes from";
@@ -32,6 +37,8 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
   const sub = hero?.subtitle || "Hand-picked fashion from trusted Bhilai stores.";
   const eta = stats?.fastest_eta_min || 30;
   const redirect = hero?.redirect_url || hero?.cta_primary_link || "";
+  // iter-27 (Item 7) — non_clickable forces static render even if a redirect is set.
+  const clickable = !hero?.non_clickable && !!redirect;
 
   const onClick = () => {
     if (redirect) void trackAssetClick("hero", "homepage", redirect);
@@ -88,13 +95,13 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
   return (
     <section data-testid="hero-v2" className="relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-4 md:pt-6">
-        {redirect ? (
+        {clickable ? (
           <Link href={redirect} onClick={onClick} data-testid="hero-redirect-link"
                 className="block relative rounded-2xl overflow-hidden bg-[#1A2B4C] min-h-[300px] md:min-h-[320px]">
             {inner}
           </Link>
         ) : (
-          <div className="relative rounded-2xl overflow-hidden bg-[#1A2B4C] min-h-[300px] md:min-h-[320px]">
+          <div className="relative rounded-2xl overflow-hidden bg-[#1A2B4C] min-h-[300px] md:min-h-[320px]" data-testid="hero-static">
             {inner}
           </div>
         )}

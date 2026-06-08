@@ -85,14 +85,29 @@ export function CategoryClient({ l2slug = "" }: Props) {
             <>
               <p className="text-[#595959] text-sm mt-1">Browse {l1.name.toLowerCase()} by category</p>
               <div className="mt-6 grid grid-cols-3 md:grid-cols-5 gap-3 md:gap-4">
-                {l1.l2!.map((s) => (
-                  <Link key={s.id} href={`/c/${l1.slug}/${s.slug}`} data-testid={`l2-${s.slug}`} className="group rounded-2xl active:scale-95 transition">
-                    <div className="relative aspect-square rounded-2xl overflow-hidden bg-white border border-[#E5E2DC]">
-                      {s.image && <Image src={s.image} alt={s.name} fill sizes="(max-width: 768px) 33vw, 20vw" className="object-cover group-hover:scale-110 transition duration-500" />}
-                    </div>
-                    <div className="text-center mt-2 text-xs font-medium text-[#1C1C1C]">{s.name}</div>
-                  </Link>
-                ))}
+                {l1.l2!.map((s) => {
+                  // iter-27 (Item 7) — non_clickable L2 renders as a static tile.
+                  const inner = (
+                    <>
+                      <div className="relative aspect-square rounded-2xl overflow-hidden bg-white border border-[#E5E2DC]">
+                        {s.image && <Image src={s.image} alt={s.name} fill sizes="(max-width: 768px) 33vw, 20vw" className="object-cover group-hover:scale-110 transition duration-500" />}
+                      </div>
+                      <div className="text-center mt-2 text-xs font-medium text-[#1C1C1C]">{s.name}</div>
+                    </>
+                  );
+                  if ((s as { non_clickable?: boolean }).non_clickable) {
+                    return (
+                      <div key={s.id} data-testid={`l2-${s.slug}`} className="group rounded-2xl transition cursor-default">
+                        {inner}
+                      </div>
+                    );
+                  }
+                  return (
+                    <Link key={s.id} href={(s as { redirect_url?: string }).redirect_url || `/c/${l1.slug}/${s.slug}`} data-testid={`l2-${s.slug}`} className="group rounded-2xl active:scale-95 transition">
+                      {inner}
+                    </Link>
+                  );
+                })}
               </div>
             </>
           ) : (

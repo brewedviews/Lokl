@@ -37,6 +37,8 @@ export function L2SubcategoriesEditor() {
         name: row.name,
         image: row.image,
         redirect_url: row.redirect_url || "",
+        paused: !!row.paused,
+        non_clickable: !!row.non_clickable,
       });
       setL2((r) => r?.map((s) => s.id === row.id ? updated : s) || null);
       setDirty((d) => { const n = { ...d }; delete n[row.id]; return n; });
@@ -78,7 +80,7 @@ export function L2SubcategoriesEditor() {
             {isOpen && (
               <div className="px-4 pb-4 space-y-3 border-t border-[#F1F5F9] pt-4">
                 {subs.map((s) => (
-                  <div key={s.id} data-testid={`cms-l2-row-${s.id}`} className="border border-[#E5E2DC] rounded-xl p-3 grid grid-cols-1 lg:grid-cols-[140px_1fr_auto] gap-3 items-start">
+                  <div key={s.id} data-testid={`cms-l2-row-${s.id}`} className={`border border-[#E5E2DC] rounded-xl p-3 grid grid-cols-1 lg:grid-cols-[140px_1fr_auto] gap-3 items-start transition-opacity ${s.paused ? "opacity-50" : ""}`}>
                     <ImageUploadField
                       label={s.name} recommended="600×600"
                       value={s.image || ""} onChange={(v) => patch(s.id, { image: v })}
@@ -100,6 +102,30 @@ export function L2SubcategoriesEditor() {
                           testid={`cms-l2-redirect-${s.id}`}
                           placeholder={`Default: /c/${s.slug}`}
                         />
+                      </div>
+                      {/* iter-27 (Item 7) — paused + non-clickable toggles */}
+                      <div className="sm:col-span-2 flex flex-wrap items-center gap-4 pt-1">
+                        <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] font-semibold text-[#0A1F5C]">
+                          <input
+                            type="checkbox" checked={!!s.non_clickable}
+                            onChange={(e) => patch(s.id, { non_clickable: e.target.checked })}
+                            data-testid={`cms-l2-nonclick-${s.id}`}
+                            className="h-3.5 w-3.5 accent-[#0A1F5C]"
+                          />
+                          Non-clickable
+                        </label>
+                        <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] font-semibold text-[#0A1F5C]">
+                          <input
+                            type="checkbox" checked={!!s.paused}
+                            onChange={(e) => patch(s.id, { paused: e.target.checked })}
+                            data-testid={`cms-l2-paused-${s.id}`}
+                            className="h-3.5 w-3.5 accent-[#0A1F5C]"
+                          />
+                          Paused
+                        </label>
+                        {s.paused && (
+                          <span className="px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E] text-[10px] font-bold uppercase tracking-wider">Hidden</span>
+                        )}
                       </div>
                     </div>
                     <button

@@ -36,6 +36,8 @@ export function L1CategoriesEditor() {
         name: row.name,
         image: row.image,
         redirect_url: row.redirect_url || "",
+        paused: !!row.paused,
+        non_clickable: !!row.non_clickable,
       });
       setRows((r) => r?.map((c) => c.id === row.id ? updated : c) || null);
       setDirty((d) => { const n = { ...d }; delete n[row.id]; return n; });
@@ -58,7 +60,7 @@ export function L1CategoriesEditor() {
 
       <div className="space-y-3">
         {rows.map((c) => (
-          <div key={c.id} data-testid={`cms-l1-row-${c.slug}`} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-[180px_1fr_auto] gap-4 items-start">
+          <div key={c.id} data-testid={`cms-l1-row-${c.slug}`} className={`bg-white border border-[#E5E2DC] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-[180px_1fr_auto] gap-4 items-start transition-opacity ${c.paused ? "opacity-50" : ""}`}>
             <ImageUploadField
               label={`${c.name} image`} recommended="800×800"
               value={c.image || ""} onChange={(v) => patch(c.id, { image: v })}
@@ -90,6 +92,30 @@ export function L1CategoriesEditor() {
                      className="inline-flex items-center gap-1 ml-auto text-[#0A1F5C] font-semibold">
                     Preview <ExternalLink size={9} />
                   </a>
+                )}
+              </div>
+              {/* iter-27 (Item 7) — paused + non-clickable toggles */}
+              <div className="sm:col-span-2 flex flex-wrap items-center gap-5 pt-2 border-t border-[#F1F5F9]">
+                <label className="inline-flex items-center gap-2 cursor-pointer text-[11px] font-semibold text-[#0A1F5C]">
+                  <input
+                    type="checkbox" checked={!!c.non_clickable}
+                    onChange={(e) => patch(c.id, { non_clickable: e.target.checked })}
+                    data-testid={`cms-l1-nonclick-${c.slug}`}
+                    className="h-3.5 w-3.5 accent-[#0A1F5C]"
+                  />
+                  Make non-clickable
+                </label>
+                <label className="inline-flex items-center gap-2 cursor-pointer text-[11px] font-semibold text-[#0A1F5C]">
+                  <input
+                    type="checkbox" checked={!!c.paused}
+                    onChange={(e) => patch(c.id, { paused: e.target.checked })}
+                    data-testid={`cms-l1-paused-${c.slug}`}
+                    className="h-3.5 w-3.5 accent-[#0A1F5C]"
+                  />
+                  Paused
+                </label>
+                {c.paused && (
+                  <span className="px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E] text-[10px] font-bold uppercase tracking-wider">Hidden from customers</span>
                 )}
               </div>
             </div>

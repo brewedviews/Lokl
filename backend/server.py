@@ -497,9 +497,11 @@ async def merchant_next_route(user: dict = Depends(get_current_user)):
 # ===== Categories =====
 @api.get("/categories")
 async def list_categories():
-    """Returns L1 categories with their L2 children."""
-    cats = await db.categories.find({}, {"_id": 0}).sort("order", 1).to_list(50)
-    l2s = await db.subcategories.find({}, {"_id": 0}).to_list(200)
+    """Returns L1 categories with their L2 children. Filters out admin-paused
+    L1 and L2 rows (iter-27 Item 7) — paused entries are hidden from the
+    customer-facing site entirely."""
+    cats = await db.categories.find({"paused": {"$ne": True}}, {"_id": 0}).sort("order", 1).to_list(50)
+    l2s = await db.subcategories.find({"paused": {"$ne": True}}, {"_id": 0}).to_list(200)
     by_l1 = {}
     for s in l2s:
         by_l1.setdefault(s["l1_id"], []).append(s)
@@ -714,7 +716,11 @@ async def search_track(payload: dict):
 async def list_offers():
     now = datetime.now(timezone.utc).isoformat()
     rows = await db.offers.find(
-        {"published": True, "$or": [{"expires_at": None}, {"expires_at": {"$gt": now}}]},
+        {
+            "published": True,
+            "paused": {"$ne": True},
+            "$or": [{"expires_at": None}, {"expires_at": {"$gt": now}}],
+        },
         {"_id": 0}
     ).sort("rank", 1).to_list(20)
     return rows
@@ -1063,6 +1069,9 @@ async def admin_delete_offer(oid: str, user: dict = Depends(get_current_user)):
 ALLOWED_OFFER_FIELDS = {
     "title", "subtitle", "image", "cta_label", "cta_link",
     "background", "rank", "published", "expires_at", "redirect_url",
+    # iter-27 (Item 7): admin can pause an offer (hides from public feed)
+    # or make it non-clickable (renders as <div>, no link).
+    "paused", "non_clickable",
 }
 
 
@@ -1074,6 +1083,10 @@ async def admin_update_offer(oid: str, payload: dict, user: dict = Depends(get_c
         update["rank"] = int(update["rank"])
     if "published" in update:
         update["published"] = bool(update["published"])
+    if "paused" in update:
+        update["paused"] = bool(update["paused"])
+    if "non_clickable" in update:
+        update["non_clickable"] = bool(update["non_clickable"])
     update["updated_at"] = datetime.now(timezone.utc).isoformat()
     r = await db.offers.update_one({"id": oid}, {"$set": update})
     if r.matched_count == 0:
@@ -1097,7 +1110,7 @@ async def admin_list_categories(user: dict = Depends(get_current_user)):
     return rows
 
 
-ALLOWED_CATEGORY_FIELDS = {"name", "image", "redirect_url", "order"}
+ALLOWED_CATEGORY_FIELDS = {"name", "image", "redirect_url", "order", "paused", "non_clickable"}
 
 
 @api.put("/admin/categories/{cid}")
@@ -1106,6 +1119,10 @@ async def admin_update_category(cid: str, payload: dict, user: dict = Depends(ge
     update = {k: v for k, v in payload.items() if k in ALLOWED_CATEGORY_FIELDS}
     if "order" in update:
         update["order"] = int(update["order"])
+    if "paused" in update:
+        update["paused"] = bool(update["paused"])
+    if "non_clickable" in update:
+        update["non_clickable"] = bool(update["non_clickable"])
     update["updated_at"] = datetime.now(timezone.utc).isoformat()
     r = await db.categories.update_one({"id": cid}, {"$set": update})
     if r.matched_count == 0:
@@ -1126,6 +1143,10 @@ async def admin_list_subcategories(user: dict = Depends(get_current_user), l1_id
 async def admin_update_subcategory(sid: str, payload: dict, user: dict = Depends(get_current_user)):
     _admin_only(user)
     update = {k: v for k, v in payload.items() if k in ALLOWED_CATEGORY_FIELDS}
+    if "paused" in update:
+        update["paused"] = bool(update["paused"])
+    if "non_clickable" in update:
+        update["non_clickable"] = bool(update["non_clickable"])
     update["updated_at"] = datetime.now(timezone.utc).isoformat()
     r = await db.subcategories.update_one({"id": sid}, {"$set": update})
     if r.matched_count == 0:
@@ -1257,7 +1278,7 @@ async def admin_delete_testimonial(tid: str, user: dict = Depends(get_current_us
 @api.get("/categories/counts")
 async def categories_with_counts():
     sids = await _visible_online_store_ids()
-    cats = await db.categories.find({}, {"_id": 0}).sort("order", 1).to_list(50)
+    cats = await db.categories.find({"paused": {"$ne": True}}, {"_id": 0}).sort("order", 1).to_list(50)
     if not sids:
         for c in cats: c["product_count"] = 0
         return cats
@@ -1302,6 +1323,9 @@ DEFAULT_HERO = {
     "cta_secondary_label": "Shop Men", "cta_secondary_link": "/c/men",
     "redirect_url": "",  # iter-26 CMS — overrides cta_primary_link when set (whole banner clickable)
     "show_stats": True, "show_usp_chips": True,
+    # iter-27 (Item 7): admin toggles. paused → hero hidden from consumers.
+    # non_clickable → renders as <div> instead of <Link>.
+    "paused": False, "non_clickable": False,
 }
 
 
@@ -1318,6 +1342,15 @@ async def _get_site_config() -> dict:
     if "hero" not in doc:
         doc["hero"] = DEFAULT_HERO
         await db.site_config.update_one({"id": "homepage"}, {"$set": {"hero": doc["hero"]}})
+    # iter-27 (Item 7) — backfill new toggles on legacy hero docs so the admin
+    # editor sees explicit `false` checkboxes and the consumer code never has
+    # to guess between "missing" and "off".
+    hero = doc.get("hero") or {}
+    missing = {k: v for k, v in {"paused": False, "non_clickable": False}.items() if k not in hero}
+    if missing:
+        hero.update(missing)
+        doc["hero"] = hero
+        await db.site_config.update_one({"id": "homepage"}, {"$set": {f"hero.{k}": v for k, v in missing.items()}})
     doc.pop("_id", None)
     return doc
 
@@ -1326,6 +1359,13 @@ async def _get_site_config() -> dict:
 async def public_homepage_config():
     cfg = await _get_site_config()
     cfg["sections"] = sorted(cfg["sections"], key=lambda s: s.get("rank", 999))
+    # iter-27 (Item 7): when paused, signal it to the consumer with just the
+    # paused flag — HeroV2 reads `hero.paused` and renders null. We keep the
+    # field rather than nulling the whole object so the front-end doesn't fall
+    # back to its hard-coded default hero image.
+    hero = cfg.get("hero") or {}
+    if hero.get("paused"):
+        cfg["hero"] = {"paused": True}
     return cfg
 
 

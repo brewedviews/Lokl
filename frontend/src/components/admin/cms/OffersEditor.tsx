@@ -38,6 +38,7 @@ export function OffersEditor() {
         title: row.title, subtitle: row.subtitle, image: row.image,
         cta_label: row.cta_label, cta_link: row.cta_link, redirect_url: row.redirect_url || "",
         background: row.background, rank: row.rank, published: row.published,
+        paused: !!row.paused, non_clickable: !!row.non_clickable,
       });
       setRows((rs) => rs?.map((o) => o.id === row.id ? r : o) || null);
       setDirty((d) => { const n = { ...d }; delete n[row.id]; return n; });
@@ -111,7 +112,7 @@ export function OffersEditor() {
 
       <div className="space-y-3">
         {sorted.map((o, i) => (
-          <div key={o.id} data-testid={`cms-offer-row-${o.id}`} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-[260px_1fr_auto] gap-4 items-start">
+          <div key={o.id} data-testid={`cms-offer-row-${o.id}`} className={`bg-white border border-[#E5E2DC] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-[260px_1fr_auto] gap-4 items-start transition-opacity ${o.paused ? "opacity-50" : ""}`}>
             <ImageUploadField
               label={o.title} recommended="1200×675"
               value={o.image || ""} onChange={(v) => patch(o.id, { image: v })}
@@ -145,6 +146,30 @@ export function OffersEditor() {
                     placeholder="/offers/festive-sale or /c/women"
                   />
                 </div>
+              </div>
+              {/* iter-27 (Item 7) — paused + non-clickable toggles */}
+              <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-[#F1F5F9]">
+                <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] font-semibold text-[#0A1F5C]">
+                  <input
+                    type="checkbox" checked={!!o.non_clickable}
+                    onChange={(e) => patch(o.id, { non_clickable: e.target.checked })}
+                    data-testid={`cms-offer-nonclick-${o.id}`}
+                    className="h-3.5 w-3.5 accent-[#0A1F5C]"
+                  />
+                  Make non-clickable
+                </label>
+                <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] font-semibold text-[#0A1F5C]">
+                  <input
+                    type="checkbox" checked={!!o.paused}
+                    onChange={(e) => patch(o.id, { paused: e.target.checked })}
+                    data-testid={`cms-offer-paused-${o.id}`}
+                    className="h-3.5 w-3.5 accent-[#0A1F5C]"
+                  />
+                  Paused
+                </label>
+                {o.paused && (
+                  <span className="px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E] text-[10px] font-bold uppercase tracking-wider">Hidden from customers</span>
+                )}
               </div>
             </div>
             <div className="flex lg:flex-col items-center gap-2">

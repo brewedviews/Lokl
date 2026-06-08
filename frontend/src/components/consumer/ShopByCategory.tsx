@@ -22,7 +22,7 @@ import { api } from "@/lib/api";
 import { trackAssetClick } from "@/lib/api/admin";
 import type { CategoryCount } from "@/types";
 
-type CategoryRow = CategoryCount & { slug: string; id?: string; product_count?: number; redirect_url?: string };
+type CategoryRow = CategoryCount & { slug: string; id?: string; product_count?: number; redirect_url?: string; non_clickable?: boolean; paused?: boolean };
 
 // Display order + display name overrides. The spec spells "Beauty &
 // Personal Care" but the DB row is just "Beauty" — we override here.
@@ -65,15 +65,14 @@ export function ShopByCategory() {
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3 sm:gap-4">
           {VISIBLE.map(({ slug, label }) => {
             const row = byCat.get(slug);
+            // iter-27 (Item 7) — admin paused this tile. Skip rendering. The
+            // backend already filters it from /api/categories/counts, this is
+            // a belt-and-suspenders guard in case stale data is in memory.
+            if (row?.paused) return null;
             const href = row?.redirect_url || `/c/${slug}`;
-            return (
-              <Link
-                key={slug}
-                href={href}
-                onClick={() => void trackAssetClick("category", row?.id || slug, href)}
-                data-testid={`home-cat-${slug}`}
-                className="group bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-[0_2px_8px_rgba(10,31,92,0.06)] hover:shadow-md transition active:scale-95"
-              >
+            const nonClickable = !!row?.non_clickable;
+            const inner = (
+              <>
                 <div className="relative aspect-square bg-slate-100">
                   {row?.image ? (
                     <Image
@@ -93,6 +92,29 @@ export function ShopByCategory() {
                     </div>
                   )}
                 </div>
+              </>
+            );
+            const baseClass = "group bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition";
+            if (nonClickable) {
+              return (
+                <div
+                  key={slug}
+                  data-testid={`home-cat-${slug}`}
+                  className={`${baseClass} cursor-default`}
+                >
+                  {inner}
+                </div>
+              );
+            }
+            return (
+              <Link
+                key={slug}
+                href={href}
+                onClick={() => void trackAssetClick("category", row?.id || slug, href)}
+                data-testid={`home-cat-${slug}`}
+                className={`${baseClass} hover:shadow-md active:scale-95`}
+              >
+                {inner}
               </Link>
             );
           })}
