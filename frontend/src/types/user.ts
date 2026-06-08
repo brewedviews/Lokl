@@ -103,6 +103,11 @@ export interface MerchantStorefront {
   lat: number | null;
   lng: number | null;
   online?: boolean;
+  // iter-29 (Item 2) — mandatory Bhilai-area picker + pincode.
+  area?: string;
+  area_label?: string;
+  area_slug?: string;
+  pincode?: string;
 }
 
 export interface MerchantNotification {

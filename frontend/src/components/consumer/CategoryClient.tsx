@@ -4,9 +4,18 @@
  * Category L1 (and L2 via [...l2slug] sub-route, handled by the same UI).
  * Renders L2 tiles when the user is on `/c/[slug]` AND the category has
  * L2 children; otherwise shows the product grid filtered by gender + sort.
+ *
+ * iter-29 (Item 4) — Gender context propagation:
+ *  • L1 slugs `women`, `men`, `kids` implicitly carry a gender. We derive
+ *    the default gender from the slug so a tap on "Men → Shirts" lands on
+ *    `men` Shirts, not "everyone Shirts" mixing the genders.
+ *  • L2 tiles on a gendered L1 page pass `?gender=...` so a deep link
+ *    captures the same context for sharing and back-nav.
+ *  • The URL `?gender=` query param wins over the slug fallback so the user
+ *    can intentionally browse `?gender=unisex` etc.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { SlidersHorizontal } from "lucide-react";
@@ -25,19 +34,43 @@ interface Props {
   l2slug?: string;
 }
 
+/** Maps an L1 slug to the backend `gender` filter value. Returns "" for
+ * L1s that are intrinsically gender-neutral (footwear, electronics, …). */
+function genderFromL1Slug(slug: string | undefined): string {
+  switch (slug) {
+    case "women": return "women";
+    case "men": return "men";
+    case "kids": return "kids";
+    default: return "";
+  }
+}
+
 export function CategoryClient({ l2slug = "" }: Props) {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
+  const searchParams = useSearchParams();
+  const urlGender = searchParams?.get("gender") ?? "";
+  const derivedGender = genderFromL1Slug(slug);
   const [cats, setCats] = useState<Cat[]>([]);
   const [products, setProducts] = useState<ProductCard[]>([]);
   const [offers, setOffers] = useState<OfferDoc[]>([]);
-  const [gender, setGender] = useState("");
+  // iter-29 (Item 4) — pre-select the gender from URL (highest priority) or
+  // derive from L1 slug. NEVER fall back to "Everyone" when the L1 implies
+  // a gender — that was the bug.
+  const [gender, setGender] = useState<string>(urlGender || derivedGender || "");
   const [sort, setSort] = useState("trending");
 
   const l1 = useMemo(() => cats.find((c) => c.slug === slug), [cats, slug]);
   const l2 = useMemo(() => (l1?.l2 ?? []).find((s) => s.slug === l2slug) || null, [l1, l2slug]);
   const showingL2 = !!l2;
   const showL2Tiles = !!l1 && (l1.l2?.length ?? 0) > 0 && !showingL2;
+
+  // iter-29 (Item 4) — if the URL/slug context changes (client-side nav
+  // between two gendered categories) re-seed the chip selection so the user
+  // doesn't carry stale "Everyone" across navigations.
+  useEffect(() => {
+    setGender(urlGender || derivedGender || "");
+  }, [urlGender, derivedGender]);
 
   useEffect(() => {
     api.catalog.categories().then((r) => setCats(r as Cat[])).catch(() => {});
@@ -62,6 +95,9 @@ export function CategoryClient({ l2slug = "" }: Props) {
   if (!l1) return <div className="p-10 text-center text-[#595959]">Loading…</div>;
 
   const title = l2 ? l2.name : l1.name;
+  // iter-29 (Item 4) — L2 hrefs inherit the gender from the L1 slug so a deep
+  // link to /c/men/shirts?gender=men round-trips correctly when shared.
+  const l2GenderParam = derivedGender ? `?gender=${derivedGender}` : "";
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
@@ -103,7 +139,7 @@ export function CategoryClient({ l2slug = "" }: Props) {
                     );
                   }
                   return (
-                    <Link key={s.id} href={(s as { redirect_url?: string }).redirect_url || `/c/${l1.slug}/${s.slug}`} data-testid={`l2-${s.slug}`} className="group rounded-2xl active:scale-95 transition">
+                    <Link key={s.id} href={(s as { redirect_url?: string }).redirect_url || `/c/${l1.slug}/${s.slug}${l2GenderParam}`} data-testid={`l2-${s.slug}`} className="group rounded-2xl active:scale-95 transition">
                       {inner}
                     </Link>
                   );

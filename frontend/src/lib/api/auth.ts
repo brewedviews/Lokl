@@ -63,4 +63,21 @@ export const authApi = {
     );
     return r.data;
   },
+
+  // ---------------- Merchant OTP (Iter-29 Item 1) ----------------
+  requestMerchantOtp: async (phone: string): Promise<{ ok: boolean; message: string; expires_in: number }> => {
+    const r = await apiClient.post<{ ok: boolean; message: string; expires_in: number }>(
+      "/api/auth/merchant/request-otp",
+      { phone },
+    );
+    return r.data;
+  },
+
+  verifyMerchantOtp: async (phone: string, otp: string): Promise<MerchantAuthResponse> => {
+    const r = await apiClient.post<MerchantAuthResponse>(
+      "/api/auth/merchant/verify-otp",
+      { phone, otp },
+    );
+    return r.data;
+  },
 };

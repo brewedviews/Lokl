@@ -262,6 +262,24 @@ def notify_customer_otp(customer_phone: str, otp: str) -> None:
     send_otp_with_fallback(customer_phone, otp)
 
 
+def notify_merchant_otp(merchant_phone: str, otp: str) -> None:
+    """iter-29 (Item 1): merchant phone-OTP login. Same Twilio fallback path
+    as the customer OTP — WhatsApp first, then SMS. Body intentionally
+    identifies this as a *merchant* code so the recipient doesn't mistake
+    it for a customer sign-in (e.g. an owner who also shops on Lokl)."""
+    if os.environ.get("CUSTOMER_OTP_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+        log.warning("[MERCHANT-OTP-DEBUG] phone=%s otp=%s", merchant_phone, otp)
+    body = (
+        f"Lokl merchant login code: {otp}. "
+        f"Valid for 10 minutes. Don't share this code with anyone."
+    )
+    # Try WhatsApp first via the OTP template if configured; otherwise the
+    # plain body. send_otp_with_fallback() handles both legs but uses a
+    # customer-facing template — for merchants we use the generic
+    # send_with_fallback() so the wording is unambiguously merchant-themed.
+    send_with_fallback(merchant_phone, body)
+
+
 def notify_order_placed(customer_phone: str, order_id: str, total: float, eta_min: int = 45) -> None:
     body = (
         f"Lokl: Order {order_id} confirmed! "

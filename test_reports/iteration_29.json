@@ -1,0 +1,24 @@
+{
+  "summary": "Iter-29 full E2E regression PASS. 3 deferred items (Item 1 merchant phone OTP login, Item 2 mandatory storefront area+pincode+location, Item 4 L2 navigation gender propagation) fully verified across backend + frontend. Backend pytest 10/10 PASS. Frontend Playwright sweeps all PASS.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter29.py",
+    "/app/test_reports/pytest/iter29.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Item 1: POST /api/auth/merchant/request-otp correctly differentiates registered (200 ok+expires_in=600+debug-log line) vs unregistered (404 'No merchant account found. Please register first.'). verify-otp returns proper attempt-counter toast ('Incorrect OTP. N attempts remaining.') and locks after 5 wrong tries with 'Too many attempts'. Correct OTP returns {token, merchant} envelope with JWT sub starting m- and role=merchant — payload decoded and verified.",
+    "Item 2: storefront_update (server.py:2387) enforces lat/lng (400 'Pin your store...'), area (400 'Please select your area before saving.'), and pincode (400 'Pincode is required.') in the right order; persists area_slug, area_label, pincode, and GeoJSON `location: {type:'Point', coordinates:[lng,lat]}` (coords order verified: [81.41, 21.21]). One UX note: backend computes `area` display string from `area_label || locality || biz_addr.split(',')[0]` — if frontend omits area_label, the saved store doc keeps the legacy biz-address fallback. Frontend correctly passes area_label so this is fine in practice.",
+    "Item 4: L2 tiles on gendered L1 pages append ?gender=<slug> (verified on /c/men → 9 tiles all '?gender=men'; /c/women → 9 tiles all '?gender=women'); leaf-L1 /c/footwear has no L2 tiles. Gender chips correctly seeded from URL (URL wins for /c/men/shirts?gender=unisex → Unisex chip navy) and from L1 slug (/c/men/shirts → Men chip navy, /c/women/dresses → Women chip navy, /c/footwear → Everyone chip navy).",
+    "Backend gender filter on /api/products?l1=l1-men&l2=l2-m-shirt&gender=men correctly returns only men products (sample asserted)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter29.py"],
+  "success_rate": {"backend": "100% (10/10 pytest)", "frontend": "100% (Items 1, 2, 4 all PASS via Playwright)"},
+  "test_credentials": "Admin admin@lokl.in / Admin@2026. Approved merchant iter29_sf_test@lokl.in / Iter29@2026, phone 9876500002. Merchant OTPs surfaced at /var/log/supervisor/backend.err.log via `[MERCHANT-OTP-DEBUG] phone=91XXXXXXXXXX otp=NNNNNN` (CUSTOMER_OTP_DEBUG=true also applies to merchant OTPs).",
+  "seed_data_creation": "None persistent. test_save_full_payload_persists_geojson re-saves iter29_sf_test merchant's storefront to area_slug='sector_7' / pincode='490006' / lat=21.21,lng=81.41 — same values the spec asks the frontend to pre-fill on return.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iter29.py is parameter-stable (uses NEXT_PUBLIC_API_URL or default preview host, tails backend.err.log for [MERCHANT-OTP-DEBUG] lines). Schema StorefrontUpdate requires tagline+story+banner — tests include BASE_PAYLOAD with these fields. Storefront read path is /api/auth/me, NOT GET /api/merchant/storefront (which is POST-only → 405 on GET). Note: when testing the storefront 'blank-form errors' path via Playwright, raw DOM `dispatchEvent('input')` does NOT update React's controlled state — use `await page.fill(selector, '')` to actually clear form.pincode. The sf-pincode-error gating logic (`submitAttempted && !form.pincode.trim()`) is correct; backend also rejects blank pincode with 400.",
+  "rca of the issue": "N/A — no defects found. Two minor caveats: (1) the legacy `area` field on the store doc is the display label (built from area_label || locality || biz_addr first segment), while the slug is in `area_slug`. Frontend pre-fills via area_slug — correct. (2) Playwright JS DOM events don't update React controlled state — when scripting blank-form tests, prefer page.fill('','') and select_option to native dispatchEvent."
+}

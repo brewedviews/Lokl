@@ -32,6 +32,7 @@ from notifications import (
     notify_order_accepted, notify_order_rejected, notify_order_delivered,
     notify_order_on_the_way, notify_order_cancelled, notify_rider_pickup,
     notify_rider_return_pickup, notify_return_status, notify_customer_otp,
+    notify_merchant_otp,
 )
 from ai_enhance import enhance_product_images
 from observability import init_sentry
@@ -73,6 +74,9 @@ _LIMIT_ADMIN_LOGIN = os.environ.get("RATE_LIMIT_ADMIN_LOGIN", "10/minute")
 _LIMIT_REFRESH = os.environ.get("RATE_LIMIT_REFRESH", "60/minute")
 _LIMIT_CUSTOMER_OTP_REQUEST = os.environ.get("RATE_LIMIT_CUSTOMER_OTP_REQUEST", "5/minute")
 _LIMIT_CUSTOMER_OTP_VERIFY = os.environ.get("RATE_LIMIT_CUSTOMER_OTP_VERIFY", "10/minute")
+# iter-29 (Item 1): merchant phone-OTP login mirrors the customer-OTP limits.
+_LIMIT_MERCHANT_OTP_REQUEST = os.environ.get("RATE_LIMIT_MERCHANT_OTP_REQUEST", "5/minute")
+_LIMIT_MERCHANT_OTP_VERIFY = os.environ.get("RATE_LIMIT_MERCHANT_OTP_VERIFY", "10/minute")
 
 # ===== Security response headers =====
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -128,6 +132,12 @@ class StorefrontUpdate(BaseModel):
     closes_at: Optional[str] = "18:00"
     lat: Optional[float] = None
     lng: Optional[float] = None
+    # iter-29 (Item 2) — mandatory area + pincode for Bhilai pilot. `area`
+    # is the slug from BHILAI_AREAS; `area_label` is the human-friendly name
+    # we surface on the consumer storefront card.
+    area: Optional[str] = ""
+    area_label: Optional[str] = ""
+    pincode: Optional[str] = ""
 
 class ProductCreate(BaseModel):
     name: str; price: float; mrp: Optional[float] = None
@@ -198,9 +208,12 @@ async def login(request: Request, response: Response, payload: MerchantLogin):
     # showing as open after the merchant closed their browser the previous day.
     store_id = f"store-m-{m['id']}"
     await db.stores.update_one({"id": store_id}, {"$set": {"online": False}})
-    await db.merchants.update_one({"id": m["id"]}, {"$set": {"storefront.online": False}})
+    # Guard the dotted update — a brand-new merchant has `storefront: null`
+    # and `$set` would error trying to write `null.online`. iter-29 fix.
+    if isinstance(m.get("storefront"), dict):
+        await db.merchants.update_one({"id": m["id"]}, {"$set": {"storefront.online": False}})
     safe = {k: v for k, v in m.items() if k != "password_hash"}
-    if safe.get("storefront"):
+    if isinstance(safe.get("storefront"), dict):
         safe["storefront"]["online"] = False
     _set_refresh_cookie(response, create_token(m["id"], "merchant", "refresh"))
     return {"token": create_token(m["id"], "merchant", "access"), "merchant": safe}
@@ -455,6 +468,134 @@ async def customer_verify_otp(request: Request, payload: CustomerOtpVerify):
     response = JSONResponse({"token": access, "phone": phone, "role": "customer"})
     _set_refresh_cookie(response, refresh)
     return response
+
+
+# ===== Merchant phone-OTP login (iter-29 Item 1) =====
+# Mirrors the customer-OTP flow at /api/auth/customer/* but resolves the OTP
+# to a merchant row (`phone_canonical` = last-10 digits) and issues a
+# *merchant* JWT byte-identical to the email-login response shape so the
+# frontend can route either entry point through the same `setAuth(token, merchant)`.
+
+class MerchantOtpRequest(BaseModel):
+    phone: str
+
+
+class MerchantOtpVerify(BaseModel):
+    phone: str
+    otp: str
+
+
+def _normalize_merchant_phone_10(raw: str) -> Optional[str]:
+    """Return the last-10-digit canonical form used for merchant lookups.
+    Strips +/whitespace/91 prefix. None for invalid lengths."""
+    if not raw:
+        return None
+    digits = "".join(c for c in raw if c.isdigit())
+    if len(digits) < 10:
+        return None
+    return digits[-10:]
+
+
+@api.post("/auth/merchant/request-otp")
+@_limit(_LIMIT_MERCHANT_OTP_REQUEST)
+async def merchant_request_otp(request: Request, payload: MerchantOtpRequest):
+    """Generate a 6-digit OTP for a registered merchant's phone, store its
+    bcrypt hash with a 10-minute TTL, and dispatch via WhatsApp/SMS.
+    Returns 404 when no merchant matches the phone — this is intentional
+    so legitimate merchants get a clear "register first" CTA. Customer OTP
+    chose the opposite (no enumeration) because anyone can become a
+    customer; the merchant funnel is closed and the UX value of a clear
+    error outweighs the enumeration risk."""
+    p10 = _normalize_merchant_phone_10(payload.phone)
+    if not p10:
+        raise HTTPException(400, "Invalid phone number")
+    m = await db.merchants.find_one({"phone_canonical": p10}, {"_id": 0, "id": 1})
+    if not m:
+        raise HTTPException(404, "No merchant account found. Please register first.")
+
+    otp = f"{secrets.randbelow(1_000_000):06d}"
+    otp_hash = hash_password(otp)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    # Store under the canonical 12-digit key (91 + last-10) so look-ups during
+    # verify share a stable key with the Twilio/WhatsApp recipient.
+    canonical = f"91{p10}"
+    await db.merchant_login_otps.update_one(
+        {"phone": canonical},
+        {"$set": {
+            "phone": canonical,
+            "merchant_id": m["id"],
+            "otp_hash": otp_hash,
+            "attempts": 0,
+            "expires_at": expires_at,
+            "created_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
+    try:
+        notify_merchant_otp(canonical, otp)
+    except Exception as e:
+        log.warning("Merchant OTP delivery failed for %s: %s", canonical, e)
+    return {"ok": True, "message": "OTP sent", "expires_in": 600}
+
+
+@api.post("/auth/merchant/verify-otp")
+@_limit(_LIMIT_MERCHANT_OTP_VERIFY)
+async def merchant_verify_otp(request: Request, response: Response, payload: MerchantOtpVerify):
+    """Verify the 6-digit OTP, issue a merchant JWT, and return the same
+    response envelope as `/api/auth/login` so the frontend can use one
+    `setAuth(token, merchant)` call regardless of entry point."""
+    p10 = _normalize_merchant_phone_10(payload.phone)
+    if not p10 or not payload.otp:
+        raise HTTPException(400, "Invalid phone or OTP")
+    canonical = f"91{p10}"
+    rec = await db.merchant_login_otps.find_one({"phone": canonical})
+    if not rec:
+        raise HTTPException(401, "OTP expired or not requested")
+
+    expires_at = rec.get("expires_at")
+    if isinstance(expires_at, datetime):
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            await db.merchant_login_otps.delete_one({"phone": canonical})
+            raise HTTPException(401, "OTP expired. Please request a new one.")
+
+    attempts = int(rec.get("attempts", 0))
+    if attempts >= 5:
+        await db.merchant_login_otps.delete_one({"phone": canonical})
+        raise HTTPException(429, "Too many attempts. Please request a new OTP.")
+
+    if not verify_password(payload.otp.strip(), rec.get("otp_hash", "")):
+        new_attempts = attempts + 1
+        await db.merchant_login_otps.update_one({"phone": canonical}, {"$inc": {"attempts": 1}})
+        remaining = max(0, 5 - new_attempts)
+        if remaining <= 0:
+            await db.merchant_login_otps.delete_one({"phone": canonical})
+            raise HTTPException(401, "Too many attempts. Please request a new OTP.")
+        raise HTTPException(401, f"Incorrect OTP. {remaining} attempt{'s' if remaining != 1 else ''} remaining.")
+
+    # Success — burn the OTP and load the merchant.
+    await db.merchant_login_otps.delete_one({"phone": canonical})
+    m = await db.merchants.find_one({"id": rec["merchant_id"]}, {"_id": 0})
+    if not m:
+        raise HTTPException(404, "Merchant account not found")
+    # Mirror the safety toggle from email login: force the store offline so
+    # the merchant must consciously open it after sign-in. Guard the dotted
+    # update — a brand-new merchant has `storefront: null` and `$set` would
+    # error trying to write `null.online`.
+    store_id = f"store-m-{m['id']}"
+    await db.stores.update_one({"id": store_id}, {"$set": {"online": False}})
+    if isinstance(m.get("storefront"), dict):
+        await db.merchants.update_one({"id": m["id"]}, {"$set": {"storefront.online": False}})
+    safe = {k: v for k, v in m.items() if k != "password_hash"}
+    if isinstance(safe.get("storefront"), dict):
+        safe["storefront"]["online"] = False
+    out = JSONResponse({
+        "token": create_token(m["id"], "merchant", "access"),
+        "merchant": safe,
+    })
+    _set_refresh_cookie(out, create_token(m["id"], "merchant", "refresh"))
+    return out
 
 
 
@@ -2253,10 +2394,19 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_
         raise HTTPException(400, "Pin your store on the map (latitude & longitude are required).")
     if not (-90 <= float(payload.lat) <= 90) or not (-180 <= float(payload.lng) <= 180):
         raise HTTPException(400, "Invalid coordinates.")
+    # iter-29 (Item 2): area + pincode are mandatory for Bhilai pilot stores.
+    # Pre-existing storefronts retain their data — the frontend pre-fills these
+    # on edit, so this is only a hard gate for the first save.
+    if not (payload.area or "").strip():
+        raise HTTPException(400, "Please select your area before saving.")
+    if not (payload.pincode or "").strip():
+        raise HTTPException(400, "Pincode is required.")
     store_id = f"store-m-{user['sub']}"
     # Derive area from business_address (first comma-segment)
     biz_addr = m.get("business_address", "") or ""
-    derived_area = (payload.locality or biz_addr.split(",")[0]).strip() or "Bhilai"
+    # iter-29 (Item 2): prefer the explicit area_label from the picker over the
+    # legacy biz-address fallback for the `area` display string in the store doc.
+    derived_area = (payload.area_label or payload.locality or biz_addr.split(",")[0]).strip() or "Bhilai"
     store_doc = {"id": store_id, "merchant_id": user["sub"], "name": m["store_name"],
         "tagline": payload.tagline, "story": payload.story,
         "banner": (payload.banners[0] if payload.banners else payload.banner),
@@ -2265,12 +2415,17 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_
         "logo": payload.logo or (payload.banners[0] if payload.banners else payload.banner),
         "logo_public_id": payload.logo_public_id or "",
         "city": "Bhilai", "area": derived_area, "locality": derived_area,
+        # iter-29 (Item 2): structured area + pincode + GeoJSON for future
+        # within-radius queries (2dsphere index on `location` makes them fast).
+        "area_slug": payload.area, "area_label": payload.area_label or derived_area,
+        "pincode": (payload.pincode or "").strip(),
         "address": biz_addr,
         "specialties": payload.specialties,
         "timing": payload.timing or f"{payload.opens_at} - {payload.closes_at}",
         "opens_at": payload.opens_at or "10:00",
         "closes_at": payload.closes_at or "18:00",
         "lat": float(payload.lat), "lng": float(payload.lng),
+        "location": {"type": "Point", "coordinates": [float(payload.lng), float(payload.lat)]},
         "trusted": True,
         "kyc_status": "approved", "published": False, "paused": False, "product_count": 0,
         "created_at": datetime.now(timezone.utc).isoformat()}
@@ -3820,6 +3975,13 @@ async def startup_seed():
         await db.customer_otps.create_index("expires_at", expireAfterSeconds=0)
     except Exception as e:
         log.warning("customer_otps indexes: %s", e)
+
+    # iter-29 (Item 1): merchant phone-OTP login. Same TTL strategy.
+    try:
+        await db.merchant_login_otps.create_index("phone", unique=True)
+        await db.merchant_login_otps.create_index("expires_at", expireAfterSeconds=0)
+    except Exception as e:
+        log.warning("merchant_login_otps indexes: %s", e)
 
     # Revoked-refresh-token store: auto-pruned when the JWT's natural expiry
     # passes, so the collection stays small.
