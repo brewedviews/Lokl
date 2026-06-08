@@ -4,6 +4,43 @@
 Premium AI-powered hyperlocal fashion commerce OS branded **Lokl**. **Pilot locked to Bhilai (Chhattisgarh)**.
 
 
+
+## Iter-27 (Feb 2026) — Deferred features Items 3, 5, 7 (3-of-7 chosen)
+
+User selected 3 items to ship properly with E2E verification rather than 7 half-baked. All passed `testing_agent_v3_fork` iteration_28.json (backend 11/11 pytest, frontend 100% Items 3/5/7).
+
+### Item 3 — Customer Account Auth Flow hardening (P0)
+**Bug found by testing agent**: zustand-persist `name` collided with the state field `token`. `_syncFromStorage` read the persist-envelope JSON back into `state.token` and persist re-wrote, nesting up to 4 levels deep. Logout silently failed because `state.token` remained a non-empty (envelope) string.
+
+**Fix** (`/app/frontend/src/stores/customer-auth.store.ts`):
+- Persist key renamed to `bf_customer_auth_v1` (zustand envelope only).
+- `bf_customer_token` is now a RAW-JWT mirror — set by `setAuth`, removed by `clearAuth`. Legacy api-client + CRA app continue to read this key directly.
+- `_syncFromStorage` reads ONLY the raw mirror; non-JWT values are treated as signed-out.
+- `cleanupLegacyEnvelope()` runs once at module init and unwraps up to 5 nested envelopes from older builds.
+
+### Item 5 — KYC Approval polling UX polish (P1)
+- `/app/frontend/src/app/merchant/onboarding/page.tsx` — submitted-state card now shows a pulsing dot (`data-testid="kyc-pulse"`) and the copy "Your KYC is being reviewed" + "This usually takes a few hours. We'll move you forward automatically the moment you're approved — no need to refresh." The 10-second poll → redirect to `/merchant/storefront` was already wired and verified.
+
+### Item 7 — CMS Link + Paused + Non-clickable toggles (P2)
+**Backend** (`/app/backend/server.py`):
+- `ALLOWED_OFFER_FIELDS`, `ALLOWED_CATEGORY_FIELDS`, and `DEFAULT_HERO` extended with `paused` + `non_clickable`.
+- `_get_site_config` backfills both flags onto legacy hero docs.
+- `public_homepage_config` strips paused hero to `{paused: true}` only (so the consumer hides it rather than rendering a default placeholder).
+- `list_offers` filters `paused=true`. `list_categories` + `categories_with_counts` filter paused L1 and paused L2.
+- PUTs for offer/category/subcategory now persist `paused` + `non_clickable`.
+
+**Admin UI** (`/app/frontend/src/components/admin/cms/*Editor.tsx`):
+- Hero/L1/L2/Offers editors each expose a "Make non-clickable" checkbox and a "Paused" checkbox with stable testids (`cms-hero-paused`, `cms-l1-paused-<slug>`, `cms-l2-paused-<id>`, `cms-offer-paused-<id>`, and `-nonclick-` mirrors). Paused rows get `opacity-50` + "Hidden from customers" badge.
+- `DestinationPicker.tsx` no longer auto-opens the autocomplete dropdown on focus — manual text input by default, "Pick" button still available.
+
+**Consumer rendering**:
+- `HeroV2.tsx` → returns `null` when `hero.paused`; renders `<div data-testid="hero-static">` instead of `<Link data-testid="hero-redirect-link">` when `non_clickable`.
+- `ShopByCategory.tsx` → skips paused L1; renders non-clickable tiles as `<div>`.
+- `CategoryClient.tsx` → renders non-clickable L2 tiles as `<div>`.
+- `OffersStrip.tsx` → skips paused offers; renders non-clickable offers as `<div>` (CTA arrow hidden).
+
+
+
 ## Iter-26c (Feb 2026) — 422 hotfix on Admin CMS image upload
 
 **Reported by user**: "Request failed with status code 422" when uploading L1 category tile images.
