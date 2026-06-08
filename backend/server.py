@@ -59,6 +59,22 @@ api = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("lokl")
 
+
+# ===== Top-level health probe =====
+# The Emergent deployment health check polls `/health` (NOT `/api/health`) and
+# treats any non-200 response as a failed deployment. We mount this directly
+# on the FastAPI app — outside the `/api` router — so the probe succeeds with
+# zero auth + zero DB work. Keep this endpoint cheap and side-effect-free.
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.head("/health")
+async def health_head():
+    # Some probes use HEAD instead of GET. Returning 200 with no body suffices.
+    return Response(status_code=200)
+
 # ===== Rate Limiter (slowapi) =====
 # Token-bucket style limiter keyed by client IP. Sensitive auth endpoints add
 # their own per-route caps via @_limit("5/minute").
