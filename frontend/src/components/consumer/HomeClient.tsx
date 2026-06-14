@@ -29,6 +29,7 @@ import { StoreCardV2 } from "@/components/consumer/v2/StoreCardV2";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
 import { ShopByCategory } from "@/components/consumer/ShopByCategory";
 import { Footer } from "@/components/consumer/Footer";
+import { ProductCardSkeleton, StoreCardSkeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
 import type { ProductCard, StoreCard } from "@/types";
 
@@ -66,6 +67,9 @@ export function HomeClient() {
   const [nearby, setNearby] = useState<StoreCard[]>([]);
   const [popularStores, setPopularStores] = useState<StoreCard[]>([]);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
+  const [loaded, setLoaded] = useState<Set<string>>(new Set());
+  const markLoaded = (key: string) =>
+    setLoaded((prev) => { const next = new Set(prev); next.add(key); return next; });
 
   useEffect(() => {
     api.site.homeStats().then((r) => setStats(r as unknown as HomeStatsDoc)).catch(() => {});
@@ -74,46 +78,78 @@ export function HomeClient() {
       if (c.hero) setHero(c.hero);
       if (Array.isArray(c.sections) && c.sections.length > 0) setSections(c.sections);
     }).catch(() => { /* fall back to DEFAULT_SECTIONS */ });
-    api.catalog.offers().then((r) => setOffers(r as unknown as OfferDoc[])).catch(() => {});
+    api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); });
     api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
-    api.products.popularInCity(10).then(setTrending).catch(() => {});
-    api.products.sellingFast(10).then(setSellingFast).catch(() => {});
-    api.products.newArrivals(10).then(setRecent).catch(() => {});
-    api.stores.popular(10).then(setPopularStores).catch(() => {});
+    api.products.popularInCity(10).then((r) => { setTrending(r); markLoaded("trending"); }).catch(() => { markLoaded("trending"); });
+    api.products.sellingFast(10).then((r) => { setSellingFast(r); markLoaded("sellingFast"); }).catch(() => { markLoaded("sellingFast"); });
+    api.products.newArrivals(10).then((r) => { setRecent(r); markLoaded("recent"); }).catch(() => { markLoaded("recent"); });
+    api.stores.popular(10).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); });
   }, []);
 
   useEffect(() => {
     if (lat != null && lng != null) {
-      api.stores.nearby({ lat, lng, limit: 10 }).then(setNearby).catch(() => {});
+      api.stores.nearby({ lat, lng, limit: 10 }).then((r) => { setNearby(r); markLoaded("nearby"); }).catch(() => { markLoaded("nearby"); });
     }
   }, [lat, lng]);
 
+  const storesReady = loaded.has("nearby") || loaded.has("popularStores");
   const storesRail = nearby.length > 0 ? nearby : popularStores;
   const storesTitle = nearby.length > 0 ? "Stores near you" : "Popular stores in Bhilai";
+
+  // Inline skeleton row: holds the same vertical space as an HCarousel rail
+  // while its data is in-flight, preventing cumulative layout shift.
+  const ProductRailSkeleton = ({ testid }: { testid: string }) => (
+    <div key={testid} className="px-4 md:px-8 py-4 min-h-[320px]">
+      <div className="h-5 w-36 rounded-full bg-[#E5E2DC] animate-pulse mb-4" />
+      <div className="flex gap-3 overflow-hidden">
+        {Array.from({ length: 5 }).map((_, i) => <ProductCardSkeleton key={i} />)}
+      </div>
+    </div>
+  );
+  const StoreRailSkeleton = () => (
+    <div key="stores-skeleton" className="px-4 md:px-8 py-4 min-h-[260px]">
+      <div className="h-5 w-36 rounded-full bg-[#E5E2DC] animate-pulse mb-4" />
+      <div className="flex gap-3 overflow-hidden">
+        {Array.from({ length: 4 }).map((_, i) => <StoreCardSkeleton key={i} />)}
+      </div>
+    </div>
+  );
 
   // Iter-26 — Section registry. Keys MUST match the section IDs the CMS
   // publishes from `site_config.sections[].id` (popular_in_city / categories
   // / offers / selling_fast / stores / recently_viewed / customer_love).
   const sectionRenderers: Record<string, React.ReactNode> = {
     hero: <HeroV2 key="hero" stats={stats} hero={hero} />,
-    popular_in_city: trending.length > 0 ? (
+    popular_in_city: !loaded.has("trending") ? (
+      <ProductRailSkeleton key="trending-skeleton" testid="home-trending-skeleton" />
+    ) : trending.length > 0 ? (
       <HCarousel key="trending" title="Trending now" subtitle="Most ordered products nearby this week" testid="home-trending">
         {trending.map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
     ) : null,
     categories: <ShopByCategory key="categories" />,
-    selling_fast: sellingFast.length > 0 ? (
+    selling_fast: !loaded.has("sellingFast") ? (
+      <ProductRailSkeleton key="selling-fast-skeleton" testid="home-selling-fast-skeleton" />
+    ) : sellingFast.length > 0 ? (
       <HCarousel key="selling_fast" title="Selling fast" subtitle="Don't miss out — limited stock" testid="home-selling-fast">
         {sellingFast.map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
     ) : null,
-    offers: offers.length > 0 ? <OffersStrip key="offers" offers={offers} /> : null,
-    recently_viewed: recent.length > 0 ? (
+    offers: !loaded.has("offers") ? (
+      <div key="offers-skeleton" className="min-h-[120px] px-4 md:px-8 py-4">
+        <div className="h-24 rounded-2xl bg-[#E5E2DC] animate-pulse" />
+      </div>
+    ) : offers.length > 0 ? <OffersStrip key="offers" offers={offers} /> : null,
+    recently_viewed: !loaded.has("recent") ? (
+      <ProductRailSkeleton key="recent-skeleton" testid="home-recent-skeleton" />
+    ) : recent.length > 0 ? (
       <HCarousel key="recent" title="Recently added" subtitle="Fresh drops from Bhilai stores" testid="home-recent">
         {recent.map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
     ) : null,
-    stores: storesRail.length > 0 ? (
+    stores: !storesReady ? (
+      <StoreRailSkeleton key="stores-skeleton" />
+    ) : storesRail.length > 0 ? (
       <HCarousel key="stores" title={storesTitle} subtitle="Trusted local merchants delivering today" testid="home-stores" link="/stores" linkLabel="See all">
         {storesRail.map((s) => <StoreCardV2 key={s.id} s={s} />)}
       </HCarousel>

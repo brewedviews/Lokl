@@ -112,6 +112,36 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 
 
+# ===== Merchant activity tracker =====
+# Updates last_seen_at on the store doc after every successful authenticated
+# merchant API call. Used by _merchant_is_active() to suppress product/store
+# feeds when a merchant is logged out during their working hours.
+MERCHANT_IDLE_TIMEOUT_MIN = 30
+
+@app.middleware("http")
+async def _track_merchant_last_seen(request: Request, call_next):
+    response = await call_next(request)
+    if response.status_code >= 400:
+        return response
+    if not request.url.path.startswith("/api/merchant/"):
+        return response
+    try:
+        auth = request.headers.get("authorization", "")
+        if not auth.startswith("Bearer "):
+            return response
+        payload = jwt.decode(auth[7:], JWT_SECRET, algorithms=[JWT_ALGO])
+        if payload.get("role") != "merchant" or payload.get("type") != "access":
+            return response
+        store_id = f"store-m-{payload['sub']}"
+        await db.stores.update_one(
+            {"id": store_id},
+            {"$set": {"last_seen_at": datetime.now(timezone.utc).isoformat()}},
+        )
+    except Exception:
+        pass
+    return response
+
+
 # ===== Models =====
 class MerchantSignup(BaseModel):
     email: EmailStr; password: str; store_name: str; owner_name: str
@@ -169,6 +199,7 @@ class ProductCreate(BaseModel):
     ai_enhanced: bool = False; try_at_doorstep: bool = False
     return_eligible: bool = False  # if True, customer can return within 24h of delivery
     stock: Optional[dict] = None
+    size_type: Optional[str] = ""  # alpha|numeric_shirt|numeric_bottom|numeric_shoe|free_size|custom
 
 class OrderCreate(BaseModel):
     items: List[dict]; address: dict; total: float
@@ -1620,6 +1651,36 @@ def _is_store_open_now(store: dict) -> tuple[bool, str | None]:
         return True, None
 
 
+def _merchant_is_active(store: dict) -> tuple[bool, str | None]:
+    """Return (show_in_feeds, availability_label) for a store.
+
+    State matrix:
+    - Toggle OFF             → (False, None)          — hidden entirely
+    - Toggle ON + outside hours → (True,  label)      — show with "Opens at X" badge
+    - Toggle ON + within hours + seen < 30 min → (True,  None) — fully live
+    - Toggle ON + within hours + seen > 30 min → (False, "Store temporarily unavailable")
+    """
+    if store.get("online") is False:
+        return False, None
+
+    is_open, next_label = _is_store_open_now(store)
+    if not is_open:
+        return True, next_label  # outside hours: always include with badge
+
+    last_seen = store.get("last_seen_at")
+    if not last_seen:
+        return True, None  # no tracking yet: be permissive
+
+    try:
+        last_dt = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=MERCHANT_IDLE_TIMEOUT_MIN)
+        if last_dt >= cutoff:
+            return True, None
+        return False, "Store temporarily unavailable"
+    except Exception:
+        return True, None
+
+
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Great-circle distance in kilometres."""
     import math
@@ -1664,16 +1725,13 @@ async def list_stores(city: Optional[str] = None, limit: int = 50,
     stores = _attach_distance_and_eta(stores, lat, lng)
     open_list, offline_list = [], []
     for s in stores:
-        merchant_online = s.get("online") is not False
-        is_open_by_time, next_label = _is_store_open_now(s)
-        is_open = is_open_by_time and merchant_online
-        s["is_open"] = is_open
-        s["online"] = merchant_online  # explicit for UI
-        if not is_open:
-            if not merchant_online:
-                s["next_open_label"] = "Offline — back soon"
-            else:
-                s["next_open_label"] = next_label
+        show, label = _merchant_is_active(s)
+        if not show:
+            continue  # within hours + merchant logged out: suppress entirely
+        s["is_open"] = label is None  # True only when no badge needed
+        s["online"] = True
+        if label:
+            s["next_open_label"] = label
             offline_list.append(s)
         else:
             open_list.append(s)
@@ -1714,8 +1772,11 @@ async def feed_popular_stores(limit: int = 10):
             if sid: counts[sid] = counts.get(sid, 0) + 1
     for s in stores:
         s["orders_30d"] = counts.get(s["id"], 0)
-        is_open_by_time, _ = _is_store_open_now(s)
-        s["is_open"] = is_open_by_time
+        show, label = _merchant_is_active(s)
+        s["is_open"] = show and label is None
+        if label:
+            s["next_open_label"] = label
+    stores = [s for s in stores if _merchant_is_active(s)[0]]
     stores.sort(key=lambda s: (-s.get("orders_30d", 0), s.get("name", "").lower()))
     return stores[:limit]
 
@@ -1724,33 +1785,33 @@ async def feed_popular_stores(limit: int = 10):
 async def get_store(store_id: str):
     s = await db.stores.find_one({"id": store_id, **_visible_store_filter()}, {"_id": 0})
     if not s: raise HTTPException(404, "Store not found")
-    # Treat merchant-offline stores as unavailable for the public store page too.
     if s.get("online") is False:
         raise HTTPException(404, "Store not found")
-    merchant_online = s.get("online") is not False
-    is_open_by_time, next_label = _is_store_open_now(s)
-    s["is_open"] = is_open_by_time and merchant_online
-    s["online"] = merchant_online
-    s["next_open_label"] = next_label if merchant_online else "Offline — back soon"
-    # When merchant is offline, hide their products from the store page too (user spec).
-    if not merchant_online:
+    show, label = _merchant_is_active(s)
+    s["is_open"] = show and label is None
+    s["online"] = True
+    if label:
+        s["next_open_label"] = label
+    # Hide products when merchant is logged out during working hours
+    if not show:
+        s["next_open_label"] = "Store temporarily unavailable"
         products = []
     else:
         products = await db.products.find({"store_id": store_id, **_visible_product_filter()}, {"_id": 0, "images": 0}).to_list(200)
         for p in products:
             p["store_is_open"] = s["is_open"]
-            if not s["is_open"]:
-                p["next_open_label"] = s.get("next_open_label")
+            if not s["is_open"] and label:
+                p["next_open_label"] = label
     return {"store": s, "products": products}
 
 @api.get("/products")
 async def list_products(l1: Optional[str] = None, l2: Optional[str] = None,
                         gender: Optional[str] = None, store: Optional[str] = None,
                         sort: str = "trending", limit: int = 100):
-    # Only show products from stores that are visible AND currently online (merchant toggle).
+    # Only show products from stores that pass the activity check (toggle + working hours + last_seen).
     online_filter = {**_visible_store_filter(), "online": {"$ne": False}}
-    visible_ids = await db.stores.find(online_filter, {"_id": 0, "id": 1}).to_list(1000)
-    visible_set = {s["id"] for s in visible_ids}
+    stores_raw = await db.stores.find(online_filter, {"_id": 0, "id": 1, "last_seen_at": 1, "opens_at": 1, "closes_at": 1}).to_list(1000)
+    visible_set = {s["id"] for s in stores_raw if _merchant_is_active(s)[0]}
     q = {"store_id": {"$in": list(visible_set)}, **_visible_product_filter()}
     if l1: q["l1_id"] = l1
     if l2: q["l2_id"] = l2
@@ -3980,6 +4041,21 @@ async def startup_seed():
         await _seed_bhilai(db)
     except Exception as e:
         log.warning("Bhilai seed skipped: %s", e)
+
+    # Remove duplicate category/subcategory documents (keep first per id).
+    for _coll in (db.categories, db.subcategories):
+        async for _grp in _coll.aggregate([
+            {"$group": {"_id": "$id", "first": {"$first": "$_id"}, "count": {"$sum": 1}}},
+            {"$match": {"count": {"$gt": 1}}},
+        ]):
+            await _coll.delete_many({"id": _grp["_id"], "_id": {"$ne": _grp["first"]}})
+
+    # Unique indexes guard against future dupes at DB level.
+    try:
+        await db.categories.create_index("id", unique=True, background=True)
+        await db.subcategories.create_index("id", unique=True, background=True)
+    except Exception as _e:
+        log.warning("Category unique indexes: %s", _e)
 
     # Idempotent upsert of L1/L2 taxonomy.
     # `image` uses $setOnInsert so admin-uploaded category images are never

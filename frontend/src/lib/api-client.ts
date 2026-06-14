@@ -239,6 +239,21 @@ function createApiClient(): AxiosInstance {
         const newToken = await refreshInFlight;
         refreshInFlight = null;
 
+        // Verify the refreshed token carries the right role for this scope.
+        // A merchant refresh cookie can accidentally satisfy a customer-scope
+        // 401 retry, which would then get a 403 on the backend. Reject early.
+        try {
+          const payload = JSON.parse(atob(newToken.split(".")[1])) as { role?: string };
+          const expectedRole = scope === "admin" ? "admin" : scope === "merchant" ? "merchant" : "customer";
+          if (payload.role !== expectedRole) {
+            clearToken(scope);
+            return Promise.reject(error);
+          }
+        } catch {
+          clearToken(scope);
+          return Promise.reject(error);
+        }
+
         setToken(scope, newToken);
         if (originalRequest.headers) {
           originalRequest.headers.Authorization = `Bearer ${newToken}`;

@@ -32,12 +32,22 @@ interface Category { id: string; name: string; l2: L2[] }
 
 const GENDERS = ["women", "men", "unisex", "kids"];
 const MAX_IMAGES = 5;
+const SIZE_TYPE_OPTIONS: Record<string, { label: string; sizes: string[] }> = {
+  alpha:          { label: "Alpha (XS–XXL)",   sizes: ["XS", "S", "M", "L", "XL", "XXL"] },
+  numeric_shirt:  { label: "Numeric – Shirt",  sizes: ["38", "40", "42", "44", "46"] },
+  numeric_bottom: { label: "Numeric – Bottom", sizes: ["28", "30", "32", "34", "36"] },
+  numeric_shoe:   { label: "Numeric – Shoe",   sizes: ["5", "6", "7", "8", "9", "10", "11"] },
+  free_size:      { label: "Free size",        sizes: ["Free Size"] },
+  custom:         { label: "Custom",           sizes: [] },
+};
+
 const blankForm = {
   name: "", price: "", mrp: "", description: "",
   l1_id: "", l2_id: "", gender: "",
   sizes: [] as string[], stock: {} as Record<string, number>,
   images: [] as string[], image_public_ids: [] as string[],
   return_eligible: false,
+  size_type: "",
 };
 
 export default function MerchantProductsPage() {
@@ -53,6 +63,7 @@ export default function MerchantProductsPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkUploadBusy, setBulkUploadBusy] = useState(false);
+  const [customSizesInput, setCustomSizesInput] = useState("");
   const bulkInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = async () => {
@@ -122,6 +133,7 @@ export default function MerchantProductsPage() {
         gender: form.gender || "",
         sizes: form.sizes,
         stock: form.stock,
+        size_type: form.size_type || "",
         image: form.images[0] || "",
         image_public_id: form.image_public_ids[0] || "",
         images: form.images,
@@ -135,7 +147,7 @@ export default function MerchantProductsPage() {
         await api.merchant.createProduct(body as Partial<Product>);
         toast.success("Product created");
       }
-      setOpenAdd(false); setEditingId(null); setForm(blankForm);
+      setOpenAdd(false); setEditingId(null); setForm(blankForm); setCustomSizesInput("");
       void load();
     } catch (e) { toast.error(getErrorMessage(e)); }
     finally { setSubmitBusy(false); }
@@ -146,8 +158,21 @@ export default function MerchantProductsPage() {
       // GET /api/products/{pid} returns { product, similar }, so we have to
       // unwrap before populating the form. Reading the top-level fields was
       // the iter-44 regression that opened the edit modal blank.
-      const r = await apiClient.get<{ product: Product & { image_public_id?: string; image_public_ids?: string[]; stock?: Record<string, number>; sizes?: string[]; l1_id?: string; l2_id?: string; gender?: string; mrp?: number; return_eligible?: boolean; images?: string[] } }>(`/api/products/${p.id}`);
+      const r = await apiClient.get<{ product: Product & { image_public_id?: string; image_public_ids?: string[]; stock?: Record<string, number>; sizes?: string[]; l1_id?: string; l2_id?: string; gender?: string; mrp?: number; return_eligible?: boolean; images?: string[]; size_type?: string } }>(`/api/products/${p.id}`);
       const d = r.data.product;
+      // Infer size_type if not stored: match sizes against known presets.
+      let sizeType = d.size_type || "";
+      if (!sizeType && d.sizes && d.sizes.length > 0) {
+        const szs = d.sizes;
+        if (szs.some((s) => s === "Free Size" || s === "Free")) sizeType = "free_size";
+        else if (["XS", "S", "M", "L", "XL", "XXL"].some((s) => szs.includes(s))) sizeType = "alpha";
+        else if (["38", "40", "42", "44", "46"].some((s) => szs.includes(s))) sizeType = "numeric_shirt";
+        else if (["28", "30", "32", "34", "36"].some((s) => szs.includes(s))) sizeType = "numeric_bottom";
+        else if (["5", "6", "7", "8", "9", "10", "11"].some((s) => szs.includes(s))) sizeType = "numeric_shoe";
+        else sizeType = "custom";
+      }
+      if (sizeType === "custom") setCustomSizesInput((d.sizes || []).join(", "));
+      else setCustomSizesInput("");
       setEditingId(p.id);
       setForm({
         name: d.name || "",
@@ -162,6 +187,7 @@ export default function MerchantProductsPage() {
         images: d.images && d.images.length ? d.images : (d.image ? [d.image] : []),
         image_public_ids: d.image_public_ids && d.image_public_ids.length ? d.image_public_ids : (d.image_public_id ? [d.image_public_id] : []),
         return_eligible: !!d.return_eligible,
+        size_type: sizeType,
       });
       setOpenAdd(true);
     } catch (e) { toast.error(getErrorMessage(e)); }
@@ -205,7 +231,6 @@ export default function MerchantProductsPage() {
 
   const currentL1 = cats.find((c) => c.id === form.l1_id);
   const hasL2 = !!(currentL1 && currentL1.l2 && currentL1.l2.length > 0);
-  const SIZE_PRESETS = ["XS", "S", "M", "L", "XL", "XXL", "Free"];
 
   return (
     <div className="p-6 md:p-10">
@@ -362,17 +387,63 @@ export default function MerchantProductsPage() {
               {/* Sizes + stock */}
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-widest text-[#595959] mb-1.5">Sizes & inventory</div>
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {SIZE_PRESETS.map((sz) => {
-                    const has = form.sizes.includes(sz);
-                    return (
-                      <button key={sz} type="button" onClick={() => toggleSize(sz)} data-testid={`size-toggle-${sz}`}
-                        className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${has ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white text-[#1A2B4C] border-[#E5E2DC]"}`}>
-                        {sz}
-                      </button>
-                    );
-                  })}
-                </div>
+                <select
+                  data-testid="prod-size-type"
+                  value={form.size_type}
+                  onChange={(e) => {
+                    const st = e.target.value;
+                    if (st === "free_size") {
+                      setForm((f) => ({ ...f, size_type: st, sizes: ["Free Size"], stock: { "Free Size": 0 } }));
+                    } else if (st === "custom") {
+                      setForm((f) => ({ ...f, size_type: st, sizes: [], stock: {} }));
+                      setCustomSizesInput("");
+                    } else if (st) {
+                      setForm((f) => ({ ...f, size_type: st, sizes: [], stock: {} }));
+                    } else {
+                      setForm((f) => ({ ...f, size_type: "", sizes: [], stock: {} }));
+                    }
+                  }}
+                  className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white mb-2"
+                >
+                  <option value="">Select size type</option>
+                  {Object.entries(SIZE_TYPE_OPTIONS).map(([key, { label }]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+
+                {form.size_type && form.size_type !== "free_size" && form.size_type !== "custom" && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {(SIZE_TYPE_OPTIONS[form.size_type]?.sizes || []).map((sz) => {
+                      const has = form.sizes.includes(sz);
+                      return (
+                        <button key={sz} type="button" onClick={() => toggleSize(sz)} data-testid={`size-toggle-${sz}`}
+                          className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${has ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white text-[#1A2B4C] border-[#E5E2DC]"}`}>
+                          {sz}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {form.size_type === "custom" && (
+                  <input
+                    data-testid="prod-custom-sizes"
+                    value={customSizesInput}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setCustomSizesInput(raw);
+                      const parsed = raw.split(",").map((s) => s.trim()).filter(Boolean);
+                      setForm((f) => ({
+                        ...f,
+                        sizes: parsed,
+                        stock: Object.fromEntries(parsed.map((sz) => [sz, f.stock[sz] ?? 0])),
+                      }));
+                    }}
+                    placeholder="e.g. 30×32, 32×34, 34×36"
+                    className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] mb-2"
+                  />
+                )}
+
                 {form.sizes.length > 0 && (
                   <div className="grid grid-cols-3 gap-2">
                     {form.sizes.map((sz) => (
@@ -395,7 +466,7 @@ export default function MerchantProductsPage() {
               </label>
             </div>
             <div className="flex gap-2 pt-5">
-              <button onClick={() => { setOpenAdd(false); setEditingId(null); setForm(blankForm); }} className="flex-1 px-5 py-2.5 rounded-full border border-[#E5E2DC]">Cancel</button>
+              <button onClick={() => { setOpenAdd(false); setEditingId(null); setForm(blankForm); setCustomSizesInput(""); }} className="flex-1 px-5 py-2.5 rounded-full border border-[#E5E2DC]">Cancel</button>
               <button onClick={submit} disabled={submitBusy || imageBusy} data-testid="save-product-btn" className="flex-1 px-5 py-2.5 rounded-full bg-[#E68910] text-white font-semibold disabled:opacity-50">
                 {submitBusy ? "Saving…" : editingId ? "Update" : "Create"}
               </button>
