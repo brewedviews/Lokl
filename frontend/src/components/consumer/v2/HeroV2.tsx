@@ -34,7 +34,7 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
   const mobileImg = hero?.mobile_image || img;
   const t1 = hero?.title_line1 || "Delivered in minutes from";
   const t2 = hero?.title_line2 || "stores next door.";
-  const sub = hero?.subtitle || "Hand-picked fashion from trusted Bhilai stores.";
+  const sub = hero?.subtitle || "Hand-picked fashion from trusted stores in Bhilai.";
   const eta = stats?.fastest_eta_min || 30;
   const redirect = hero?.redirect_url || hero?.cta_primary_link || "";
   // iter-27 (Item 7) — non_clickable forces static render even if a redirect is set.
