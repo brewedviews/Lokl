@@ -217,7 +217,7 @@ export default function MerchantProductsPage() {
           <p className="text-[#595959] text-sm mt-1">{items.length} product{items.length === 1 ? "" : "s"} in your catalog</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button onClick={() => downloads.merchantProductsTemplate(token)} data-testid="download-template" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-[#E5E2DC] text-sm font-semibold hover:border-[#1A2B4C]">
+          <button onClick={() => void downloads.merchantProductsTemplate(token).catch((e) => toast.error(getErrorMessage(e)))} data-testid="download-template" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-[#E5E2DC] text-sm font-semibold hover:border-[#1A2B4C]">
             <Download size={14} /> Bulk template
           </button>
           <label data-testid="bulk-upload-trigger" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-[#E5E2DC] text-sm font-semibold hover:border-[#1A2B4C] cursor-pointer">

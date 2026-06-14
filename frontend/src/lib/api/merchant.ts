@@ -129,6 +129,11 @@ export const merchantApi = {
   },
 
   // ---------------- Storefront ----------------
+  getStorefront: async (): Promise<Partial<MerchantStorefront>> => {
+    const r = await apiClient.get<Partial<MerchantStorefront>>("/api/merchant/storefront");
+    return r.data;
+  },
+
   saveStorefront: async (payload: MerchantStorefront): Promise<Merchant> => {
     const r = await apiClient.post<Merchant>("/api/merchant/storefront", payload);
     return r.data;

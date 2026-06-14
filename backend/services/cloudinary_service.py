@@ -128,20 +128,21 @@ def delete_image(public_id: str, *, kyc: bool = False) -> bool:
 
 
 def signed_kyc_url(public_id: str, expires_in_seconds: int = 3600) -> Optional[str]:
-    """Generate a time-limited signed URL for a private KYC document.
+    """Generate a signed URL for a private KYC document.
 
-    Returns None on failure. Default expiry: 1 hour.
+    Uses private_download_url which correctly handles expiry for private assets.
+    Returns None on failure.
     """
     if not public_id or not is_configured():
         return None
     try:
         import time
-        url, _ = cloudinary.utils.cloudinary_url(
+        url = cloudinary.utils.private_download_url(
             public_id,
-            type="private",
-            sign_url=True,
-            expires_at=int(time.time()) + expires_in_seconds,
+            "",
             resource_type="image",
+            type="private",
+            expiration_time=int(time.time()) + expires_in_seconds,
         )
         return url
     except Exception:

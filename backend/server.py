@@ -2400,6 +2400,16 @@ async def my_change_requests(user: dict = Depends(get_current_user)):
 
 
 # ===== Merchant Storefront / Products / Publish =====
+@api.get("/merchant/storefront")
+async def get_storefront(user: dict = Depends(get_current_user)):
+    """Return the saved storefront for the authenticated merchant."""
+    sid = f"store-m-{user['sub']}"
+    s = await db.stores.find_one({"id": sid}, {"_id": 0})
+    if not s:
+        return {}
+    return s
+
+
 @api.post("/merchant/storefront")
 async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_current_user)):
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
@@ -2971,7 +2981,8 @@ async def admin_hold(mid: str, request: Request, body: dict = None):
     """Admin puts a KYC submission on hold with a remediation comment. The merchant
     sees the comment in their dashboard and can fix the issue and resubmit."""
     _check_admin(request.headers.get("authorization"))
-    comment = (body or {}).get("comment", "").strip()
+    _body = body or {}
+    comment = (_body.get("reason") or _body.get("comment") or "").strip()
     if not comment:
         raise HTTPException(400, "Comment required so the merchant knows what to fix")
     now = datetime.now(timezone.utc).isoformat()
@@ -3970,13 +3981,13 @@ async def startup_seed():
     except Exception as e:
         log.warning("Bhilai seed skipped: %s", e)
 
-    # Re-seed L1/L2 taxonomy on every boot to ensure it's up-to-date
-    await db.categories.delete_many({})
-    await db.subcategories.delete_many({})
+    # Idempotent upsert of L1/L2 taxonomy — avoids duplicates on repeated boots.
     cats, l2s = build_seed_docs()
-    await db.categories.insert_many(cats)
-    if l2s: await db.subcategories.insert_many(l2s)
-    log.info("Categories: %d L1, %d L2", len(cats), len(l2s))
+    for cat in cats:
+        await db.categories.update_one({"id": cat["id"]}, {"$set": cat}, upsert=True)
+    for sub in l2s:
+        await db.subcategories.update_one({"id": sub["id"]}, {"$set": sub}, upsert=True)
+    log.info("Categories seeded: %d L1, %d L2", len(cats), len(l2s))
 
     # Idempotency index for payment webhooks — same payment_id is silently
     # ignored on retry (Razorpay can replay webhooks).

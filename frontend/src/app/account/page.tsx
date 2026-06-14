@@ -29,8 +29,8 @@ function statusTone(s: string) {
   return "text-[#0A1F5C] bg-[#0A1F5C]/10";
 }
 
-type TileKey = "orders" | "returns" | "addresses" | "wishlist" | "wallet" | "coupons" | "support" | "profile";
-const VALID_TILES: TileKey[] = ["orders", "returns", "addresses", "wishlist", "wallet", "coupons", "support", "profile"];
+type TileKey = "orders" | "addresses" | "wishlist" | "wallet" | "coupons" | "support" | "profile";
+const VALID_TILES: TileKey[] = ["orders", "addresses", "wishlist", "wallet", "coupons", "support", "profile"];
 
 export default function CustomerAccountPage() {
   const sp = useSearchParams();
@@ -115,8 +115,7 @@ export default function CustomerAccountPage() {
   const addresses = customer?.addresses ?? [];
 
   const tiles: Array<{ key: TileKey; label: string; icon: typeof Package; count: number; soon?: boolean }> = [
-    { key: "orders", label: "Orders", icon: Package, count: orders.length },
-    { key: "returns", label: "Returns", icon: RotateCcw, count: returns.length },
+    { key: "orders", label: "Orders", icon: Package, count: orders.length + returns.length },
     { key: "addresses", label: "Addresses", icon: MapPin, count: addresses.length },
     { key: "wishlist", label: "Wishlist", icon: Heart, count: wishlist.length },
     { key: "wallet", label: "Wallet", icon: Wallet, count: 0, soon: true },
@@ -173,8 +172,7 @@ export default function CustomerAccountPage() {
         </section>
 
         <section data-testid={`panel-${activeTile}`} className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm mt-8">
-          {activeTile === "orders" && <OrdersPanel orders={orders} />}
-          {activeTile === "returns" && <ReturnsPanel returns={returns} />}
+          {activeTile === "orders" && <OrdersPanel orders={orders} returns={returns} />}
           {activeTile === "addresses" && (
             <AddressesPanel
               addresses={addresses}
@@ -230,18 +228,19 @@ function EmptyState({ title, body, ctaTo, ctaLabel }: { title: string; body: str
   );
 }
 
-function OrdersPanel({ orders }: { orders: Order[] }) {
+function OrdersPanel({ orders, returns }: { orders: Order[]; returns: Return[] }) {
   const delivered = orders.filter((o) => (o.status || "").toLowerCase().includes("deliver"));
+  const total = orders.length + returns.length;
   return (
     <>
       <PanelHeader title={`Orders (${orders.length})`} subtitle={delivered.length ? `${delivered.length} delivered` : "Track every order from start to finish"} />
-      {orders.length === 0 ? (
+      {total === 0 ? (
         <EmptyState title="No orders yet" body="Start shopping from your nearby Bhilai stores." ctaTo="/" ctaLabel="Start shopping" />
       ) : (
         <div className="divide-y divide-[#E5E2DC]">
           {orders.map((o) => (
             <Link key={o.id} href={`/orders/${o.id}`} data-testid={`order-${o.id}`}
-              className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 hover:bg-[#FDFBF7] -mx-3 px-3 rounded-xl transition">
+              className="flex items-center gap-3 py-3 first:pt-0 hover:bg-[#FDFBF7] -mx-3 px-3 rounded-xl transition">
               {(o.items?.[0]?.image) ? (
                 <Image src={o.items[0].image} alt="" width={56} height={56} className="w-14 h-14 rounded-xl object-cover border border-[#E5E2DC] bg-[#FDFBF7]" />
               ) : <div className="w-14 h-14 rounded-xl bg-[#FDFBF7] border border-[#E5E2DC] grid place-items-center"><Package size={20} className="text-[#64748B]" /></div>}
@@ -258,6 +257,27 @@ function OrdersPanel({ orders }: { orders: Order[] }) {
               <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
             </Link>
           ))}
+          {returns.length > 0 && (
+            <>
+              <div className="py-2 text-[10px] uppercase tracking-widest font-semibold text-[#64748B]">Returns</div>
+              {returns.map((r) => (
+                <Link key={r.id} href={`/returns/${r.id}`} data-testid={`return-${r.id}`}
+                  className="flex items-center gap-3 py-3 last:pb-0 hover:bg-[#FDFBF7] -mx-3 px-3 rounded-xl transition">
+                  <div className="w-14 h-14 rounded-xl bg-[#FDFBF7] border border-[#E5E2DC] grid place-items-center shrink-0">
+                    <RotateCcw size={18} className="text-[#0A1F5C]" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-[#0A1F5C] truncate">{r.order_id || r.id}</div>
+                    <div className="text-[11px] text-[#64748B]">{r.reason || "Return"}{r.created_at ? ` · ${new Date(r.created_at).toLocaleDateString()}` : ""}</div>
+                  </div>
+                  <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 ${statusTone(r.status)}`}>
+                    {(r.status || "").replace(/_/g, " ")}
+                  </span>
+                  <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
+                </Link>
+              ))}
+            </>
+          )}
         </div>
       )}
     </>

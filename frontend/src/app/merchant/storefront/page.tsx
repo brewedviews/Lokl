@@ -33,6 +33,22 @@ export default function MerchantStorefrontPage() {
   const [submitAttempted, setSubmitAttempted] = useState(false);
 
   useEffect(() => {
+    api.merchant.getStorefront().then((s) => {
+      if (!s?.tagline) return;
+      setForm({
+        tagline: s.tagline || "", story: (s as unknown as { story?: string }).story || "",
+        banners: (s.banners && s.banners.length) ? s.banners : [],
+        banner_public_ids: (s.banner_public_ids && s.banner_public_ids.length) ? s.banner_public_ids : [],
+        locality: (s as unknown as { locality?: string }).locality || "",
+        opens_at: s.opens_at || "10:00", closes_at: s.closes_at || "18:00",
+        lat: s.lat != null ? String(s.lat) : "", lng: s.lng != null ? String(s.lng) : "",
+        area_slug: s.area_slug || "", area_label: s.area_label || "", pincode: s.pincode || "",
+      });
+      if (s.lat != null && s.lng != null) setPinPlaced(true);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (m.storefront) {
       const s = m.storefront;
       setForm({
