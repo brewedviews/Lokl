@@ -41,30 +41,17 @@ DEFAULT_HERO = {
 async def up(db):
     now = datetime.now(timezone.utc).isoformat()
     existing = await db.site_config.find_one({"id": "homepage"})
-    if not existing:
-        await db.site_config.insert_one({
-            "id": "homepage",
-            "sections": DEFAULT_HOMEPAGE_SECTIONS,
-            "hero": DEFAULT_HERO,
-            "created_at": now,
-            "updated_at": now,
-        })
-        return "inserted homepage config (8 sections, hero, default text overrides)"
-
-    # Idempotent: only fill missing top-level keys, never overwrite admin edits.
-    patch = {"updated_at": now}
-    if not existing.get("sections"):
-        patch["sections"] = DEFAULT_HOMEPAGE_SECTIONS
-    if not existing.get("hero"):
-        patch["hero"] = DEFAULT_HERO
-    else:
-        # Merge any newly-added hero fields without clobbering existing ones.
-        merged = {**DEFAULT_HERO, **existing["hero"]}
-        if merged != existing["hero"]:
-            patch["hero"] = merged
-
-    if len(patch) == 1:  # only updated_at — nothing material changed
-        return "homepage config already up-to-date (no changes)"
-
-    await db.site_config.update_one({"id": "homepage"}, {"$set": patch})
-    return f"refreshed homepage config keys: {sorted(k for k in patch if k != 'updated_at')}"
+    if existing:
+        # First-boot-only: never touch a config that already exists.
+        # Admin CMS edits (hero image, section order, etc.) must survive restarts.
+        # _get_site_config() in server.py handles backfilling any new fields at
+        # runtime on the first GET after a schema change.
+        return "homepage config already exists — skipping (first-boot-only seed)"
+    await db.site_config.insert_one({
+        "id": "homepage",
+        "sections": DEFAULT_HOMEPAGE_SECTIONS,
+        "hero": DEFAULT_HERO,
+        "created_at": now,
+        "updated_at": now,
+    })
+    return "inserted homepage config (8 sections, hero, default text overrides)"

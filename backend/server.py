@@ -3981,12 +3981,29 @@ async def startup_seed():
     except Exception as e:
         log.warning("Bhilai seed skipped: %s", e)
 
-    # Idempotent upsert of L1/L2 taxonomy — avoids duplicates on repeated boots.
+    # Idempotent upsert of L1/L2 taxonomy.
+    # `image` uses $setOnInsert so admin-uploaded category images are never
+    # overwritten on restart — only the non-image metadata (name, slug, order)
+    # is refreshed each boot.
     cats, l2s = build_seed_docs()
     for cat in cats:
-        await db.categories.update_one({"id": cat["id"]}, {"$set": cat}, upsert=True)
+        await db.categories.update_one(
+            {"id": cat["id"]},
+            {
+                "$set": {k: v for k, v in cat.items() if k != "image"},
+                "$setOnInsert": {"image": cat.get("image", "")},
+            },
+            upsert=True,
+        )
     for sub in l2s:
-        await db.subcategories.update_one({"id": sub["id"]}, {"$set": sub}, upsert=True)
+        await db.subcategories.update_one(
+            {"id": sub["id"]},
+            {
+                "$set": {k: v for k, v in sub.items() if k != "image"},
+                "$setOnInsert": {"image": sub.get("image", "")},
+            },
+            upsert=True,
+        )
     log.info("Categories seeded: %d L1, %d L2", len(cats), len(l2s))
 
     # Idempotency index for payment webhooks — same payment_id is silently
