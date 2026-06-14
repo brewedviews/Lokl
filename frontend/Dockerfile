@@ -9,8 +9,7 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json yarn.lock* package-lock.json* ./
-RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
-    else npm ci --legacy-peer-deps; fi
+RUN npm install --legacy-peer-deps
 
 # ---------- builder ----------
 FROM node:20-alpine AS builder
