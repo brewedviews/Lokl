@@ -7,7 +7,6 @@ WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc build-essential libffi-dev && rm -rf /var/lib/apt/lists/*
 COPY backend/requirements.txt .
-RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip setuptools wheel && \
     pip install --prefer-binary \
         --prefix=/install \
