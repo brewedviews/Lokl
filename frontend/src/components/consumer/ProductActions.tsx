@@ -8,12 +8,13 @@ import { toast } from "sonner";
 import { useCartStore } from "@/stores";
 import type { Product } from "@/types";
 
-export function ProductActions({ product }: { product: Product }) {
+export function ProductActions({ product, storeCanOrder = true }: { product: Product; storeCanOrder?: boolean }) {
   const router = useRouter();
   const addItem = useCartStore((s) => s.addItem);
   const [size, setSize] = useState<string | null>(product.sizes?.[0] || null);
 
   const handleAdd = (): boolean => {
+    if (!storeCanOrder) { toast.error("This store is currently unavailable"); return false; }
     if (product.sizes?.length && !size) { toast.error("Please pick a size"); return false; }
     const r = addItem(product, size ?? "");
     if (!r.success && r.conflict) {
@@ -69,12 +70,20 @@ export function ProductActions({ product }: { product: Product }) {
       )}
 
       <div className="mt-6 flex gap-2">
-        <button onClick={() => { if (handleAdd()) toast.success("Added to bag"); }} data-testid="add-to-bag" className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border-2 border-[#0A1F5C] text-[#0A1F5C] text-sm font-bold hover:bg-[#0A1F5C] hover:text-white transition whitespace-nowrap">
-          <ShoppingBag size={16} /> Add to bag
-        </button>
-        <button onClick={() => { if (handleAdd()) router.push("/checkout"); }} data-testid="buy-now" className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#F59E0B] text-white text-sm font-bold hover:bg-[#cc7a0a] transition whitespace-nowrap">
-          Buy now
-        </button>
+        {storeCanOrder ? (
+          <>
+            <button onClick={() => { if (handleAdd()) toast.success("Added to bag"); }} data-testid="add-to-bag" className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border-2 border-[#0A1F5C] text-[#0A1F5C] text-sm font-bold hover:bg-[#0A1F5C] hover:text-white transition whitespace-nowrap">
+              <ShoppingBag size={16} /> Add to bag
+            </button>
+            <button onClick={() => { if (handleAdd()) router.push("/checkout"); }} data-testid="buy-now" className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#F59E0B] text-white text-sm font-bold hover:bg-[#cc7a0a] transition whitespace-nowrap">
+              Buy now
+            </button>
+          </>
+        ) : (
+          <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-slate-100 text-slate-400 text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-unavailable-btn">
+            Store Unavailable
+          </div>
+        )}
         <button aria-label="Wishlist" data-testid="wishlist-btn" className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
           <Heart size={16} />
         </button>

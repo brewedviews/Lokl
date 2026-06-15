@@ -20,15 +20,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { CreditCard, Wallet, Banknote, MapPin, Plus, CheckCircle2, Truck, Clock, Loader2 } from "lucide-react";
+import { CreditCard, Wallet, Banknote, MapPin, Plus, CheckCircle2, Truck, Clock, Loader2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { CustomerOtpLogin } from "@/components/consumer/CustomerOtpLogin";
 import { Footer } from "@/components/consumer/Footer";
 import { useRazorpay, type RazorpayResponse } from "@/hooks/useRazorpay";
 import type { CustomerAddress, PaymentMethod } from "@/types";
+
+interface StoreAvailInfo {
+  name: string;
+  badge: string;
+  rank: number;
+  eta_message: string;
+  opens_at_label?: string | null;
+}
 
 const BLANK_ADDR = { name: "", phone: "", line1: "", landmark: "", city: "Bhilai", pincode: "", label: "Home" };
 // Pilot is Bhilai-only; centroid is good enough until we wire geolocation.
@@ -62,12 +71,34 @@ export default function CheckoutPage() {
   const [placing, setPlacing] = useState(false);
   const [estimate, setEstimate] = useState<DeliveryEstimate>(null);
   const [estimating, setEstimating] = useState(false);
+  const [storeAvailMap, setStoreAvailMap] = useState<Record<string, StoreAvailInfo>>({});
 
   // Single-store rule: every product in the cart must belong to the same
   // store_id for the delivery estimate to be meaningful. Multi-store carts
   // skip the estimate and fall back to FREE delivery (legacy behaviour).
   const uniqueStores = useMemo(() => Array.from(new Set(items.map((it) => it.store_id).filter(Boolean))) as string[], [items]);
   const cartStoreId = uniqueStores.length === 1 ? uniqueStores[0] : null;
+
+  // Fetch store availability for all unique stores in the cart.
+  useEffect(() => {
+    if (uniqueStores.length === 0) return;
+    Promise.all(
+      uniqueStores.map((sid) =>
+        apiClient.get<{ store: { name?: string; badge?: string; availability_rank?: number; eta_message?: string; next_open_label?: string } }>(
+          `/api/stores/${sid}`
+        ).then((r) => {
+          const s = r.data.store;
+          return [sid, {
+            name: s.name ?? sid,
+            badge: s.badge ?? "LIVE",
+            rank: s.availability_rank ?? 1,
+            eta_message: s.eta_message ?? "",
+            opens_at_label: s.next_open_label ?? null,
+          }] as [string, StoreAvailInfo];
+        }).catch(() => [sid, { name: sid, badge: "LIVE", rank: 1, eta_message: "" }] as [string, StoreAvailInfo])
+      )
+    ).then((entries) => setStoreAvailMap(Object.fromEntries(entries)));
+  }, [uniqueStores]);
 
   useEffect(() => {
     if (!hasAuth || !phone) return;
@@ -301,6 +332,18 @@ export default function CheckoutPage() {
               <strong> {uniqueStoreNames.length} separate deliveries</strong> — one from each store.
             </div>
           )}
+          {uniqueStores.some((sid) => storeAvailMap[sid]?.rank === 3) && (
+            <div data-testid="scheduled-order-notice" className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800 flex items-start gap-2">
+              <Info size={13} className="shrink-0 mt-0.5" />
+              <span>
+                One or more stores are currently closed. Your order will be fulfilled when they open.
+                {uniqueStores.filter((sid) => storeAvailMap[sid]?.rank === 3).map((sid) => {
+                  const info = storeAvailMap[sid];
+                  return info?.opens_at_label ? ` ${info.name}: ${info.opens_at_label}.` : "";
+                }).join("")}
+              </span>
+            </div>
+          )}
           <div className="space-y-3 max-h-72 overflow-auto">
             {items.map((it) => (
               <div key={it.key} className="flex gap-3 text-sm">
@@ -342,6 +385,22 @@ export default function CheckoutPage() {
               <div className="flex justify-between text-xs items-center">
                 <span className="text-[#595959] inline-flex items-center gap-1.5"><Clock size={11} /> Estimated arrival</span>
                 <span className="font-semibold" data-testid="delivery-eta">{estimate.eta_min}–{estimate.eta_max} min</span>
+              </div>
+            )}
+            {uniqueStores.length > 1 && Object.keys(storeAvailMap).length > 0 && (
+              <div className="text-xs space-y-1 pt-1">
+                {uniqueStores.map((sid) => {
+                  const info = storeAvailMap[sid];
+                  if (!info) return null;
+                  return (
+                    <div key={sid} className="flex justify-between items-center">
+                      <span className="text-[#595959] truncate max-w-[60%]">{info.name}</span>
+                      <span className={`font-semibold ${info.rank === 3 ? "text-blue-700" : info.rank >= 4 ? "text-red-500" : "text-emerald-700"}`}>
+                        {info.rank === 3 ? (info.opens_at_label || "Scheduled") : info.rank >= 4 ? "Unavailable" : info.eta_message || "~30 min"}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
             {estimate && !estimate.deliverable && estimate.reason && (

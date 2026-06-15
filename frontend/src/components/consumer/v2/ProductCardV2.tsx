@@ -143,14 +143,25 @@ export function ProductCardV2({ p, compact = false }: Props) {
             <span className="text-sm font-bold text-[#0A1F5C]">₹{Number(p.price).toLocaleString()}</span>
             {p.mrp && p.mrp > p.price && <span className="text-[11px] text-[#94A3B8] line-through">₹{Number(p.mrp).toLocaleString()}</span>}
           </div>
-          {compact ? (
-            p.low_stock_size ? <div className="text-[10px] font-semibold text-[#EF4444]">{p.low_stock_size}</div> : null
-          ) : p.low_stock_size ? (
-            <div className="text-[10px] font-semibold text-[#EF4444]">{p.low_stock_size}</div>
-          ) : p.social_proof ? (
-            <div className="text-[10px] text-[#64748B]">{p.social_proof}</div>
-          ) : (
-            <div className="text-[10px] text-[#64748B]">⚡ {eta} min · {sizes.length ? sizes.slice(0, 3).join(" · ") : "All sizes"}</div>
+          {p.store_badge === "Away" && (
+            <div className="text-[10px] font-semibold text-[#D97706]">May be delayed</div>
+          )}
+          {p.store_badge === "Closed" && p.store_opens_at_label && (
+            <div className="text-[10px] font-semibold text-[#64748B]">{p.store_opens_at_label}</div>
+          )}
+          {p.store_badge === "Unavailable" && (
+            <div className="text-[10px] font-semibold text-[#EF4444]">Unavailable</div>
+          )}
+          {(!p.store_badge || p.store_badge === "LIVE") && (
+            compact ? (
+              p.low_stock_size ? <div className="text-[10px] font-semibold text-[#EF4444]">{p.low_stock_size}</div> : null
+            ) : p.low_stock_size ? (
+              <div className="text-[10px] font-semibold text-[#EF4444]">{p.low_stock_size}</div>
+            ) : p.social_proof ? (
+              <div className="text-[10px] text-[#64748B]">{p.social_proof}</div>
+            ) : (
+              <div className="text-[10px] text-[#64748B]">⚡ {eta} min · {sizes.length ? sizes.slice(0, 3).join(" · ") : "All sizes"}</div>
+            )
           )}
         </div>
       </Link>

@@ -57,6 +57,18 @@ export default async function ProductDetailPage(
             <div className="text-[11px] uppercase tracking-widest text-[#64748B]">{product.store_name}</div>
           )}
           <h1 className="font-display text-2xl md:text-3xl font-bold text-[#0A1F5C] mt-2 leading-tight">{product.name}</h1>
+          {product.store_badge && product.store_badge !== "LIVE" && (
+            <div className={`inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-[11px] font-semibold ${
+              product.store_badge === "Unavailable"
+                ? "bg-red-50 text-red-600"
+                : product.store_badge === "Away"
+                ? "bg-amber-50 text-amber-700"
+                : "bg-slate-100 text-slate-600"
+            }`}>
+              {product.store_eta_message || product.store_badge}
+              {product.store_opens_at_label && ` · ${product.store_opens_at_label}`}
+            </div>
+          )}
           <div className="flex items-center gap-3 mt-3 text-xs">
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#10B981] text-white font-bold"><Star size={11} fill="currentColor" /> {product.rating || 4.5}</span>
             <span className="flex items-center gap-1 text-[#64748B]"><Bike size={13} /> {product.store_eta_min || 45} min</span>
@@ -75,7 +87,7 @@ export default async function ProductDetailPage(
           <p className="text-[11px] text-[#64748B] mt-1">Inclusive of all taxes</p>
           {product.description && <p className="mt-4 text-sm text-[#1C1C1C] leading-relaxed line-clamp-3">{product.description}</p>}
 
-          <ProductActions product={product} />
+          <ProductActions product={product} storeCanOrder={product.store_can_order !== false} />
 
           <div className="mt-6 grid grid-cols-3 gap-2 text-[11px]">
             <div className="p-3 rounded-2xl bg-[#F8FAFC] border border-slate-100">

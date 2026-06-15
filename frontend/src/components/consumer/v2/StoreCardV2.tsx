@@ -17,10 +17,14 @@ type AnyStore = StoreCardType & {
   is_open?: boolean;
   next_open_label?: string;
   online?: boolean;
+  badge?: string;
+  badge_color?: string;
+  availability_rank?: number;
 };
 
 export function StoreCardV2({ s }: { s: AnyStore }) {
   const offline = s.online === false;
+  const badge = s.badge;
   const since = s.since_year || (s.created_at ? new Date(s.created_at).getFullYear() : null);
   const proof = s.social_proof
     || (s.orders_today && s.orders_today >= 5 ? `${s.orders_today} orders delivered today` : null)
@@ -53,9 +57,13 @@ export function StoreCardV2({ s }: { s: AnyStore }) {
             <ShieldCheck size={11} /> Verified
           </span>
         )}
-        {offline ? (
-          <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-white/90 text-[#EF4444] text-[10px] font-bold uppercase">Offline now</span>
-        ) : s.is_open === false ? (
+        {badge === "Unavailable" || offline ? (
+          <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-white/90 text-[#EF4444] text-[10px] font-bold uppercase">Unavailable</span>
+        ) : badge === "Away" ? (
+          <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-white/90 text-[#D97706] text-[10px] font-bold uppercase">Away</span>
+        ) : badge === "Closed" ? (
+          <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-white/90 text-[#64748B] text-[10px] font-bold uppercase">{s.next_open_label || "Closed"}</span>
+        ) : s.is_open === false && !badge ? (
           <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-white/90 text-[#64748B] text-[10px] font-bold uppercase">{s.next_open_label || "Closed"}</span>
         ) : null}
       </div>

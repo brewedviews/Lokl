@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, logging, uuid, base64, io, csv, json, random, secrets, hmac, hashlib
+import os, logging, uuid, base64, io, csv, json, random, secrets, hmac, hashlib, asyncio
 import bcrypt
 from pathlib import Path
 from pydantic import BaseModel, EmailStr
@@ -32,7 +32,7 @@ from notifications import (
     notify_order_accepted, notify_order_rejected, notify_order_delivered,
     notify_order_on_the_way, notify_order_cancelled, notify_rider_pickup,
     notify_rider_return_pickup, notify_return_status, notify_customer_otp,
-    notify_merchant_otp,
+    notify_merchant_otp, send_with_fallback,
 )
 from ai_enhance import enhance_product_images
 from observability import init_sentry
@@ -713,7 +713,8 @@ async def stats_home():
 
 @api.get("/feed/popular-in-city")
 async def feed_popular_in_city(city: Optional[str] = "Bhilai", limit: int = 12):
-    sids = await _visible_online_store_ids()
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
     if not sids: return []
     since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     counts: dict[str, int] = {}
@@ -729,37 +730,43 @@ async def feed_popular_in_city(city: Optional[str] = "Bhilai", limit: int = 12):
     items: list[dict] = []
     if top_ids:
         items = await db.products.find(
-            {"id": {"$in": top_ids}, "store_id": {"$in": list(sids)}, **_visible_product_filter()},
+            {"id": {"$in": top_ids}, "store_id": {"$in": sids}, **_visible_product_filter()},
             {"_id": 0, "images": 0}
         ).to_list(limit)
         rank = {pid: i for i, pid in enumerate(top_ids)}
         items.sort(key=lambda p: rank.get(p["id"], 999))
     if not items:
         items = await db.products.find(
-            {"store_id": {"$in": list(sids)}, **_visible_product_filter()},
+            {"store_id": {"$in": sids}, **_visible_product_filter()},
             {"_id": 0, "images": 0}
         ).sort("rating", -1).to_list(limit)
     items = await _enrich_badges(db, items)
+    items = _attach_store_avail(items, avail_map)
+    items.sort(key=lambda p: p.get("store_availability_rank", 1))
     for p in items: p["orders_7d"] = counts.get(p["id"], 0)
     return items
 
 
 @api.get("/feed/selling-fast")
 async def feed_selling_fast(limit: int = 12):
-    sids = await _visible_online_store_ids()
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
     if not sids: return []
     items = await db.products.find(
-        {"store_id": {"$in": list(sids)}, **_visible_product_filter()},
+        {"store_id": {"$in": sids}, **_visible_product_filter()},
         {"_id": 0, "images": 0}
     ).sort("created_at", -1).to_list(100)
     items = await _enrich_badges(db, items)
     items = [p for p in items if p.get("badge") in ("selling_fast", "best_seller") or p.get("low_stock_size")]
+    items = _attach_store_avail(items, avail_map)
+    items.sort(key=lambda p: p.get("store_availability_rank", 1))
     return items[:limit]
 
 
 @api.get("/feed/best-sellers")
 async def feed_best_sellers(limit: int = 12):
-    sids = await _visible_online_store_ids()
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
     if not sids: return []
     since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     counts: dict[str, int] = {}
@@ -774,36 +781,43 @@ async def feed_best_sellers(limit: int = 12):
     items: list[dict] = []
     if top_ids:
         items = await db.products.find(
-            {"id": {"$in": top_ids}, "store_id": {"$in": list(sids)}, **_visible_product_filter()},
+            {"id": {"$in": top_ids}, "store_id": {"$in": sids}, **_visible_product_filter()},
             {"_id": 0, "images": 0}
         ).to_list(limit)
         rank = {pid: i for i, pid in enumerate(top_ids)}
         items.sort(key=lambda p: rank.get(p["id"], 999))
     if not items:
         items = await db.products.find(
-            {"store_id": {"$in": list(sids)}, **_visible_product_filter()},
+            {"store_id": {"$in": sids}, **_visible_product_filter()},
             {"_id": 0, "images": 0}
         ).sort("rating", -1).to_list(limit)
     items = await _enrich_badges(db, items)
+    items = _attach_store_avail(items, avail_map)
+    items.sort(key=lambda p: p.get("store_availability_rank", 1))
     for p in items: p["orders_30d"] = counts.get(p["id"], 0)
     return items
 
 
 @api.get("/feed/new-arrivals")
 async def feed_new_arrivals(limit: int = 12):
-    sids = await _visible_online_store_ids()
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
     if not sids: return []
     items = await db.products.find(
-        {"store_id": {"$in": list(sids)}, **_visible_product_filter()},
+        {"store_id": {"$in": sids}, **_visible_product_filter()},
         {"_id": 0, "images": 0}
     ).sort("created_at", -1).to_list(limit)
-    return await _enrich_badges(db, items)
+    items = await _enrich_badges(db, items)
+    items = _attach_store_avail(items, avail_map)
+    items.sort(key=lambda p: p.get("store_availability_rank", 1))
+    return items
 
 
 @api.get("/feed/trending")
 async def feed_trending(limit: int = 12):
-    sids = await _visible_online_store_ids()
-    if not sids: return []
+    avail_map = await _availability_map()
+    if not avail_map: return []
+    sids = list(avail_map.keys())
     since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     score: dict[str, int] = {}
     async for o in db.orders.find(
@@ -823,17 +837,20 @@ async def feed_trending(limit: int = 12):
     items: list[dict] = []
     if top_ids:
         items = await db.products.find(
-            {"id": {"$in": top_ids}, "store_id": {"$in": list(sids)}, **_visible_product_filter()},
+            {"id": {"$in": top_ids}, "store_id": {"$in": sids}, **_visible_product_filter()},
             {"_id": 0, "images": 0}
         ).to_list(limit)
         rank = {pid: i for i, pid in enumerate(top_ids)}
         items.sort(key=lambda p: rank.get(p["id"], 999))
     if not items:
         items = await db.products.find(
-            {"store_id": {"$in": list(sids)}, **_visible_product_filter()},
+            {"store_id": {"$in": sids}, **_visible_product_filter()},
             {"_id": 0, "images": 0}
         ).sort("rating", -1).to_list(limit)
-    return await _enrich_badges(db, items)
+    items = await _enrich_badges(db, items)
+    items = _attach_store_avail(items, avail_map)
+    items.sort(key=lambda p: p.get("store_availability_rank", 1))
+    return items
 
 
 @api.post("/track/view")
@@ -865,14 +882,17 @@ async def list_recently_viewed(user: dict = Depends(get_current_user), limit: in
     rows = await db.recently_viewed.find({"customer_id": user["sub"]}, {"_id": 0}).sort("ts", -1).to_list(limit)
     pids = [r["product_id"] for r in rows]
     if not pids: return []
-    sids = await _visible_online_store_ids()
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
     items = await db.products.find(
-        {"id": {"$in": pids}, "store_id": {"$in": list(sids)}, **_visible_product_filter()},
+        {"id": {"$in": pids}, "store_id": {"$in": sids}, **_visible_product_filter()},
         {"_id": 0, "images": 0}
     ).to_list(limit)
+    items = await _enrich_badges(db, items)
+    items = _attach_store_avail(items, avail_map)
     rank = {pid: i for i, pid in enumerate(pids)}
     items.sort(key=lambda p: rank.get(p["id"], 999))
-    return await _enrich_badges(db, items)
+    return items
 
 
 @api.get("/search/trending")
@@ -1465,13 +1485,14 @@ async def admin_delete_testimonial(tid: str, user: dict = Depends(get_current_us
 
 @api.get("/categories/counts")
 async def categories_with_counts():
-    sids = await _visible_online_store_ids()
+    avail_map = await _availability_map()
     cats = await db.categories.find({"paused": {"$ne": True}}, {"_id": 0}).sort("order", 1).to_list(50)
-    if not sids:
+    if not avail_map:
         for c in cats: c["product_count"] = 0
         return cats
+    sids = list(avail_map.keys())
     pipeline = [
-        {"$match": {"store_id": {"$in": list(sids)}, **_visible_product_filter()}},
+        {"$match": {"store_id": {"$in": sids}, **_visible_product_filter()}},
         {"$group": {"_id": "$l1_id", "n": {"$sum": 1}}},
     ]
     counts: dict[str, int] = {}
@@ -1651,34 +1672,107 @@ def _is_store_open_now(store: dict) -> tuple[bool, str | None]:
         return True, None
 
 
-def _merchant_is_active(store: dict) -> tuple[bool, str | None]:
-    """Return (show_in_feeds, availability_label) for a store.
+def _store_availability(store: dict) -> dict:
+    """Return full availability descriptor for a store.
 
-    State matrix:
-    - Toggle OFF             → (False, None)          — hidden entirely
-    - Toggle ON + outside hours → (True,  label)      — show with "Opens at X" badge
-    - Toggle ON + within hours + seen < 30 min → (True,  None) — fully live
-    - Toggle ON + within hours + seen > 30 min → (False, "Store temporarily unavailable")
+    State matrix (rank 1=best):
+      Toggle OFF                                     → rank 4, Unavailable, can_order=False
+      Toggle ON + outside hours                      → rank 3, Closed,       can_order=True
+      Toggle ON + in hours + last_seen < 30 min      → rank 1, LIVE,         can_order=True
+      Toggle ON + in hours + last_seen 30–90 min     → rank 2, Away,         can_order=True
+      Toggle ON + in hours + last_seen > 90 min      → rank 4, Unavailable,  can_order=False
+      Toggle ON + in hours + no last_seen (new store)→ rank 1, LIVE,         can_order=True
     """
-    if store.get("online") is False:
-        return False, None
+    def _fmt_time(t: str) -> str:
+        try:
+            oh, om = [int(x) for x in t.split(":")[:2]]
+            h = oh % 12 or 12
+            ampm = "AM" if oh < 12 else "PM"
+            return f"{h}:{om:02d} {ampm}"
+        except Exception:
+            return t
 
-    is_open, next_label = _is_store_open_now(store)
-    if not is_open:
-        return True, next_label  # outside hours: always include with badge
+    if store.get("online") is False:
+        return {"rank": 4, "badge": "Unavailable", "badge_color": "red",
+                "can_order": False, "eta_message": "Store unavailable", "opens_at_label": None}
+
+    opens = store.get("opens_at")
+    closes = store.get("closes_at")
+    in_hours = True
+    cur_min = None
+    closes_raw_min = None
+
+    if opens and closes:
+        try:
+            ist = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+            cur_min = ist.hour * 60 + ist.minute
+            oh, om = [int(x) for x in opens.split(":")[:2]]
+            ch, cm = [int(x) for x in closes.split(":")[:2]]
+            open_min = oh * 60 + om + 30   # 30-min grace after opens
+            close_min = ch * 60 + cm - 30  # 30-min grace before closes
+            closes_raw_min = ch * 60 + cm
+            in_hours = open_min <= cur_min < close_min
+        except Exception:
+            in_hours = True
+
+    if not in_hours:
+        try:
+            time_str = _fmt_time(opens)
+            if cur_min is not None and closes_raw_min is not None and cur_min < closes_raw_min:
+                eta_msg = f"Opens today at {time_str}"
+                opens_lbl = f"Opens at {time_str}"
+            else:
+                eta_msg = f"Opens tomorrow at {time_str}"
+                opens_lbl = f"Opens tomorrow at {time_str}"
+        except Exception:
+            eta_msg, opens_lbl = "Store closed", None
+        return {"rank": 3, "badge": "Closed", "badge_color": "red",
+                "can_order": True, "eta_message": eta_msg, "opens_at_label": opens_lbl}
 
     last_seen = store.get("last_seen_at")
     if not last_seen:
-        return True, None  # no tracking yet: be permissive
+        return {"rank": 1, "badge": "LIVE", "badge_color": "green",
+                "can_order": True, "eta_message": "Delivery in ~30 mins", "opens_at_label": None}
 
     try:
         last_dt = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=MERCHANT_IDLE_TIMEOUT_MIN)
-        if last_dt >= cutoff:
-            return True, None
-        return False, "Store temporarily unavailable"
+        elapsed_min = (datetime.now(timezone.utc) - last_dt).total_seconds() / 60
+        if elapsed_min < 30:
+            return {"rank": 1, "badge": "LIVE", "badge_color": "green",
+                    "can_order": True, "eta_message": "Delivery in ~30 mins", "opens_at_label": None}
+        if elapsed_min < 90:
+            return {"rank": 2, "badge": "Away", "badge_color": "yellow",
+                    "can_order": True, "eta_message": "May be delayed · Store is away", "opens_at_label": None}
+        return {"rank": 4, "badge": "Unavailable", "badge_color": "red",
+                "can_order": False, "eta_message": "Store unavailable · Try other stores", "opens_at_label": None}
     except Exception:
-        return True, None
+        return {"rank": 1, "badge": "LIVE", "badge_color": "green",
+                "can_order": True, "eta_message": "Delivery in ~30 mins", "opens_at_label": None}
+
+
+async def _availability_map() -> dict[str, dict]:
+    """Return {store_id: availability_dict} for ALL non-deleted/paused stores.
+    Includes toggle-OFF stores so feeds can rank them at the bottom (rank=4)."""
+    stores = await db.stores.find(
+        _visible_store_filter(),
+        {"_id": 0, "id": 1, "online": 1, "last_seen_at": 1, "opens_at": 1, "closes_at": 1}
+    ).to_list(2000)
+    return {s["id"]: _store_availability(s) for s in stores}
+
+
+def _attach_store_avail(products: list, avail_map: dict) -> list:
+    """Stamp store availability fields onto each product dict in-place."""
+    _default = {"rank": 1, "badge": "LIVE", "badge_color": "green",
+                "can_order": True, "eta_message": "Delivery in ~30 mins", "opens_at_label": None}
+    for p in products:
+        avail = avail_map.get(p.get("store_id"), _default)
+        p["store_badge"] = avail["badge"]
+        p["store_badge_color"] = avail["badge_color"]
+        p["store_can_order"] = avail["can_order"]
+        p["store_eta_message"] = avail["eta_message"]
+        p["store_opens_at_label"] = avail["opens_at_label"]
+        p["store_availability_rank"] = avail["rank"]
+    return products
 
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -1714,56 +1808,49 @@ def _attach_distance_and_eta(stores: list, user_lat: Optional[float], user_lng: 
 async def list_stores(city: Optional[str] = None, limit: int = 50,
                       lat: Optional[float] = None, lng: Optional[float] = None):
     q = dict(_visible_store_filter())
-    # Hide stores the merchant has toggled offline — they should disappear from the
-    # public listing entirely (not just be tagged "offline"), otherwise customers
-    # land on an empty store page. The merchant dashboard / admin still see them
-    # via their own endpoints.
-    q["online"] = {"$ne": False}
     if city: q["city"] = city
-    # Strip heavy multi-banner array from list view (only cover `banner` is needed for cards)
     stores = await db.stores.find(q, {"_id": 0, "banner_images": 0}).to_list(limit)
     stores = _attach_distance_and_eta(stores, lat, lng)
-    open_list, offline_list = [], []
     for s in stores:
-        show, label = _merchant_is_active(s)
-        if not show:
-            continue  # within hours + merchant logged out: suppress entirely
-        s["is_open"] = label is None  # True only when no badge needed
-        s["online"] = True
-        if label:
-            s["next_open_label"] = label
-            offline_list.append(s)
-        else:
-            open_list.append(s)
-    # Open + distance asc; offline at the bottom (open-first → distance asc per user spec)
-    if lat is not None and lng is not None:
-        open_list.sort(key=lambda s: s.get("distance_km") if s.get("distance_km") is not None else 9999)
-        offline_list.sort(key=lambda s: s.get("distance_km") if s.get("distance_km") is not None else 9999)
-    return open_list + offline_list
+        avail = _store_availability(s)
+        s["badge"] = avail["badge"]
+        s["badge_color"] = avail["badge_color"]
+        s["is_open"] = avail["can_order"]
+        s["availability_rank"] = avail["rank"]
+        if avail.get("opens_at_label"):
+            s["next_open_label"] = avail["opens_at_label"]
+    stores.sort(key=lambda s: (
+        s.get("availability_rank", 4),
+        s.get("distance_km") if s.get("distance_km") is not None else 9999
+    ))
+    return stores
 
 
 @api.get("/feed/nearby-stores")
 async def feed_nearby_stores(lat: float, lng: float, limit: int = 10):
-    """Open stores sorted by Haversine distance ascending. Requires user coords."""
-    q = {**_visible_store_filter(), "online": {"$ne": False}}
-    stores = await db.stores.find(q, {"_id": 0, "banner_images": 0}).to_list(200)
+    """Stores sorted by availability rank then distance. Requires user coords."""
+    stores = await db.stores.find(_visible_store_filter(), {"_id": 0, "banner_images": 0}).to_list(200)
     stores = _attach_distance_and_eta(stores, lat, lng)
-    out = []
     for s in stores:
-        is_open_by_time, _ = _is_store_open_now(s)
-        if not is_open_by_time: continue
-        if s.get("distance_km") is None: continue
-        s["is_open"] = True
-        out.append(s)
-    out.sort(key=lambda s: s["distance_km"])
-    return out[:limit]
+        avail = _store_availability(s)
+        s["badge"] = avail["badge"]
+        s["badge_color"] = avail["badge_color"]
+        s["is_open"] = avail["can_order"]
+        s["availability_rank"] = avail["rank"]
+        if avail.get("opens_at_label"):
+            s["next_open_label"] = avail["opens_at_label"]
+    stores = [s for s in stores if s.get("distance_km") is not None]
+    stores.sort(key=lambda s: (
+        s.get("availability_rank", 4),
+        s.get("distance_km", 9999)
+    ))
+    return stores[:limit]
 
 
 @api.get("/feed/popular-stores")
 async def feed_popular_stores(limit: int = 10):
-    """Stores with the most orders in the last 30 days."""
-    q = {**_visible_store_filter(), "online": {"$ne": False}}
-    stores = await db.stores.find(q, {"_id": 0, "banner_images": 0}).to_list(200)
+    """Stores with the most orders in the last 30 days, sorted by availability rank."""
+    stores = await db.stores.find(_visible_store_filter(), {"_id": 0, "banner_images": 0}).to_list(200)
     since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     counts: dict = {}
     async for o in db.orders.find({"created_at": {"$gte": since}}, {"_id": 0, "items": 1}):
@@ -1772,12 +1859,14 @@ async def feed_popular_stores(limit: int = 10):
             if sid: counts[sid] = counts.get(sid, 0) + 1
     for s in stores:
         s["orders_30d"] = counts.get(s["id"], 0)
-        show, label = _merchant_is_active(s)
-        s["is_open"] = show and label is None
-        if label:
-            s["next_open_label"] = label
-    stores = [s for s in stores if _merchant_is_active(s)[0]]
-    stores.sort(key=lambda s: (-s.get("orders_30d", 0), s.get("name", "").lower()))
+        avail = _store_availability(s)
+        s["badge"] = avail["badge"]
+        s["badge_color"] = avail["badge_color"]
+        s["is_open"] = avail["can_order"]
+        s["availability_rank"] = avail["rank"]
+        if avail.get("opens_at_label"):
+            s["next_open_label"] = avail["opens_at_label"]
+    stores.sort(key=lambda s: (s.get("availability_rank", 4), -s.get("orders_30d", 0)))
     return stores[:limit]
 
 
@@ -1785,49 +1874,59 @@ async def feed_popular_stores(limit: int = 10):
 async def get_store(store_id: str):
     s = await db.stores.find_one({"id": store_id, **_visible_store_filter()}, {"_id": 0})
     if not s: raise HTTPException(404, "Store not found")
-    if s.get("online") is False:
-        raise HTTPException(404, "Store not found")
-    show, label = _merchant_is_active(s)
-    s["is_open"] = show and label is None
-    s["online"] = True
-    if label:
-        s["next_open_label"] = label
-    # Hide products when merchant is logged out during working hours
-    if not show:
-        s["next_open_label"] = "Store temporarily unavailable"
-        products = []
-    else:
-        products = await db.products.find({"store_id": store_id, **_visible_product_filter()}, {"_id": 0, "images": 0}).to_list(200)
-        for p in products:
-            p["store_is_open"] = s["is_open"]
-            if not s["is_open"] and label:
-                p["next_open_label"] = label
+    avail = _store_availability(s)
+    s["badge"] = avail["badge"]
+    s["badge_color"] = avail["badge_color"]
+    s["is_open"] = avail["can_order"]
+    s["eta_message"] = avail["eta_message"]
+    if avail.get("opens_at_label"):
+        s["next_open_label"] = avail["opens_at_label"]
+    products = await db.products.find({"store_id": store_id, **_visible_product_filter()}, {"_id": 0, "images": 0}).to_list(200)
+    for p in products:
+        p["store_badge"] = avail["badge"]
+        p["store_badge_color"] = avail["badge_color"]
+        p["store_can_order"] = avail["can_order"]
+        p["store_eta_message"] = avail["eta_message"]
+        p["store_opens_at_label"] = avail.get("opens_at_label")
+        p["store_availability_rank"] = avail["rank"]
     return {"store": s, "products": products}
 
 @api.get("/products")
 async def list_products(l1: Optional[str] = None, l2: Optional[str] = None,
                         gender: Optional[str] = None, store: Optional[str] = None,
                         sort: str = "trending", limit: int = 100):
-    # Only show products from stores that pass the activity check (toggle + working hours + last_seen).
-    online_filter = {**_visible_store_filter(), "online": {"$ne": False}}
-    stores_raw = await db.stores.find(online_filter, {"_id": 0, "id": 1, "last_seen_at": 1, "opens_at": 1, "closes_at": 1}).to_list(1000)
-    visible_set = {s["id"] for s in stores_raw if _merchant_is_active(s)[0]}
-    q = {"store_id": {"$in": list(visible_set)}, **_visible_product_filter()}
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys()) if avail_map else []
+    q: dict = {**_visible_product_filter()}
+    if store:
+        q["store_id"] = store
+    elif sids:
+        q["store_id"] = {"$in": sids}
     if l1: q["l1_id"] = l1
     if l2: q["l2_id"] = l2
     if gender: q["gender"] = gender
-    if store: q["store_id"] = store
-    # Strip heavy `images` carousel array from list responses (full array fetched on PDP via /products/{pid}).
     cursor = db.products.find(q, {"_id": 0, "images": 0})
     if sort == "price_asc": cursor = cursor.sort("price", 1)
     elif sort == "price_desc": cursor = cursor.sort("price", -1)
     elif sort == "rating": cursor = cursor.sort("rating", -1)
-    return await cursor.to_list(limit)
+    items = await cursor.to_list(limit)
+    items = _attach_store_avail(items, avail_map)
+    items.sort(key=lambda p: p.get("store_availability_rank", 1))
+    return items
 
 @api.get("/products/{pid}")
 async def get_product(pid: str):
     p = await db.products.find_one({"id": pid}, {"_id": 0})
     if not p: raise HTTPException(404, "Product not found")
+    store_doc = await db.stores.find_one({"id": p.get("store_id"), **_visible_store_filter()}, {"_id": 0})
+    if store_doc:
+        avail = _store_availability(store_doc)
+        p["store_badge"] = avail["badge"]
+        p["store_badge_color"] = avail["badge_color"]
+        p["store_can_order"] = avail["can_order"]
+        p["store_eta_message"] = avail["eta_message"]
+        p["store_opens_at_label"] = avail.get("opens_at_label")
+        p["store_availability_rank"] = avail["rank"]
     similar_q = {"id": {"$ne": pid}, **_visible_product_filter()}
     if p.get("l2_id"): similar_q["l2_id"] = p["l2_id"]
     elif p.get("l1_id"): similar_q["l1_id"] = p["l1_id"]
@@ -1959,6 +2058,20 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
     addr_city = (payload.address.get("city") or "").strip().lower()
     if addr_city not in SERVICEABLE_CITIES:
         raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
+
+    # Pre-check store availability before any stock reservations.
+    payload_store_ids = list({it.get("store_id") for it in payload.items if it.get("store_id")})
+    if payload_store_ids:
+        unavailable_stores = []
+        for sid in payload_store_ids:
+            store_doc = await db.stores.find_one({"id": sid, **_visible_store_filter()}, {"_id": 0})
+            avail = _store_availability(store_doc) if store_doc else {"can_order": False, "eta_message": "Store unavailable"}
+            if not avail["can_order"]:
+                store_name = (store_doc or {}).get("name", sid)
+                unavailable_stores.append(f"{store_name}: {avail['eta_message']}")
+        if unavailable_stores:
+            raise HTTPException(400, "Cannot place order — some stores are unavailable: " + "; ".join(unavailable_stores))
+
     # Order ID prefix — branded "LOKL-" since iter-45. Pre-existing orders
     # with "BFO-" ids stay valid; lookups are by full id so the prefix is
     # purely cosmetic. The DB has no constraint on the prefix.
@@ -4010,6 +4123,41 @@ app.add_middleware(
 )
 
 
+async def _auto_cancel_stale_orders():
+    """Background loop: cancel COD orders stuck in pending_merchant > 2 hours."""
+    import asyncio as _asyncio
+    while True:
+        try:
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+            async for order in db.orders.find(
+                {"status": "pending_merchant", "payment_method": "COD",
+                 "created_at": {"$lt": cutoff}, "is_deleted": {"$ne": True}},
+                {"_id": 0, "id": 1, "merchant_ids": 1, "customer": 1}
+            ):
+                oid = order["id"]
+                now_iso = datetime.now(timezone.utc).isoformat()
+                cancel_states = {mid: "cancelled" for mid in (order.get("merchant_ids") or [])}
+                await db.orders.update_one({"id": oid}, {"$set": {
+                    "status": "cancelled",
+                    "cancelled_at": now_iso,
+                    "cancel_reason": "Auto-cancelled: no merchant response within 2 hours",
+                    "merchant_states": cancel_states,
+                }})
+                cust_phone = (order.get("customer") or {}).get("phone")
+                if cust_phone:
+                    try:
+                        from notifications import send_with_fallback
+                        send_with_fallback(cust_phone,
+                            f"Your Lokl order {oid} was auto-cancelled as no merchant accepted it within 2 hours. "
+                            "You have not been charged.")
+                    except Exception:
+                        pass
+                log.info("Auto-cancelled stale order %s", oid)
+        except Exception as e:
+            log.warning("_auto_cancel_stale_orders error: %s", e)
+        await _asyncio.sleep(300)  # check every 5 minutes
+
+
 @app.on_event("startup")
 async def startup_seed():
     # ----- MongoDB version + geo support check -----
@@ -4126,6 +4274,9 @@ async def startup_seed():
                 "title": "Your KYC is approved",
                 "body": "Welcome to Lokl!", "time": now}}})
         log.info("Demo merchant auto-approved")
+
+    asyncio.create_task(_auto_cancel_stale_orders())
+
 
 @app.on_event("shutdown")
 async def shutdown(): client.close()

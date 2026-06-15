@@ -56,6 +56,14 @@ export interface Product {
   rating: number | null;
   reviews?: number;
 
+  // Store availability (stamped by backend at query time)
+  store_badge?: string;
+  store_badge_color?: string;
+  store_can_order?: boolean;
+  store_eta_message?: string;
+  store_opens_at_label?: string | null;
+  store_availability_rank?: number;
+
   created_at: IsoDateTime;
 }
 
@@ -65,7 +73,14 @@ export type ProductCard = Pick<
   | "id" | "name" | "price" | "mrp" | "image" | "images" | "rating"
   | "store_id" | "store_name" | "store_city" | "store_distance_km"
   | "try_at_doorstep" | "return_eligible" | "paused"
->;
+> & {
+  store_badge?: string;
+  store_badge_color?: string;
+  store_can_order?: boolean;
+  store_eta_message?: string;
+  store_opens_at_label?: string | null;
+  store_availability_rank?: number;
+};
 
 /** Query params accepted by GET /api/products and the various /feed/* feeds. */
 export interface ProductFilters {
