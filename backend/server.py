@@ -3730,6 +3730,15 @@ async def create_return(oid: str, payload: dict, user: dict = Depends(customer_u
 async def get_return(rid: str):
     r = await db.returns.find_one({"id": rid}, {"_id": 0})
     if not r: raise HTTPException(404, "Return not found")
+    if not r.get("timeline"):
+        created = r.get("created_at")
+        r["timeline"] = [
+            {"label": "Return requested", "time": created},
+            {"label": "Pickup partner assigned", "time": None},
+            {"label": "Pickup partner arriving", "time": None},
+            {"label": "Product picked up", "time": None},
+            {"label": "Return completed", "time": None},
+        ]
     return r
 
 
@@ -3757,6 +3766,15 @@ def _advance_return(r: dict, target_status: str):
     }[target_status]
     now = _now_iso()
     tl = r.get("timeline") or []
+    # Initialise timeline for legacy returns that have no pre-built template.
+    if not tl:
+        tl = [
+            {"label": "Return requested", "time": r.get("created_at")},
+            {"label": "Pickup partner assigned", "time": None},
+            {"label": "Pickup partner arriving", "time": None},
+            {"label": "Product picked up", "time": None},
+            {"label": "Return completed", "time": None},
+        ]
     for t in tl:
         if t.get("label") == label_for and not t.get("time"):
             t["time"] = now

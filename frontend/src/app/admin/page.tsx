@@ -181,6 +181,9 @@ function MerchantsTab() {
   // (the empty-string `reason` was being sent on Cancel).
   const [holdingFor, setHoldingFor] = useState<string | null>(null);
   const [holdComment, setHoldComment] = useState("");
+  // Inline Reject form state — mirrors the Hold pattern exactly.
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -199,13 +202,15 @@ function MerchantsTab() {
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(null); }
   };
-  const reject = async (mid: string) => {
-    const reason = window.prompt("Rejection reason:");
-    if (!reason) return;
+  const confirmReject = async (mid: string) => {
+    const reason = rejectReason.trim();
+    if (!reason) { toast.error("Rejection reason is required"); return; }
     setBusy(mid);
     try {
       await adminFetch<{ ok: boolean }>(`/api/admin/merchants/${mid}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
       toast.success("Merchant rejected");
+      setRejectingId(null);
+      setRejectReason("");
       void load();
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(null); }
@@ -229,6 +234,10 @@ function MerchantsTab() {
   const openHold = (mid: string) => {
     setHoldingFor(mid);
     setHoldComment("");
+  };
+  const openReject = (mid: string) => {
+    setRejectingId(mid);
+    setRejectReason("");
   };
 
   const openKycDoc = async (mid: string, doc: "pan_doc" | "gst_doc" | "cancelled_cheque") => {
@@ -273,7 +282,7 @@ function MerchantsTab() {
                   {m.kyc_status === "submitted" && <>
                     <button onClick={() => approve(m.id)} disabled={busy === m.id} data-testid={`approve-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#4F7363] text-white disabled:opacity-50">Approve</button>
                     <button onClick={() => openHold(m.id)} disabled={busy === m.id} data-testid={`hold-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#E68910] text-white disabled:opacity-50">Hold</button>
-                    <button onClick={() => reject(m.id)} disabled={busy === m.id} data-testid={`reject-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-50">Reject</button>
+                    <button onClick={() => openReject(m.id)} disabled={busy === m.id} data-testid={`reject-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-50">Reject</button>
                   </>}
                 </div>
               </div>
@@ -291,6 +300,23 @@ function MerchantsTab() {
                   <div className="flex items-center justify-end gap-2">
                     <button onClick={() => { setHoldingFor(null); setHoldComment(""); }} data-testid={`hold-cancel-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC] text-[#595959]">Cancel</button>
                     <button onClick={() => hold(m.id)} disabled={busy === m.id || !holdComment.trim()} data-testid={`hold-confirm-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#E68910] text-white disabled:opacity-40">{busy === m.id ? "Saving…" : "Confirm Hold"}</button>
+                  </div>
+                </div>
+              )}
+              {rejectingId === m.id && (
+                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl space-y-2" data-testid={`reject-form-${m.id}`}>
+                  <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Reason for rejection (required)</label>
+                  <textarea
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    data-testid={`reject-comment-${m.id}`}
+                    rows={2}
+                    placeholder="e.g. Documents incomplete — PAN card not legible"
+                    className="w-full px-3 py-2 rounded-lg border border-[#E5E2DC] text-sm bg-white focus:border-[#0A1F5C] outline-none"
+                  />
+                  <div className="flex items-center justify-end gap-2">
+                    <button onClick={() => { setRejectingId(null); setRejectReason(""); }} data-testid={`reject-cancel-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC] text-[#595959]">Cancel</button>
+                    <button onClick={() => confirmReject(m.id)} disabled={busy === m.id || !rejectReason.trim()} data-testid={`reject-confirm-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-40">{busy === m.id ? "Saving…" : "Confirm Reject"}</button>
                   </div>
                 </div>
               )}

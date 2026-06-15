@@ -180,6 +180,8 @@ export default function CheckoutPage() {
     || (estimate ? estimate.deliverable : !estimating)
   );
 
+  const normalizePhone = (p: string) => p.replace(/\D/g, "").replace(/^0+/, "").padStart(12, "91").slice(-12);
+
   const place = async () => {
     if (!addr.name || !addr.phone || !addr.line1 || !addr.pincode) return toast.error("Please fill name, phone, address and pincode");
     if (!/^[0-9]{10}$/.test(addr.phone)) return toast.error("Enter a valid 10-digit phone number");
@@ -187,14 +189,15 @@ export default function CheckoutPage() {
       return toast.error("Lokl is only serving Bhilai right now — please update your delivery city.");
     }
     if (items.length === 0) return toast.error("Cart is empty");
-    if (!hasAuth) return toast.error("Please sign in to place this order");
+    const customerToken = typeof window !== "undefined" ? localStorage.getItem("bf_customer_token") : null;
+    if (!hasAuth || !customerToken) { router.push("/account"); return; }
     if (estimate && !estimate.deliverable) return toast.error(estimate.reason || "Delivery unavailable for this address");
 
     setPlacing(true);
     try {
       const order = await api.orders.create({
         items, address: addr, total: grandTotal, payment_method: payment,
-        customer: { name: addr.name, phone: addr.phone },
+        customer: { name: addr.name, phone: normalizePhone(addr.phone) },
       });
 
       // COD branch — no Razorpay modal; backend marks status accordingly.

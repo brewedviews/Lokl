@@ -81,6 +81,12 @@ export default function CustomerAccountPage() {
   };
 
   const saveAddress = async (a: typeof BLANK_ADDR) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("bf_customer_token") : null;
+    if (!phone || !token) {
+      toast.error("Please log in to add an address");
+      setAddrModal(null);
+      return;
+    }
     if (!a.line1.trim() || !a.pincode.trim()) return toast.error("Address line & pincode are required");
     const cityNorm = (a.city || "").trim().toLowerCase();
     if (cityNorm && cityNorm !== "bhilai") return toast.error("Lokl currently serves Bhilai only");

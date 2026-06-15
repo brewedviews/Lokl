@@ -106,7 +106,7 @@ export default function MerchantStorefrontPage() {
       ...f,
       area_slug: a.slug,
       area_label: a.label,
-      pincode: f.pincode || a.pincode,
+      pincode: a.pincode,
       lat: a.lat.toFixed(6),
       lng: a.lng.toFixed(6),
     }));
