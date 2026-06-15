@@ -204,6 +204,14 @@ class ProductCreate(BaseModel):
 class OrderCreate(BaseModel):
     items: List[dict]; address: dict; total: float
     payment_method: str = "COD"; customer: Optional[dict] = None  # {name, phone, age}
+    razorpay_payment_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
+    razorpay_signature: Optional[str] = None
+
+class RazorpayCreateOrderRequest(BaseModel):
+    amount: float
+    customer_name: Optional[str] = ""
+    customer_phone: Optional[str] = ""
 
 class AICopyRequest(BaseModel): product_name: str; category: Optional[str] = ""; notes: Optional[str] = ""
 class ChangeRequest(BaseModel):
@@ -2032,6 +2040,41 @@ async def _soft_delete(collection_name: str, doc_id: str) -> bool:
     return r.modified_count > 0
 
 
+@api.post("/payments/razorpay/create-order")
+async def razorpay_create_payment_order(
+    payload: RazorpayCreateOrderRequest,
+    user: dict = Depends(customer_user),
+):
+    """Create a Razorpay order (payment intent only). Does NOT create a Lokl order in DB.
+    The frontend uses the returned razorpay_order_id to open the Razorpay modal.
+    Once payment succeeds, POST /api/orders is called with the payment proof."""
+    if not razorpay_enabled():
+        raise HTTPException(503, "Online payment unavailable. Try COD.")
+    if payload.amount <= 0:
+        raise HTTPException(400, "amount must be positive")
+    try:
+        from decimal import Decimal as _Decimal
+        temp_receipt = f"pay-{uuid.uuid4().hex[:12]}"
+        rp_order = create_razorpay_order(
+            lokl_order_id=temp_receipt,
+            amount_inr=_Decimal(str(payload.amount)),
+            customer_phone=payload.customer_phone or "",
+            customer_name=payload.customer_name or "",
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"Payment gateway error: {e}")
+    if rp_order is None:
+        raise HTTPException(503, "Online payment unavailable. Try COD.")
+    return {
+        "razorpay_order_id": rp_order["id"],
+        "amount_paise": int(round(float(payload.amount) * 100)),
+        "currency": "INR",
+        "key_id": os.environ.get("RAZORPAY_KEY_ID", ""),
+    }
+
+
 @api.post("/orders")
 async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)):
     # Bind the order to the authenticated customer. The phone in the payload
@@ -2162,28 +2205,22 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
 
         # ===== Payment method branch =====
         # COD: order goes straight to merchant queue (existing behavior).
-        # razorpay: order is held in `awaiting_payment` until the webhook flips
-        # payment_status=paid (or it expires). Merchants are NOT notified until
-        # the payment is captured so they don't pack against an abandoned cart.
+        # razorpay: frontend calls POST /payments/razorpay/create-order first, completes
+        # payment, then calls POST /orders with verified signature. Order is created
+        # directly with status=pending_merchant; merchants are notified immediately.
         pm = (payload.payment_method or "COD").lower()
         if pm in ("razorpay", "online"):
-            try:
-                rp_order = create_razorpay_order(
-                    lokl_order_id=order_id, amount_inr=server_total,
-                    customer_phone=(payload.customer or {}).get("phone", ""),
-                    customer_name=(payload.customer or {}).get("name", ""),
-                )
-            except ValueError as e:
-                raise HTTPException(400, str(e))
-            except Exception as e:
-                raise HTTPException(502, f"Payment gateway error: {e}")
-            if rp_order is None:
-                raise HTTPException(503, "Online payment unavailable. Try COD.")
+            # Payment-first flow: frontend verifies payment then calls POST /orders.
+            # Signature proves the payment was captured before the order is created.
+            if not payload.razorpay_payment_id or not payload.razorpay_order_id or not payload.razorpay_signature:
+                raise HTTPException(400, "razorpay_payment_id, razorpay_order_id and razorpay_signature are required for Razorpay payments")
+            if not verify_payment_signature(payload.razorpay_order_id, payload.razorpay_payment_id, payload.razorpay_signature):
+                raise HTTPException(400, "Invalid Razorpay payment signature")
             doc["payment_method"] = "razorpay"
-            doc["payment_status"] = "unpaid"
-            doc["razorpay_order_id"] = rp_order["id"]
-            doc["status"] = "awaiting_payment"
-            doc["expires_at"] = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+            doc["payment_status"] = "paid"
+            doc["razorpay_order_id"] = payload.razorpay_order_id
+            doc["razorpay_payment_id"] = payload.razorpay_payment_id
+            doc["paid_at"] = now
         else:
             doc["payment_method"] = "COD"
             doc["payment_status"] = "cod_pending"
@@ -2202,8 +2239,8 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
     if cust_phone:
         try: notify_order_placed(cust_phone, order_id, float(server_total))
         except Exception: pass
-    # Only notify merchants for COD. Razorpay orders wait for webhook → paid.
-    if doc.get("payment_method") == "COD":
+    # Notify merchants for COD and Razorpay (payment verified at order creation time).
+    if doc.get("payment_method") in ("COD", "razorpay"):
         for mid in unique_mids:
             m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1})
             if m and m.get("phone"):
@@ -4152,6 +4189,13 @@ async def _auto_cancel_stale_orders():
     import asyncio as _asyncio
     while True:
         try:
+            rp_cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+            del_result = await db.orders.delete_many({
+                "status": "awaiting_payment",
+                "created_at": {"$lt": rp_cutoff},
+            })
+            if del_result.deleted_count:
+                log.info("Deleted %d stale awaiting_payment orders", del_result.deleted_count)
             cutoff = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
             async for order in db.orders.find(
                 {"status": "pending_merchant", "payment_method": "COD",

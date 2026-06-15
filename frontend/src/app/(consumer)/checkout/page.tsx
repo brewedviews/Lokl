@@ -194,48 +194,79 @@ export default function CheckoutPage() {
     if (estimate && !estimate.deliverable) return toast.error(estimate.reason || "Delivery unavailable for this address");
 
     setPlacing(true);
-    try {
-      const order = await api.orders.create({
-        items, address: addr, total: grandTotal, payment_method: payment,
-        customer: { name: addr.name, phone: normalizePhone(addr.phone) },
-      });
 
-      // COD branch — no Razorpay modal; backend marks status accordingly.
-      if (payment !== "RAZORPAY") {
+    // COD / UPI branch — create order directly, no payment modal.
+    if (payment !== "RAZORPAY") {
+      try {
+        const order = await api.orders.create({
+          items, address: addr, total: grandTotal, payment_method: payment,
+          customer: { name: addr.name, phone: normalizePhone(addr.phone) },
+        });
         clearCart();
         toast.success("Order placed!");
         router.push(`/orders/${order.id}`);
-        return;
+      } catch (e) {
+        toast.error(getErrorMessage(e));
+        setPlacing(false);
       }
+      return;
+    }
 
-      // Razorpay branch — backend should have echoed razorpay_* fields back.
-      if (!order.razorpay_order_id || !order.razorpay_key_id || !order.amount_paise) {
-        toast.error("Payment service unavailable. Try again.");
-        return;
-      }
-      if (!razorpay.loaded) {
-        toast.error("Payment unavailable. Please refresh.");
-        return;
-      }
+    // Razorpay branch:
+    // Step 1 — create a Razorpay order (does NOT touch our DB yet).
+    // Step 2 — open the modal. On cancel: toast + stay on checkout, nothing created.
+    // Step 3 — on payment success: send verified payment proof to POST /api/orders.
+    if (!razorpay.loaded) {
+      toast.error("Payment unavailable. Please refresh.");
+      setPlacing(false);
+      return;
+    }
+
+    try {
+      const rpResp = await apiClient.post<{
+        razorpay_order_id: string;
+        amount_paise: number;
+        currency: string;
+        key_id: string;
+      }>("/api/payments/razorpay/create-order", {
+        amount: grandTotal,
+        customer_name: addr.name,
+        customer_phone: normalizePhone(addr.phone),
+      });
+      const rpData = rpResp.data;
+
       razorpay.openCheckout({
-        key: order.razorpay_key_id || RAZORPAY_KEY_ID,
-        amount: order.amount_paise,
+        key: rpData.key_id || RAZORPAY_KEY_ID,
+        amount: rpData.amount_paise,
         currency: "INR",
-        order_id: order.razorpay_order_id,
+        order_id: rpData.razorpay_order_id,
         name: "Lokl",
         description: "Local fashion, delivered",
         prefill: { name: addr.name, contact: addr.phone, email: "" },
         theme: { color: "#0A1F5C" },
-        notes: { lokl_order_id: order.id },
-        handler: (_resp: RazorpayResponse) => {
-          // Webhook will confirm payment server-side; UI only needs to redirect.
-          toast.success("Payment successful!");
-          clearCart();
-          setTimeout(() => router.push(`/orders/${order.id}`), 800);
+        handler: (resp: RazorpayResponse) => {
+          // Payment succeeded — now create the Lokl order with the verified proof.
+          (async () => {
+            try {
+              const result = await apiClient.post<{ id: string }>("/api/orders", {
+                items, address: addr, total: grandTotal, payment_method: "RAZORPAY",
+                customer: { name: addr.name, phone: normalizePhone(addr.phone) },
+                razorpay_payment_id: resp.razorpay_payment_id,
+                razorpay_order_id: resp.razorpay_order_id,
+                razorpay_signature: resp.razorpay_signature,
+              });
+              clearCart();
+              toast.success("Payment successful!");
+              router.push(`/orders/${result.data.id}`);
+            } catch (e) {
+              toast.error(getErrorMessage(e));
+              setPlacing(false);
+            }
+          })();
         },
         modal: {
           ondismiss: () => {
-            toast("Payment cancelled", { description: "Your order is still pending. You can retry payment." });
+            toast("Payment cancelled", { description: "Your order was not placed. You can retry." });
             setPlacing(false);
           },
           escape: true,
@@ -243,12 +274,9 @@ export default function CheckoutPage() {
       });
     } catch (e) {
       toast.error(getErrorMessage(e));
-    } finally {
-      // For Razorpay we keep `placing=true` while the modal is open and the
-      // user is paying; the handler/ondismiss callbacks reset it. For COD we
-      // already redirected.
-      if (payment !== "RAZORPAY") setPlacing(false);
+      setPlacing(false);
     }
+    // placing stays true while the modal is open; ondismiss or handler resets it
   };
 
   if (!hasAuth) {

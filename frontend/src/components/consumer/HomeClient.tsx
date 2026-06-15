@@ -75,7 +75,7 @@ export function HomeClient() {
     setErrors((prev) => { const next = new Set(prev); next.add(key); return next; });
 
   useEffect(() => {
-    // Categories are static — mark loaded immediately so they don't block allLoaded.
+    // Categories are static — mark loaded immediately.
     markLoaded("categories");
     api.site.homeStats().then((r) => setStats(r as unknown as HomeStatsDoc)).catch(() => {});
     api.site.homepageConfig().then((cfg) => {
@@ -102,8 +102,6 @@ export function HomeClient() {
   const storesRail = nearby.length > 0 ? nearby : popularStores;
   const storesTitle = nearby.length > 0 ? "Stores near you" : "Popular stores in Bhilai";
 
-  const allLoaded = ["trending", "sellingFast", "recent", "popularStores", "offers", "hero", "categories"].every((k) => loaded.has(k));
-
   // Skeleton primitives — no borders, no white backgrounds; blend into #FDFBF7.
   const ProductRailSkeleton = ({ testid }: { testid: string }) => (
     <div key={testid} className="px-4 md:px-8 py-4 min-h-[320px]">
@@ -123,82 +121,70 @@ export function HomeClient() {
       </div>
     </div>
   );
+  const CategorySkeleton = () => (
+    <div className="px-4 md:px-8 py-6">
+      <Skeleton className="h-5 w-32 rounded-full mb-4" />
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="flex flex-col items-center gap-2">
+            <Skeleton className="aspect-square w-full rounded-2xl" />
+            <Skeleton className="h-3 w-16 rounded-full" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  const OffersSkeleton = () => (
+    <div className="px-4 md:px-8 py-4">
+      <Skeleton className="h-24 w-full rounded-2xl" />
+    </div>
+  );
   const SectionError = ({ minHeight }: { minHeight: string }) => (
     <div className={`px-4 md:px-8 py-4 flex items-center justify-center ${minHeight}`}>
       <span className="text-sm text-[#94A3B8]">Could not load</span>
     </div>
   );
 
-  // While any key section is still in-flight, show a unified skeleton layout
-  // so sections never appear out of order and there's no layout shift.
-  if (!allLoaded) {
-    return (
-      <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
-        <main className="flex-1">
-          <div className="px-4 md:px-8 py-4">
-            <Skeleton className="h-[280px] md:h-[420px] w-full rounded-3xl" />
-          </div>
-          <ProductRailSkeleton testid="home-trending-skeleton" />
-          <div className="px-4 md:px-8 py-6">
-            <Skeleton className="h-5 w-32 rounded-full mb-4" />
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex flex-col items-center gap-2">
-                  <Skeleton className="aspect-square w-full rounded-2xl" />
-                  <Skeleton className="h-3 w-16 rounded-full" />
-                </div>
-              ))}
-            </div>
-          </div>
-          <ProductRailSkeleton testid="home-selling-fast-skeleton" />
-          <div className="px-4 md:px-8 py-4">
-            <Skeleton className="h-24 w-full rounded-2xl" />
-          </div>
-          <ProductRailSkeleton testid="home-recent-skeleton" />
-          <StoreRailSkeleton />
-        </main>
-        <Footer />
-      </div>
-    );
-  }
-
-  // Iter-26 — Section registry. Keys MUST match the section IDs the CMS
-  // publishes from `site_config.sections[].id` (popular_in_city / categories
-  // / offers / selling_fast / stores / recently_viewed / customer_love).
+  // Iter-26 — Section registry. Each section shows its own skeleton while its
+  // data is in-flight, then renders the real content as soon as it arrives.
+  // Keys MUST match the section IDs the CMS publishes from
+  // `site_config.sections[].id`.
   const sectionRenderers: Record<string, React.ReactNode> = {
     hero: <HeroV2 key="hero" stats={stats} hero={hero} />,
     popular_in_city: errors.has("trending") ? (
       <SectionError key="trending-error" minHeight="min-h-[320px]" />
-    ) : trending.length > 0 ? (
+    ) : loaded.has("trending") && trending.length > 0 ? (
       <HCarousel key="trending" title="Trending now" subtitle="Most ordered products nearby this week" testid="home-trending">
         {trending.map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
-    ) : null,
+    ) : !loaded.has("trending") ? <ProductRailSkeleton key="trending-skeleton" testid="home-trending-skeleton" /> : null,
     categories: <ShopByCategory key="categories" />,
     selling_fast: errors.has("sellingFast") ? (
       <SectionError key="selling-fast-error" minHeight="min-h-[320px]" />
-    ) : sellingFast.length > 0 ? (
+    ) : loaded.has("sellingFast") && sellingFast.length > 0 ? (
       <HCarousel key="selling_fast" title="Selling fast" subtitle="Don't miss out — limited stock" testid="home-selling-fast">
         {sellingFast.map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
-    ) : null,
+    ) : !loaded.has("sellingFast") ? <ProductRailSkeleton key="selling-fast-skeleton" testid="home-selling-fast-skeleton" /> : null,
     offers: errors.has("offers") ? (
       <SectionError key="offers-error" minHeight="min-h-[120px]" />
-    ) : offers.length > 0 ? <OffersStrip key="offers" offers={offers} /> : null,
+    ) : loaded.has("offers") && offers.length > 0 ? (
+      <OffersStrip key="offers" offers={offers} />
+    ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
     recently_viewed: errors.has("recent") ? (
       <SectionError key="recent-error" minHeight="min-h-[320px]" />
-    ) : recent.length > 0 ? (
+    ) : loaded.has("recent") && recent.length > 0 ? (
       <HCarousel key="recent" title="Recently added" subtitle="Fresh drops from Bhilai stores" testid="home-recent">
         {recent.map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
-    ) : null,
+    ) : !loaded.has("recent") ? <ProductRailSkeleton key="recent-skeleton" testid="home-recent-skeleton" /> : null,
     stores: errors.has("popularStores") && !storesRail.length ? (
       <SectionError key="stores-error" minHeight="min-h-[260px]" />
-    ) : storesRail.length > 0 ? (
+    ) : storesReady && storesRail.length > 0 ? (
       <HCarousel key="stores" title={storesTitle} subtitle="Trusted local merchants delivering today" testid="home-stores" link="/stores" linkLabel="See all">
         {storesRail.map((s) => <StoreCardV2 key={s.id} s={s} />)}
       </HCarousel>
-    ) : null,
+    ) : !storesReady ? <StoreRailSkeleton key="stores-skeleton" /> : null,
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
   };
 
