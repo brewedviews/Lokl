@@ -79,7 +79,11 @@ export default function CartPage() {
     );
   }
 
-  const anyUnavailable = items.some((it) => it.store_id && storeStatuses[it.store_id] && !storeStatuses[it.store_id].can_order);
+  const anyUnavailable = items.some((it) => {
+    if (!it.store_id) return false;
+    const status = storeStatuses[it.store_id];
+    return status !== undefined && !status.can_order;
+  });
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
