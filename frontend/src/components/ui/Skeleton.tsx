@@ -17,8 +17,8 @@ export function Skeleton({ className }: { className?: string }) {
 /** Matches ProductCardV2: square image + two title lines + price row. */
 export function ProductCardSkeleton() {
   return (
-    <div className="bg-card-surface border border-card-border rounded-card p-3">
-      <Skeleton className="w-full aspect-square mb-3" />
+    <div className="flex-shrink-0 w-40">
+      <Skeleton className="w-full aspect-square rounded-2xl mb-3" />
       <Skeleton className="h-4 w-3/4 mb-2" />
       <Skeleton className="h-3 w-1/2 mb-2" />
       <Skeleton className="h-4 w-1/3" />
@@ -29,8 +29,8 @@ export function ProductCardSkeleton() {
 /** Matches StoreCardV2: avatar + 3-line text block. */
 export function StoreCardSkeleton() {
   return (
-    <div className="bg-card-surface border border-card-border rounded-card-lg p-5 flex gap-4">
-      <Skeleton className="w-16 h-16 rounded-full flex-shrink-0" />
+    <div className="flex-shrink-0 w-56 flex gap-4 items-start">
+      <Skeleton className="w-16 h-16 rounded-2xl flex-shrink-0" />
       <div className="flex-1 space-y-2">
         <Skeleton className="h-5 w-2/3" />
         <Skeleton className="h-4 w-1/2" />

@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useParams } from "next/navigation";
-import { CheckCircle2, Circle, RotateCcw, Package, ArrowLeft } from "lucide-react";
+import { CheckCircle2, Circle, RotateCcw, ArrowLeft, XCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { Footer } from "@/components/consumer/Footer";
 import type { Return } from "@/types";
@@ -16,6 +15,48 @@ type ReturnTimelineEntry = {
   status?: string;
   note?: string;
 };
+
+const STATUS_LABELS: Record<string, string> = {
+  requested: "Return Requested",
+  pickup_assigned: "Pickup Partner Assigned",
+  rider_arrived: "Pickup Partner On The Way",
+  picked_up: "Product Picked Up",
+  received: "Product Received",
+  refunded: "Refund Processed",
+  rejected: "Return Rejected",
+};
+
+const STATUS_DESCRIPTIONS: Record<string, string> = {
+  requested: "We've received your return request and are arranging pickup.",
+  pickup_assigned: "A pickup partner has been assigned and will contact you soon.",
+  rider_arrived: "Your pickup partner is on the way. Please keep the item ready.",
+  picked_up: "Your item has been picked up. Refund will be processed shortly.",
+  received: "We've received your item. Refund will be processed shortly.",
+  refunded: "Your refund has been processed successfully.",
+  rejected: "Unfortunately your return request could not be approved.",
+};
+
+function StatusIcon({ status }: { status: string }) {
+  if (status === "refunded") {
+    return (
+      <div className="w-10 h-10 rounded-full bg-[#4F7363]/10 flex items-center justify-center flex-shrink-0">
+        <CheckCircle2 size={20} className="text-[#4F7363]" />
+      </div>
+    );
+  }
+  if (status === "rejected") {
+    return (
+      <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+        <XCircle size={20} className="text-red-500" />
+      </div>
+    );
+  }
+  return (
+    <div className="w-10 h-10 rounded-full bg-[#E68910]/10 flex items-center justify-center flex-shrink-0">
+      <RotateCcw size={20} className="text-[#E68910]" />
+    </div>
+  );
+}
 
 export default function ReturnTrackingPage() {
   const { id } = useParams<{ id: string }>();
@@ -35,84 +76,94 @@ export default function ReturnTrackingPage() {
   }
 
   const showOtp = (ret.status === "pickup_assigned") && ret.otp;
+  const firstItem = ret.items?.[0];
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 md:px-8 py-6 md:py-10">
+      <div className="max-w-2xl mx-auto px-4 py-6 md:py-10">
         <Link href={`/orders/${ret.order_id}`} className="inline-flex items-center gap-1 text-sm text-[#595959] hover:text-[#1A2B4C] mb-4"><ArrowLeft size={14} /> Back to order</Link>
 
-        <div className="bg-white rounded-3xl p-6 md:p-8 border border-[#E5E2DC] text-center">
-          <div className="w-14 h-14 md:w-16 md:h-16 mx-auto rounded-full bg-[#E68910]/10 flex items-center justify-center mb-4">
-            <RotateCcw size={28} className="text-[#E68910]" />
+        <div className="bg-white rounded-2xl p-5 md:p-6 shadow-sm mb-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs text-[#595959] uppercase tracking-widest font-semibold mb-1">Return #{ret.id.slice(-6)}</p>
+              <h1 className="font-display text-xl md:text-2xl font-bold text-[#1A2B4C]" data-testid="return-status-headline">
+                {STATUS_LABELS[ret.status] || ret.status}
+              </h1>
+              <p className="text-sm text-[#595959] mt-1">{STATUS_DESCRIPTIONS[ret.status]}</p>
+            </div>
+            <StatusIcon status={ret.status} />
           </div>
-          <h1 className="font-display text-2xl md:text-3xl font-bold text-[#1A2B4C]" data-testid="return-status-headline">
-            {ret.status === "refunded" ? "Return completed"
-              : ret.status === "picked_up" ? "Picked up · in transit"
-              : ret.status === "rider_arrived" ? "Pickup partner arriving"
-              : ret.status === "pickup_assigned" ? "Pickup partner assigned"
-              : "Return requested"}
-          </h1>
-          <p className="text-[#595959] mt-2 text-sm">Return ID: <span data-testid="return-id" className="font-semibold text-[#1A2B4C]">{ret.id}</span></p>
-          <p className="text-xs text-[#595959] mt-1">For order <Link href={`/orders/${ret.order_id}`} className="text-[#E68910] font-semibold hover:underline">{ret.order_id}</Link></p>
-          <p className="text-xs text-[#595959] mt-1">Reason: <span className="text-[#1A2B4C]">{ret.reason}</span></p>
         </div>
 
         {showOtp && (
-          <div className="mt-5 bg-[#1A2B4C] text-white rounded-3xl p-6 md:p-7 text-center border-2 border-[#E68910]/40" data-testid="return-otp-card">
+          <div className="mb-4 bg-[#1A2B4C] text-white rounded-2xl p-6 md:p-7 text-center border-2 border-[#E68910]/40" data-testid="return-otp-card">
             <div className="text-[11px] uppercase tracking-widest text-white/60">Share this OTP with the pickup partner</div>
             <div data-testid="return-otp" className="font-display text-4xl md:text-5xl font-bold tracking-[0.3em] tabular-nums text-[#E68910] mt-3">{ret.otp}</div>
             <p className="text-xs text-white/70 mt-3">Hand over the items only after the partner shows this 4-digit code.</p>
           </div>
         )}
 
-        <div className="mt-5 bg-white rounded-3xl p-6 md:p-8 border border-[#E5E2DC]">
-          <h2 className="font-display text-lg md:text-xl font-bold text-[#1A2B4C] mb-5">Return timeline</h2>
-          {(ret.timeline || []).length === 0 ? (
-            <p className="text-sm text-[#595959]">No timeline updates yet.</p>
-          ) : (
-            <div className="space-y-4">
-              {(ret.timeline as unknown as ReturnTimelineEntry[]).map((entry, idx) => {
-                const label = entry.label || entry.note || entry.status || "";
-                const timestamp = entry.time || entry.at || null;
-                return (
-                  <div key={label || `step-${idx}`} className="flex items-start gap-3">
-                    {timestamp
-                      ? <CheckCircle2 size={20} className="text-[#4F7363] shrink-0 mt-0.5" />
-                      : <Circle size={20} className="text-[#E5E2DC] shrink-0 mt-0.5" />}
-                    <div className="flex-1 min-w-0">
-                      <div className={`text-sm font-semibold ${timestamp ? "text-[#1A2B4C]" : "text-[#94A3B8]"}`}>{label}</div>
-                      {timestamp && (
-                        <div className="text-xs text-[#595959] mt-0.5">
-                          {new Date(timestamp).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
-                        </div>
-                      )}
+        <div className="bg-white rounded-2xl p-5 md:p-6 shadow-sm mb-4">
+          <h2 className="text-sm font-semibold text-[#1A2B4C] uppercase tracking-widest mb-4">Timeline</h2>
+          <div className="space-y-0">
+            {ret.timeline.length === 0 && (
+              <p className="text-sm text-[#595959]">No timeline updates yet.</p>
+            )}
+            {(ret.timeline as unknown as ReturnTimelineEntry[]).map((entry, i) => {
+              const timestamp = entry.time || entry.at || null;
+              const isDone = Boolean(timestamp);
+              const isLast = i === ret.timeline.length - 1;
+              return (
+                <div key={i} className="flex gap-3">
+                  <div className="flex flex-col items-center">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${isDone ? "bg-[#4F7363]" : "bg-[#E5E2DC]"}`}>
+                      {isDone
+                        ? <CheckCircle2 size={14} className="text-white" />
+                        : <Circle size={14} className="text-[#94A3B8]" />}
                     </div>
+                    {!isLast && <div className={`w-0.5 flex-1 my-1 ${isDone ? "bg-[#4F7363]" : "bg-[#E5E2DC]"}`} />}
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  <div className="pb-5">
+                    <p className={`text-sm font-semibold ${isDone ? "text-[#1A2B4C]" : "text-[#94A3B8]"}`}>
+                      {entry.label || entry.note || entry.status}
+                    </p>
+                    {timestamp && (
+                      <p className="text-xs text-[#595959] mt-0.5">
+                        {new Date(timestamp).toLocaleString("en-IN", {
+                          day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"
+                        })}
+                      </p>
+                    )}
+                    {!isDone && (
+                      <p className="text-xs text-[#94A3B8] mt-0.5">Pending</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        <div className="mt-5 bg-white rounded-3xl p-6 md:p-8 border border-[#E5E2DC]">
-          <h2 className="font-display text-lg md:text-xl font-bold text-[#1A2B4C] mb-4 flex items-center gap-2"><Package size={18} /> Items being returned</h2>
-          {(ret.items || []).map((it) => (
-            <div key={it.id} className="flex gap-3 py-3 border-b border-[#E5E2DC] last:border-0">
-              {it.id ? (
-                <Link href={`/p/${it.id}`} className="shrink-0">
-                  {it.image ? <Image src={it.image} width={56} height={64} className="w-14 h-16 rounded-lg object-cover" alt={it.name} /> : <div className="w-14 h-16 rounded-lg bg-slate-100" />}
-                </Link>
-              ) : it.image ? <Image src={it.image} width={56} height={64} className="w-14 h-16 rounded-lg object-cover" alt={it.name} /> : <div className="w-14 h-16 rounded-lg bg-slate-100" />}
-              <div className="flex-1 min-w-0">
-                {it.id ? (
-                  <Link href={`/p/${it.id}`} className="font-semibold text-[#1A2B4C] hover:text-[#E68910] block truncate text-sm">{it.name}</Link>
-                ) : (
-                  <div className="font-semibold text-[#1A2B4C] truncate text-sm">{it.name}</div>
-                )}
-                <div className="text-xs text-[#595959] mt-0.5">Qty {it.qty}{it.size ? ` · ${it.size}` : ""}</div>
-              </div>
+        <div className="bg-white rounded-2xl p-5 md:p-6 shadow-sm mb-4">
+          <h2 className="text-sm font-semibold text-[#1A2B4C] uppercase tracking-widest mb-3">Order Details</h2>
+          <div className="flex items-center gap-3">
+            {firstItem?.image && (
+              <img src={firstItem.image} alt="" className="w-16 h-16 rounded-xl object-cover flex-shrink-0" />
+            )}
+            <div>
+              <p className="text-sm font-semibold text-[#1A2B4C]">{firstItem?.name || "Product"}</p>
+              <p className="text-xs text-[#595959]">Order #{ret.order_id?.slice(-6)}</p>
+              <p className="text-xs text-[#595959]">Reason: {ret.reason}</p>
             </div>
-          ))}
+          </div>
+        </div>
+
+        <div className="bg-[#F8F6F1] rounded-2xl p-4 text-center">
+          <p className="text-xs text-[#595959]">Need help with your return?</p>
+          <a href="mailto:hello@shoplokl.in" className="text-xs font-semibold text-[#E68910] mt-1 inline-block">
+            Contact hello@shoplokl.in
+          </a>
         </div>
       </div>
       <Footer />

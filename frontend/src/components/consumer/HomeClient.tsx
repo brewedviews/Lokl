@@ -107,7 +107,8 @@ export function HomeClient() {
   // Skeleton primitives — no borders, no white backgrounds; blend into #FDFBF7.
   const ProductRailSkeleton = ({ testid }: { testid: string }) => (
     <div key={testid} className="px-4 md:px-8 py-4 min-h-[320px]">
-      <Skeleton className="h-5 w-36 rounded-full mb-4" />
+      <Skeleton className="h-5 w-36 rounded-full mb-1" />
+      <Skeleton className="h-3 w-48 rounded-full mb-4" />
       <div className="flex gap-3 overflow-hidden">
         {Array.from({ length: 5 }).map((_, i) => <ProductCardSkeleton key={i} />)}
       </div>
@@ -115,7 +116,8 @@ export function HomeClient() {
   );
   const StoreRailSkeleton = () => (
     <div key="stores-skeleton" className="px-4 md:px-8 py-4 min-h-[260px]">
-      <Skeleton className="h-5 w-36 rounded-full mb-4" />
+      <Skeleton className="h-5 w-36 rounded-full mb-1" />
+      <Skeleton className="h-3 w-48 rounded-full mb-4" />
       <div className="flex gap-3 overflow-hidden">
         {Array.from({ length: 4 }).map((_, i) => <StoreCardSkeleton key={i} />)}
       </div>
@@ -134,13 +136,23 @@ export function HomeClient() {
       <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
         <main className="flex-1">
           <div className="px-4 md:px-8 py-4">
-            <Skeleton className="h-[400px] w-full rounded-3xl" />
+            <Skeleton className="h-[280px] md:h-[420px] w-full rounded-3xl" />
           </div>
           <ProductRailSkeleton testid="home-trending-skeleton" />
-          <ShopByCategory key="categories-skeleton" />
+          <div className="px-4 md:px-8 py-6">
+            <Skeleton className="h-5 w-32 rounded-full mb-4" />
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-center gap-2">
+                  <Skeleton className="aspect-square w-full rounded-2xl" />
+                  <Skeleton className="h-3 w-16 rounded-full" />
+                </div>
+              ))}
+            </div>
+          </div>
           <ProductRailSkeleton testid="home-selling-fast-skeleton" />
-          <div className="min-h-[120px] px-4 md:px-8 py-4">
-            <Skeleton className="h-24 rounded-2xl" />
+          <div className="px-4 md:px-8 py-4">
+            <Skeleton className="h-24 w-full rounded-2xl" />
           </div>
           <ProductRailSkeleton testid="home-recent-skeleton" />
           <StoreRailSkeleton />
