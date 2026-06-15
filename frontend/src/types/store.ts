@@ -46,6 +46,8 @@ export interface Store {
   closes_at: string | null;
   online: boolean;
   paused: boolean;
+  is_open?: boolean;
+  next_open_label?: string;
   published: boolean;
   live_at: IsoDateTime | null;
   kyc_status: KycStatus;

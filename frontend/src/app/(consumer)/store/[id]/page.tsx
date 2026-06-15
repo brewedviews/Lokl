@@ -74,6 +74,11 @@ export default async function StorePage(
               <ShieldCheck size={11} className="text-[#4F7363]" /> Trusted Store
             </div>
           )}
+          {store.is_open === false && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-white/90 text-[#64748B] text-[10px] sm:text-xs font-semibold mb-2 sm:mb-3 ml-2">
+              {store.next_open_label || "Closed"}
+            </div>
+          )}
           <h1 data-testid="store-name" className="font-display text-2xl sm:text-4xl md:text-6xl font-bold leading-[1.05]">{store.name}</h1>
           {store.tagline && <p className="text-white/80 mt-1 sm:mt-2 max-w-xl text-xs sm:text-base line-clamp-1 sm:line-clamp-none">{store.tagline}</p>}
         </div>
@@ -103,8 +108,17 @@ export default async function StorePage(
           <h2 className="font-display text-xl sm:text-3xl font-bold text-[#1A2B4C] mb-3 sm:mb-6">From this store ({products.length})</h2>
           {products.length === 0 ? (
             <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-8 sm:p-12 text-center">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#E68910]/10 text-[#E68910] text-[11px] font-bold uppercase tracking-widest mb-3">Building it</div>
-              <p className="text-sm text-[#595959]">This store hasn&apos;t listed any products yet — drop back soon.</p>
+              {store.next_open_label ? (
+                <>
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#64748B]/10 text-[#64748B] text-[11px] font-bold uppercase tracking-widest mb-3">{store.next_open_label}</div>
+                  <p className="text-sm text-[#595959]">Products will be visible once the store is back online.</p>
+                </>
+              ) : (
+                <>
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#E68910]/10 text-[#E68910] text-[11px] font-bold uppercase tracking-widest mb-3">Building it</div>
+                  <p className="text-sm text-[#595959]">This store hasn&apos;t listed any products yet — drop back soon.</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
