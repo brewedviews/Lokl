@@ -35,6 +35,7 @@ interface StoreAvailInfo {
   name: string;
   badge: string;
   rank: number;
+  can_order: boolean;
   eta_message: string;
   opens_at_label?: string | null;
 }
@@ -84,7 +85,7 @@ export default function CheckoutPage() {
     if (uniqueStores.length === 0) return;
     Promise.all(
       uniqueStores.map((sid) =>
-        apiClient.get<{ store: { name?: string; badge?: string; availability_rank?: number; eta_message?: string; next_open_label?: string } }>(
+        apiClient.get<{ store: { name?: string; badge?: string; availability_rank?: number; can_order?: boolean; eta_message?: string; next_open_label?: string } }>(
           `/api/stores/${sid}`
         ).then((r) => {
           const s = r.data.store;
@@ -92,10 +93,11 @@ export default function CheckoutPage() {
             name: s.name ?? sid,
             badge: s.badge ?? "LIVE",
             rank: s.availability_rank ?? 1,
+            can_order: s.can_order !== false,
             eta_message: s.eta_message ?? "",
             opens_at_label: s.next_open_label ?? null,
           }] as [string, StoreAvailInfo];
-        }).catch(() => [sid, { name: sid, badge: "LIVE", rank: 1, eta_message: "" }] as [string, StoreAvailInfo])
+        }).catch(() => [sid, { name: sid, badge: "LIVE", rank: 1, can_order: false, eta_message: "" }] as [string, StoreAvailInfo])
       )
     ).then((entries) => setStoreAvailMap(Object.fromEntries(entries)));
   }, [uniqueStores]);

@@ -1634,9 +1634,8 @@ def _visible_store_filter():
     # `published` = approved + has products + has clicked store-level go-live (auto in current flow).
     # `paused` = admin-paused (hidden entirely).
     # `is_deleted` = soft-deleted by admin — never surfaced.
-    # `online` is the merchant's self-service availability toggle — when False, the store is
-    # still visible in /stores listings but tagged "Offline now" and ALL their products are
-    # hidden from the public products listing.
+    # `online` is the merchant's self-service availability toggle — when False,
+    # offline stores appear at bottom of feeds (rank=4), products are never hidden.
     return {"kyc_status": "approved", "published": True, "paused": {"$ne": True},
             "is_deleted": {"$ne": True}, "product_count": {"$gte": 1}}
 
@@ -1644,6 +1643,7 @@ def _visible_product_filter():
     return {"paused": {"$ne": True}, "is_deleted": {"$ne": True}}
 
 
+# DEPRECATED — replaced by _store_availability(). Do not use.
 def _is_store_open_now(store: dict) -> tuple[bool, str | None]:
     """Returns (is_open, next_open_label). 30-min buffer after opens_at and before closes_at.
 
@@ -1726,7 +1726,7 @@ def _store_availability(store: dict) -> dict:
                 opens_lbl = f"Opens tomorrow at {time_str}"
         except Exception:
             eta_msg, opens_lbl = "Store closed", None
-        return {"rank": 3, "badge": "Closed", "badge_color": "red",
+        return {"rank": 3, "badge": "Closed", "badge_color": "gray",
                 "can_order": True, "eta_message": eta_msg, "opens_at_label": opens_lbl}
 
     last_seen = store.get("last_seen_at")
@@ -2690,7 +2690,10 @@ async def merchant_store_online(payload: dict, user: dict = Depends(get_current_
         raise HTTPException(400, "Set up your storefront first")
     if not s.get("published"):
         raise HTTPException(400, "Take your store live before toggling availability")
-    await db.stores.update_one({"id": sid}, {"$set": {"online": online}})
+    update_fields: dict = {"online": online}
+    if online:
+        update_fields["last_seen_at"] = datetime.now(timezone.utc).isoformat()
+    await db.stores.update_one({"id": sid}, {"$set": update_fields})
     # Bust geo cache so the new online/offline state surfaces immediately
     try: await cache_service.invalidate_geo()
     except Exception: pass
@@ -4134,7 +4137,8 @@ async def _auto_cancel_stale_orders():
             cutoff = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
             async for order in db.orders.find(
                 {"status": "pending_merchant", "payment_method": "COD",
-                 "created_at": {"$lt": cutoff}, "is_deleted": {"$ne": True}},
+                 "created_at": {"$lt": cutoff}, "is_deleted": {"$ne": True},
+                 "order_type": {"$ne": "scheduled"}},
                 {"_id": 0, "id": 1, "merchant_ids": 1, "customer": 1}
             ):
                 oid = order["id"]

@@ -45,7 +45,7 @@ export function OnlineToggle() {
       toast.success(
         data.online
           ? "You're online — accepting orders"
-          : "You're offline — products hidden from customers",
+          : "store is offline · products shown at end of feed",
       );
     } catch (e) {
       const err = e as { response?: { data?: { detail?: string } } };
