@@ -381,12 +381,38 @@ export default function CheckoutPage() {
                 <span className="text-xs text-[#595959]">—</span>
               )}
             </div>
-            {estimate?.deliverable && estimate.eta_min != null && estimate.eta_max != null && (
-              <div className="flex justify-between text-xs items-center">
-                <span className="text-[#595959] inline-flex items-center gap-1.5"><Clock size={11} /> Estimated arrival</span>
-                <span className="font-semibold" data-testid="delivery-eta">{estimate.eta_min}–{estimate.eta_max} min</span>
-              </div>
-            )}
+            {(() => {
+              const avail = cartStoreId ? storeAvailMap[cartStoreId] : null;
+              const badge = avail?.badge;
+              if (badge === "Closed") return (
+                <>
+                  <div className="flex justify-between text-xs items-center">
+                    <span className="text-[#595959] inline-flex items-center gap-1.5"><Clock size={11} /> Estimated arrival</span>
+                    <span className="font-semibold text-blue-700" data-testid="delivery-eta">{avail!.opens_at_label ?? "When store opens"}</span>
+                  </div>
+                  <p className="text-[10px] text-blue-700 font-semibold">This is a scheduled order — processed at store opening</p>
+                </>
+              );
+              if (badge === "Unavailable") return (
+                <div className="flex justify-between text-xs items-center">
+                  <span className="text-[#595959] inline-flex items-center gap-1.5"><Clock size={11} /> Estimated arrival</span>
+                  <span className="font-semibold text-red-500" data-testid="delivery-eta">Unavailable</span>
+                </div>
+              );
+              if (!estimate?.deliverable || estimate.eta_min == null || estimate.eta_max == null) return null;
+              const isAway = badge === "Away";
+              return (
+                <>
+                  <div className="flex justify-between text-xs items-center">
+                    <span className="text-[#595959] inline-flex items-center gap-1.5"><Clock size={11} /> Estimated arrival</span>
+                    <span className="font-semibold" data-testid="delivery-eta">
+                      {estimate.eta_min}–{estimate.eta_max} min{isAway ? " · May be delayed" : ""}
+                    </span>
+                  </div>
+                  {isAway && <p className="text-[10px] text-amber-600 font-semibold">One or more stores may take longer to confirm</p>}
+                </>
+              );
+            })()}
             {uniqueStores.length > 1 && Object.keys(storeAvailMap).length > 0 && (
               <div className="text-xs space-y-1 pt-1">
                 {uniqueStores.map((sid) => {

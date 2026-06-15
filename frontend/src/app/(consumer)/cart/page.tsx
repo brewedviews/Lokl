@@ -86,8 +86,8 @@ export default function CartPage() {
   });
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7]">
-      <div className="max-w-5xl mx-auto px-4 md:px-8 py-10">
+    <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
+      <div className="flex-1 max-w-5xl w-full mx-auto px-4 md:px-8 py-10">
         <h1 className="font-display text-4xl font-bold text-[#1A2B4C]">Your bag</h1>
         <div className="grid md:grid-cols-3 gap-8 mt-8">
           <div className="md:col-span-2 space-y-4">
@@ -103,14 +103,15 @@ export default function CartPage() {
                   <div className="text-xs uppercase tracking-wider text-[#595959]">{it.store_name}</div>
                   <h3 className="font-semibold text-[#1A2B4C]">{it.name}</h3>
                   {it.size && <div className="text-xs text-[#595959] mt-1">Size: {it.size}</div>}
-                  {itemUnavailable ? (
-                    <div className="flex items-center gap-1 text-xs text-red-500 mt-1 font-semibold">
-                      <AlertTriangle size={11} />
-                      {storeStatus.eta_message || "Store unavailable"}
-                      {storeStatus.opens_at_label ? ` · ${storeStatus.opens_at_label}` : ""}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1 text-xs text-[#E68910] mt-1"><Bike size={11} /> Fast delivery</div>
+                  <div className="flex items-center gap-1 text-xs text-[#E68910] mt-1"><Bike size={11} /> Fast delivery</div>
+                  {storeStatus?.badge === "Away" && (
+                    <div className="text-xs text-amber-600 mt-0.5 font-semibold">May be delayed today</div>
+                  )}
+                  {storeStatus?.badge === "Closed" && storeStatus.opens_at_label && (
+                    <div className="text-xs text-[#64748B] mt-0.5 font-semibold">{storeStatus.opens_at_label}</div>
+                  )}
+                  {storeStatus?.badge === "Unavailable" && (
+                    <div className="text-xs text-red-500 mt-0.5 font-semibold">Store unavailable</div>
                   )}
                   <div className="flex items-center justify-between mt-3">
                     <div className="flex items-center gap-2">

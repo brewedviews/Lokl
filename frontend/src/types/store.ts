@@ -48,6 +48,8 @@ export interface Store {
   paused: boolean;
   is_open?: boolean;
   next_open_label?: string;
+  badge?: string;
+  eta_message?: string;
   published: boolean;
   live_at: IsoDateTime | null;
   kyc_status: KycStatus;

@@ -16,13 +16,13 @@ import { SearchOverlayHost } from "@/components/consumer/SearchOverlayHost";
  */
 export default function ConsumerLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
+    <div className="flex flex-col min-h-screen">
       <Toaster position="top-center" richColors />
       <ConsumerHeader />
       <LocationBanner />
-      {children}
+      <div className="flex-1">{children}</div>
       <StickyBottomNav />
       <SearchOverlayHost />
-    </>
+    </div>
   );
 }

@@ -2263,7 +2263,10 @@ async def merchant_orders(user: dict = Depends(get_current_user)):
     Items are FILTERED to only this merchant's items — multi-store orders no
     longer leak each merchant's products to every merchant."""
     mid = user["sub"]
-    raw = await db.orders.find({"merchant_ids": mid}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    raw = await db.orders.find(
+        {"merchant_ids": mid, "status": {"$ne": "awaiting_payment"}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(200)
     cleaned = []
     for o in raw:
         addr = o.get("address") or {}

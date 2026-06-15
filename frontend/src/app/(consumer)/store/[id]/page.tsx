@@ -97,7 +97,18 @@ export default async function StorePage(
           <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC] text-sm">
             <h3 className="font-display text-xl font-bold text-[#1A2B4C] mb-3">Delivery</h3>
             <div className="space-y-2 text-[#595959]">
-              <div className="flex items-center gap-2"><Bike size={14} className="text-[#E68910]" /> ETA {eta}</div>
+              <div className="flex items-center gap-2">
+                <Bike size={14} className={store.badge === "Away" ? "text-amber-500" : store.badge === "Unavailable" ? "text-red-400" : "text-[#E68910]"} />
+                {store.badge === "Away" ? (
+                  <span className="text-amber-600 font-semibold">May be longer today <span className="font-normal text-[#64748B]">· {eta}</span></span>
+                ) : store.badge === "Closed" ? (
+                  <span className="text-[#64748B] font-semibold">{store.next_open_label || "Closed"} <span className="font-normal">· {eta}</span></span>
+                ) : store.badge === "Unavailable" ? (
+                  <span className="text-red-500 font-semibold">Currently unavailable <span className="font-normal text-[#64748B]">· {eta}</span></span>
+                ) : (
+                  <span>ETA {eta}</span>
+                )}
+              </div>
               <div className="flex items-center gap-2"><MapPin size={14} className="text-[#E68910]" /> {area} · {store.city || "Bhilai"}</div>
               <div className="flex items-center gap-2"><ShieldCheck size={14} className="text-[#4F7363]" /> Try-at-doorstep available</div>
             </div>
