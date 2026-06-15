@@ -243,7 +243,9 @@ function createApiClient(): AxiosInstance {
         // A merchant refresh cookie can accidentally satisfy a customer-scope
         // 401 retry, which would then get a 403 on the backend. Reject early.
         try {
-          const payload = JSON.parse(atob(newToken.split(".")[1])) as { role?: string };
+          const parts = newToken.split(".");
+          if (parts.length < 3 || !parts[1]) { clearToken(scope); return Promise.reject(new Error("Invalid token")); }
+          const payload = JSON.parse(atob(parts[1])) as { role?: string };
           const expectedRole = scope === "admin" ? "admin" : scope === "merchant" ? "merchant" : "customer";
           if (payload.role !== expectedRole) {
             clearToken(scope);
