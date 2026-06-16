@@ -41,10 +41,12 @@ def _rating(pid: str) -> float:
 
 def _mk_merchant(mid, phone, store_name, owner_name):
     p10 = phone[-10:]
+    n = mid.split("-")[-1]   # "01" … "10"
     return {
         "id": mid,
         "phone": f"+91{p10}",
         "phone_canonical": p10,
+        "email": f"demo{n}@shoplokl.in",
         "city": "Bhilai",
         "store_name": store_name,
         "owner_name": owner_name,
