@@ -6,36 +6,24 @@ Cloudinary under lokl/products/, and updates the MongoDB product document.
 Called from backend/run_image_gen.py — do not run this file directly.
 """
 import asyncio
-import base64
 import logging
+import urllib.parse
+import urllib.request
 
 import cloudinary
-import requests
 
 log = logging.getLogger("lokl.image_gen")
 
 # ---------------------------------------------------------------------------
-# Together AI — synchronous, runs in the async seed loop (blocking is fine
-# for a one-shot script; we're not serving HTTP traffic).
+# Pollinations AI (free, no API key required) — synchronous, blocking is fine
+# for a one-shot seed script.
 # ---------------------------------------------------------------------------
-def generate_image(prompt: str, together_api_key: str) -> bytes:
-    response = requests.post(
-        "https://api.together.xyz/v1/images/generations",
-        headers={"Authorization": f"Bearer {together_api_key}"},
-        json={
-            "model": "black-forest-labs/FLUX.1-schnell-Free",
-            "prompt": prompt,
-            "width": 800,
-            "height": 800,
-            "steps": 4,
-            "n": 1,
-            "response_format": "b64_json",
-        },
-        timeout=90,
-    )
-    response.raise_for_status()
-    b64 = response.json()["data"][0]["b64_json"]
-    return base64.b64decode(b64)
+def generate_image(prompt: str, together_api_key: str = None) -> bytes:
+    encoded_prompt = urllib.parse.quote(prompt)
+    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=800&model=flux&nologo=true&enhance=true"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=60) as response:
+        return response.read()
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +182,11 @@ def build_prompt(product: dict) -> str:
 # Seed entry point
 # ---------------------------------------------------------------------------
 async def up(db, together_api_key: str, cloudinary_env: dict):
+    import cloudinary.uploader
+    import uuid
+
     # Re-configure Cloudinary with the provided credentials (overrides any
-    # module-level config in cloudinary_service that ran with empty env vars).
+    # module-level config that ran with empty env vars).
     cloudinary.config(
         cloud_name=cloudinary_env["cloud_name"],
         api_key=cloudinary_env["api_key"],
@@ -203,9 +194,18 @@ async def up(db, together_api_key: str, cloudinary_env: dict):
         secure=True,
     )
 
-    # Late import so sys.path is guaranteed to include backend/ by the time
-    # this function is called from run_image_gen.py.
-    from services.cloudinary_service import upload_bytes  # noqa: PLC0415
+    def _upload(data: bytes, pid: str) -> str:
+        result = cloudinary.uploader.upload(
+            data,
+            folder="lokl/products",
+            public_id=f"{pid}/{uuid.uuid4().hex}",
+            resource_type="image",
+            transformation=[
+                {"quality": "auto", "fetch_format": "auto"},
+                {"width": 1600, "height": 1600, "crop": "limit"},
+            ],
+        )
+        return result.get("secure_url", "")
 
     products = await db.products.find(
         {"id": {"$regex": "^demo-p-"}},
@@ -231,8 +231,7 @@ async def up(db, together_api_key: str, cloudinary_env: dict):
 
         try:
             image_bytes = generate_image(prompt, together_api_key)
-            result = await upload_bytes(image_bytes, "product", pid)
-            url = result["image_url"]
+            url = _upload(image_bytes, pid)
             await db.products.update_one(
                 {"id": pid},
                 {"$set": {"image": url, "images": [url]}},

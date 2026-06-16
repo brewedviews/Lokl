@@ -22,7 +22,7 @@ from seeds.generate_product_images import up  # noqa: E402
 
 
 async def main():
-    for var in ("MONGO_URL", "TOGETHER_API_KEY", "CLOUDINARY_CLOUD_NAME",
+    for var in ("MONGO_URL", "CLOUDINARY_CLOUD_NAME",
                 "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"):
         if not os.environ.get(var):
             print(f"Error: {var} is not set")
@@ -33,7 +33,7 @@ async def main():
 
     result = await up(
         db,
-        together_api_key=os.environ["TOGETHER_API_KEY"],
+        together_api_key=os.environ.get("TOGETHER_API_KEY"),
         cloudinary_env={
             "cloud_name": os.environ["CLOUDINARY_CLOUD_NAME"],
             "api_key":    os.environ["CLOUDINARY_API_KEY"],
