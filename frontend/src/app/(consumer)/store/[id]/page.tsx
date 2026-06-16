@@ -5,6 +5,7 @@ import { Bike, MapPin, ShieldCheck } from "lucide-react";
 import { serverFetch } from "@/lib/server-fetch";
 import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
 import { StoreInfoChips } from "@/components/consumer/StoreInfoChips";
+import { StoreNotifyBanner } from "@/components/consumer/StoreNotifyBanner";
 import { Footer } from "@/components/consumer/Footer";
 import type { Store, ProductCard } from "@/types";
 
@@ -98,13 +99,13 @@ export default async function StorePage(
             <h3 className="font-display text-xl font-bold text-[#1A2B4C] mb-3">Delivery</h3>
             <div className="space-y-2 text-[#595959]">
               <div className="flex items-center gap-2">
-                <Bike size={14} className={store.badge === "Away" ? "text-amber-500" : store.badge === "Unavailable" ? "text-red-400" : "text-[#E68910]"} />
+                <Bike size={14} className={store.badge === "Away" ? "text-amber-500" : store.badge === "Store Offline" ? "text-slate-400" : "text-[#E68910]"} />
                 {store.badge === "Away" ? (
                   <span className="text-amber-600 font-semibold">May be longer today <span className="font-normal text-[#64748B]">· {eta}</span></span>
                 ) : store.badge === "Closed" ? (
                   <span className="text-[#64748B] font-semibold">{store.next_open_label || "Closed"} <span className="font-normal">· {eta}</span></span>
-                ) : store.badge === "Unavailable" ? (
-                  <span className="text-red-500 font-semibold">Currently unavailable <span className="font-normal text-[#64748B]">· {eta}</span></span>
+                ) : store.badge === "Store Offline" ? (
+                  <span className="text-slate-500 font-semibold">Store offline <span className="font-normal text-[#64748B]">· {eta}</span></span>
                 ) : (
                   <span>ETA {eta}</span>
                 )}
@@ -117,6 +118,12 @@ export default async function StorePage(
 
         <div className="md:col-span-2">
           <h2 className="font-display text-xl sm:text-3xl font-bold text-[#1A2B4C] mb-3 sm:mb-6">From this store ({products.length})</h2>
+          <StoreNotifyBanner
+            badge={store.badge ?? ""}
+            storeId={store.id}
+            storeName={store.name}
+            nextOpenLabel={store.next_open_label ?? null}
+          />
           {products.length === 0 ? (
             <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-8 sm:p-12 text-center">
               {store.next_open_label ? (

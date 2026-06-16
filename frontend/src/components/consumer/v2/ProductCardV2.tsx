@@ -149,8 +149,8 @@ export function ProductCardV2({ p, compact = false }: Props) {
           {p.store_badge === "Closed" && p.store_opens_at_label && (
             <div className="text-[10px] font-semibold text-[#64748B]">{p.store_opens_at_label}</div>
           )}
-          {p.store_badge === "Unavailable" && (
-            <div className="text-[10px] font-semibold text-[#EF4444]">Unavailable</div>
+          {p.store_badge === "Store Offline" && (
+            <div className="text-[10px] font-semibold text-[#94A3B8]">Store Offline</div>
           )}
           {(!p.store_badge || p.store_badge === "LIVE") && (
             compact ? (

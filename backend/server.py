@@ -213,6 +213,11 @@ class RazorpayCreateOrderRequest(BaseModel):
     customer_name: Optional[str] = ""
     customer_phone: Optional[str] = ""
 
+class NotifyMeRequest(BaseModel):
+    phone: str
+    store_id: str
+    product_id: Optional[str] = None
+
 class AICopyRequest(BaseModel): product_name: str; category: Optional[str] = ""; notes: Optional[str] = ""
 class ChangeRequest(BaseModel):
     change_type: str  # "bank" | "address"
@@ -1684,12 +1689,12 @@ def _store_availability(store: dict) -> dict:
     """Return full availability descriptor for a store.
 
     State matrix (rank 1=best):
-      Toggle OFF                                     → rank 4, Unavailable, can_order=False
-      Toggle ON + outside hours                      → rank 3, Closed,       can_order=True
-      Toggle ON + in hours + last_seen < 30 min      → rank 1, LIVE,         can_order=True
-      Toggle ON + in hours + last_seen 30–90 min     → rank 2, Away,         can_order=True
-      Toggle ON + in hours + last_seen > 90 min      → rank 4, Unavailable,  can_order=False
-      Toggle ON + in hours + no last_seen (new store)→ rank 1, LIVE,         can_order=True
+      Toggle OFF                                     → rank 4, Store Offline, can_order=False
+      Toggle ON + outside hours                      → rank 3, Closed,        can_order=True
+      Toggle ON + in hours + last_seen < 30 min      → rank 1, LIVE,          can_order=True
+      Toggle ON + in hours + last_seen 30–90 min     → rank 2, Away,          can_order=True
+      Toggle ON + in hours + last_seen > 90 min      → rank 4, Store Offline, can_order=False
+      Toggle ON + in hours + no last_seen (new store)→ rank 1, LIVE,          can_order=True
     """
     def _fmt_time(t: str) -> str:
         try:
@@ -1701,8 +1706,8 @@ def _store_availability(store: dict) -> dict:
             return t
 
     if store.get("online") is False:
-        return {"rank": 4, "badge": "Unavailable", "badge_color": "red",
-                "can_order": False, "eta_message": "Store unavailable", "opens_at_label": None}
+        return {"rank": 4, "badge": "Store Offline", "badge_color": "red",
+                "can_order": False, "eta_message": "Store offline", "opens_at_label": None}
 
     opens = store.get("opens_at")
     closes = store.get("closes_at")
@@ -1751,8 +1756,8 @@ def _store_availability(store: dict) -> dict:
         if elapsed_min < 90:
             return {"rank": 2, "badge": "Away", "badge_color": "yellow",
                     "can_order": True, "eta_message": "May be delayed · Store is away", "opens_at_label": None}
-        return {"rank": 4, "badge": "Unavailable", "badge_color": "red",
-                "can_order": False, "eta_message": "Store unavailable · Try other stores", "opens_at_label": None}
+        return {"rank": 4, "badge": "Store Offline", "badge_color": "red",
+                "can_order": False, "eta_message": "Store offline · Try other stores", "opens_at_label": None}
     except Exception:
         return {"rank": 1, "badge": "LIVE", "badge_color": "green",
                 "can_order": True, "eta_message": "Delivery in ~30 mins", "opens_at_label": None}
@@ -2038,6 +2043,69 @@ async def _soft_delete(collection_name: str, doc_id: str) -> bool:
         {"$set": {"is_deleted": True, "deleted_at": now}},
     )
     return r.modified_count > 0
+
+
+@api.post("/notify-me")
+async def notify_me_endpoint(payload: NotifyMeRequest):
+    """Guest-accessible: register phone to be WhatsApp-notified when a store comes back online.
+    Sends an immediate confirmation message and upserts a record into db.notify_me."""
+    phone = _normalize_customer_phone(payload.phone)
+    if not phone:
+        raise HTTPException(400, "Invalid phone number")
+    store = await db.stores.find_one({"id": payload.store_id}, {"_id": 0, "name": 1})
+    store_name = (store or {}).get("name", "the store")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.notify_me.update_one(
+        {"phone": phone, "store_id": payload.store_id},
+        {"$set": {"phone": phone, "store_id": payload.store_id,
+                  "product_id": payload.product_id, "updated_at": now},
+         "$setOnInsert": {"created_at": now, "notified": False}},
+        upsert=True,
+    )
+    try:
+        send_with_fallback(
+            phone,
+            f"Hi! 👋 You'll get a WhatsApp notification when {store_name} is back online on Lokl. "
+            "Browse more at lokl.up.railway.app",
+        )
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+async def _send_notify_me_messages(store_id: str) -> None:
+    """Background: notify all pending subscribers when a store toggles back online."""
+    try:
+        store = await db.stores.find_one({"id": store_id}, {"_id": 0, "name": 1})
+        store_name = (store or {}).get("name", "the store")
+        now = datetime.now(timezone.utc).isoformat()
+        async for entry in db.notify_me.find(
+            {"store_id": store_id, "notified": False}, {"_id": 0}
+        ):
+            phone = entry.get("phone")
+            if not phone:
+                continue
+            product_id = entry.get("product_id")
+            product_name = None
+            if product_id:
+                p = await db.products.find_one({"id": product_id}, {"_id": 0, "name": 1})
+                if p:
+                    product_name = p.get("name")
+            item_text = product_name or "your favourites"
+            msg = (
+                f"🟢 {store_name} is now online on Lokl! "
+                f"Order {item_text} now: lokl.up.railway.app/store/{store_id}"
+            )
+            try:
+                send_with_fallback(phone, msg)
+            except Exception:
+                pass
+            await db.notify_me.update_one(
+                {"phone": phone, "store_id": store_id},
+                {"$set": {"notified": True, "notified_at": now}},
+            )
+    except Exception as e:
+        log.warning("_send_notify_me_messages error: %s", e)
 
 
 @api.post("/payments/razorpay/create-order")
@@ -2734,6 +2802,8 @@ async def merchant_store_online(payload: dict, user: dict = Depends(get_current_
     # Bust geo cache so the new online/offline state surfaces immediately
     try: await cache_service.invalidate_geo()
     except Exception: pass
+    if online:
+        asyncio.create_task(_send_notify_me_messages(sid))
     return {"ok": True, "online": online}
 
 @api.get("/merchant/products")
