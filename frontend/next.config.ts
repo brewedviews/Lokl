@@ -7,6 +7,13 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
 
+  async redirects() {
+    return [
+      { source: "/:path*", has: [{ type: "host", value: "shoplokl.in" }], destination: "/coming-soon.html", permanent: false },
+      { source: "/:path*", has: [{ type: "host", value: "www.shoplokl.in" }], destination: "/coming-soon.html", permanent: false },
+    ];
+  },
+
   // Rewrite /api/* to the FastAPI backend. Lets the frontend speak in
   // relative URLs while keeping CORS simple and the prod CDN cache happy.
   async rewrites() {

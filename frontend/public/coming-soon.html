@@ -261,6 +261,8 @@
 <script>
 var currentType = 'customer';
 
+(function() { fetch('/api/page-view?page=coming-soon', { method: 'POST' }).catch(function() {}); })();
+
 function switchType(t) {
   currentType = t;
   document.getElementById('t-customer').className = 'toggle-btn' + (t==='customer' ? ' on' : '');
@@ -271,25 +273,47 @@ function switchType(t) {
 }
 
 function submitCustomer() {
-  var phone = document.getElementById('customer-phone').value.trim();
+  var phone = document.getElementById('customer-phone').value.trim().replace(/\D/g, '');
   if (phone.length < 10) { alert('Please enter a valid 10-digit WhatsApp number'); return; }
-  document.getElementById('customer-form').style.display = 'none';
-  var s = document.getElementById('success-box');
-  s.style.display = 'block';
-  s.textContent = "You’re on the list! We’ll WhatsApp you when we launch in your area.";
+  var btn = document.querySelector('#customer-form .submit-btn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  fetch('/api/waitlist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: phone, type: 'customer' })
+  }).then(function(r) { return r.json(); }).then(function() {
+    document.getElementById('customer-form').style.display = 'none';
+    var s = document.getElementById('success-box');
+    s.style.display = 'block';
+    s.textContent = “You’re on the list! We’ll WhatsApp you when we launch in your area.”;
+  }).catch(function() {
+    btn.disabled = false; btn.textContent = 'Notify me';
+    alert('Something went wrong. Please try again.');
+  });
 }
 
 function submitMerchant() {
-  var phone = document.getElementById('merchant-phone').value.trim();
+  var phone = document.getElementById('merchant-phone').value.trim().replace(/\D/g, '');
   var store = document.getElementById('merchant-store').value.trim();
   var cat = document.getElementById('merchant-category').value;
   if (phone.length < 10) { alert('Please enter a valid 10-digit WhatsApp number'); return; }
   if (!store) { alert('Please enter your store name'); return; }
   if (!cat) { alert('Please select your category'); return; }
-  document.getElementById('merchant-form').style.display = 'none';
-  var s = document.getElementById('success-box');
-  s.style.display = 'block';
-  s.textContent = "Registered! Our team will WhatsApp you within 24 hours to get " + store + " set up on Lokl.";
+  var btn = document.querySelector('#merchant-form .submit-btn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  fetch('/api/waitlist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: phone, type: 'merchant', store_name: store, category: cat })
+  }).then(function(r) { return r.json(); }).then(function() {
+    document.getElementById('merchant-form').style.display = 'none';
+    var s = document.getElementById('success-box');
+    s.style.display = 'block';
+    s.textContent = "Registered! Our team will WhatsApp you within 24 hours to get " + store + " set up on Lokl.";
+  }).catch(function() {
+    btn.disabled = false; btn.textContent = 'Register my store';
+    alert('Something went wrong. Please try again.');
+  });
 }
 </script>
 

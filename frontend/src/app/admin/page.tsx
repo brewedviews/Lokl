@@ -28,7 +28,7 @@ import { BankRequestsTab } from "@/components/admin/BankRequestsTab";
 import { LiveMetricsTab } from "@/components/admin/LiveMetricsTab";
 import { CmsTab } from "@/components/admin/CmsTab";
 
-type Tab = "stats" | "live" | "merchants" | "bank" | "stores" | "products" | "orders" | "returns" | "customers" | "cms";
+type Tab = "stats" | "live" | "merchants" | "bank" | "stores" | "products" | "orders" | "returns" | "customers" | "cms" | "waitlist";
 
 interface Stats {
   submitted_kyc: number;
@@ -70,6 +70,7 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ size?: n
   { id: "returns", label: "Returns", icon: RotateCcw },
   { id: "customers", label: "Customers", icon: UserSquare2 },
   { id: "cms", label: "Homepage CMS", icon: LayoutPanelTop },
+  { id: "waitlist", label: "Waitlist", icon: Users },
 ];
 
 export default function AdminDashboardPage() {
@@ -116,6 +117,7 @@ export default function AdminDashboardPage() {
         {tab === "returns" && <ReturnsTab />}
         {tab === "customers" && <CustomersTab />}
         {tab === "cms" && <CmsTab />}
+        {tab === "waitlist" && <WaitlistTab />}
       </main>
     </div>
   );
@@ -660,6 +662,70 @@ function OrdersTab() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------- Waitlist ----------------
+interface WaitlistCustomer { id: string; phone: string; created_at: string; }
+interface WaitlistMerchant { id: string; phone: string; store_name?: string; category?: string; created_at: string; }
+interface WaitlistData { customers: WaitlistCustomer[]; merchants: WaitlistMerchant[]; total_customers: number; total_merchants: number; }
+
+function WaitlistTab() {
+  const [data, setData] = useState<WaitlistData | null>(null);
+  const [view, setView] = useState<"customers" | "merchants">("customers");
+
+  const load = async () => {
+    try {
+      const d = await adminFetch<WaitlistData>("/api/admin/waitlist");
+      setData(d);
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  };
+  useEffect(() => { void load(); }, []);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-display text-2xl font-bold text-[#0A1F5C]">Waitlist</h2>
+        <button onClick={() => void load()} className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0A1F5C] hover:underline"><RefreshCw size={12} /> Refresh</button>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-5">
+        <Stat label="Customers" value={data?.total_customers ?? "—"} />
+        <Stat label="Merchants" value={data?.total_merchants ?? "—"} />
+      </div>
+      <div className="flex gap-2 mb-4">
+        {(["customers", "merchants"] as const).map((v) => (
+          <button key={v} onClick={() => setView(v)}
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold capitalize ${view === v ? "bg-[#0A1F5C] text-white" : "bg-white border border-[#E5E2DC] text-[#595959]"}`}>
+            {v}
+          </button>
+        ))}
+      </div>
+      {view === "customers" && (
+        <div className="space-y-2">
+          {(data?.customers ?? []).map((c) => (
+            <div key={c.id} className="bg-white border border-[#E5E2DC] rounded-xl px-4 py-3 flex items-center justify-between">
+              <span className="font-mono text-sm text-[#1A2B4C]">+91 {c.phone}</span>
+              <span className="text-xs text-[#595959]">{new Date(c.created_at).toLocaleDateString("en-IN")}</span>
+            </div>
+          ))}
+          {(data?.customers ?? []).length === 0 && <div className="text-sm text-[#595959]">No customers yet.</div>}
+        </div>
+      )}
+      {view === "merchants" && (
+        <div className="space-y-2">
+          {(data?.merchants ?? []).map((m) => (
+            <div key={m.id} className="bg-white border border-[#E5E2DC] rounded-xl px-4 py-3 flex items-center justify-between gap-4">
+              <div>
+                <div className="font-semibold text-sm text-[#1A2B4C]">{m.store_name ?? "—"}</div>
+                <div className="text-xs text-[#595959]">+91 {m.phone} · {m.category ?? "—"}</div>
+              </div>
+              <span className="text-xs text-[#595959] shrink-0">{new Date(m.created_at).toLocaleDateString("en-IN")}</span>
+            </div>
+          ))}
+          {(data?.merchants ?? []).length === 0 && <div className="text-sm text-[#595959]">No merchants yet.</div>}
+        </div>
+      )}
     </div>
   );
 }

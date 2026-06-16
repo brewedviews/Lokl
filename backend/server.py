@@ -230,6 +230,12 @@ class CustomerUpsert(BaseModel):
     phone: str; name: Optional[str] = ""; age: Optional[int] = None
     address: Optional[dict] = None; email: Optional[str] = ""
 
+class WaitlistEntry(BaseModel):
+    phone: str
+    type: str  # "customer" or "merchant"
+    store_name: Optional[str] = None
+    category: Optional[str] = None
+
 
 # ===== Auth =====
 @api.post("/auth/register")
@@ -3197,6 +3203,49 @@ async def merchant_report_csv(period: str = "30d", user: dict = Depends(get_curr
         headers={"Content-Disposition": f'attachment; filename="lokl-sales-{period}.csv"'})
 
 
+# ===== Waitlist =====
+@api.post("/waitlist")
+async def join_waitlist(payload: WaitlistEntry):
+    phone = payload.phone.strip().replace(" ", "").replace("-", "")
+    if not phone.isdigit() or len(phone) < 10:
+        raise HTTPException(400, "Invalid phone number")
+    phone = phone[-10:]
+    now = datetime.now(timezone.utc).isoformat()
+    existing = await db.waitlist.find_one({"phone": phone})
+    if existing:
+        return {"ok": True, "message": "Already registered"}
+    doc = {
+        "id": f"wl-{phone}",
+        "phone": phone,
+        "type": payload.type,
+        "store_name": payload.store_name,
+        "category": payload.category,
+        "created_at": now,
+        "source": "landing_page",
+    }
+    await db.waitlist.insert_one(doc)
+    return {"ok": True, "message": "Registered successfully"}
+
+
+# ===== Page views =====
+@api.post("/page-view")
+async def record_page_view(request: Request):
+    page = request.query_params.get("page", "coming-soon")
+    now = datetime.now(timezone.utc).isoformat()
+    today = now[:10]
+    await db.page_views.update_one(
+        {"page": page, "date": today},
+        {"$inc": {"count": 1}, "$set": {"page": page, "date": today}},
+        upsert=True,
+    )
+    await db.page_views.update_one(
+        {"page": page, "date": "total"},
+        {"$inc": {"count": 1}, "$set": {"page": page, "date": "total"}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
 # ===== Admin =====
 def _admin_token(): return create_token("admin", "admin")
 def _check_admin(authorization: Optional[str]):
@@ -3228,6 +3277,28 @@ async def admin_stats(request: Request):
         "stores_paused": await db.stores.count_documents({"paused": True}),
         "pending_changes": await db.change_requests.count_documents({"status": "submitted"}),
     }
+
+@api.get("/admin/waitlist")
+async def admin_waitlist(request: Request):
+    _check_admin(request.headers.get("authorization"))
+    customers = await db.waitlist.find({"type": "customer"}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    merchants = await db.waitlist.find({"type": "merchant"}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return {
+        "customers": customers,
+        "merchants": merchants,
+        "total_customers": len(customers),
+        "total_merchants": len(merchants),
+    }
+
+
+@api.get("/admin/page-views")
+async def admin_page_views(request: Request):
+    _check_admin(request.headers.get("authorization"))
+    rows = await db.page_views.find({"page": "coming-soon"}, {"_id": 0}).sort("date", -1).to_list(100)
+    total = next((r["count"] for r in rows if r["date"] == "total"), 0)
+    daily = [r for r in rows if r["date"] != "total"]
+    return {"total": total, "daily": daily}
+
 
 @api.get("/admin/merchants")
 async def admin_merchants(request: Request, status: Optional[str] = None):
