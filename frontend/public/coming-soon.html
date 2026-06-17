@@ -48,7 +48,7 @@
     .step p { font-size: 13px; color: #6B7280; line-height: 1.6; }
 
     /* WHY LOKL */
-    .cards3 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .cards3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
     .card { background: #fff; border: 1px solid #E5E2DC; border-radius: 16px; padding: 28px; }
     .card-num { font-size: 10px; font-weight: 700; color: #E68910; margin-bottom: 10px; letter-spacing: 2px; }
     .card h3 { font-size: 16px; font-weight: 800; color: #1A2B4C; margin-bottom: 6px; }
@@ -169,7 +169,7 @@
     <div class="steps">
       <div class="step"><div class="step-n">1</div><h4>Pick your area</h4><p>Browse stores in Sector 6, Civic Centre, Nehru Nagar and across Bhilai.</p></div>
       <div class="step"><div class="step-n">2</div><h4>Find what you love</h4><p>Streetwear, fits, sneakers, accessories — from stores that actually get your style.</p></div>
-      <div class="step"><div class="step-n">3</div><h4>Try at doorstep</h4><p>Not sure about the fit? Try before you pay. Return what doesn’t work — free.</p></div>
+      <div class="step"><div class="step-n">3</div><h4>Get it delivered</h4><p>Order confirmed, store packs it, rider picks up. Your order arrives in 30 minutes flat.</p></div>
       <div class="step"><div class="step-n">4</div><h4>Delivered in 30 min</h4><p>The store is 2 km away. Your order reaches faster than any courier ever could.</p></div>
     </div>
   </div>
@@ -184,6 +184,7 @@
   <div class="cards3">
     <div class="card"><div class="card-num">01</div><h3>Real stores, real people</h3><p>Every store on Lokl is a real Bhilai business — run by someone who lives here, knows here, gets you.</p></div>
     <div class="card"><div class="card-num">02</div><h3>Your city, your stores</h3><p>Support local businesses in Bhilai while getting the best prices and the fastest delivery.</p></div>
+    <div class="card"><div class="card-num">03</div><h3>Support local, shop smart</h3><p>Every order keeps money in Bhilai. Same quality, better prices, and you know exactly who you're buying from.</p></div>
   </div>
 </div>
 
@@ -264,7 +265,7 @@
 <script>
 var currentType = 'customer';
 
-(function() { fetch('/api/page-view?page=coming-soon', { method: 'POST' }).catch(function() {}); })();
+(function() { fetch('https://lokl-production-ad24.up.railway.app/api/page-view?page=coming-soon', { method: 'POST' }).catch(function() {}); })();
 
 function switchType(t) {
   currentType = t;
@@ -280,7 +281,7 @@ function submitCustomer() {
   if (phone.length < 10) { alert('Please enter a valid 10-digit WhatsApp number'); return; }
   var btn = document.querySelector('#customer-form .submit-btn');
   btn.disabled = true; btn.textContent = 'Saving...';
-  fetch('/api/waitlist', {
+  fetch('https://lokl-production-ad24.up.railway.app/api/waitlist', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ phone: phone, type: 'customer' })
@@ -304,7 +305,7 @@ function submitMerchant() {
   if (!cat) { alert('Please select your category'); return; }
   var btn = document.querySelector('#merchant-form .submit-btn');
   btn.disabled = true; btn.textContent = 'Saving...';
-  fetch('/api/waitlist', {
+  fetch('https://lokl-production-ad24.up.railway.app/api/waitlist', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ phone: phone, type: 'merchant', store_name: store, category: cat })
