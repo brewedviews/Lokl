@@ -25,7 +25,8 @@
     .hero { position: relative; overflow: hidden; border-radius: 20px; min-height: 480px; display: flex; align-items: flex-end; background: #1A2B4C; }
     .hero-img { position: absolute; inset: 0; background-image: url('https://res.cloudinary.com/doojqkyff/image/upload/q_auto/f_auto/v1781682248/n1elwepz_ChatGPT_Image_May_16_2026_06_29_23_PM_qmzld0.png'); background-size: cover; background-position: center right; }
     .hero-gradient { position: absolute; inset: 0; background: linear-gradient(to right, rgba(253,251,247,0.98) 0%, rgba(253,251,247,0.95) 20%, rgba(253,251,247,0.80) 38%, rgba(253,251,247,0.3) 55%, rgba(253,251,247,0.0) 70%); }
-    .hero-content { position: relative; z-index: 2; padding: 0 0 40px 40px; max-width: 580px; }
+    .hero-content { position: relative; z-index: 2; padding: 40px 40px 100px; max-width: 580px; }
+    .hero-cta-btn { position: absolute; bottom: 24px; left: 24px; right: 24px; background: #E68910; color: #fff; border: none; padding: 18px; border-radius: 16px; font-size: 17px; font-weight: 800; cursor: pointer; font-family: inherit; letter-spacing: -0.3px; z-index: 3; }
     .hero h1 { font-size: clamp(36px, 5vw, 58px); font-weight: 900; line-height: 1.06; color: #1A2B4C; letter-spacing: -2px; margin-bottom: 0; }
     .hero h1 em { color: #E68910; font-style: normal; }
     .hero-sub { font-size: 15px; color: #595959; line-height: 1.5; font-weight: 400; margin-top: 8px; }
@@ -109,9 +110,10 @@
       .hero { min-height: 320px; border-radius: 16px; align-items: flex-start; }
       .hero-img { background-position: center center; }
       .hero-gradient { background: linear-gradient(to bottom, rgba(253,251,247,0.97) 0%, rgba(253,251,247,0.88) 35%, rgba(253,251,247,0.3) 65%, rgba(253,251,247,0) 100%); }
-      .hero-content { padding: 28px 20px 120px; }
+      .hero-content { padding: 28px 24px 90px; }
       .hero h1 { font-size: 26px; letter-spacing: -1px; }
       .hero-sub { font-size: 13px; }
+      .hero-cta-btn { bottom: 16px; left: 16px; right: 16px; padding: 15px; font-size: 15px; border-radius: 14px; }
 
       .wrap { padding: 0 12px; }
       .section-gap { height: 12px; }
@@ -132,8 +134,6 @@
       .footer { padding: 14px 20px; margin-top: 32px; }
       .footer-inner { flex-direction: column; align-items: flex-start; gap: 8px; }
       .footer-links { flex-wrap: wrap; gap: 16px; }
-      .hero-cta-wrap { padding: 12px 12px 0 !important; justify-content: stretch; }
-      .hero-cta-wrap > div { flex: 1; }
       .cat-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
       .cat-pill { padding: 14px 10px; }
       div[style*="padding:16px 32px"] { padding: 12px 12px 0 !important; }
@@ -163,19 +163,8 @@
       <h1>Delivered in minutes<br>from <em>stores next door.</em></h1>
       <p class="hero-sub">Your City's store. In you phone..</p>
     </div>
+    <button onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})" class="hero-cta-btn">Get early access</button>
 
-  </div>
-</div>
-<div style="max-width:1100px;margin:0 auto;padding:16px 32px 0;display:flex;justify-content:flex-end" class="hero-cta-wrap">
-  <div style="background:#fff;border-radius:16px;padding:12px 16px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 12px rgba(0,0,0,0.08)">
-    <div style="width:40px;height:40px;background:#E68910;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-    </div>
-    <div>
-      <p style="font-size:11px;color:#595959;margin-bottom:2px;font-weight:500">Launching in Bhilai &middot; 2026</p>
-      <strong style="font-size:15px;font-weight:800;color:#1A2B4C;display:block">Get early access</strong>
-    </div>
-    <button onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})" style="background:#1A2B4C;color:#fff;border:none;padding:10px 20px;border-radius:50px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">Join &rarr;</button>
   </div>
 </div>
 
