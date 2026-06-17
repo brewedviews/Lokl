@@ -221,7 +221,7 @@
     <div id="customer-form">
       <div class="phone-row">
         <input type="tel" id="customer-phone" placeholder="Your WhatsApp number" maxlength="15">
-        <button class="submit-btn" onclick="submitCustomer()">Notify me</button>
+        <button class="submit-btn" id="submit-btn-customer" onclick="submitCustomer()">Notify me</button>
       </div>
       <p class="form-note">We’ll WhatsApp you when Lokl launches in your area. No spam, ever.</p>
     </div>
@@ -242,7 +242,7 @@
           <option>Beauty &amp; Personal Care</option>
           <option>Multi-category</option>
         </select>
-        <button class="submit-btn dark" style="width:100%" onclick="submitMerchant()">Register my store</button>
+        <button class="submit-btn dark" id="submit-btn-merchant" style="width:100%" onclick="submitMerchant()">Register my store</button>
       </div>
       <p class="form-note">We’ll reach out within 24 hours to get you set up. Completely free.</p>
     </div>
@@ -264,35 +264,39 @@
 
 <script>
 var currentType = 'customer';
-
-(function() { fetch('https://lokl-production-ad24.up.railway.app/api/page-view?page=coming-soon', { method: 'POST' }).catch(function() {}); })();
+var BACKEND = 'https://lokl-production-ad24.up.railway.app';
 
 function switchType(t) {
   currentType = t;
-  document.getElementById('t-customer').className = 'toggle-btn' + (t==='customer' ? ' on' : '');
-  document.getElementById('t-merchant').className = 'toggle-btn' + (t==='merchant' ? ' on' : '');
-  document.getElementById('customer-form').style.display = t==='customer' ? 'block' : 'none';
-  document.getElementById('merchant-form').style.display = t==='merchant' ? 'block' : 'none';
+  document.getElementById('t-customer').className = 'toggle-btn' + (t === 'customer' ? ' on' : '');
+  document.getElementById('t-merchant').className = 'toggle-btn' + (t === 'merchant' ? ' on' : '');
+  document.getElementById('customer-form').style.display = t === 'customer' ? 'block' : 'none';
+  document.getElementById('merchant-form').style.display = t === 'merchant' ? 'block' : 'none';
   document.getElementById('success-box').style.display = 'none';
 }
 
 function submitCustomer() {
   var phone = document.getElementById('customer-phone').value.trim().replace(/\D/g, '');
-  if (phone.length < 10) { alert('Please enter a valid 10-digit WhatsApp number'); return; }
-  var btn = document.querySelector('#customer-form .submit-btn');
-  btn.disabled = true; btn.textContent = 'Saving...';
-  fetch('https://lokl-production-ad24.up.railway.app/api/waitlist', {
+  if (phone.length < 10) {
+    alert('Please enter a valid 10-digit WhatsApp number');
+    return;
+  }
+  var btn = document.getElementById('submit-btn-customer');
+  if (btn) btn.disabled = true;
+  fetch(BACKEND + '/api/waitlist', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ phone: phone, type: 'customer' })
-  }).then(function(r) { return r.json(); }).then(function() {
+  }).then(function(res) {
+    return res.json();
+  }).then(function(data) {
     document.getElementById('customer-form').style.display = 'none';
     var s = document.getElementById('success-box');
     s.style.display = 'block';
-    s.textContent = “You’re on the list! We’ll WhatsApp you when we launch in your area.”;
-  }).catch(function() {
-    btn.disabled = false; btn.textContent = 'Notify me';
+    s.textContent = "You're on the list! We'll WhatsApp you when we launch in your area.";
+  }).catch(function(e) {
     alert('Something went wrong. Please try again.');
+    if (btn) btn.disabled = false;
   });
 }
 
@@ -300,25 +304,40 @@ function submitMerchant() {
   var phone = document.getElementById('merchant-phone').value.trim().replace(/\D/g, '');
   var store = document.getElementById('merchant-store').value.trim();
   var cat = document.getElementById('merchant-category').value;
-  if (phone.length < 10) { alert('Please enter a valid 10-digit WhatsApp number'); return; }
-  if (!store) { alert('Please enter your store name'); return; }
-  if (!cat) { alert('Please select your category'); return; }
-  var btn = document.querySelector('#merchant-form .submit-btn');
-  btn.disabled = true; btn.textContent = 'Saving...';
-  fetch('https://lokl-production-ad24.up.railway.app/api/waitlist', {
+  if (phone.length < 10) {
+    alert('Please enter a valid 10-digit WhatsApp number');
+    return;
+  }
+  if (!store) {
+    alert('Please enter your store name');
+    return;
+  }
+  if (!cat) {
+    alert('Please select your category');
+    return;
+  }
+  var btn = document.getElementById('submit-btn-merchant');
+  if (btn) btn.disabled = true;
+  fetch(BACKEND + '/api/waitlist', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ phone: phone, type: 'merchant', store_name: store, category: cat })
-  }).then(function(r) { return r.json(); }).then(function() {
+  }).then(function(res) {
+    return res.json();
+  }).then(function(data) {
     document.getElementById('merchant-form').style.display = 'none';
     var s = document.getElementById('success-box');
     s.style.display = 'block';
-    s.textContent = "Registered! Our team will WhatsApp you within 24 hours to get " + store + " set up on Lokl.";
-  }).catch(function() {
-    btn.disabled = false; btn.textContent = 'Register my store';
+    s.textContent = 'Registered! Our team will WhatsApp you within 24 hours to get ' + store + ' set up on Lokl.';
+  }).catch(function(e) {
     alert('Something went wrong. Please try again.');
+    if (btn) btn.disabled = false;
   });
 }
+
+(function() {
+  fetch(BACKEND + '/api/page-view?page=coming-soon', { method: 'POST' }).catch(function() {});
+})();
 </script>
 
 </body>
