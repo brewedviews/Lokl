@@ -33,31 +33,33 @@
     .chip-left { width: 40px; height: 40px; background: #E68910; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .chip-middle p { font-size: 11px; color: #595959; margin-bottom: 2px; font-weight: 500; }
     .chip-middle strong { font-size: 15px; font-weight: 800; color: #1A2B4C; display: block; }
-    .chip-badge { background: #1A2B4C; color: #fff; padding: 7px 16px; border-radius: 50px; font-size: 13px; font-weight: 700; border: none; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .chip-arrow { font-size: 16px; color: #1A2B4C; font-weight: 700; margin-left: 4px; }
+    .hero-chip:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.13); }
 
     /* SECTIONS */
     .wrap { max-width: 1100px; margin: 0 auto; padding: 0 32px; }
-    .section-gap { height: 40px; }
+    .section-gap { height: 20px; }
     .label { font-size: 11px; font-weight: 700; color: #E68910; text-transform: uppercase; letter-spacing: 2.5px; margin-bottom: 6px; }
     .title { font-size: clamp(24px, 3vw, 36px); font-weight: 900; color: #1A2B4C; line-height: 1.12; letter-spacing: -0.5px; margin-bottom: 8px; }
     .sub { font-size: 15px; color: #595959; line-height: 1.7; margin-bottom: 28px; }
 
     /* HOW IT WORKS */
-    .how-box { background: #fff; border: 1px solid #E5E2DC; border-radius: 20px; padding: 44px; }
-    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 32px; }
-    .step-n { width: 36px; height: 36px; background: #1A2B4C; color: #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; margin-bottom: 14px; }
-    .step h4 { font-size: 14px; font-weight: 800; color: #1A2B4C; margin-bottom: 4px; }
-    .step p { font-size: 13px; color: #6B7280; line-height: 1.6; }
+    .how-box { background: #fff; border: 1px solid #E5E2DC; border-radius: 20px; padding: 36px 36px 28px; }
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 24px; }
+    .step-card { background: #FDFBF7; border: 1px solid #E5E2DC; border-radius: 16px; padding: 24px; }
+    .step-n { width: 32px; height: 32px; background: #1A2B4C; color: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 900; margin-bottom: 14px; }
+    .step h4 { font-size: 14px; font-weight: 800; color: #1A2B4C; margin-bottom: 6px; }
+    .step p { font-size: 13px; color: #595959; line-height: 1.6; }
 
     /* WHY LOKL */
-    .cards3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .cards3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
     .card { background: #fff; border: 1px solid #E5E2DC; border-radius: 16px; padding: 28px; }
-    .card-num { font-size: 10px; font-weight: 700; color: #E68910; margin-bottom: 10px; letter-spacing: 2px; }
-    .card h3 { font-size: 16px; font-weight: 800; color: #1A2B4C; margin-bottom: 6px; }
-    .card p { font-size: 13px; color: #6B7280; line-height: 1.6; }
+    .card-num { font-size: 10px; font-weight: 700; color: #E68910; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 10px; }
+    .card h3 { font-size: 15px; font-weight: 800; color: #1A2B4C; margin-bottom: 8px; }
+    .card p { font-size: 13px; color: #595959; line-height: 1.6; }
 
     /* MERCHANT */
-    .merchant-box { background: #1A2B4C; border-radius: 20px; padding: 44px; }
+    .merchant-box { background: #1A2B4C; border-radius: 20px; padding: 36px; }
     .merchant-box .label { color: #E68910; }
     .merchant-box .title { color: #fff; }
     .merchant-box .sub { color: rgba(255,255,255,0.6); }
@@ -69,7 +71,7 @@
     .btn-orange-outline { background: #E68910; color: #fff; padding: 13px 28px; border-radius: 12px; font-size: 15px; font-weight: 700; border: none; cursor: pointer; font-family: inherit; }
 
     /* WAITLIST */
-    .waitlist-box { background: #fff; border: 1px solid #E5E2DC; border-radius: 20px; padding: 44px; text-align: center; }
+    .waitlist-box { background: #fff; border: 1px solid #E5E2DC; border-radius: 20px; padding: 36px; text-align: center; }
     .waitlist-box .title { text-align: center; margin-bottom: 6px; }
     .waitlist-box .sub { text-align: center; max-width: 440px; margin: 0 auto 24px; font-size: 14px; color: #595959; }
     .toggle-row { display: flex; gap: 8px; justify-content: center; margin-bottom: 24px; }
@@ -112,19 +114,20 @@
       .chip-left { width: 32px; height: 32px; }
       .chip-middle p { font-size: 10px; }
       .chip-middle strong { font-size: 13px; }
-      .chip-badge { padding: 6px 12px; font-size: 11px; }
-      .section-gap { height: 28px; }
-      .how-box { padding: 28px 20px; border-radius: 16px; margin: 0; }
-      .steps { grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+      .wrap { padding: 0 12px; }
+      .section-gap { height: 12px; }
+      .how-box { padding: 24px 16px; border-radius: 16px; }
+      .steps { grid-template-columns: 1fr; gap: 10px; }
+      .step-card { padding: 18px; }
       .title { font-size: 20px; }
       .sub { font-size: 13px; margin-bottom: 20px; }
       .cards3 { grid-template-columns: 1fr; gap: 10px; }
       .card { padding: 20px; }
-      .merchant-box { padding: 28px 20px; border-radius: 16px; margin: 0; }
+      .merchant-box { padding: 24px 16px; border-radius: 16px; }
       .m-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 24px; }
       .m-card { padding: 16px; }
       .m-big { font-size: 24px; }
-      .waitlist-box { padding: 28px 20px; border-radius: 16px; margin: 0; }
+      .waitlist-box { padding: 24px 16px; border-radius: 16px; }
       .phone-row { flex-direction: column; gap: 8px; }
       .phone-row input, .submit-btn, .phone-prefix { width: 100%; }
       .footer { padding: 14px 20px; margin-top: 32px; }
@@ -132,7 +135,6 @@
       .footer-links { flex-wrap: wrap; gap: 16px; }
     }
     @media (max-width: 480px) {
-      .steps { grid-template-columns: 1fr; }
       .m-grid { grid-template-columns: 1fr 1fr; }
       .hero h1 { font-size: 26px; }
     }
@@ -157,15 +159,15 @@
       <h1>Delivered in minutes<br>from <em>stores next door.</em></h1>
       <p class="hero-sub">Your City's store. In you phone..</p>
     </div>
-    <div class="hero-chip">
+    <div class="hero-chip" onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})" style="cursor:pointer">
       <div class="chip-left">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
       </div>
       <div class="chip-middle">
-        <p>Fast delivery in Bhilai</p>
+        <p>Launching in Bhilai &middot; 2026</p>
         <strong>Get early access</strong>
       </div>
-      <button class="chip-badge" onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})">Join &rarr;</button>
+      <div class="chip-arrow">&rarr;</div>
     </div>
   </div>
 </div>
@@ -178,9 +180,9 @@
     <div class="title">Simple as stepping out, without stepping out.</div>
     <div class="sub">No app to download yet &mdash; just discover, order, and receive.</div>
     <div class="steps">
-      <div class="step"><div class="step-n">1</div><h4>Discover stores near you</h4><p>Browse fashion from your favourite stores in Supela, Sector 6, Powerhouse and across Bhilai &mdash; all in one place.</p></div>
-      <div class="step"><div class="step-n">2</div><h4>Find your style</h4><p>Streetwear, sneakers, fits, accessories and more &mdash; from stores that actually understand Bhilai's taste.</p></div>
-      <div class="step"><div class="step-n">3</div><h4>Delivered in 30 minutes</h4><p>Order from a store 2 km away and get it at your door in 30 minutes. No waiting. No driving. No hassle.</p></div>
+      <div class="step step-card"><div class="step-n">1</div><h4>Discover stores near you</h4><p>Browse fashion from your favourite stores in Supela, Sector 6, Powerhouse and across Bhilai &mdash; all in one place.</p></div>
+      <div class="step step-card"><div class="step-n">2</div><h4>Find your style</h4><p>Streetwear, sneakers, fits, accessories and more &mdash; from stores that actually understand Bhilai's taste.</p></div>
+      <div class="step step-card"><div class="step-n">3</div><h4>Delivered in 30 minutes</h4><p>Order from a store 2 km away and get it at your door in 30 minutes. No waiting. No driving. No hassle.</p></div>
     </div>
   </div>
 </div>
@@ -188,13 +190,15 @@
 <div class="section-gap"></div>
 
 <div class="wrap">
-  <div class="label">Why Lokl</div>
-  <div class="title">Shopping, but make it local.</div>
-  <div class="sub">Everything you love about your favourite Bhilai store &mdash; now on your phone.</div>
-  <div class="cards3">
-    <div class="card"><div class="card-num">01</div><h3>Real stores, real people</h3><p>Every store on Lokl is a verified Bhilai business run by someone who lives here, knows the city, and gets what you need.</p></div>
-    <div class="card"><div class="card-num">02</div><h3>Walk-in prices, zero markup</h3><p>You pay exactly what you'd pay at the store counter. No platform inflation, no hidden charges &mdash; ever.</p></div>
-    <div class="card"><div class="card-num">03</div><h3>Keep Bhilai's money in Bhilai</h3><p>Every order directly supports a local store owner. Shop smart, shop local, and help your city's businesses grow.</p></div>
+  <div class="how-box">
+    <div class="label">Why Lokl</div>
+    <div class="title">Shopping, but make it local.</div>
+    <p class="sub">Everything you love about your favourite Bhilai store &mdash; now on your phone.</p>
+    <div class="cards3">
+      <div class="card"><div class="card-num">01</div><h3>Real stores, real people</h3><p>Every store on Lokl is a verified Bhilai business run by someone who lives here, knows the city, and gets what you need.</p></div>
+      <div class="card"><div class="card-num">02</div><h3>Walk-in prices, zero markup</h3><p>You pay exactly what you'd pay at the store counter. No platform inflation, no hidden charges &mdash; ever.</p></div>
+      <div class="card"><div class="card-num">03</div><h3>Keep Bhilai's money in Bhilai</h3><p>Every order directly supports a local store owner. Shop smart, shop local, and help your city's businesses grow.</p></div>
+    </div>
   </div>
 </div>
 
@@ -217,7 +221,7 @@
 
 <div class="section-gap"></div>
 
-<div id="waitlist" class="wrap" style="padding-bottom:64px">
+<div id="waitlist" class="wrap">
   <div class="waitlist-box">
     <div class="label">Join the waitlist</div>
     <div class="title">Be first in Bhilai.</div>
