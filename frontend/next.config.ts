@@ -7,27 +7,28 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
 
-  // Rewrite /api/* to the FastAPI backend. Lets the frontend speak in
-  // relative URLs while keeping CORS simple and the prod CDN cache happy.
-  // Domain rewrites serve coming-soon.html at / without changing the URL
-  // (rewrites instead of redirects avoids the redirect loop on /:path*).
+  // beforeFiles rewrites intercept shoplokl.in / www.shoplokl.in before any
+  // app route or file resolution, so all paths on those domains serve the
+  // coming-soon page without a redirect (URL stays www.shoplokl.in).
+  // The API proxy lives in fallback so it only fires when nothing else matched.
   async rewrites() {
-    return [
-      {
-        source: "/",
-        has: [{ type: "host", value: "shoplokl.in" }],
-        destination: "/coming-soon.html",
-      },
-      {
-        source: "/",
-        has: [{ type: "host", value: "www.shoplokl.in" }],
-        destination: "/coming-soon.html",
-      },
-      {
-        source: "/api/:path*",
-        destination: `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001"}/api/:path*`,
-      },
+    const apiRewrite = {
+      source: "/api/:path*",
+      destination: `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001"}/api/:path*`,
+    };
+
+    const comingSoonRewrites = [
+      { source: "/", has: [{ type: "host", value: "shoplokl.in" }], destination: "/coming-soon.html" },
+      { source: "/:path*", has: [{ type: "host", value: "shoplokl.in" }], destination: "/coming-soon.html" },
+      { source: "/", has: [{ type: "host", value: "www.shoplokl.in" }], destination: "/coming-soon.html" },
+      { source: "/:path*", has: [{ type: "host", value: "www.shoplokl.in" }], destination: "/coming-soon.html" },
     ];
+
+    return {
+      beforeFiles: comingSoonRewrites,
+      afterFiles: [],
+      fallback: [apiRewrite],
+    };
   },
 
   // next/image whitelist. Storage host comes from env so staging/prod can
