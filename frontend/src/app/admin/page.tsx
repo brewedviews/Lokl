@@ -670,62 +670,102 @@ function OrdersTab() {
 interface WaitlistCustomer { id: string; phone: string; created_at: string; }
 interface WaitlistMerchant { id: string; phone: string; store_name?: string; category?: string; created_at: string; }
 interface WaitlistData { customers: WaitlistCustomer[]; merchants: WaitlistMerchant[]; total_customers: number; total_merchants: number; }
+interface PageViewsData { total: number; }
+
+function fmtDate(iso: string) {
+  const d = new Date(iso);
+  const day = String(d.getDate()).padStart(2, "0");
+  const mon = d.toLocaleString("en-IN", { month: "short" });
+  const yr = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${day} ${mon} ${yr} ${hh}:${mm}`;
+}
 
 function WaitlistTab() {
   const [data, setData] = useState<WaitlistData | null>(null);
-  const [view, setView] = useState<"customers" | "merchants">("customers");
+  const [pageViews, setPageViews] = useState<number | null>(null);
 
   const load = async () => {
     try {
-      const d = await adminFetch<WaitlistData>("/api/admin/waitlist");
-      setData(d);
+      const [wl, pv] = await Promise.all([
+        adminFetch<WaitlistData>("/api/admin/waitlist"),
+        adminFetch<PageViewsData>("/api/admin/page-views"),
+      ]);
+      setData(wl);
+      setPageViews(pv.total ?? null);
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   };
   useEffect(() => { void load(); }, []);
 
   return (
-    <div>
+    <div data-testid="waitlist-panel">
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-display text-2xl font-bold text-[#0A1F5C]">Waitlist</h2>
         <button onClick={() => void load()} className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0A1F5C] hover:underline"><RefreshCw size={12} /> Refresh</button>
       </div>
-      <div className="grid grid-cols-2 gap-3 mb-5">
+
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <Stat label="Page views" value={pageViews ?? "—"} />
         <Stat label="Customers" value={data?.total_customers ?? "—"} />
         <Stat label="Merchants" value={data?.total_merchants ?? "—"} />
       </div>
-      <div className="flex gap-2 mb-4">
-        {(["customers", "merchants"] as const).map((v) => (
-          <button key={v} onClick={() => setView(v)}
-            className={`px-4 py-1.5 rounded-full text-xs font-semibold capitalize ${view === v ? "bg-[#0A1F5C] text-white" : "bg-white border border-[#E5E2DC] text-[#595959]"}`}>
-            {v}
-          </button>
-        ))}
+
+      <div className="space-y-6">
+        <div>
+          <h3 className="font-display text-base font-bold text-[#0A1F5C] mb-2">Customers</h3>
+          <div className="bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-[#FDFBF7] text-left text-xs uppercase text-[#595959]">
+                <tr>
+                  <th className="px-4 py-3">Phone</th>
+                  <th className="px-4 py-3">Joined</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.customers ?? []).map((c) => (
+                  <tr key={c.id} className="border-t border-[#E5E2DC]">
+                    <td className="px-4 py-3 font-mono text-[#0A1F5C]">+91 {c.phone}</td>
+                    <td className="px-4 py-3 text-[#595959]">{fmtDate(c.created_at)}</td>
+                  </tr>
+                ))}
+                {(data?.customers ?? []).length === 0 && (
+                  <tr><td colSpan={2} className="px-4 py-8 text-center text-sm text-[#595959]">No customers yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <h3 className="font-display text-base font-bold text-[#0A1F5C] mb-2">Merchants</h3>
+          <div className="bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-[#FDFBF7] text-left text-xs uppercase text-[#595959]">
+                <tr>
+                  <th className="px-4 py-3">Phone</th>
+                  <th className="px-4 py-3">Store Name</th>
+                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Joined</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.merchants ?? []).map((m) => (
+                  <tr key={m.id} className="border-t border-[#E5E2DC]">
+                    <td className="px-4 py-3 font-mono text-[#0A1F5C]">+91 {m.phone}</td>
+                    <td className="px-4 py-3 font-semibold text-[#0A1F5C]">{m.store_name ?? "—"}</td>
+                    <td className="px-4 py-3 text-[#595959]">{m.category ?? "—"}</td>
+                    <td className="px-4 py-3 text-[#595959]">{fmtDate(m.created_at)}</td>
+                  </tr>
+                ))}
+                {(data?.merchants ?? []).length === 0 && (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-[#595959]">No merchants yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
-      {view === "customers" && (
-        <div className="space-y-2">
-          {(data?.customers ?? []).map((c) => (
-            <div key={c.id} className="bg-white border border-[#E5E2DC] rounded-xl px-4 py-3 flex items-center justify-between">
-              <span className="font-mono text-sm text-[#1A2B4C]">+91 {c.phone}</span>
-              <span className="text-xs text-[#595959]">{new Date(c.created_at).toLocaleDateString("en-IN")}</span>
-            </div>
-          ))}
-          {(data?.customers ?? []).length === 0 && <div className="text-sm text-[#595959]">No customers yet.</div>}
-        </div>
-      )}
-      {view === "merchants" && (
-        <div className="space-y-2">
-          {(data?.merchants ?? []).map((m) => (
-            <div key={m.id} className="bg-white border border-[#E5E2DC] rounded-xl px-4 py-3 flex items-center justify-between gap-4">
-              <div>
-                <div className="font-semibold text-sm text-[#1A2B4C]">{m.store_name ?? "—"}</div>
-                <div className="text-xs text-[#595959]">+91 {m.phone} · {m.category ?? "—"}</div>
-              </div>
-              <span className="text-xs text-[#595959] shrink-0">{new Date(m.created_at).toLocaleDateString("en-IN")}</span>
-            </div>
-          ))}
-          {(data?.merchants ?? []).length === 0 && <div className="text-sm text-[#595959]">No merchants yet.</div>}
-        </div>
-      )}
     </div>
   );
 }
