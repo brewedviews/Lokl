@@ -282,21 +282,22 @@ function submitCustomer() {
     return;
   }
   var btn = document.getElementById('submit-btn-customer');
-  if (btn) btn.disabled = true;
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
   fetch(BACKEND + '/api/waitlist', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ phone: phone, type: 'customer' })
-  }).then(function(res) {
-    return res.json();
-  }).then(function(data) {
+  }).then(function(res) { return res.json(); })
+  .then(function(data) {
     document.getElementById('customer-form').style.display = 'none';
     var s = document.getElementById('success-box');
     s.style.display = 'block';
     s.textContent = "You're on the list! We'll WhatsApp you when we launch in your area.";
   }).catch(function(e) {
+    btn.disabled = false;
+    btn.textContent = 'Notify me';
     alert('Something went wrong. Please try again.');
-    if (btn) btn.disabled = false;
   });
 }
 
@@ -308,30 +309,25 @@ function submitMerchant() {
     alert('Please enter a valid 10-digit WhatsApp number');
     return;
   }
-  if (!store) {
-    alert('Please enter your store name');
-    return;
-  }
-  if (!cat) {
-    alert('Please select your category');
-    return;
-  }
+  if (!store) { alert('Please enter your store name'); return; }
+  if (!cat) { alert('Please select your category'); return; }
   var btn = document.getElementById('submit-btn-merchant');
-  if (btn) btn.disabled = true;
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
   fetch(BACKEND + '/api/waitlist', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ phone: phone, type: 'merchant', store_name: store, category: cat })
-  }).then(function(res) {
-    return res.json();
-  }).then(function(data) {
+  }).then(function(res) { return res.json(); })
+  .then(function(data) {
     document.getElementById('merchant-form').style.display = 'none';
     var s = document.getElementById('success-box');
     s.style.display = 'block';
     s.textContent = 'Registered! Our team will WhatsApp you within 24 hours to get ' + store + ' set up on Lokl.';
   }).catch(function(e) {
+    btn.disabled = false;
+    btn.textContent = 'Register my store';
     alert('Something went wrong. Please try again.');
-    if (btn) btn.disabled = false;
   });
 }
 

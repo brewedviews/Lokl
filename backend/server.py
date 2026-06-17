@@ -3206,24 +3206,24 @@ async def merchant_report_csv(period: str = "30d", user: dict = Depends(get_curr
 # ===== Waitlist =====
 @api.post("/waitlist")
 async def join_waitlist(payload: WaitlistEntry):
-    phone = payload.phone.strip().replace(" ", "").replace("-", "")
-    if not phone.isdigit() or len(phone) < 10:
+    phone = _re.sub(r'\D', '', payload.phone)
+    phone = phone[-10:] if len(phone) >= 10 else phone
+    if len(phone) < 10:
         raise HTTPException(400, "Invalid phone number")
-    phone = phone[-10:]
     now = datetime.now(timezone.utc).isoformat()
-    existing = await db.waitlist.find_one({"phone": phone})
+    # Use phone + type as unique key so the same person can register as both customer and merchant
+    existing = await db.waitlist.find_one({"phone": phone, "type": payload.type})
     if existing:
         return {"ok": True, "message": "Already registered"}
-    doc = {
-        "id": f"wl-{phone}",
+    await db.waitlist.insert_one({
+        "id": f"wl-{payload.type}-{phone}",
         "phone": phone,
         "type": payload.type,
         "store_name": payload.store_name,
         "category": payload.category,
         "created_at": now,
         "source": "landing_page",
-    }
-    await db.waitlist.insert_one(doc)
+    })
     return {"ok": True, "message": "Registered successfully"}
 
 
