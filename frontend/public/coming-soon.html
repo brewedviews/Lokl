@@ -29,12 +29,7 @@
     .hero h1 { font-size: clamp(36px, 5vw, 58px); font-weight: 900; line-height: 1.06; color: #1A2B4C; letter-spacing: -2px; margin-bottom: 0; }
     .hero h1 em { color: #E68910; font-style: normal; }
     .hero-sub { font-size: 15px; color: #595959; line-height: 1.5; font-weight: 400; margin-top: 8px; }
-    .hero-chip { position: absolute; bottom: 28px; right: 28px; width: auto; min-width: 240px; background: #fff; border-radius: 16px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; z-index: 3; box-shadow: 0 4px 20px rgba(0,0,0,0.10); }
-    .chip-left { width: 40px; height: 40px; background: #E68910; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .chip-middle p { font-size: 11px; color: #595959; margin-bottom: 2px; font-weight: 500; }
-    .chip-middle strong { font-size: 15px; font-weight: 800; color: #1A2B4C; display: block; }
-    .chip-arrow { font-size: 16px; color: #1A2B4C; font-weight: 700; margin-left: 4px; }
-    .hero-chip:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.13); }
+
 
     /* SECTIONS */
     .wrap { max-width: 1100px; margin: 0 auto; padding: 0 32px; }
@@ -117,10 +112,7 @@
       .hero-content { padding: 28px 20px 120px; }
       .hero h1 { font-size: 26px; letter-spacing: -1px; }
       .hero-sub { font-size: 13px; }
-      .hero-chip { bottom: 16px; left: 16px; right: 16px; width: calc(100% - 32px); min-width: unset; padding: 10px 14px; border-radius: 14px; gap: 10px; }
-      .chip-left { width: 32px; height: 32px; }
-      .chip-middle p { font-size: 10px; }
-      .chip-middle strong { font-size: 13px; }
+
       .wrap { padding: 0 12px; }
       .section-gap { height: 12px; }
       .how-box { padding: 24px 16px; border-radius: 16px; }
@@ -140,6 +132,8 @@
       .footer { padding: 14px 20px; margin-top: 32px; }
       .footer-inner { flex-direction: column; align-items: flex-start; gap: 8px; }
       .footer-links { flex-wrap: wrap; gap: 16px; }
+      .hero-cta-wrap { padding: 12px 12px 0 !important; justify-content: stretch; }
+      .hero-cta-wrap > div { flex: 1; }
       .cat-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
       .cat-pill { padding: 14px 10px; }
       div[style*="padding:16px 32px"] { padding: 12px 12px 0 !important; }
@@ -169,22 +163,20 @@
       <h1>Delivered in minutes<br>from <em>stores next door.</em></h1>
       <p class="hero-sub">Your City's store. In you phone..</p>
     </div>
-    <div class="hero-chip" onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})" style="cursor:pointer">
-      <div class="chip-left">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      </div>
-      <div class="chip-middle">
-        <p>Launching in Bhilai &middot; 2026</p>
-        <strong>Get early access</strong>
-      </div>
-      <div class="chip-arrow">&rarr;</div>
-    </div>
+
   </div>
 </div>
-<div style="max-width:1100px;margin:0 auto;padding:16px 32px 0">
-  <button onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})" style="width:100%;background:#E68910;color:#fff;border:none;padding:16px;border-radius:14px;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;letter-spacing:-0.2px">
-    Join the waitlist &mdash; it&#39;s free
-  </button>
+<div style="max-width:1100px;margin:0 auto;padding:16px 32px 0;display:flex;justify-content:flex-end" class="hero-cta-wrap">
+  <div style="background:#fff;border-radius:16px;padding:12px 16px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 12px rgba(0,0,0,0.08)">
+    <div style="width:40px;height:40px;background:#E68910;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+    </div>
+    <div>
+      <p style="font-size:11px;color:#595959;margin-bottom:2px;font-weight:500">Launching in Bhilai &middot; 2026</p>
+      <strong style="font-size:15px;font-weight:800;color:#1A2B4C;display:block">Get early access</strong>
+    </div>
+    <button onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})" style="background:#1A2B4C;color:#fff;border:none;padding:10px 20px;border-radius:50px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">Join &rarr;</button>
+  </div>
 </div>
 
 <div class="section-gap"></div>
