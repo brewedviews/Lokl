@@ -7,28 +7,33 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
 
-  // beforeFiles rewrites intercept shoplokl.in / www.shoplokl.in before any
-  // app route or file resolution, so all paths on those domains serve the
-  // coming-soon page without a redirect (URL stays www.shoplokl.in).
-  // The API proxy lives in fallback so it only fires when nothing else matched.
   async rewrites() {
-    const apiRewrite = {
-      source: "/api/:path*",
-      destination: `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001"}/api/:path*`,
-    };
-
-    const comingSoonRewrites = [
-      { source: "/", has: [{ type: "host", value: "shoplokl.in" }], destination: "/coming-soon.html" },
-      { source: "/:path*", has: [{ type: "host", value: "shoplokl.in" }], destination: "/coming-soon.html" },
-      { source: "/", has: [{ type: "host", value: "www.shoplokl.in" }], destination: "/coming-soon.html" },
-      { source: "/:path*", has: [{ type: "host", value: "www.shoplokl.in" }], destination: "/coming-soon.html" },
+    return [
+      {
+        source: "/",
+        has: [{ type: "host" as const, key: "host", value: "shoplokl.in" }],
+        destination: "/coming-soon.html",
+      },
+      {
+        source: "/:path*",
+        has: [{ type: "host" as const, key: "host", value: "shoplokl.in" }],
+        destination: "/coming-soon.html",
+      },
+      {
+        source: "/",
+        has: [{ type: "host" as const, key: "host", value: "www.shoplokl.in" }],
+        destination: "/coming-soon.html",
+      },
+      {
+        source: "/:path*",
+        has: [{ type: "host" as const, key: "host", value: "www.shoplokl.in" }],
+        destination: "/coming-soon.html",
+      },
+      {
+        source: "/api/:path*",
+        destination: `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001"}/api/:path*`,
+      },
     ];
-
-    return {
-      beforeFiles: comingSoonRewrites,
-      afterFiles: [],
-      fallback: [apiRewrite],
-    };
   },
 
   // next/image whitelist. Storage host comes from env so staging/prod can
