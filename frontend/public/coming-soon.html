@@ -24,16 +24,16 @@
     .hero-wrap { max-width: 1100px; margin: 0 auto; padding: 24px 32px 0; }
     .hero { position: relative; overflow: hidden; border-radius: 20px; min-height: 480px; display: flex; align-items: flex-end; background: #1A2B4C; }
     .hero-img { position: absolute; inset: 0; background-image: url('https://res.cloudinary.com/doojqkyff/image/upload/q_auto/f_auto/v1781682248/n1elwepz_ChatGPT_Image_May_16_2026_06_29_23_PM_qmzld0.png'); background-size: cover; background-position: center right; }
-    .hero-gradient { position: absolute; inset: 0; background: linear-gradient(to right, rgba(253,251,247,0.98) 0%, rgba(253,251,247,0.95) 25%, rgba(253,251,247,0.75) 45%, rgba(253,251,247,0.2) 65%, rgba(253,251,247,0.0) 80%); }
-    .hero-content { position: relative; z-index: 2; padding: 0 40px 44px; max-width: 580px; }
-    .hero h1 { font-size: clamp(34px, 4vw, 56px); font-weight: 900; line-height: 1.06; color: #1A2B4C; letter-spacing: -2px; margin-bottom: 10px; }
+    .hero-gradient { position: absolute; inset: 0; background: linear-gradient(to right, rgba(253,251,247,0.98) 0%, rgba(253,251,247,0.95) 20%, rgba(253,251,247,0.80) 38%, rgba(253,251,247,0.3) 55%, rgba(253,251,247,0.0) 70%); }
+    .hero-content { position: relative; z-index: 2; padding: 0 0 40px 40px; max-width: 580px; }
+    .hero h1 { font-size: clamp(36px, 5vw, 58px); font-weight: 900; line-height: 1.06; color: #1A2B4C; letter-spacing: -2px; margin-bottom: 0; }
     .hero h1 em { color: #E68910; font-style: normal; }
-    .hero-sub { font-size: 16px; color: #595959; line-height: 1.5; font-weight: 400; }
-    .hero-chip { position: absolute; bottom: 24px; right: 28px; background: #fff; border-radius: 16px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; z-index: 3; min-width: 260px; }
-    .chip-left { width: 40px; height: 40px; background: #E68910; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .hero-sub { font-size: 15px; color: #595959; line-height: 1.5; font-weight: 400; margin-top: 8px; }
+    .hero-chip { position: absolute; bottom: 28px; right: 28px; width: auto; min-width: 240px; background: #fff; border-radius: 16px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; z-index: 3; box-shadow: 0 4px 20px rgba(0,0,0,0.10); }
+    .chip-left { width: 40px; height: 40px; background: #E68910; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .chip-middle p { font-size: 11px; color: #595959; margin-bottom: 2px; font-weight: 500; }
     .chip-middle strong { font-size: 15px; font-weight: 800; color: #1A2B4C; display: block; }
-    .chip-badge { background: #1A2B4C; color: #fff; padding: 6px 14px; border-radius: 50px; font-size: 12px; font-weight: 700; border: none; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .chip-badge { background: #1A2B4C; color: #fff; padding: 7px 16px; border-radius: 50px; font-size: 13px; font-weight: 700; border: none; cursor: pointer; font-family: inherit; white-space: nowrap; }
 
     /* SECTIONS */
     .wrap { max-width: 1100px; margin: 0 auto; padding: 0 32px; }
@@ -102,17 +102,17 @@
       .nav-link { display: none; }
       .btn-nav { padding: 8px 16px; font-size: 13px; }
       .hero-wrap { padding: 12px 12px 0; }
-      .hero { min-height: 320px; border-radius: 16px; }
+      .hero { min-height: 320px; border-radius: 16px; align-items: flex-start; }
+      .hero-img { background-position: center center; }
       .hero-gradient { background: linear-gradient(to bottom, rgba(253,251,247,0.97) 0%, rgba(253,251,247,0.88) 35%, rgba(253,251,247,0.3) 65%, rgba(253,251,247,0) 100%); }
-      .hero-content { padding: 0 20px 100px; }
-      .hero h1 { font-size: 26px; letter-spacing: -1px; margin-bottom: 8px; }
+      .hero-content { padding: 28px 20px 120px; }
+      .hero h1 { font-size: 26px; letter-spacing: -1px; }
       .hero-sub { font-size: 13px; }
-      .hero-chip { bottom: 16px; right: 12px; left: 12px; min-width: unset; padding: 10px 14px; border-radius: 14px; gap: 10px; }
-      .chip-left { width: 32px; height: 32px; border-radius: 8px; }
+      .hero-chip { bottom: 16px; left: 16px; right: 16px; width: calc(100% - 32px); min-width: unset; padding: 10px 14px; border-radius: 14px; gap: 10px; }
+      .chip-left { width: 32px; height: 32px; }
       .chip-middle p { font-size: 10px; }
       .chip-middle strong { font-size: 13px; }
       .chip-badge { padding: 6px 12px; font-size: 11px; }
-      .wrap { padding: 0 12px; }
       .section-gap { height: 28px; }
       .how-box { padding: 28px 20px; border-radius: 16px; margin: 0; }
       .steps { grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
@@ -162,10 +162,10 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
       </div>
       <div class="chip-middle">
-        <p>Launching in Bhilai</p>
-        <strong>Be first to know</strong>
+        <p>Fast delivery in Bhilai</p>
+        <strong>Get early access</strong>
       </div>
-      <button class="chip-badge" onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})">Get early access</button>
+      <button class="chip-badge" onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})">Join &rarr;</button>
     </div>
   </div>
 </div>
