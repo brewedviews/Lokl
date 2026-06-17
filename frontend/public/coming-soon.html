@@ -22,19 +22,18 @@
 
     /* HERO */
     .hero-wrap { max-width: 1100px; margin: 0 auto; padding: 24px 32px 0; }
-    .hero { position: relative; overflow: hidden; border-radius: 20px; min-height: 460px; display: flex; align-items: flex-end; }
-    .hero-img { position: absolute; inset: 0; background-image: url('https://res.cloudinary.com/doojqkyff/image/upload/q_auto/f_auto/v1781682248/n1elwepz_ChatGPT_Image_May_16_2026_06_29_23_PM_qmzld0.png'); background-size: cover; background-position: center; }
-    .hero-gradient { position: absolute; inset: 0; background: linear-gradient(to right, rgba(253,251,247,0.97) 0%, rgba(253,251,247,0.90) 30%, rgba(253,251,247,0.50) 55%, rgba(253,251,247,0.0) 75%); }
-    .hero-content { position: relative; z-index: 2; padding: 40px 40px 44px; max-width: 560px; }
-    .hero h1 { font-size: clamp(32px, 4vw, 52px); font-weight: 900; line-height: 1.06; color: #1A2B4C; letter-spacing: -2px; margin-bottom: 12px; }
+    .hero { position: relative; overflow: hidden; border-radius: 20px; min-height: 480px; display: flex; align-items: flex-end; background: #1A2B4C; }
+    .hero-img { position: absolute; inset: 0; background-image: url('https://res.cloudinary.com/doojqkyff/image/upload/q_auto/f_auto/v1781682248/n1elwepz_ChatGPT_Image_May_16_2026_06_29_23_PM_qmzld0.png'); background-size: cover; background-position: center right; }
+    .hero-gradient { position: absolute; inset: 0; background: linear-gradient(to right, rgba(253,251,247,0.98) 0%, rgba(253,251,247,0.95) 25%, rgba(253,251,247,0.75) 45%, rgba(253,251,247,0.2) 65%, rgba(253,251,247,0.0) 80%); }
+    .hero-content { position: relative; z-index: 2; padding: 0 40px 44px; max-width: 580px; }
+    .hero h1 { font-size: clamp(34px, 4vw, 56px); font-weight: 900; line-height: 1.06; color: #1A2B4C; letter-spacing: -2px; margin-bottom: 10px; }
     .hero h1 em { color: #E68910; font-style: normal; }
-    .hero-sub { font-size: 16px; color: #595959; line-height: 1.6; font-weight: 400; }
-    .hero-chip { position: absolute; bottom: 24px; right: 24px; background: #fff; border-radius: 16px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); z-index: 3; }
-    .chip-icon { width: 36px; height: 36px; background: #E68910; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
-    .chip-text { }
-    .chip-text p { font-size: 11px; color: #595959; margin-bottom: 2px; }
-    .chip-text strong { font-size: 15px; font-weight: 800; color: #1A2B4C; }
-    .chip-cta { background: #1A2B4C; color: #fff; border: none; padding: 8px 16px; border-radius: 50px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .hero-sub { font-size: 16px; color: #595959; line-height: 1.5; font-weight: 400; }
+    .hero-chip { position: absolute; bottom: 24px; right: 28px; background: #fff; border-radius: 16px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; z-index: 3; min-width: 260px; }
+    .chip-left { width: 40px; height: 40px; background: #E68910; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .chip-middle p { font-size: 11px; color: #595959; margin-bottom: 2px; font-weight: 500; }
+    .chip-middle strong { font-size: 15px; font-weight: 800; color: #1A2B4C; display: block; }
+    .chip-badge { background: #1A2B4C; color: #fff; padding: 6px 14px; border-radius: 50px; font-size: 12px; font-weight: 700; border: none; cursor: pointer; font-family: inherit; white-space: nowrap; }
 
     /* SECTIONS */
     .wrap { max-width: 1100px; margin: 0 auto; padding: 0 32px; }
@@ -45,7 +44,7 @@
 
     /* HOW IT WORKS */
     .how-box { background: #fff; border: 1px solid #E5E2DC; border-radius: 20px; padding: 44px; }
-    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-top: 32px; }
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 32px; }
     .step-n { width: 36px; height: 36px; background: #1A2B4C; color: #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; margin-bottom: 14px; }
     .step h4 { font-size: 14px; font-weight: 800; color: #1A2B4C; margin-bottom: 4px; }
     .step p { font-size: 13px; color: #6B7280; line-height: 1.6; }
@@ -103,13 +102,16 @@
       .nav-link { display: none; }
       .btn-nav { padding: 8px 16px; font-size: 13px; }
       .hero-wrap { padding: 12px 12px 0; }
-      .hero { min-height: 300px; border-radius: 16px; align-items: flex-start; }
-      .hero-gradient { background: linear-gradient(to bottom, rgba(253,251,247,0.96) 0%, rgba(253,251,247,0.85) 40%, rgba(253,251,247,0.2) 70%, rgba(253,251,247,0) 100%); }
-      .hero-content { padding: 28px 24px 16px; }
+      .hero { min-height: 320px; border-radius: 16px; }
+      .hero-gradient { background: linear-gradient(to bottom, rgba(253,251,247,0.97) 0%, rgba(253,251,247,0.88) 35%, rgba(253,251,247,0.3) 65%, rgba(253,251,247,0) 100%); }
+      .hero-content { padding: 0 20px 100px; }
       .hero h1 { font-size: 26px; letter-spacing: -1px; margin-bottom: 8px; }
       .hero-sub { font-size: 13px; }
-      .hero-chip { bottom: 16px; right: 12px; left: 12px; padding: 10px 14px; border-radius: 14px; }
-      .chip-cta { padding: 7px 14px; font-size: 12px; }
+      .hero-chip { bottom: 16px; right: 12px; left: 12px; min-width: unset; padding: 10px 14px; border-radius: 14px; gap: 10px; }
+      .chip-left { width: 32px; height: 32px; border-radius: 8px; }
+      .chip-middle p { font-size: 10px; }
+      .chip-middle strong { font-size: 13px; }
+      .chip-badge { padding: 6px 12px; font-size: 11px; }
       .wrap { padding: 0 12px; }
       .section-gap { height: 28px; }
       .how-box { padding: 28px 20px; border-radius: 16px; margin: 0; }
@@ -156,14 +158,14 @@
       <p class="hero-sub">Your City's store. In you phone..</p>
     </div>
     <div class="hero-chip">
-      <div class="chip-icon">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+      <div class="chip-left">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
       </div>
-      <div class="chip-text">
+      <div class="chip-middle">
         <p>Launching in Bhilai</p>
         <strong>Be first to know</strong>
       </div>
-      <button class="chip-cta" onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})">Get early access</button>
+      <button class="chip-badge" onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})">Get early access</button>
     </div>
   </div>
 </div>
@@ -173,13 +175,12 @@
 <div id="how" class="wrap">
   <div class="how-box">
     <div class="label">How it works</div>
-    <div class="title">Simple as stepping out,<br>without stepping out.</div>
-    <div class="sub">No app needed yet — just your number and we'll handle the rest.</div>
+    <div class="title">Simple as stepping out, without stepping out.</div>
+    <div class="sub">No app to download yet &mdash; just discover, order, and receive.</div>
     <div class="steps">
-      <div class="step"><div class="step-n">1</div><h4>Pick your area</h4><p>Browse stores in Sector 6, Civic Centre, Nehru Nagar and across Bhilai.</p></div>
-      <div class="step"><div class="step-n">2</div><h4>Find what you love</h4><p>Streetwear, fits, sneakers, accessories — from stores that actually get your style.</p></div>
-      <div class="step"><div class="step-n">3</div><h4>Get it delivered</h4><p>Order confirmed, store packs it, rider picks up. Your order arrives in 30 minutes flat.</p></div>
-      <div class="step"><div class="step-n">4</div><h4>Delivered in 30 min</h4><p>The store is 2 km away. Your order reaches faster than any courier ever could.</p></div>
+      <div class="step"><div class="step-n">1</div><h4>Discover stores near you</h4><p>Browse fashion from your favourite stores in Supela, Sector 6, Powerhouse and across Bhilai &mdash; all in one place.</p></div>
+      <div class="step"><div class="step-n">2</div><h4>Find your style</h4><p>Streetwear, sneakers, fits, accessories and more &mdash; from stores that actually understand Bhilai's taste.</p></div>
+      <div class="step"><div class="step-n">3</div><h4>Delivered in 30 minutes</h4><p>Order from a store 2 km away and get it at your door in 30 minutes. No waiting. No driving. No hassle.</p></div>
     </div>
   </div>
 </div>
@@ -188,12 +189,12 @@
 
 <div class="wrap">
   <div class="label">Why Lokl</div>
-  <div class="title">Shopping, but make it<br>actually local.</div>
-  <div class="sub">Local trust, real fitting, and human service — from stores that know Bhilai.</div>
+  <div class="title">Shopping, but make it local.</div>
+  <div class="sub">Everything you love about your favourite Bhilai store &mdash; now on your phone.</div>
   <div class="cards3">
-    <div class="card"><div class="card-num">01</div><h3>Real stores, real people</h3><p>Every store on Lokl is a real Bhilai business — run by someone who lives here, knows here, gets you.</p></div>
-    <div class="card"><div class="card-num">02</div><h3>Your city, your stores</h3><p>Support local businesses in Bhilai while getting the best prices and the fastest delivery.</p></div>
-    <div class="card"><div class="card-num">03</div><h3>Support local, shop smart</h3><p>Every order keeps money in Bhilai. Same quality, better prices, and you know exactly who you're buying from.</p></div>
+    <div class="card"><div class="card-num">01</div><h3>Real stores, real people</h3><p>Every store on Lokl is a verified Bhilai business run by someone who lives here, knows the city, and gets what you need.</p></div>
+    <div class="card"><div class="card-num">02</div><h3>Walk-in prices, zero markup</h3><p>You pay exactly what you'd pay at the store counter. No platform inflation, no hidden charges &mdash; ever.</p></div>
+    <div class="card"><div class="card-num">03</div><h3>Keep Bhilai's money in Bhilai</h3><p>Every order directly supports a local store owner. Shop smart, shop local, and help your city's businesses grow.</p></div>
   </div>
 </div>
 
@@ -203,14 +204,14 @@
   <div class="merchant-box">
     <div class="label">For merchants</div>
     <div class="title" style="color:#fff">Your store.<br>All of Bhilai.</div>
-    <div class="sub">Stop relying on foot traffic. Reach every customer in Bhilai who’s looking for what you sell.</div>
+    <div class="sub">Reach every customer in Bhilai who's looking for what you sell &mdash; without expensive ads or complicated setup.</div>
     <div class="m-grid">
-      <div class="m-card"><div class="m-big">&#8377;0</div><h4>Free to start</h4><p>No setup fee. No monthly charge. Pay only when you earn.</p></div>
-      <div class="m-card"><div class="m-big">3 min</div><h4>Go live fast</h4><p>Upload products, set your hours, go live. No tech skills needed.</p></div>
-      <div class="m-card"><div class="m-big">10&times;</div><h4>Wider reach</h4><p>Every Lokl customer in Bhilai can now discover your store.</p></div>
-      <div class="m-card"><div class="m-big">24/7</div><h4>Always visible</h4><p>Customers browse your catalogue even when your shutters are down.</p></div>
+      <div class="m-card"><div class="m-big">&#8377;0</div><h4>Free to start</h4><p>No setup fee. No monthly charge for your first month on Lokl.</p></div>
+      <div class="m-card"><div class="m-big">3 min</div><h4>Live in minutes</h4><p>Upload your products, set your store hours, and go live. No tech skills needed.</p></div>
+      <div class="m-card"><div class="m-big">10&times;</div><h4>City-wide reach</h4><p>Every Lokl customer in Bhilai can discover your store &mdash; not just people walking past.</p></div>
+      <div class="m-card"><div class="m-big">24/7</div><h4>Always open</h4><p>Your catalogue is visible 24/7. Customers browse and schedule even when you're closed.</p></div>
     </div>
-    <button class="btn-orange-outline" onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'});switchType('merchant')">Register my store &rarr;</button>
+    <button class="btn-orange-outline" onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})">List my store</button>
   </div>
 </div>
 
@@ -220,7 +221,7 @@
   <div class="waitlist-box">
     <div class="label">Join the waitlist</div>
     <div class="title">Be first in Bhilai.</div>
-    <div class="sub">We’re launching area by area — starting with Sector 6 and Civic Centre. Get notified on WhatsApp when we reach you.</div>
+    <div class="sub">We're launching shortly across Bhilai. Get notified on WhatsApp the moment we go live in your area.</div>
     <div class="toggle-row">
       <button class="toggle-btn on" id="t-customer" onclick="switchType('customer')">I'm a customer</button>
       <button class="toggle-btn" id="t-merchant" onclick="switchType('merchant')">I'm a merchant</button>
@@ -232,7 +233,7 @@
         <input type="tel" id="customer-phone" placeholder="Your WhatsApp number" maxlength="15">
         <button class="submit-btn" id="submit-btn-customer" onclick="submitCustomer()">Notify me</button>
       </div>
-      <p class="form-note">We’ll WhatsApp you when Lokl launches in your area. No spam, ever.</p>
+      <p class="form-note">We'll send you a WhatsApp message as soon as Lokl goes live near you. No spam, ever.</p>
     </div>
 
     <!-- Merchant form -->
@@ -253,7 +254,7 @@
         </select>
         <button class="submit-btn dark" id="submit-btn-merchant" style="width:100%" onclick="submitMerchant()">Register my store</button>
       </div>
-      <p class="form-note">We’ll reach out within 24 hours to get you set up. Completely free.</p>
+      <p class="form-note">Our team will reach out within 24 hours to help you set up your store. It's completely free to get started.</p>
     </div>
 
     <div class="success-msg" id="success-box"></div>
@@ -302,7 +303,7 @@ function submitCustomer() {
     document.getElementById('customer-form').style.display = 'none';
     var s = document.getElementById('success-box');
     s.style.display = 'block';
-    s.textContent = "You're on the list! We'll WhatsApp you when we launch in your area.";
+    s.textContent = "You're on the list. We'll WhatsApp you the moment Lokl launches in your area.";
   }).catch(function(e) {
     btn.disabled = false;
     btn.textContent = 'Notify me';
@@ -332,7 +333,7 @@ function submitMerchant() {
     document.getElementById('merchant-form').style.display = 'none';
     var s = document.getElementById('success-box');
     s.style.display = 'block';
-    s.textContent = 'Registered! Our team will WhatsApp you within 24 hours to get ' + store + ' set up on Lokl.';
+    s.textContent = 'You\'re registered. Our team will WhatsApp you within 24 hours to get ' + store + ' live on Lokl.';
   }).catch(function(e) {
     btn.disabled = false;
     btn.textContent = 'Register my store';
