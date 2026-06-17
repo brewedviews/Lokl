@@ -13,16 +13,6 @@ const nextConfig: NextConfig = {
         source: "/api/:path*",
         destination: `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001"}/api/:path*`,
       },
-      {
-        source: "/",
-        has: [{ type: "host" as const, key: "host", value: "shoplokl.in" }],
-        destination: "/coming-soon.html",
-      },
-      {
-        source: "/",
-        has: [{ type: "host" as const, key: "host", value: "www.shoplokl.in" }],
-        destination: "/coming-soon.html",
-      },
     ];
   },
 

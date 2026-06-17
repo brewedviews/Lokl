@@ -11,17 +11,29 @@
  * cookies on the Next.js side — the middleware purely checks for the
  * cookie's existence as a coarse signal, and the layout owns the real call.
  *
- * Behavior chosen: pass-through everything. The client layouts handle
- * `router.replace` redirects on first paint. We leave this file in place
- * because adding edge-side checks later (e.g. JWT in a SameSite=Lax cookie)
- * becomes a one-file change.
+ * Domain routing: requests arriving on shoplokl.in / www.shoplokl.in are
+ * rewritten to /coming-soon.html without a redirect. next.config.ts host-based
+ * rewrites are unreliable in standalone mode; middleware runs at the edge and
+ * is guaranteed to fire first.
  */
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
-export function middleware(_request: NextRequest) {
-  return NextResponse.next();
+export function middleware(request: NextRequest) {
+  const host = request.headers.get('host') || ''
+  const isShopLokl = host === 'shoplokl.in' || host === 'www.shoplokl.in'
+
+  if (isShopLokl) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/coming-soon.html'
+    return NextResponse.rewrite(url)
+  }
+
+  return NextResponse.next()
 }
 
 export const config = {
-  matcher: ["/merchant/:path*", "/admin/:path*", "/account/:path*", "/checkout/:path*"],
-};
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|coming-soon.html).*)',
+  ],
+}
