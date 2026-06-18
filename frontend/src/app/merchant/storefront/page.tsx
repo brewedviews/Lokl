@@ -280,7 +280,7 @@ export default function MerchantStorefrontPage() {
                     if (!file) return;
                     setUploading(true);
                     try {
-                      const { image_url } = await uploadImage(file, "upi_qr");
+                      const { image_url } = await uploadImage(file, "store_banner");
                       setForm((f) => ({ ...f, upi_qr_url: image_url }));
                     } catch (err) { toast.error(getErrorMessage(err)); }
                     finally { setUploading(false); }
