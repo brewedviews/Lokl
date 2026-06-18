@@ -131,6 +131,7 @@ export default function MerchantStorefrontPage() {
     const lat = parseFloat(form.lat), lng = parseFloat(form.lng);
     if (Number.isNaN(lat) || Number.isNaN(lng)) return toast.error("Pin your store on the map.");
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return toast.error("Invalid coordinates.");
+    if (!form.upi_qr_url) return toast.error("UPI QR code is required for payments");
     setSaving(true);
     try {
       await api.merchant.saveStorefront({
@@ -172,7 +173,7 @@ export default function MerchantStorefrontPage() {
   const showPinHelper = !!form.area_slug && !pinPlaced;
 
   return (
-    <div className="p-6 md:p-10 max-w-3xl">
+    <div className="p-4 md:p-10 max-w-3xl">
       <h1 className="font-display text-3xl md:text-4xl font-bold text-[#1A2B4C] flex items-center gap-2"><Store size={26} /> Storefront</h1>
       <p className="text-[#595959] mt-1">Edit the public face of your store.</p>
 
@@ -187,8 +188,7 @@ export default function MerchantStorefrontPage() {
         <Field label="Store story *">
           <textarea data-testid="sf-story" value={form.story} onChange={(e) => setForm({ ...form, story: e.target.value })} rows={3} placeholder="A few lines about your brand, heritage or vibe" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
         </Field>
-        <div className="grid md:grid-cols-3 gap-3">
-          <Field label="Locality"><input data-testid="sf-locality" value={form.locality} onChange={(e) => setForm({ ...form, locality: e.target.value })} placeholder="e.g. Sector 10" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
+        <div className="grid md:grid-cols-2 gap-3">
           <Field label="Opens at"><input data-testid="sf-opens" type="time" value={form.opens_at} onChange={(e) => setForm({ ...form, opens_at: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
           <Field label="Closes at"><input data-testid="sf-closes" type="time" value={form.closes_at} onChange={(e) => setForm({ ...form, closes_at: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
         </div>
@@ -286,7 +286,7 @@ export default function MerchantStorefrontPage() {
           </div>
         </div>
 
-        <Field label="UPI QR Code (optional)">
+        <Field label="UPI QR Code *">
           <div className="flex items-start gap-4">
             {form.upi_qr_url && (
               <div className="relative w-24 h-24 rounded-xl overflow-hidden border border-[#E5E2DC] shrink-0">
@@ -332,6 +332,7 @@ export default function MerchantStorefrontPage() {
             )}
           </div>
         </Field>
+        <p className="text-xs text-[#9CA3AF] mt-1">First image is your store cover. All images are shown in your store gallery.</p>
 
         <div className="flex justify-end pt-3">
           <button data-testid="sf-save" disabled={saving} onClick={save} className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-[#E68910] text-white font-semibold disabled:opacity-60">

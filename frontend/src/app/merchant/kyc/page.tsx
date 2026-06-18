@@ -10,15 +10,22 @@ import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { uploadImage } from "@/lib/uploads";
 
-const BUSINESS_TYPES = ["Proprietorship", "Partnership", "Pvt Ltd", "LLP", "OPC"];
 const BUSINESS_CATEGORIES = [
-  "Women's Fashion", "Men's Fashion", "Ethnic Wear", "Footwear",
-  "Streetwear", "Accessories", "Kids Fashion", "Beauty", "Multi-category",
+  "Women's Fashion",
+  "Men's Fashion",
+  "Ethnic Wear",
+  "Footwear",
+  "Lingerie & Innerwear",
+  "Kids",
+  "Accessories",
+  "Beauty",
+  "Sports",
+  "Multi-category",
 ];
 
 interface KycForm {
   pan_number: string; gst_number: string; business_name: string;
-  business_category: string; business_type: string; business_address: string;
+  business_category: string; business_address: string;
   bank_account_number: string; bank_ifsc: string; account_holder_name: string;
   // Cloudinary public_ids for private KYC docs (preferred).
   pan_doc_public_id: string; gst_doc_public_id: string; cancelled_cheque_public_id: string;
@@ -38,7 +45,7 @@ export default function MerchantKycPage() {
   const [submitting, setSubmitting] = useState(false);
   const [kycMeta, setKycMeta] = useState<KycMeta>({ kyc_status: "draft", hold_comment: null, docs_present: {} });
   const [form, setForm] = useState<KycForm>({
-    pan_number: "", gst_number: "", business_name: "", business_category: "", business_type: "",
+    pan_number: "", gst_number: "", business_name: "", business_category: "",
     business_address: "", bank_account_number: "", bank_ifsc: "", account_holder_name: "",
     pan_doc_public_id: "", gst_doc_public_id: "", cancelled_cheque_public_id: "",
     pan_doc_b64: "", gst_doc_b64: "", cancelled_cheque_b64: "",
@@ -56,7 +63,7 @@ export default function MerchantKycPage() {
           ...f,
           pan_number: m.pan_number || "", gst_number: m.gst_number || "",
           business_name: m.business_name || "", business_category: m.business_category || "",
-          business_type: m.business_type || "", business_address: m.business_address || "",
+          business_address: m.business_address || "",
           bank_account_number: m.bank_account_number || "", bank_ifsc: m.bank_ifsc || "",
           account_holder_name: m.account_holder_name || "",
         }));
@@ -88,9 +95,8 @@ export default function MerchantKycPage() {
     }
   };
 
-  const validStep1 = form.pan_number.length === 10 && form.business_name && form.business_category && form.business_type && form.business_address;
-  const validStep2 = form.bank_account_number && form.bank_ifsc && form.account_holder_name &&
-    (form.cancelled_cheque_public_id || form.cancelled_cheque_b64 || kycMeta.docs_present.cancelled_cheque);
+  const validStep1 = form.pan_number.length === 10 && form.business_name && form.business_category && form.business_address;
+  const validStep2 = true;
 
   const submit = async () => {
     setSubmitting(true);
@@ -103,7 +109,7 @@ export default function MerchantKycPage() {
   };
 
   return (
-    <div className="p-6 md:p-10 max-w-3xl">
+    <div className="p-4 md:p-10 max-w-3xl">
       <div className="flex items-center gap-2 text-xs text-[#595959] mb-3">
         <Link href="/merchant/onboarding" className="hover:text-[#1A2B4C]"><ChevronLeft size={14} className="inline -mt-0.5" /> back</Link>
       </div>
@@ -148,7 +154,6 @@ export default function MerchantKycPage() {
             <Field label="GST number (optional)"><input data-testid="kyc-gst" value={form.gst_number} onChange={(e) => set("gst_number", e.target.value.toUpperCase())} placeholder="22ABCDE1234F1Z5" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" /></Field>
             <Field label="Registered business name *"><input data-testid="kyc-business-name" value={form.business_name} onChange={(e) => set("business_name", e.target.value)} placeholder="e.g. Bunto Store Pvt Ltd" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
             <Field label="Business category *"><select data-testid="kyc-category" value={form.business_category} onChange={(e) => set("business_category", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"><option value="">Select category</option>{BUSINESS_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
-            <Field label="Business type *"><select data-testid="kyc-type" value={form.business_type} onChange={(e) => set("business_type", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"><option value="">Select type</option>{BUSINESS_TYPES.map((c) => <option key={c}>{c}</option>)}</select></Field>
             <Field label="Business address *" full><textarea data-testid="kyc-address" rows={2} value={form.business_address} onChange={(e) => set("business_address", e.target.value)} placeholder="House no, street, locality, city, pincode" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
             <FileUpload label="PAN card (image)" testId="kyc-pan-doc" file={files.pan} busy={uploading.pan} onChange={(f) => handleFile("pan_doc_public_id", "pan", f)} />
             <FileUpload label="GST certificate (optional, image)" testId="kyc-gst-doc" file={files.gst} busy={uploading.gst} onChange={(f) => handleFile("gst_doc_public_id", "gst", f)} />
@@ -161,16 +166,20 @@ export default function MerchantKycPage() {
 
       {step === 2 && (
         <section className="mt-8 bg-white border border-[#E5E2DC] rounded-3xl p-6 space-y-4">
-          <h2 className="font-display text-xl font-bold text-[#1A2B4C] flex items-center gap-2"><Landmark size={18} /> Bank account</h2>
+          <h2 className="font-display text-xl font-bold text-[#1A2B4C] flex items-center gap-2"><Landmark size={18} /> Bank account (optional)</h2>
+          <p className="text-sm text-[#595959]">You can skip this for now and add bank details later from your dashboard.</p>
           <div className="grid md:grid-cols-2 gap-3">
-            <Field label="Account holder name *"><input data-testid="kyc-holder" value={form.account_holder_name} onChange={(e) => set("account_holder_name", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
-            <Field label="Account number *"><input data-testid="kyc-account" value={form.bank_account_number} onChange={(e) => set("bank_account_number", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] tracking-wider" /></Field>
-            <Field label="IFSC code *"><input data-testid="kyc-ifsc" value={form.bank_ifsc} onChange={(e) => set("bank_ifsc", e.target.value.toUpperCase())} placeholder="SBIN0001234" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" /></Field>
-            <FileUpload label="Cancelled cheque * (image)" testId="kyc-cheque" file={files.cheque} busy={uploading.cheque} onChange={(f) => handleFile("cancelled_cheque_public_id", "cheque", f)} />
+            <Field label="Account holder name"><input data-testid="kyc-holder" value={form.account_holder_name} onChange={(e) => set("account_holder_name", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
+            <Field label="Account number"><input data-testid="kyc-account" value={form.bank_account_number} onChange={(e) => set("bank_account_number", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] tracking-wider" /></Field>
+            <Field label="IFSC code"><input data-testid="kyc-ifsc" value={form.bank_ifsc} onChange={(e) => set("bank_ifsc", e.target.value.toUpperCase())} placeholder="SBIN0001234" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" /></Field>
+            <FileUpload label="Cancelled cheque (image)" testId="kyc-cheque" file={files.cheque} busy={uploading.cheque} onChange={(f) => handleFile("cancelled_cheque_public_id", "cheque", f)} />
           </div>
           <div className="flex justify-between pt-2">
             <button onClick={() => setStep(1)} className="px-5 py-3 rounded-full border border-[#E5E2DC]"><ChevronLeft size={14} className="inline" /> Back</button>
-            <button data-testid="kyc-next-2" disabled={!validStep2} onClick={() => setStep(3)} className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-[#1A2B4C] text-white font-semibold disabled:opacity-50">Next <ArrowRight size={14} /></button>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setStep(3)} className="px-5 py-3 rounded-full border border-[#E5E2DC] text-[#595959] text-sm">Skip for now</button>
+              <button data-testid="kyc-next-2" type="button" onClick={() => setStep(3)} className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-[#1A2B4C] text-white font-semibold">Next <ArrowRight size={14} /></button>
+            </div>
           </div>
         </section>
       )}
@@ -183,7 +192,6 @@ export default function MerchantKycPage() {
             <Row label="GST" value={form.gst_number || "—"} />
             <Row label="Business" value={form.business_name} />
             <Row label="Category" value={form.business_category} />
-            <Row label="Type" value={form.business_type} />
             <Row label="Address" value={form.business_address} />
             <Row label="Account holder" value={form.account_holder_name} />
             <Row label="Account / IFSC" value={`${form.bank_account_number} · ${form.bank_ifsc}`} />

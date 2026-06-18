@@ -15,31 +15,24 @@ export function MerchantAuthForm({ mode }: { mode: "login" | "register" }) {
   const isLogin = mode === "login";
   const router = useRouter();
   const setAuth = useMerchantAuthStore((s) => s.setAuth);
-  const [form, setForm] = useState({ email: "", password: "", store_name: "", owner_name: "", phone: "" });
+  const [form, setForm] = useState({ store_name: "", owner_name: "", phone: "" });
   const [busy, setBusy] = useState(false);
-  // iter-29 (Item 1): login screen exposes two tabs — email + phone OTP.
-  // Register screen stays single-form (signup must collect email + password
-  // anyway, and OTP-only signup would skew our partnership invoicing).
-  const [tab, setTab] = useState<"email" | "otp">("otp");
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy) return;
     setBusy(true);
     try {
-      const r = isLogin
-        ? await api.auth.login({ email: form.email, password: form.password })
-        : await api.auth.register({
-            email: form.email, password: form.password,
-            store_name: form.store_name, owner_name: form.owner_name, phone: form.phone,
-          });
+      const r = await api.auth.register({
+        store_name: form.store_name, owner_name: form.owner_name, phone: form.phone,
+      });
       setAuth(r.token, r.merchant);
-      toast.success(isLogin ? "Welcome back!" : "Store account created — let's get you verified");
+      toast.success("Store account created — let's get you verified");
       try {
         const { path } = await api.merchant.nextRoute();
         router.replace(path || "/merchant/onboarding");
       } catch {
-        router.replace(isLogin ? "/merchant/onboarding" : "/merchant/onboarding");
+        router.replace("/merchant/onboarding");
       }
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -54,15 +47,15 @@ export function MerchantAuthForm({ mode }: { mode: "login" | "register" }) {
           <span className="font-display text-3xl font-bold">lokl<span className="text-[#E68910]">.</span></span>
         </div>
         <div className="relative">
-          <h1 className="font-display text-5xl font-bold leading-tight">Your store. <br /><span className="text-[#E68910]">AI-powered.</span></h1>
-          <p className="mt-5 text-white/70 max-w-md">Snap product photos with your phone. Our AI builds magazine-quality catalogs in seconds. Sell to thousands nearby.</p>
+          <h1 className="font-display text-5xl font-bold leading-tight">Your store. <br /><span className="text-[#E68910]">All of Bhilai.</span></h1>
+          <p className="mt-5 text-white/70 max-w-md">Join Bhilai&apos;s fastest growing local marketplace. Reach thousands of customers near you.</p>
           <div className="mt-10 grid grid-cols-3 gap-4 text-sm">
-            <div><div className="font-display text-3xl font-bold text-[#E68910]">3 min</div><div className="text-white/60">to launch</div></div>
-            <div><div className="font-display text-3xl font-bold text-[#E68910]">0₹</div><div className="text-white/60">to start</div></div>
-            <div><div className="font-display text-3xl font-bold text-[#E68910]">∞</div><div className="text-white/60">AI shots</div></div>
+            <div><div className="font-display text-3xl font-bold text-[#E68910]">₹0</div><div className="text-white/60">to start</div></div>
+            <div><div className="font-display text-3xl font-bold text-[#E68910]">0%</div><div className="text-white/60">commission</div></div>
+            <div><div className="font-display text-3xl font-bold text-[#E68910]">30 min</div><div className="text-white/60">delivery</div></div>
           </div>
         </div>
-        <p className="relative text-xs text-white/40">Trusted by 2,400+ stores across Bharat</p>
+        <p className="relative text-xs text-white/40">Lokl.shop — built for Bhilai&apos;s stores</p>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-6 md:p-12">
@@ -71,63 +64,20 @@ export function MerchantAuthForm({ mode }: { mode: "login" | "register" }) {
             <span className="font-display text-2xl font-bold text-[#1A2B4C]">lokl<span className="text-[#E68910]">.</span></span>
           </div>
           <h2 className="font-display text-3xl md:text-4xl font-bold text-[#1A2B4C]">{isLogin ? "Welcome back" : "Open your store"}</h2>
-          <p className="text-[#595959] mt-2">{isLogin ? "Sign in to your merchant dashboard" : "Launch your AI-powered storefront in minutes"}</p>
+          <p className="text-[#595959] mt-2">{isLogin ? "Sign in to your merchant dashboard" : "List your store on Lokl.shop in minutes"}</p>
 
-          {isLogin && (
-            <div
-              data-testid="merchant-login-tabs"
-              className="mt-6 flex rounded-2xl border border-[#E5E2DC] overflow-hidden bg-white"
-            >
-              <button
-                type="button"
-                onClick={() => setTab("email")}
-                data-testid="merchant-tab-email"
-                className={
-                  "flex-1 py-2.5 text-sm font-medium transition-colors " +
-                  (tab === "email"
-                    ? "bg-[#1A2B4C] text-white"
-                    : "text-[#595959] hover:bg-[#FDFBF7]")
-                }
-              >
-                Email Login
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab("otp")}
-                data-testid="merchant-tab-otp"
-                className={
-                  "flex-1 py-2.5 text-sm font-medium transition-colors " +
-                  (tab === "otp"
-                    ? "bg-[#1A2B4C] text-white"
-                    : "text-[#595959] hover:bg-[#FDFBF7]")
-                }
-              >
-                Phone OTP
-              </button>
-            </div>
-          )}
-
-          {isLogin && tab === "otp" ? (
+          {isLogin ? (
             <div className="mt-6"><MerchantOtpLogin /></div>
           ) : (
-            <form onSubmit={submit} className="w-full" data-testid={isLogin ? "login-form" : "register-form"}>
+            <form onSubmit={submit} className="w-full" data-testid="register-form">
               <div className="mt-6 space-y-3">
-                {!isLogin && (
-                  <>
-                    <input data-testid="store-name-input" required value={form.store_name} onChange={(e) => setForm({ ...form, store_name: e.target.value })} placeholder="Store name (e.g. Bunto Store)" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-                    <input data-testid="owner-name-input" required value={form.owner_name} onChange={(e) => setForm({ ...form, owner_name: e.target.value })} placeholder="Your name" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-                    <input data-testid="phone-input" required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number (10 digits)" inputMode="tel" pattern="^[0-9 +\-]{10,15}$" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-                  </>
-                )}
-                {isLogin && <input data-testid="email-input" required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />}
-                <input data-testid="password-input" required type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Password" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
+                <input data-testid="store-name-input" required value={form.store_name} onChange={(e) => setForm({ ...form, store_name: e.target.value })} placeholder="Store name (e.g. Bunto Store)" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
+                <input data-testid="owner-name-input" required value={form.owner_name} onChange={(e) => setForm({ ...form, owner_name: e.target.value })} placeholder="Your name" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
+                <input data-testid="phone-input" required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number (10 digits)" inputMode="tel" pattern="^[0-9 +\-]{10,15}$" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
               </div>
-              {!isLogin && (
-                <p className="text-xs text-[#595959] mt-1">Bank details can be added later from your dashboard.</p>
-              )}
-
+              <p className="text-xs text-[#595959] mt-1">Bank details can be added later from your dashboard.</p>
               <button data-testid="submit-auth-btn" type="submit" disabled={busy} className="w-full mt-6 inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-[#1A2B4C] text-white font-semibold hover:bg-[#101D36] disabled:opacity-50 transition">
-                {busy ? "Working…" : (isLogin ? "Sign in" : "Create my store")} <ArrowRight size={16} />
+                {busy ? "Working…" : "Create my store"} <ArrowRight size={16} />
               </button>
             </form>
           )}

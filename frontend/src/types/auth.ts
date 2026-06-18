@@ -11,8 +11,8 @@ import type { Merchant, Customer } from "./user";
 export interface MerchantLoginPayload { email: string; password: string }
 
 export interface MerchantRegisterPayload {
-  email: string;
-  password: string;
+  email?: string;
+  password?: string;
   store_name: string;
   owner_name: string;
   phone: string;

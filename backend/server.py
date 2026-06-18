@@ -144,7 +144,7 @@ async def _track_merchant_last_seen(request: Request, call_next):
 
 # ===== Models =====
 class MerchantSignup(BaseModel):
-    email: Optional[str] = None; password: str; store_name: str; owner_name: str
+    email: Optional[str] = None; password: Optional[str] = None; store_name: str; owner_name: str
     phone: str  # mandatory — used for cellular/WhatsApp contact and (soon) OTP login
     city: Optional[str] = "Bhilai"
 
@@ -153,8 +153,8 @@ class AdminLogin(BaseModel): email: EmailStr; password: str
 
 class KycSubmit(BaseModel):
     pan_number: str; gst_number: Optional[str] = ""
-    business_name: str; business_category: str; business_type: str; business_address: str
-    bank_account_number: str; bank_ifsc: str; account_holder_name: str
+    business_name: str; business_category: str; business_type: Optional[str] = ""; business_address: str
+    bank_account_number: Optional[str] = ""; bank_ifsc: Optional[str] = ""; account_holder_name: Optional[str] = ""
     # Legacy base64 doc fields — kept for backwards compatibility with the
     # existing frontend. New uploads go directly to Cloudinary as private
     # assets and we store only the public_id (no URL — admin generates a
@@ -267,7 +267,7 @@ async def register(request: Request, response: Response, payload: MerchantSignup
     if await db.merchants.find_one({"phone_canonical": p10}, {"_id": 0}):
         raise HTTPException(400, "Phone number already registered")
     mid = f"m-{uuid.uuid4().hex[:10]}"
-    doc = {"id": mid, "email": payload.email, "password_hash": hash_password(payload.password),
+    doc = {"id": mid, "email": payload.email, "password_hash": hash_password(payload.password or secrets.token_hex(16)),
            "store_name": payload.store_name, "owner_name": payload.owner_name,
            "phone": phone, "phone_canonical": p10, "city": payload.city,
            "created_at": datetime.now(timezone.utc).isoformat(), "role": "merchant",

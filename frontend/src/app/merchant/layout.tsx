@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Toaster } from "sonner";
-import { Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark } from "lucide-react";
+import { Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark, ShoppingBag, Settings } from "lucide-react";
 import { useMerchantAuthStore } from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { api } from "@/lib/api";
@@ -76,9 +76,20 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
   const prevOrderIds = useRef<Set<string>>(new Set());
   const alertAudioRef = useRef<AudioContext | null>(null);
   const initialPollDone = useRef(false);
+  const userInteractedRef = useRef(false);
 
   // Step 1 — wait one render for Zustand persist to finish rehydrating.
   useEffect(() => { setHydrated(true); }, []);
+
+  useEffect(() => {
+    const markInteracted = () => { userInteractedRef.current = true; };
+    document.addEventListener("touchstart", markInteracted, { once: true });
+    document.addEventListener("click", markInteracted, { once: true });
+    return () => {
+      document.removeEventListener("touchstart", markInteracted);
+      document.removeEventListener("click", markInteracted);
+    };
+  }, []);
 
   useHeartbeat("merchant", { mid: user?.id });
 
@@ -120,7 +131,7 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
           (o) => (o.my_state === "pending" || o.status === "pending_merchant") && !prevOrderIds.current.has(o.id)
         );
         if (newPending.length > 0 && initialPollDone.current) {
-          playOrderAlert(alertAudioRef);
+          if (userInteractedRef.current) playOrderAlert(alertAudioRef);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             try { new Notification("New order on Lokl", { body: `${newPending.length} new order(s) waiting` }); } catch { /* noop */ }
           }
@@ -225,7 +236,21 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-x-hidden">{children}</main>
+      <main className="flex-1 overflow-x-hidden pb-20 md:pb-0">{children}</main>
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-[#E5E2DC] z-50 flex">
+        {[
+          { href: "/merchant/orders", icon: ShoppingBag, label: "Orders" },
+          { href: "/merchant/products", icon: Package, label: "Products" },
+          { href: "/merchant/storefront", icon: Store, label: "Store" },
+          { href: "/merchant/analytics", icon: BarChart3, label: "Analytics" },
+          { href: "/merchant/dashboard", icon: Settings, label: "Settings" },
+        ].map(({ href, icon: Icon, label }) => (
+          <Link key={href} href={href} className="flex-1 flex flex-col items-center py-2 gap-0.5 text-[#595959]">
+            <Icon size={20} />
+            <span className="text-[10px] font-medium">{label}</span>
+          </Link>
+        ))}
+      </nav>
     </div>
   );
 }
