@@ -2432,17 +2432,26 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
     if rider_phone:
         try:
             addr = o.get("address") or {}
-            pickup = (m or {}).get("store_name", "Store") + " · " + (m or {}).get("business_address", "Bhilai")
+            my_items = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid] or o.get("items", [])
+            items_summary = "\n".join(
+                f"  • {it.get('qty', 1)}x {it.get('name', 'Item')}" + (f" ({it['size']})" if it.get("size") else "")
+                for it in my_items
+            )
             drop_parts = [addr.get("line1", ""), addr.get("landmark", ""), addr.get("city", "Bhilai"), addr.get("pincode", "")]
-            drop = ", ".join([p for p in drop_parts if p])
-            my_items = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid]
-            store_doc = await db.stores.find_one({"id": f"store-m-{mid}"}, {"_id": 0, "upi_qr_url": 1}) or {}
+            customer_address = ", ".join([p for p in drop_parts if p])
+            store_doc = await db.stores.find_one({"id": f"store-m-{mid}"}, {"_id": 0, "upi_qr_url": 1, "lat": 1, "lng": 1}) or {}
             notify_rider_pickup(
                 rider_phone, order_id=oid, otp=my_otp,
                 customer_name=(o.get("customer") or {}).get("name") or addr.get("name", "Customer"),
-                customer_phone=cust_phone or addr.get("phone", ""),
-                pickup=pickup, drop=drop, items=my_items or o.get("items", []),
+                store_name=(m or {}).get("store_name", "Store"),
+                store_address=(m or {}).get("business_address", "Bhilai"),
+                customer_address=customer_address,
+                items_summary=items_summary,
                 upi_qr_url=store_doc.get("upi_qr_url") or "",
+                store_lat=store_doc.get("lat") or 0,
+                store_lng=store_doc.get("lng") or 0,
+                customer_lat=addr.get("lat") or 0,
+                customer_lng=addr.get("lng") or 0,
             )
         except Exception: pass
     return {"ok": True, "otp": my_otp, "all_accepted": all_accepted, "my_state": "accepted"}
@@ -3624,11 +3633,12 @@ async def twilio_inbound(request: Request):
     from_addr = (form.get("From") or "").strip()  # e.g. whatsapp:+919XXXXXXXXX
     log.info("[Twilio inbound] from=%s body=%r", from_addr, body[:80])
 
-    # Parse `<4-digit OTP> - Delivered` OR `<4-digit OTP> - Picked Up` (case-insensitive, dash/colon/spaces optional)
+    # Parse OTP confirmation replies (case-insensitive, multiple formats supported)
     import re as _re
     twiml_empty = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
-    m_del = _re.search(r"\b(\d{4})\b[\s\-:]*delivered\b", body, _re.IGNORECASE)
-    m_ret = _re.search(r"\b(\d{4})\b[\s\-:]*picked[\s\-]?up\b", body, _re.IGNORECASE)
+    text_clean = body.strip().upper()
+    m_del = _re.match(r'^(?:OTP\s+)?(\d{4,6})\s*[-–—]?\s*DELIVERED$', text_clean)
+    m_ret = _re.search(r"\b(\d{4,6})\b[\s\-:]*picked[\s\-]?up\b", body, _re.IGNORECASE)
     if not m_del and not m_ret:
         return Response(content=twiml_empty, media_type="application/xml")
 

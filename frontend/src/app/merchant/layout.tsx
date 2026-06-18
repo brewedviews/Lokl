@@ -15,7 +15,7 @@
  * approved merchants off /merchant/products. We replace that with the
  * "wait one render for setHydrated(true), then read state normally" pattern.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Toaster } from "sonner";
@@ -24,6 +24,33 @@ import { useMerchantAuthStore } from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { api } from "@/lib/api";
 import { OnlineToggle } from "@/components/merchant/OnlineToggle";
+
+type WinWithWebkit = Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
+
+function playOrderAlert(ctxRef: { current: AudioContext | null }) {
+  try {
+    if (!ctxRef.current) {
+      const AC = window.AudioContext || (window as WinWithWebkit).webkitAudioContext;
+      if (!AC) return;
+      ctxRef.current = new AC();
+    }
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+    if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+    const now = ctx.currentTime + 0.02;
+    [880, 880, 1100].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine"; osc.frequency.value = freq;
+      const t = now + i * 0.5;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.8, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t); osc.stop(t + 0.5);
+    });
+  } catch { /* noop */ }
+}
 
 const PUBLIC = ["/merchant/login", "/merchant/register"];
 const APPROVED_ONLY = [
@@ -46,6 +73,10 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
   const isApproved = user?.kyc_status === "approved";
   const userKnown = !!user;
 
+  const prevOrderIds = useRef<Set<string>>(new Set());
+  const alertAudioRef = useRef<AudioContext | null>(null);
+  const initialPollDone = useRef(false);
+
   // Step 1 — wait one render for Zustand persist to finish rehydrating.
   useEffect(() => { setHydrated(true); }, []);
 
@@ -67,6 +98,41 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
     });
     return () => { cancelled = true; };
   }, [hydrated, isPublic, user, token, setAuth, clearAuth, router]);
+
+  // Order ping — runs on ALL merchant pages so the merchant hears new orders
+  // regardless of which tab they're on. 15-second interval, no mute control here
+  // (orders/page.tsx has the per-page mute toggle for when they're actively watching).
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+    const poll = async () => {
+      const raw = typeof window !== "undefined" ? localStorage.getItem("lokl_merchant_auth") : null;
+      if (!raw) return;
+      let tok: string | null = null;
+      try { tok = (JSON.parse(raw) as { state?: { token?: string } })?.state?.token ?? null; } catch { return; }
+      if (!tok) return;
+      try {
+        const resp = await fetch("/api/merchant/orders", { headers: { Authorization: `Bearer ${tok}` } });
+        if (!resp.ok) return;
+        const orders = (await resp.json()) as Array<{ id: string; status: string; my_state?: string }>;
+        const newPending = orders.filter(
+          (o) => (o.my_state === "pending" || o.status === "pending_merchant") && !prevOrderIds.current.has(o.id)
+        );
+        if (newPending.length > 0 && initialPollDone.current) {
+          playOrderAlert(alertAudioRef);
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            try { new Notification("New order on Lokl", { body: `${newPending.length} new order(s) waiting` }); } catch { /* noop */ }
+          }
+        }
+        orders.forEach((o) => prevOrderIds.current.add(o.id));
+        initialPollDone.current = true;
+      } catch { /* noop */ }
+    };
+    poll();
+    const i = setInterval(poll, 15000);
+    return () => clearInterval(i);
+  }, []);
 
   // Step 3 — auth + approval guard. Only fires AFTER hydration so a hard
   // refresh on /merchant/products no longer bounces back to login.

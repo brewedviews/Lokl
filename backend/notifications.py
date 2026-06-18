@@ -322,21 +322,36 @@ def notify_order_rejected(customer_phone: str, order_id: str) -> None:
 
 
 def notify_rider_pickup(rider_phone: str, *, order_id: str, otp: str, customer_name: str,
-                        customer_phone: str, pickup: str, drop: str, items: list[dict],
-                        upi_qr_url: str = "") -> None:
+                        store_name: str, store_address: str, customer_address: str,
+                        items_summary: str = "", upi_qr_url: str = "",
+                        store_lat: float = 0, store_lng: float = 0,
+                        customer_lat: float = 0, customer_lng: float = 0) -> None:
     """Notify the registered rider when a merchant accepts an order."""
-    item_lines = "; ".join(
-        f"{it.get('qty', 1)}x {it.get('name', 'Item')}" for it in (items or [])
-    ) or "(see app)"
-    qr_line = f"UPI QR: {upi_qr_url} " if upi_qr_url else ""
-    body = (
-        f"Lokl pickup — Order {order_id} OTP {otp}. "
-        f"Pickup: {pickup} → Drop: {drop}. "
-        f"Customer: {customer_name} ({customer_phone}). "
-        f"Items: {item_lines}. "
-        f"{qr_line}"
-        f"Reply '{otp} - Delivered' once customer hands the OTP back."
-    )
+    short_id = order_id[-6:].upper()
+    pickup_map = f"https://maps.google.com/?q={store_lat},{store_lng}" if store_lat and store_lng else ""
+    drop_map = f"https://maps.google.com/?q={customer_lat},{customer_lng}" if customer_lat and customer_lng else ""
+    body = f"""🛵 LOKL DELIVERY — #{short_id}
+
+📦 PICKUP
+{store_name}
+{store_address}
+{f"📍 Navigate: {pickup_map}" if pickup_map else ""}
+
+🏠 DROP
+{customer_name}
+{customer_address}
+{f"📍 Navigate: {drop_map}" if drop_map else ""}
+
+🛍️ ITEMS
+{items_summary or "(see app)"}
+
+🔑 OTP: {otp}
+Ask customer for this OTP on delivery.
+
+{f"💳 UPI QR for payment:{chr(10)}{upi_qr_url}" if upi_qr_url else "💳 Collect payment via UPI/cash"}
+
+✅ TO CONFIRM DELIVERY:
+Reply: {otp} Delivered"""
     send_with_fallback(rider_phone, body)
 
 

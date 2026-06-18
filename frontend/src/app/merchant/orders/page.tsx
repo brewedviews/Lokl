@@ -63,9 +63,6 @@ export default function MerchantOrdersPage() {
 
   useEffect(() => {
     setMuted(localStorage.getItem("bf_orders_muted") === "1");
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission();
-    }
   }, []);
 
   useEffect(() => {
@@ -76,9 +73,6 @@ export default function MerchantOrdersPage() {
         if (news.length > 0 && initialLoadDone.current && !muted) {
           playLoudPing(audioCtxRef);
           news.forEach((o) => {
-            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              try { new Notification("New order on Lokl", { body: `${o.id} · ₹${o.merchant_subtotal ?? o.total}` }); } catch { /* noop */ }
-            }
             toast.success(`New order ${o.id}!`, { duration: 6000 });
           });
         }
