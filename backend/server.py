@@ -1054,7 +1054,7 @@ async def offer_products(offer_id: str, limit: int = 12):
 
 @api.post("/coupons/validate")
 @_limit("30/minute")
-async def validate_coupon(payload: dict):
+async def validate_coupon(request: Request, payload: dict):
     """Check if a coupon is valid for the given subtotal. Does NOT increment used_count."""
     code = (payload.get("code") or "").strip().upper()
     subtotal = float(payload.get("subtotal") or 0)
