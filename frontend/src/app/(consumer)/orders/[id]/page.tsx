@@ -280,7 +280,7 @@ export default function OrderTrackingPage() {
                 <div className="font-semibold text-sm text-[#0A1F5C] shrink-0">₹{(it.price * (it.qty || 1)).toLocaleString()}</div>
               </div>
               {status === "delivered" && (() => {
-                const pid = it.product_id || it.id;
+                const pid = it.id;
                 if (!pid) return null;
                 return rated[pid] ? (
                   <p className="text-xs text-[#4F7363] font-semibold mt-1">✓ Rated</p>
