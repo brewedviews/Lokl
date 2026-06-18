@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Toaster } from "sonner";
-import { Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark, ShoppingBag, Settings } from "lucide-react";
+import { Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark, ShoppingBag } from "lucide-react";
 import { useMerchantAuthStore } from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { api } from "@/lib/api";
@@ -62,6 +62,7 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
   const pathname = usePathname();
   const router = useRouter();
   const [hydrated, setHydrated] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
 
   const user = useMerchantAuthStore((s) => s.user);
   const token = useMerchantAuthStore((s) => s.token);
@@ -90,6 +91,19 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
       document.removeEventListener("click", markInteracted);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isApproved) return;
+    const raw = typeof window !== "undefined" ? localStorage.getItem("lokl_merchant_auth") : null;
+    if (!raw) return;
+    let tok: string | null = null;
+    try { tok = (JSON.parse(raw) as { state?: { token?: string } })?.state?.token ?? null; } catch { return; }
+    if (!tok) return;
+    fetch("/api/merchant/store/state", { headers: { Authorization: `Bearer ${tok}` } })
+      .then(r => r.json())
+      .then((d: { online?: boolean }) => { if (d.online !== undefined) setIsOnline(d.online); })
+      .catch(() => {});
+  }, [isApproved]);
 
   useHeartbeat("merchant", { mid: user?.id });
 
@@ -182,6 +196,23 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
         { to: "/merchant/kyc",        label: "KYC details", icon: FileText },
       ];
 
+  const toggleOnline = async () => {
+    const raw = typeof window !== "undefined" ? localStorage.getItem("lokl_merchant_auth") : null;
+    if (!raw) return;
+    let tok: string | null = null;
+    try { tok = (JSON.parse(raw) as { state?: { token?: string } })?.state?.token ?? null; } catch { return; }
+    if (!tok) return;
+    const next = !isOnline;
+    setIsOnline(next);
+    try {
+      await fetch("/api/merchant/store/online", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ online: next }),
+      });
+    } catch { setIsOnline(!next); }
+  };
+
   const signOut = async () => {
     try { await api.auth.logout(); } catch { /* ignore */ }
     clearAuth();
@@ -243,13 +274,21 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
           { href: "/merchant/products", icon: Package, label: "Products" },
           { href: "/merchant/storefront", icon: Store, label: "Store" },
           { href: "/merchant/analytics", icon: BarChart3, label: "Analytics" },
-          { href: "/merchant/dashboard", icon: Settings, label: "Settings" },
         ].map(({ href, icon: Icon, label }) => (
           <Link key={href} href={href} className="flex-1 flex flex-col items-center py-2 gap-0.5 text-[#595959]">
             <Icon size={20} />
             <span className="text-[10px] font-medium">{label}</span>
           </Link>
         ))}
+        <button
+          onClick={toggleOnline}
+          className={`flex-1 flex flex-col items-center py-2 gap-0.5 ${isOnline ? "text-[#4CAF50]" : "text-[#9CA3AF]"}`}
+        >
+          <div className={`w-10 h-6 rounded-full flex items-center px-0.5 transition-colors ${isOnline ? "bg-[#4CAF50]" : "bg-[#E5E2DC]"}`}>
+            <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${isOnline ? "translate-x-4" : "translate-x-0"}`} />
+          </div>
+          <span className="text-[10px] font-medium">{isOnline ? "Live" : "Offline"}</span>
+        </button>
       </nav>
     </div>
   );

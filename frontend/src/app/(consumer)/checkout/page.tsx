@@ -200,7 +200,8 @@ export default function CheckoutPage() {
     if ((addr.city || "").trim().toLowerCase() !== "bhilai") {
       return toast.error("Lokl is only serving Bhilai right now — please update your delivery city.");
     }
-    if (!addr.pincode.startsWith("490")) {
+    const BHILAI_PINCODES = ["490001", "490006", "490009", "490020", "490023"];
+    if (!BHILAI_PINCODES.includes(addr.pincode.trim())) {
       return toast.error("We only deliver to Bhilai pincodes (490xxx). Please check your pincode.");
     }
     if (items.length === 0) return toast.error("Cart is empty");

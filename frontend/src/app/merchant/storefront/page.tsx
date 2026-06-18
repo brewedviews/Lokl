@@ -225,9 +225,9 @@ export default function MerchantStorefrontPage() {
                 data-testid="sf-area-picker"
                 value={form.area_slug}
                 onChange={(e) => onPickArea(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"
+                className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white appearance-auto"
               >
-                <option value="">Select your area…</option>
+                <option value="">Select your area in Bhilai</option>
                 {BHILAI_AREAS.map((a) => (
                   <option key={a.slug} value={a.slug}>{a.label} — {a.pincode}</option>
                 ))}
@@ -247,7 +247,7 @@ export default function MerchantStorefrontPage() {
                 data-testid="sf-pincode"
                 value={form.pincode}
                 onChange={(e) => setForm({ ...form, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })}
-                placeholder="6-digit pincode"
+                placeholder="Pincode (auto-filled)"
                 inputMode="numeric"
                 maxLength={6}
                 className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"

@@ -20,7 +20,7 @@ export default function MerchantDashboardPage() {
   }, []);
 
   return (
-    <div className="p-8 md:p-12">
+    <div className="p-4 md:p-12">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm text-[#595959]">Welcome back, {merchant?.owner_name?.split(" ")[0]}</p>
