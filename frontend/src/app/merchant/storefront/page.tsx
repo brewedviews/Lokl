@@ -14,7 +14,7 @@ import { BHILAI_AREAS, findBhilaiArea } from "@/data/bhilai-areas";
 export default function MerchantStorefrontPage() {
   const router = useRouter();
   const merchant = useMerchantAuthStore((s) => s.user) as (typeof useMerchantAuthStore extends () => infer T ? T : never) | null;
-  type Mer = { store_name?: string; business_address?: string; storefront?: { tagline?: string; story?: string; banners?: string[]; banner_public_ids?: string[]; banner?: string; locality?: string; opens_at?: string; closes_at?: string; lat?: number; lng?: number; area_slug?: string; area_label?: string; pincode?: string; upi_qr_url?: string } };
+  type Mer = { store_name?: string; business_address?: string; storefront?: { tagline?: string; story?: string; banners?: string[]; banner_public_ids?: string[]; banner?: string; locality?: string; opens_at?: string; closes_at?: string; lat?: number; lng?: number; area_slug?: string; area_label?: string; pincode?: string; upi_qr_url?: string; weekly_off?: string[] } };
   const m = (merchant ?? {}) as unknown as Mer;
   const [form, setForm] = useState({
     tagline: "", story: "", banners: [] as string[], banner_public_ids: [] as string[],
@@ -23,6 +23,7 @@ export default function MerchantStorefrontPage() {
     // iter-29 (Item 2) — mandatory area picker + pincode.
     area_slug: "", area_label: "", pincode: "",
     upi_qr_url: "",
+    weekly_off: [] as string[],
   });
   const [saving, setSaving] = useState(false);
   const [pinning, setPinning] = useState(false);
@@ -45,6 +46,7 @@ export default function MerchantStorefrontPage() {
         lat: s.lat != null ? String(s.lat) : "", lng: s.lng != null ? String(s.lng) : "",
         area_slug: s.area_slug || "", area_label: s.area_label || "", pincode: s.pincode || "",
         upi_qr_url: (s as unknown as { upi_qr_url?: string }).upi_qr_url || "",
+        weekly_off: (s as unknown as { weekly_off?: string[] }).weekly_off || [],
       });
       if (s.lat != null && s.lng != null) setPinPlaced(true);
     }).catch(() => {});
@@ -63,6 +65,7 @@ export default function MerchantStorefrontPage() {
         area_label: s.area_label || "",
         pincode: s.pincode || "",
         upi_qr_url: s.upi_qr_url || "",
+        weekly_off: s.weekly_off || [],
       });
       // Pre-existing record with coords → the merchant has already pinned.
       if (s.lat != null && s.lng != null) setPinPlaced(true);
@@ -140,6 +143,7 @@ export default function MerchantStorefrontPage() {
         lat, lng, specialties: [],
         area: form.area_slug, area_label: form.area_label, pincode: form.pincode.trim(),
         upi_qr_url: form.upi_qr_url || "",
+        weekly_off: form.weekly_off,
       } as unknown as Parameters<typeof api.merchant.saveStorefront>[0]);
       toast.success("Storefront saved");
       router.replace("/merchant/products");
@@ -189,6 +193,26 @@ export default function MerchantStorefrontPage() {
           <Field label="Closes at"><input data-testid="sf-closes" type="time" value={form.closes_at} onChange={(e) => setForm({ ...form, closes_at: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
         </div>
         <p className="text-[11px] text-[#595959] -mt-2"><Clock size={11} className="inline mr-1" />Orders are accepted from 30 minutes after opening to 30 minutes before closing.</p>
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-widest text-[#595959] mb-1.5">Weekly Off Days</div>
+          <div className="flex flex-wrap gap-2">
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => {
+              const selected = form.weekly_off.includes(day);
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  data-testid={`sf-weekly-off-${day}`}
+                  onClick={() => setForm({ ...form, weekly_off: selected ? form.weekly_off.filter((d) => d !== day) : [...form.weekly_off, day] })}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${selected ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white text-[#595959] border-[#E5E2DC] hover:border-[#1A2B4C]"}`}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-[#595959] mt-1">Store will show as closed on selected days.</p>
+        </div>
 
         <div className="rounded-2xl border border-[#E5E2DC] bg-[#FDFBF7] p-4 space-y-4">
           {/* iter-29 (Item 2) — Area dropdown (mandatory) + auto-fill pincode */}

@@ -242,6 +242,8 @@ class OtpVerifyDelete(BaseModel): otp: str
 class CustomerUpsert(BaseModel):
     phone: str; name: Optional[str] = ""; age: Optional[int] = None
     address: Optional[dict] = None; email: Optional[str] = ""
+    gender: Optional[str] = None
+    date_of_birth: Optional[str] = None
 
 class WaitlistEntry(BaseModel):
     phone: str

@@ -42,7 +42,7 @@ export default function CustomerAccountPage() {
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [form, setForm] = useState({ name: "", age: "", email: "" });
+  const [form, setForm] = useState({ name: "", gender: "", dob: "", email: "" });
   const [addrModal, setAddrModal] = useState<(typeof BLANK_ADDR & { id?: string }) | null>(null);
   const [activeTile, setActiveTile] = useState<TileKey>(VALID_TILES.includes(tabParam as TileKey) ? (tabParam as TileKey) : "orders");
   const [busy, setBusy] = useState(false);
@@ -57,8 +57,8 @@ export default function CustomerAccountPage() {
       const { customer, orders } = await api.customers.get(phone);
       setCustomer(customer);
       setOrders(orders);
-      const c = customer as Customer & { age?: number; email?: string };
-      setForm({ name: customer.name || "", age: String(c.age ?? ""), email: c.email || "" });
+      const c = customer as Customer & { age?: number; email?: string; gender?: string; date_of_birth?: string };
+      setForm({ name: customer.name || "", gender: c.gender || "", dob: c.date_of_birth || "", email: c.email || "" });
     } catch { setCustomer({ id: "", phone, addresses: [] } as unknown as Customer); }
   }, [phone]);
 
@@ -68,7 +68,7 @@ export default function CustomerAccountPage() {
     if (!phone) return;
     setBusy(true);
     try {
-      await api.customers.upsert({ phone, name: form.name, age: form.age ? Number(form.age) : undefined, email: form.email });
+      await api.customers.upsert({ phone, name: form.name, gender: form.gender || undefined, date_of_birth: form.dob || undefined, email: form.email });
       toast.success("Profile saved");
       void load();
     } catch (e) { toast.error(getErrorMessage(e)); }
@@ -337,14 +337,22 @@ function WishlistPanel({ items, onRemove }: { items: ProductCard[]; onRemove: (i
   );
 }
 
-function ProfilePanel({ form, setForm, onSave, busy }: { form: { name: string; age: string; email: string }; setForm: (f: { name: string; age: string; email: string }) => void; onSave: () => void; busy: boolean }) {
+function ProfilePanel({ form, setForm, onSave, busy }: { form: { name: string; gender: string; dob: string; email: string }; setForm: (f: { name: string; gender: string; dob: string; email: string }) => void; onSave: () => void; busy: boolean }) {
   return (
     <>
       <PanelHeader title="Profile" subtitle="Keep these up to date for smooth checkouts." />
       <div className="grid sm:grid-cols-2 gap-3">
         <Field label="Name"><input data-testid="cust-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
-        <Field label="Age"><input data-testid="cust-age" type="number" value={form.age} onChange={(e) => setForm({ ...form, age: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
-        <Field label="Email (optional)" full><input data-testid="cust-email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
+        <Field label="Gender">
+          <select data-testid="cust-gender" value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white text-[#0A1F5C]">
+            <option value="">Prefer not to say</option>
+            <option value="Female">Female</option>
+            <option value="Male">Male</option>
+            <option value="Non-binary">Non-binary</option>
+          </select>
+        </Field>
+        <Field label="Date of birth"><input data-testid="cust-dob" type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
+        <Field label="Email (optional)"><input data-testid="cust-email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
       </div>
       <div className="flex justify-end mt-4">
         <button onClick={onSave} disabled={busy} data-testid="save-profile" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#E68910] text-white font-semibold disabled:opacity-50 hover:bg-[#D97706] transition">

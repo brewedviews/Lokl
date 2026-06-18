@@ -30,6 +30,8 @@ export interface CustomerUpsertPayload {
   phone: string;
   name?: string;
   age?: number;
+  gender?: string;
+  date_of_birth?: string;
   email?: string;
   address?: CustomerAddressDraft | null;
 }

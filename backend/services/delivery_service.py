@@ -13,6 +13,9 @@ from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timezone
 from typing import Optional
 
+FREE_DELIVERY_THRESHOLD = float(os.environ.get("FREE_DELIVERY_THRESHOLD", "499"))
+DELIVERY_FEE = float(os.environ.get("DELIVERY_FEE", "49"))
+
 # Per-city bounding boxes (lat_min, lat_max, lng_min, lng_max).
 # Add new entries here when expanding beyond Bhilai.
 CITY_BOUNDS = {
