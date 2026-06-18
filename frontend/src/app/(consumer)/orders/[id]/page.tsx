@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import {
-  CheckCircle2, Bike, Package, RotateCcw, MessageCircle, AlertCircle,
+  CheckCircle2, Bike, Package, MessageCircle, AlertCircle,
   ShieldCheck, MapPin, Receipt, Clock, ShoppingBag, Phone,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -201,27 +201,8 @@ export default function OrderTrackingPage() {
         {(status === "delivered" || status === "returned") && (
           <section className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm" data-testid="post-delivery-actions">
             <h2 className="font-display text-base sm:text-lg font-bold text-[#0A1F5C] mb-3">Need help with this order?</h2>
-            {canReturn && hasEligible ? (
-              <div className="space-y-3">
-                <p className="text-xs text-[#64748B]">Return-eligible items can be returned within {RETURN_WINDOW_HOURS}h of delivery.</p>
-                <button
-                  onClick={() => setShowReturn(true)}
-                  data-testid="return-product-btn"
-                  className="w-full md:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-[#E68910] text-white font-semibold hover:bg-[#D97706] transition"
-                >
-                  <RotateCcw size={14} /> Return product
-                </button>
-              </div>
-            ) : returnWindowExpired && hasEligible ? (
-              <div className="p-3 rounded-2xl bg-[#FDFBF7] border border-[#E5E2DC] flex items-start gap-2" data-testid="return-window-expired">
-                <AlertCircle size={16} className="shrink-0 mt-0.5 text-[#E68910]" />
-                <div className="text-sm text-[#0A1F5C]">Return window has expired. Please reach out to Customer Care for further assistance.</div>
-              </div>
-            ) : !hasEligible ? (
-              <div className="p-3 rounded-2xl bg-[#FDFBF7] border border-[#E5E2DC] text-sm text-[#64748B]" data-testid="not-return-eligible">
-                None of the items in this order are return-eligible.
-              </div>
-            ) : null}
+            <p className="text-xs text-[#595959]">For issues with your order, contact us at <a href="mailto:hello@shoplokl.in" className="text-[#E68910] font-semibold">hello@shoplokl.in</a> or <a href="tel:+917719052107" className="text-[#E68910] font-semibold">+91 77190 52107</a></p>
+            <p className="text-xs text-[#9CA3AF] mt-1">We&apos;re a small team — we&apos;ll respond as soon as we can. Thank you for your patience.</p>
             <button
               onClick={() => setShowComplaint(true)}
               data-testid="contact-care-btn"

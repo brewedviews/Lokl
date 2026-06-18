@@ -53,18 +53,18 @@ export function StoreCardV2({ s }: { s: AnyStore }) {
           />
         ) : <div className="w-full h-full v2-shimmer" />}
         {s.is_verified !== false && (
-          <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[10px] font-bold uppercase tracking-wide">
+          <span className="absolute top-2 left-2 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[10px] font-bold uppercase tracking-wide">
             <ShieldCheck size={11} /> Verified
           </span>
         )}
         {badge === "Unavailable" || offline ? (
-          <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-white/90 text-[#EF4444] text-[10px] font-bold uppercase">Unavailable</span>
+          <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full bg-white/90 text-[#EF4444] text-[10px] font-bold uppercase">Unavailable</span>
         ) : badge === "Away" ? (
-          <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-white/90 text-[#D97706] text-[10px] font-bold uppercase">Away</span>
+          <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full bg-white/90 text-[#D97706] text-[10px] font-bold uppercase">Away</span>
         ) : badge === "Closed" ? (
-          <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-white/90 text-[#64748B] text-[10px] font-bold uppercase">{s.next_open_label || "Closed"}</span>
+          <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full bg-white/90 text-[#64748B] text-[10px] font-bold uppercase">{s.next_open_label || "Closed"}</span>
         ) : s.is_open === false && !badge ? (
-          <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-white/90 text-[#64748B] text-[10px] font-bold uppercase">{s.next_open_label || "Closed"}</span>
+          <span className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full bg-white/90 text-[#64748B] text-[10px] font-bold uppercase">{s.next_open_label || "Closed"}</span>
         ) : null}
       </div>
       <div className="p-3 space-y-1.5">

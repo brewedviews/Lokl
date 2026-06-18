@@ -20,7 +20,7 @@ export function MerchantAuthForm({ mode }: { mode: "login" | "register" }) {
   // iter-29 (Item 1): login screen exposes two tabs — email + phone OTP.
   // Register screen stays single-form (signup must collect email + password
   // anyway, and OTP-only signup would skew our partnership invoicing).
-  const [tab, setTab] = useState<"email" | "otp">("email");
+  const [tab, setTab] = useState<"email" | "otp">("otp");
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,9 +119,12 @@ export function MerchantAuthForm({ mode }: { mode: "login" | "register" }) {
                     <input data-testid="phone-input" required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number (10 digits)" inputMode="tel" pattern="^[0-9 +\-]{10,15}$" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
                   </>
                 )}
-                <input data-testid="email-input" required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
+                {isLogin && <input data-testid="email-input" required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />}
                 <input data-testid="password-input" required type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Password" className="w-full px-5 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
               </div>
+              {!isLogin && (
+                <p className="text-xs text-[#595959] mt-1">Bank details can be added later from your dashboard.</p>
+              )}
 
               <button data-testid="submit-auth-btn" type="submit" disabled={busy} className="w-full mt-6 inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-[#1A2B4C] text-white font-semibold hover:bg-[#101D36] disabled:opacity-50 transition">
                 {busy ? "Working…" : (isLogin ? "Sign in" : "Create my store")} <ArrowRight size={16} />

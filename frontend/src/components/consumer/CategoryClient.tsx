@@ -1,41 +1,18 @@
 "use client";
 
-/**
- * Category L1 (and L2 via [...l2slug] sub-route, handled by the same UI).
- * Renders L2 tiles when the user is on `/c/[slug]` AND the category has
- * L2 children; otherwise shows the product grid filtered by gender + sort.
- *
- * iter-29 (Item 4) — Gender context propagation:
- *  • L1 slugs `women`, `men`, `kids` implicitly carry a gender. We derive
- *    the default gender from the slug so a tap on "Men → Shirts" lands on
- *    `men` Shirts, not "everyone Shirts" mixing the genders.
- *  • L2 tiles on a gendered L1 page pass `?gender=...` so a deep link
- *    captures the same context for sharing and back-nav.
- *  • The URL `?gender=` query param wins over the slug fallback so the user
- *    can intentionally browse `?gender=unisex` etc.
- */
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
-import Link from "next/link";
-import Image from "next/image";
-import { SlidersHorizontal } from "lucide-react";
+import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
-import { OffersStrip } from "@/components/consumer/v2/OffersStrip";
 import { Footer } from "@/components/consumer/Footer";
 import type { ProductCard, CategoryNode } from "@/types";
 
 type L2 = { id: string; name: string; slug: string; image?: string };
 type Cat = Omit<CategoryNode, "l2"> & { l2?: L2[] };
-interface OfferDoc { id: string; title: string; subtitle?: string; image?: string; cta_label?: string; cta_link?: string; background?: string }
 
-interface Props {
-  l2slug?: string;
-}
+type SortKey = "nearest" | "price_asc" | "price_desc";
 
-/** Maps an L1 slug to the backend `gender` filter value. Returns "" for
- * L1s that are intrinsically gender-neutral (footwear, electronics, …). */
 function genderFromL1Slug(slug: string | undefined): string {
   switch (slug) {
     case "women": return "women";
@@ -45,134 +22,183 @@ function genderFromL1Slug(slug: string | undefined): string {
   }
 }
 
-export function CategoryClient({ l2slug = "" }: Props) {
+function sortProducts(products: ProductCard[], sort: SortKey): ProductCard[] {
+  const copy = [...products];
+  if (sort === "price_asc") return copy.sort((a, b) => a.price - b.price);
+  if (sort === "price_desc") return copy.sort((a, b) => b.price - a.price);
+  // nearest: sort by distance, unavailable stores pushed to bottom
+  return copy.sort((a, b) => {
+    const aRank = a.store_availability_rank ?? 1;
+    const bRank = b.store_availability_rank ?? 1;
+    if (aRank !== bRank) return aRank - bRank;
+    const aDist = a.store_distance_km ?? 999;
+    const bDist = b.store_distance_km ?? 999;
+    return aDist - bDist;
+  });
+}
+
+function SkeletonGrid() {
+  return (
+    <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="rounded-2xl overflow-hidden bg-white border border-[#E5E2DC] animate-pulse">
+          <div className="aspect-[3/4] bg-[#E5E2DC]" />
+          <div className="p-3 space-y-2">
+            <div className="h-3 bg-[#E5E2DC] rounded w-2/3" />
+            <div className="h-3 bg-[#E5E2DC] rounded w-1/2" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function CategoryClient() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
-  const searchParams = useSearchParams();
-  const urlGender = searchParams?.get("gender") ?? "";
-  const derivedGender = genderFromL1Slug(slug);
+
   const [cats, setCats] = useState<Cat[]>([]);
-  const [products, setProducts] = useState<ProductCard[]>([]);
-  const [offers, setOffers] = useState<OfferDoc[]>([]);
-  // iter-29 (Item 4) — pre-select the gender from URL (highest priority) or
-  // derive from L1 slug. NEVER fall back to "Everyone" when the L1 implies
-  // a gender — that was the bug.
-  const [gender, setGender] = useState<string>(urlGender || derivedGender || "");
-  const [sort, setSort] = useState("trending");
+  const [allProducts, setAllProducts] = useState<ProductCard[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [sort, setSort] = useState<SortKey>("nearest");
+  const [selectedL2Id, setSelectedL2Id] = useState("");
+  const [gender, setGender] = useState(genderFromL1Slug(slug));
 
   const l1 = useMemo(() => cats.find((c) => c.slug === slug), [cats, slug]);
-  const l2 = useMemo(() => (l1?.l2 ?? []).find((s) => s.slug === l2slug) || null, [l1, l2slug]);
-  const showingL2 = !!l2;
-  const showL2Tiles = !!l1 && (l1.l2?.length ?? 0) > 0 && !showingL2;
+  const isFootwear = slug === "footwear";
 
-  // iter-29 (Item 4) — if the URL/slug context changes (client-side nav
-  // between two gendered categories) re-seed the chip selection so the user
-  // doesn't carry stale "Everyone" across navigations.
-  useEffect(() => {
-    setGender(urlGender || derivedGender || "");
-  }, [urlGender, derivedGender]);
+  // Re-derive gender when slug changes (client-side nav between categories)
+  useEffect(() => { setGender(genderFromL1Slug(slug)); }, [slug]);
 
   useEffect(() => {
     api.catalog.categories().then((r) => setCats(r as Cat[])).catch(() => {});
   }, []);
 
+  // Fetch all products for this L1 whenever l1, selectedL2Id, or gender changes.
+  // Sort (nearest) is applied client-side; price sorts are passed to backend.
   useEffect(() => {
     if (!l1) return;
-    const params = new URLSearchParams({ l1: l1.id, sort });
-    if (l2) params.set("l2", l2.id);
-    if (gender) params.set("gender", gender);
+    setIsLoading(true);
+    const p = new URLSearchParams({ l1: l1.id });
+    if (selectedL2Id) p.set("l2", selectedL2Id);
+    if (gender) p.set("gender", gender);
+    if (sort === "price_asc") p.set("sort", "price_asc");
+    if (sort === "price_desc") p.set("sort", "price_desc");
     apiClient
-      .get<ProductCard[]>(`/api/products?${params.toString()}`)
-      .then((r) => setProducts(r.data))
-      .catch(() => setProducts([]));
-  }, [l1, l2, gender, sort]);
+      .get<ProductCard[]>(`/api/products?${p.toString()}`)
+      .then((r) => { setAllProducts(r.data); })
+      .catch(() => setAllProducts([]))
+      .finally(() => setIsLoading(false));
+  }, [l1, selectedL2Id, gender, sort]);
 
-  useEffect(() => {
-    if (!showingL2) { setOffers([]); return; }
-    api.catalog.offers().then((r) => setOffers(r as unknown as OfferDoc[])).catch(() => setOffers([]));
-  }, [showingL2]);
+  const products = useMemo(() => sortProducts(allProducts, sort), [allProducts, sort]);
 
   if (!l1) return <div className="p-10 text-center text-[#595959]">Loading…</div>;
 
-  const title = l2 ? l2.name : l1.name;
-  // iter-29 (Item 4) — L2 hrefs inherit the gender from the L1 slug so a deep
-  // link to /c/men/shirts?gender=men round-trips correctly when shared.
-  const l2GenderParam = derivedGender ? `?gender=${derivedGender}` : "";
+  const l2List = l1.l2 ?? [];
+
+  const SORTS: Array<{ key: SortKey; label: string }> = [
+    { key: "nearest", label: "Nearest" },
+    { key: "price_asc", label: "Price: Low to High" },
+    { key: "price_desc", label: "Price: High to Low" },
+  ];
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
       <main className="flex-1">
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
-          <div className="flex items-center gap-2 text-xs text-[#595959] mb-2 flex-wrap">
-            <Link href="/" className="hover:text-[#1A2B4C]">Home</Link><span>›</span>
-            <Link href="/categories" className="hover:text-[#1A2B4C]">Categories</Link><span>›</span>
-            {l2 ? (
-              <>
-                <Link href={`/c/${l1.slug}`} className="hover:text-[#1A2B4C]">{l1.name}</Link>
-                <span>›</span><span data-testid="crumb-l2">{l2.name}</span>
-              </>
-            ) : (
-              <span data-testid="crumb-l1">{l1.name}</span>
+          {/* Header */}
+          <h1 data-testid="cat-title" className="font-display text-3xl md:text-5xl font-bold text-[#1A2B4C] leading-tight">
+            {l1.name}
+            {!isLoading && (
+              <span className="text-lg md:text-2xl font-normal text-[#595959] ml-3">({products.length} products)</span>
             )}
-          </div>
-          <h1 data-testid="cat-title" className="font-display text-3xl md:text-5xl font-bold text-[#1A2B4C] leading-tight">{title}</h1>
+          </h1>
 
-          {showL2Tiles ? (
-            <>
-              <p className="text-[#595959] text-sm mt-1">Browse {l1.name.toLowerCase()} by category</p>
-              <div className="mt-6 grid grid-cols-3 md:grid-cols-5 gap-3 md:gap-4">
-                {l1.l2!.map((s) => {
-                  // iter-27 (Item 7) — non_clickable L2 renders as a static tile.
-                  const inner = (
-                    <>
-                      <div className="relative aspect-square rounded-2xl overflow-hidden bg-white border border-[#E5E2DC]">
-                        {s.image && <Image src={s.image} alt={s.name} fill sizes="(max-width: 768px) 33vw, 20vw" className="object-cover group-hover:scale-110 transition duration-500" />}
-                      </div>
-                      <div className="text-center mt-2 text-xs font-medium text-[#1C1C1C]">{s.name}</div>
-                    </>
-                  );
-                  if ((s as { non_clickable?: boolean }).non_clickable) {
-                    return (
-                      <div key={s.id} data-testid={`l2-${s.slug}`} className="group rounded-2xl transition cursor-default">
-                        {inner}
-                      </div>
-                    );
-                  }
-                  return (
-                    <Link key={s.id} href={(s as { redirect_url?: string }).redirect_url || `/c/${l1.slug}/${s.slug}${l2GenderParam}`} data-testid={`l2-${s.slug}`} className="group rounded-2xl active:scale-95 transition">
-                      {inner}
-                    </Link>
-                  );
-                })}
-              </div>
-            </>
-          ) : (
-            <div className="mt-6 flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-[#595959] uppercase">Shop for:</span>
-              {([["", "Everyone"], ["women", "Women"], ["men", "Men"], ["kids", "Kids"], ["unisex", "Unisex"]] as const).map(([g, l]) => (
-                <button key={g || "all"} onClick={() => setGender(g)} data-testid={`gender-${g || "all"}`}
-                  className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition ${gender === g ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white text-[#1C1C1C] border-[#E5E2DC]"}`}>
-                  {l}
+          {/* Filter bar */}
+          <div className="mt-5 flex flex-wrap gap-2 items-center">
+            {/* Sort pills */}
+            <div className="flex gap-2 flex-wrap">
+              {SORTS.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => setSort(s.key)}
+                  data-testid={`sort-${s.key}`}
+                  className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition ${
+                    sort === s.key
+                      ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
+                      : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
+                  }`}
+                >
+                  {s.label}
                 </button>
               ))}
             </div>
-          )}
 
-          <div className="mt-6 flex items-center justify-between">
-            <p className="text-sm text-[#595959]">{products.length} product{products.length !== 1 ? "s" : ""}</p>
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal size={14} className="text-[#595959]" />
-              <select value={sort} onChange={(e) => setSort(e.target.value)} data-testid="sort-select" className="px-3 py-2 rounded-full bg-white border border-[#E5E2DC] text-xs">
-                <option value="trending">Trending</option><option value="price_asc">Price: Low to High</option>
-                <option value="price_desc">Price: High to Low</option><option value="rating">Top Rated</option>
-              </select>
-            </div>
+            {/* Separator */}
+            {(isFootwear || l2List.length > 0) && (
+              <div className="h-5 w-px bg-[#E5E2DC] mx-1 hidden sm:block" />
+            )}
+
+            {/* Footwear: gender chips */}
+            {isFootwear ? (
+              <>
+                {([["", "All"], ["women", "Women"], ["men", "Men"]] as const).map(([g, label]) => (
+                  <button
+                    key={g || "all"}
+                    onClick={() => setGender(g)}
+                    data-testid={`gender-${g || "all"}`}
+                    className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition ${
+                      gender === g
+                        ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
+                        : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </>
+            ) : (
+              /* L2 filter chips */
+              l2List.length > 0 && (
+                <>
+                  <button
+                    onClick={() => setSelectedL2Id("")}
+                    data-testid="l2-filter-all"
+                    className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition ${
+                      selectedL2Id === ""
+                        ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
+                        : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
+                    }`}
+                  >
+                    All
+                  </button>
+                  {l2List.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => setSelectedL2Id(selectedL2Id === s.id ? "" : s.id)}
+                      data-testid={`l2-filter-${s.slug}`}
+                      className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition ${
+                        selectedL2Id === s.id
+                          ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
+                          : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
+                      }`}
+                    >
+                      {s.name}
+                    </button>
+                  ))}
+                </>
+              )
+            )}
           </div>
 
-          {products.length === 0 ? (
+          {/* Products */}
+          {isLoading ? (
+            <SkeletonGrid />
+          ) : products.length === 0 ? (
             <div className="mt-6 bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#E68910]/10 text-[#E68910] text-[11px] font-bold uppercase tracking-widest mb-3">Building it</div>
-              <h3 className="font-display text-xl md:text-2xl font-bold text-[#1A2B4C]">Coming soon to {title} in Bhilai</h3>
+              <h3 className="font-display text-xl md:text-2xl font-bold text-[#1A2B4C]">Coming soon to {l1.name} in Bhilai</h3>
               <p className="text-sm text-[#595959] mt-2 max-w-md mx-auto">We&apos;re onboarding local sellers right now — fresh drops will land here shortly.</p>
             </div>
           ) : (
@@ -181,7 +207,6 @@ export function CategoryClient({ l2slug = "" }: Props) {
             </div>
           )}
         </div>
-        {showingL2 && offers.length > 0 && <OffersStrip offers={offers} />}
       </main>
       <Footer />
     </div>

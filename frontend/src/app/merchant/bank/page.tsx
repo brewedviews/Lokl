@@ -48,7 +48,6 @@ export default function MerchantBankPage() {
 
   const submit = async () => {
     if (!chequeB64) return toast.error("Upload a new cancelled cheque to validate the change");
-    if (!form.bank_account_number || !form.bank_ifsc || !form.account_holder_name) return toast.error("All fields required");
     setBusy(true);
     try {
       await apiClient.post("/api/merchant/change-request", {
@@ -71,19 +70,20 @@ export default function MerchantBankPage() {
     <div className="p-6 md:p-10 max-w-2xl">
       <h1 className="font-display text-3xl md:text-4xl font-bold text-[#1A2B4C] flex items-center gap-2"><Landmark size={24} /> Bank details</h1>
       <p className="text-[#595959] mt-1">Update your payout bank — admin will verify each change.</p>
+      <p className="text-xs text-[#94A3B8] mt-1">Bank details can be added later from your dashboard.</p>
 
       <div className="mt-6 bg-white border border-[#E5E2DC] rounded-3xl p-6 space-y-4">
-        <Field label="Account holder *">
+        <Field label="Account holder">
           <input data-testid="bank-holder" value={form.account_holder_name} onChange={(e) => setForm({ ...form, account_holder_name: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
         </Field>
-        <Field label="Account number *">
+        <Field label="Account number">
           <input data-testid="bank-account" value={form.bank_account_number} onChange={(e) => setForm({ ...form, bank_account_number: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] tracking-wider" />
         </Field>
-        <Field label="IFSC *">
+        <Field label="IFSC">
           <input data-testid="bank-ifsc" value={form.bank_ifsc} onChange={(e) => setForm({ ...form, bank_ifsc: e.target.value.toUpperCase() })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" />
         </Field>
         <label className="block cursor-pointer">
-          <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-1.5 font-semibold">New cancelled cheque (required for validation) *</div>
+          <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-1.5 font-semibold">New cancelled cheque (required for validation)</div>
           <div className="px-4 py-3 rounded-xl border-2 border-dashed border-[#E5E2DC] hover:border-[#1A2B4C] flex items-center gap-2 text-sm">
             <Upload size={14} className="text-[#E68910]" />
             <span className="truncate flex-1">{chequeName || "Choose file…"}</span>

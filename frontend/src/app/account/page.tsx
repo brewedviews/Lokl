@@ -6,7 +6,7 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import {
   Save, Package, MapPin, Plus, Trash2, Home as HomeIcon, Heart, Wallet,
-  TicketPercent, HelpCircle, Settings, RotateCcw, ChevronRight, LogOut, Pencil,
+  TicketPercent, HelpCircle, Settings, ChevronRight, LogOut, Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -15,7 +15,7 @@ import { getErrorMessage } from "@/lib/api-error";
 import { useCustomerAuthStore, useWishlistStore } from "@/stores";
 import { Footer } from "@/components/consumer/Footer";
 import type {
-  Customer, CustomerAddress, Order, Return, ProductCard,
+  Customer, CustomerAddress, Order, ProductCard,
 } from "@/types";
 
 const BLANK_ADDR = { name: "", phone: "", label: "Home", line1: "", landmark: "", city: "Bhilai", pincode: "" };
@@ -42,7 +42,6 @@ export default function CustomerAccountPage() {
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [returns, setReturns] = useState<Return[]>([]);
   const [form, setForm] = useState({ name: "", age: "", email: "" });
   const [addrModal, setAddrModal] = useState<(typeof BLANK_ADDR & { id?: string }) | null>(null);
   const [activeTile, setActiveTile] = useState<TileKey>(VALID_TILES.includes(tabParam as TileKey) ? (tabParam as TileKey) : "orders");
@@ -61,10 +60,6 @@ export default function CustomerAccountPage() {
       const c = customer as Customer & { age?: number; email?: string };
       setForm({ name: customer.name || "", age: String(c.age ?? ""), email: c.email || "" });
     } catch { setCustomer({ id: "", phone, addresses: [] } as unknown as Customer); }
-    try {
-      const r = await api.customers.listReturns(phone);
-      setReturns(Array.isArray(r) ? r : []);
-    } catch { setReturns([]); }
   }, [phone]);
 
   useEffect(() => { void load(); }, [load]);
@@ -121,7 +116,7 @@ export default function CustomerAccountPage() {
   const addresses = customer?.addresses ?? [];
 
   const tiles: Array<{ key: TileKey; label: string; icon: typeof Package; count: number; soon?: boolean }> = [
-    { key: "orders", label: "Orders", icon: Package, count: orders.length + returns.length },
+    { key: "orders", label: "Orders", icon: Package, count: orders.length },
     { key: "addresses", label: "Addresses", icon: MapPin, count: addresses.length },
     { key: "wishlist", label: "Wishlist", icon: Heart, count: wishlist.length },
     { key: "wallet", label: "Wallet", icon: Wallet, count: 0, soon: true },
@@ -178,7 +173,7 @@ export default function CustomerAccountPage() {
         </section>
 
         <section data-testid={`panel-${activeTile}`} className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm mt-8">
-          {activeTile === "orders" && <OrdersPanel orders={orders} returns={returns} />}
+          {activeTile === "orders" && <OrdersPanel orders={orders} />}
           {activeTile === "addresses" && (
             <AddressesPanel
               addresses={addresses}
@@ -234,13 +229,12 @@ function EmptyState({ title, body, ctaTo, ctaLabel }: { title: string; body: str
   );
 }
 
-function OrdersPanel({ orders, returns }: { orders: Order[]; returns: Return[] }) {
+function OrdersPanel({ orders }: { orders: Order[] }) {
   const delivered = orders.filter((o) => (o.status || "").toLowerCase().includes("deliver"));
-  const total = orders.length + returns.length;
   return (
     <>
       <PanelHeader title={`Orders (${orders.length})`} subtitle={delivered.length ? `${delivered.length} delivered` : "Track every order from start to finish"} />
-      {total === 0 ? (
+      {orders.length === 0 ? (
         <EmptyState title="No orders yet" body="Start shopping from your nearby Bhilai stores." ctaTo="/" ctaLabel="Start shopping" />
       ) : (
         <div className="divide-y divide-[#E5E2DC]">
@@ -263,58 +257,12 @@ function OrdersPanel({ orders, returns }: { orders: Order[]; returns: Return[] }
               <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
             </Link>
           ))}
-          {returns.length > 0 && (
-            <>
-              <div className="py-2 text-[10px] uppercase tracking-widest font-semibold text-[#64748B]">Returns</div>
-              {returns.map((r) => (
-                <Link key={r.id} href={`/returns/${r.id}`} data-testid={`return-${r.id}`}
-                  className="flex items-center gap-3 py-3 last:pb-0 hover:bg-[#FDFBF7] -mx-3 px-3 rounded-xl transition">
-                  <div className="w-14 h-14 rounded-xl bg-[#FDFBF7] border border-[#E5E2DC] grid place-items-center shrink-0">
-                    <RotateCcw size={18} className="text-[#0A1F5C]" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-[#0A1F5C] truncate">{r.order_id || r.id}</div>
-                    <div className="text-[11px] text-[#64748B]">{r.reason || "Return"}{r.created_at ? ` · ${new Date(r.created_at).toLocaleDateString()}` : ""}</div>
-                  </div>
-                  <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 ${statusTone(r.status)}`}>
-                    {(r.status || "").replace(/_/g, " ")}
-                  </span>
-                  <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
-                </Link>
-              ))}
-            </>
-          )}
         </div>
       )}
     </>
   );
 }
 
-function ReturnsPanel({ returns }: { returns: Return[] }) {
-  return (
-    <>
-      <PanelHeader title={`Returns (${returns.length})`} subtitle="Returns and pickup tracking" />
-      {returns.length === 0 ? (
-        <EmptyState title="No returns yet" body="You can request a return within 24 hours of delivery on eligible items." ctaTo="/" ctaLabel="Browse stores" />
-      ) : (
-        <div className="divide-y divide-[#E5E2DC]">
-          {returns.map((r) => (
-            <Link key={r.id} href={`/returns/${r.id}`} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 hover:bg-[#FDFBF7] -mx-3 px-3 rounded-xl transition" data-testid={`return-${r.id}`}>
-              <div className="w-12 h-12 rounded-xl bg-[#FDFBF7] border border-[#E5E2DC] grid place-items-center shrink-0"><RotateCcw size={18} className="text-[#0A1F5C]" /></div>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold text-[#0A1F5C] truncate">{r.order_id || r.id}</div>
-                <div className="text-[11px] text-[#64748B]">{r.reason || "Return"}{r.created_at ? ` · ${new Date(r.created_at).toLocaleDateString()}` : ""}</div>
-              </div>
-              <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 ${statusTone(r.status)}`}>
-                {(r.status || "").replace(/_/g, " ")}
-              </span>
-            </Link>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
 
 function AddressesPanel({ addresses, onAdd, onRemove, phone }: { addresses: CustomerAddress[]; onAdd: () => void; onRemove: (id: string) => void; phone: string }) {
   return (

@@ -145,19 +145,39 @@ export function ReturnsTab() {
           <div className="space-y-3">
             {returns.map((r) => {
               const nextActions = RETURN_ACTIONS.filter((a) => a.from.includes(r.status));
+              const statusColor =
+                r.status === "completed" ? "bg-[#4F7363]/15 text-[#4F7363]" :
+                r.status === "requested" ? "bg-[#E68910]/15 text-[#E68910]" :
+                "bg-[#0A1F5C]/10 text-[#0A1F5C]";
               return (
                 <div key={r.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4" data-testid={`return-row-${r.id}`}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-semibold text-[#0A1F5C]">Return <span className="font-mono text-xs">{r.id}</span></div>
-                      <div className="text-xs text-[#595959] mt-0.5">
-                        Order <span className="font-mono">{r.order_id}</span> · {r.customer_phone || "—"}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="font-semibold text-[#0A1F5C] text-sm">Return <span className="font-mono text-xs">{r.id}</span></span>
+                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${statusColor}`}>{r.status.replace(/_/g, " ")}</span>
                       </div>
-                      <div className="text-xs text-[#595959] mt-0.5">Reason: {r.reason || "—"}</div>
+                      <div className="text-xs text-[#595959]">
+                        Order{" "}
+                        <a href={`/orders/${r.order_id}`} target="_blank" rel="noreferrer" className="font-mono text-[#0A1F5C] underline hover:text-[#E68910]">{r.order_id}</a>
+                        {r.customer_phone && <> · <span className="font-semibold">{r.customer_phone}</span></>}
+                      </div>
+                      {r.items && r.items.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {r.items.map((it, i) => (
+                            <span key={i} className="inline-flex items-center gap-1.5 bg-[#FDFBF7] border border-[#E5E2DC] rounded-lg px-2 py-1 text-xs text-[#0A1F5C]">
+                              {it.name || "Item"}{it.qty && it.qty > 1 ? ` ×${it.qty}` : ""}{it.size ? ` (${it.size})` : ""}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="text-xs text-[#595959] mt-1.5">
+                        <span className="font-semibold">Reason:</span> {r.reason || "—"}
+                      </div>
                       {r.otp && <div className="text-xs text-[#E68910] mt-1">Pickup OTP: <span className="font-mono font-bold">{r.otp}</span></div>}
-                      <div className="text-[10px] uppercase tracking-widest text-[#E68910] mt-2">{r.status.replace(/_/g, " ")}</div>
+                      <div className="text-[10px] text-[#94A3B8] mt-1">{new Date(r.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap shrink-0">
                       {nextActions.map((a) => (
                         <button key={a.action} disabled={busy === r.id}
                           onClick={() => advance(r, a.action)}
@@ -179,25 +199,44 @@ export function ReturnsTab() {
           <Empty label="No complaints filed." />
         ) : (
           <div className="space-y-3">
-            {complaints.map((c) => (
-              <div key={c.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4" data-testid={`complaint-row-${c.id}`}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="font-semibold text-[#0A1F5C]">{c.type || "Complaint"} <span className="font-mono text-xs">{c.id}</span></div>
-                    {c.order_id && <div className="text-xs text-[#595959] mt-0.5">Order <span className="font-mono">{c.order_id}</span> · {c.customer_phone || "—"}</div>}
-                    <div className="text-xs text-[#0A1F5C] mt-1">{c.details || "—"}</div>
-                    <div className="text-[10px] uppercase tracking-widest text-[#E68910] mt-2">{c.status}</div>
+            {complaints.map((c) => {
+              const statusColor =
+                c.status === "resolved" ? "bg-[#4F7363]/15 text-[#4F7363]" :
+                "bg-[#E68910]/15 text-[#E68910]";
+              return (
+                <div key={c.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4" data-testid={`complaint-row-${c.id}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="font-semibold text-[#0A1F5C] text-sm">{c.type || "Complaint"}</span>
+                        <span className="font-mono text-xs text-[#595959]">{c.id}</span>
+                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${statusColor}`}>{c.status}</span>
+                      </div>
+                      {c.order_id && (
+                        <div className="text-xs text-[#595959] mb-1">
+                          Order{" "}
+                          <a href={`/orders/${c.order_id}`} target="_blank" rel="noreferrer" className="font-mono text-[#0A1F5C] underline hover:text-[#E68910] font-semibold">{c.order_id}</a>
+                          {c.customer_phone && <> · <span className="font-semibold">{c.customer_phone}</span></>}
+                        </div>
+                      )}
+                      {c.details && (
+                        <div className="mt-1 p-2 bg-[#FDFBF7] rounded-xl border border-[#E5E2DC]">
+                          <pre className="text-xs text-[#1C1C1C] whitespace-pre-wrap font-sans">{c.details}</pre>
+                        </div>
+                      )}
+                      <div className="text-[10px] text-[#94A3B8] mt-1.5">{new Date(c.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                    </div>
+                    {c.status !== "resolved" && (
+                      <button disabled={busy === c.id} onClick={() => resolveComplaint(c)}
+                        data-testid={`complaint-resolve-${c.id}`}
+                        className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#4F7363] text-white disabled:opacity-50 shrink-0">
+                        Resolve
+                      </button>
+                    )}
                   </div>
-                  {c.status !== "resolved" && (
-                    <button disabled={busy === c.id} onClick={() => resolveComplaint(c)}
-                      data-testid={`complaint-resolve-${c.id}`}
-                      className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#4F7363] text-white disabled:opacity-50">
-                      Resolve
-                    </button>
-                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )
       )}

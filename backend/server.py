@@ -144,7 +144,7 @@ async def _track_merchant_last_seen(request: Request, call_next):
 
 # ===== Models =====
 class MerchantSignup(BaseModel):
-    email: EmailStr; password: str; store_name: str; owner_name: str
+    email: Optional[str] = None; password: str; store_name: str; owner_name: str
     phone: str  # mandatory — used for cellular/WhatsApp contact and (soon) OTP login
     city: Optional[str] = "Bhilai"
 
@@ -247,7 +247,7 @@ async def register(request: Request, response: Response, payload: MerchantSignup
     digits = "".join(c for c in phone if c.isdigit())
     if len(digits) < 10:
         raise HTTPException(400, "Phone number is required (10+ digits)")
-    if await db.merchants.find_one({"email": payload.email}, {"_id": 0}):
+    if payload.email and await db.merchants.find_one({"email": payload.email}, {"_id": 0}):
         raise HTTPException(400, "Email already registered")
     # Phone uniqueness check — last-10-digits canonical form, ignoring +91/91 prefixes.
     p10 = digits[-10:]
