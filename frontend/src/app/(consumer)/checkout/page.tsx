@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
+import { useLocationStore } from "@/stores/location.store";
 import { CustomerOtpLogin } from "@/components/consumer/CustomerOtpLogin";
 import { Footer } from "@/components/consumer/Footer";
 import { useRazorpay } from "@/hooks/useRazorpay";
@@ -49,6 +50,8 @@ export default function CheckoutPage() {
   const clearCart = useCartStore((s) => s.clearCart);
   const phone = useCustomerAuthStore((s) => s.phone);
   const hasAuth = useCustomerAuthStore((s) => s.isAuthenticated);
+  const customerLat = useLocationStore((s) => s.lat);
+  const customerLng = useLocationStore((s) => s.lng);
   const razorpay = useRazorpay();
 
   const [savedAddresses, setSavedAddresses] = useState<CustomerAddress[]>([]);
@@ -217,6 +220,8 @@ export default function CheckoutPage() {
         items, address: addr, total: grandTotal, payment_method: payment,
         customer: { name: addr.name, phone: normalizePhone(addr.phone) },
         coupon_code: couponResult?.code ?? undefined,
+        customer_lat: customerLat ?? null,
+        customer_lng: customerLng ?? null,
       });
       clearCart();
       toast.success("Order placed!");

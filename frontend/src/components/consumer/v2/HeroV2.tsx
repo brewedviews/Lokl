@@ -1,4 +1,5 @@
 "use client";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Bike } from "lucide-react";
@@ -25,8 +26,24 @@ interface Stats {
   fastest_eta_min?: number;
 }
 
+interface DeliveryStatus {
+  status: string;
+  label: string;
+  eta_label: string;
+  message: string;
+}
+
 /** Hero card with cream wash over Bhilai backdrop. Ported from CRA HeroV2.jsx. */
 export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfig | null }) {
+  const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatus | null>(null);
+
+  useEffect(() => {
+    fetch("/api/feed/delivery-status")
+      .then(r => r.json())
+      .then(d => setDeliveryStatus(d))
+      .catch(() => {});
+  }, []);
+
   // iter-27 (Item 7) — admin paused this hero. Hide entirely from consumers.
   if (hero?.paused) return null;
 
@@ -75,19 +92,25 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
         <div className="md:hidden mt-4 inline-flex items-center gap-2.5 self-start px-3 py-2 rounded-2xl bg-white/95 backdrop-blur-sm shadow-md">
           <div className="w-8 h-8 rounded-full bg-[#F59E0B] flex items-center justify-center shrink-0"><Bike size={14} className="text-white" /></div>
           <div className="leading-tight">
-            <div className="text-[10px] text-[#0A1F5C]/70 font-medium">Fast delivery</div>
-            <div className="font-bold text-[#0A1F5C] font-display text-sm" data-testid="hero-fastest-eta-mobile">{eta} minutes</div>
+            <div className="text-[10px] text-[#0A1F5C]/70 font-medium">{deliveryStatus?.message || "Fast delivery"}</div>
+            <div className="font-bold text-[#0A1F5C] font-display text-sm" data-testid="hero-fastest-eta-mobile">{deliveryStatus?.eta_label || `${eta} minutes`}</div>
           </div>
-          <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[9px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse" /> LIVE</span>
+          <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[9px] font-bold flex items-center gap-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${deliveryStatus?.status === "closed" ? "bg-[#9CA3AF]" : "bg-[#F59E0B] animate-pulse"}`} />
+            {deliveryStatus?.label || "LIVE"}
+          </span>
         </div>
       </div>
       <div className="hidden md:flex absolute top-1/2 right-6 lg:right-10 -translate-y-1/2 bg-white/90 backdrop-blur-md rounded-2xl p-3.5 items-center gap-3 min-w-[260px] shadow-xl">
         <div className="w-11 h-11 rounded-full bg-[#F59E0B] flex items-center justify-center shrink-0"><Bike size={18} className="text-white" /></div>
         <div className="flex-1">
-          <div className="text-[11px] text-[#0A1F5C]/70">Fast delivery in Bhilai</div>
-          <div className="font-bold text-[#0A1F5C] font-display text-lg" data-testid="hero-fastest-eta">{eta} minutes</div>
+          <div className="text-[11px] text-[#0A1F5C]/70">{deliveryStatus?.message || "Fast delivery in Bhilai"}</div>
+          <div className="font-bold text-[#0A1F5C] font-display text-lg" data-testid="hero-fastest-eta">{deliveryStatus?.eta_label || `${eta} minutes`}</div>
         </div>
-        <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[10px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse" /> LIVE</span>
+        <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[10px] font-bold flex items-center gap-1">
+          <span className={`w-1.5 h-1.5 rounded-full ${deliveryStatus?.status === "closed" ? "bg-[#9CA3AF]" : "bg-[#F59E0B] animate-pulse"}`} />
+          {deliveryStatus?.label || "LIVE"}
+        </span>
       </div>
     </>
   );

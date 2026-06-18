@@ -406,12 +406,12 @@ function LocationChip({ phone }: { phone: string | null }) {
                   </div>
                   <div className="min-w-0">
                     <div className="text-xs font-bold text-brand-primary">{a.label || "Address"}</div>
-                    <div className="text-[11px] text-text-secondary line-clamp-1">{a.full_address}</div>
+                    {a.line1 && <div className="text-[11px] text-text-secondary mt-0.5">{a.line1.length > 28 ? a.line1.slice(0, 28) + "…" : a.line1}</div>}
                   </div>
                 </button>
               ))}
               <Link
-                href="/account/addresses"
+                href="/account?tab=addresses"
                 onClick={() => setOpen(false)}
                 data-testid="location-manage"
                 className="block border-t border-card-border px-4 py-2.5 text-[12px] font-semibold text-brand-accent hover:bg-[#FDFBF7]"

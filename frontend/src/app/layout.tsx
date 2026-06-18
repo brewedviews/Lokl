@@ -15,6 +15,13 @@ export const metadata: Metadata = {
     "local fashion", "bhilai shopping", "local stores bhilai",
     "fashion near me", "lokl",
   ],
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    apple: "/favicon.svg",
+  },
   openGraph: {
     type: "website",
     locale: "en_IN",

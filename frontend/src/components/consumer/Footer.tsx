@@ -2,6 +2,7 @@
  * Slim consumer footer — single strip on desktop, wraps on mobile.
  * Ported visual parity from the legacy CRA Footer.jsx.
  */
+import Link from "next/link";
 import { Mail, MapPin, Phone, Lock } from "lucide-react";
 
 export function Footer({ topGap = true }: { topGap?: boolean }) {
@@ -25,9 +26,9 @@ export function Footer({ topGap = true }: { topGap?: boolean }) {
           <a href="mailto:hello@shoplokl.in" className="inline-flex items-center gap-1.5 hover:text-[#F59E0B] transition" data-testid="footer-email"><Mail size={12} className="text-[#F59E0B]" /> hello@shoplokl.in</a>
           <a href="tel:+917719052107" className="inline-flex items-center gap-1.5 hover:text-[#F59E0B] transition" data-testid="footer-phone"><Phone size={12} className="text-[#F59E0B]" /> +91 7719052107</a>
         </div>
-        <div className="flex items-center gap-3 text-[11px] opacity-50" data-testid="footer-legal">
-          <span className="inline-flex items-center gap-1 cursor-not-allowed" data-testid="footer-privacy"><Lock size={10} /> Privacy Policy</span>
-          <span className="inline-flex items-center gap-1 cursor-not-allowed" data-testid="footer-terms"><Lock size={10} /> Terms &amp; Conditions</span>
+        <div className="flex items-center gap-3 text-[11px] opacity-70" data-testid="footer-legal">
+          <Link href="/privacy" className="inline-flex items-center gap-1 hover:opacity-100 transition" data-testid="footer-privacy"><Lock size={10} /> Privacy Policy</Link>
+          <Link href="/terms" className="inline-flex items-center gap-1 hover:opacity-100 transition" data-testid="footer-terms"><Lock size={10} /> Terms &amp; Conditions</Link>
         </div>
       </div>
       <div className="border-t border-white/10">

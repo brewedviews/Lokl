@@ -210,6 +210,8 @@ class OrderCreate(BaseModel):
     razorpay_order_id: Optional[str] = None
     razorpay_signature: Optional[str] = None
     coupon_code: Optional[str] = None
+    customer_lat: Optional[float] = None
+    customer_lng: Optional[float] = None
 
 class CouponCreate(BaseModel):
     code: str
@@ -2110,6 +2112,33 @@ async def feed_popular_stores(limit: int = 10):
     return stores[:limit]
 
 
+@api.get("/feed/delivery-status")
+async def feed_delivery_status():
+    """Returns current delivery status: live if any store can accept orders, else closed with next open time."""
+    stores = await db.stores.find(
+        _visible_store_filter(),
+        {"_id": 0, "online": 1, "last_seen_at": 1, "opens_at": 1, "closes_at": 1, "weekly_off": 1}
+    ).to_list(1000)
+    live_stores = [s for s in stores if _store_availability(s).get("can_order")]
+    if live_stores:
+        return {"status": "live", "label": "LIVE", "eta_label": "30 minutes", "message": "Fast delivery"}
+    earliest = None
+    for s in stores:
+        opens = s.get("opens_at", "10:00")
+        if not earliest or opens < earliest:
+            earliest = opens
+    if earliest:
+        try:
+            h, m = map(int, earliest.split(":"))
+            suffix = "AM" if h < 12 else "PM"
+            h12 = h if h <= 12 else h - 12
+            opens_fmt = f"{h12}:{m:02d} {suffix}"
+        except Exception:
+            opens_fmt = earliest
+        return {"status": "closed", "label": "CLOSED", "eta_label": f"from {opens_fmt}", "message": "Delivery resumes"}
+    return {"status": "closed", "label": "CLOSED", "eta_label": "tomorrow", "message": "Delivery resumes"}
+
+
 @api.get("/stores/{store_id}")
 async def get_store(store_id: str):
     s = await db.stores.find_one({"id": store_id, **_visible_store_filter()}, {"_id": 0})
@@ -2509,6 +2538,8 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                "total": float(server_total), "payment_method": payload.payment_method,
                "coupon_code": applied_coupon, "coupon_discount": float(coupon_discount),
                "customer": payload.customer or {},
+               "customer_lat": payload.customer_lat,
+               "customer_lng": payload.customer_lng,
                "status": "pending_merchant",
                "merchant_ids": unique_mids,
                "merchant_states": merchant_states,
@@ -2772,8 +2803,8 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
                 upi_qr_url=store_doc.get("upi_qr_url") or "",
                 store_lat=store_doc.get("lat") or 0,
                 store_lng=store_doc.get("lng") or 0,
-                customer_lat=addr.get("lat") or 0,
-                customer_lng=addr.get("lng") or 0,
+                customer_lat=o.get("customer_lat") or addr.get("lat") or 0,
+                customer_lng=o.get("customer_lng") or addr.get("lng") or 0,
             )
         except Exception as e:
             log.error("[rider-pickup] failed order=%s error=%s", oid, e)

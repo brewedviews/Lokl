@@ -24,6 +24,8 @@ export interface OrderCreatePayload {
   payment_method: PaymentMethod;
   customer: OrderCustomer;
   coupon_code?: string;
+  customer_lat?: number | null;
+  customer_lng?: number | null;
 }
 
 export const ordersApi = {
