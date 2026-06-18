@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import Image from "next/image";
@@ -8,7 +8,10 @@ import {
   CheckCircle2, Bike, Package, RotateCcw, MessageCircle, AlertCircle,
   ShieldCheck, MapPin, Receipt, Clock, ShoppingBag, Phone,
 } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
+import { getErrorMessage } from "@/lib/api-error";
 import { Footer } from "@/components/consumer/Footer";
 import { ReturnModal, ComplaintModal } from "@/components/consumer/ReturnComplaintModals";
 import type { Order, OrderTimelineEntry } from "@/types";
@@ -66,6 +69,18 @@ export default function OrderTrackingPage() {
   const [notFoundState, setNotFoundState] = useState(false);
   const [showReturn, setShowReturn] = useState(false);
   const [showComplaint, setShowComplaint] = useState(false);
+  const [ratings, setRatings] = useState<Record<string, number>>({});
+  const [rated, setRated] = useState<Record<string, boolean>>({});
+
+  const rateProduct = async (productId: string, star: number) => {
+    try {
+      await apiClient.post(`/api/orders/${id}/rate`, { product_id: productId, rating: star });
+      setRated((prev) => ({ ...prev, [productId]: true }));
+      toast.success("Thanks for your rating!");
+    } catch (e) {
+      toast.error(getErrorMessage(e));
+    }
+  };
 
   const load = () => api.orders.getById(id)
     .then((o) => { setOrder(o); setNotFoundState(false); })
@@ -240,7 +255,8 @@ export default function OrderTrackingPage() {
           </div>
           <div className="divide-y divide-[#E5E2DC]">
             {(order.items || []).map((it) => (
-              <div key={it.key || it.id} className="flex gap-3 py-3 first:pt-0 last:pb-0">
+              <Fragment key={it.key || it.id}>
+              <div className="flex gap-3 py-3 first:pt-0 last:pb-0">
                 {it.id ? (
                   <Link href={`/p/${it.id}`} data-testid={`bag-pdp-link-${it.id}`} className="shrink-0">
                     {it.image ? (
@@ -263,7 +279,28 @@ export default function OrderTrackingPage() {
                 </div>
                 <div className="font-semibold text-sm text-[#0A1F5C] shrink-0">₹{(it.price * (it.qty || 1)).toLocaleString()}</div>
               </div>
+              {status === "delivered" && (() => {
+                const pid = it.product_id || it.id;
+                if (!pid) return null;
+                return rated[pid] ? (
+                  <p className="text-xs text-[#4F7363] font-semibold mt-1">✓ Rated</p>
+                ) : (
+                  <div className="flex items-center gap-1 mt-1">
+                    <p className="text-xs text-[#595959] mr-1">Rate:</p>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button key={star}
+                        onClick={() => rateProduct(pid, star)}
+                        onMouseEnter={() => setRatings((prev) => ({ ...prev, [pid]: star }))}
+                        onMouseLeave={() => setRatings((prev) => ({ ...prev, [pid]: 0 }))}
+                        className={`text-lg leading-none ${(ratings[pid] || 0) >= star ? "text-[#E68910]" : "text-[#E5E2DC]"}`}
+                      >★</button>
+                    ))}
+                  </div>
+                );
+              })()}
+              </Fragment>
             ))}
+
           </div>
         </section>
 

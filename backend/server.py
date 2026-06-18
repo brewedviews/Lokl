@@ -185,6 +185,7 @@ class StorefrontUpdate(BaseModel):
     area_label: Optional[str] = ""
     pincode: Optional[str] = ""
     upi_qr_url: Optional[str] = ""
+    weekly_off: Optional[List[str]] = []
 
 class ProductCreate(BaseModel):
     name: str; price: float; mrp: Optional[float] = None
@@ -1695,6 +1696,28 @@ def _store_availability(store: dict) -> dict:
         return {"rank": 4, "badge": "Store Offline", "badge_color": "red",
                 "can_order": False, "eta_message": "Store offline", "opens_at_label": None}
 
+    # Check weekly off
+    weekly_off = store.get("weekly_off") or []
+    if weekly_off:
+        ist_now = datetime.now(timezone.utc) + timedelta(minutes=330)
+        ist_day = ist_now.strftime("%A")
+        if ist_day in weekly_off:
+            days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            today_idx = days.index(ist_day)
+            opens_raw = store.get("opens_at", "10:00")
+            try:
+                h, mn = map(int, opens_raw.split(":")[:2])
+                opens_fmt = f"{h if h <= 12 else h - 12}:{mn:02d} {'AM' if h < 12 else 'PM'}"
+            except Exception:
+                opens_fmt = opens_raw
+            for i in range(1, 8):
+                next_day = days[(today_idx + i) % 7]
+                if next_day not in weekly_off:
+                    return {"rank": 3, "badge": "Closed", "badge_color": "gray",
+                            "can_order": False,
+                            "eta_message": f"Weekly off · Opens {next_day} at {opens_fmt}",
+                            "opens_at_label": f"Opens {next_day} at {opens_fmt}"}
+
     opens = store.get("opens_at")
     closes = store.get("closes_at")
     in_hours = True
@@ -2348,6 +2371,51 @@ async def get_order(order_id: str):
         o["store_breakdown"] = breakdown
     return o
 
+@api.post("/orders/{oid}/rate")
+async def rate_order_product(oid: str, payload: dict, user: dict = Depends(customer_user)):
+    """Customer rates a product after delivery. One rating per order per product."""
+    product_id = payload.get("product_id")
+    rating = payload.get("rating")
+    if not product_id or not rating:
+        raise HTTPException(400, "product_id and rating required")
+    if not isinstance(rating, (int, float)) or not (1 <= rating <= 5):
+        raise HTTPException(400, "rating must be between 1 and 5")
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Order not found")
+    cust = o.get("customer") or {}
+    if cust.get("phone") != user["sub"] and o.get("customer_phone") != user["sub"]:
+        raise HTTPException(403, "Not your order")
+    if o.get("status") != "delivered":
+        raise HTTPException(400, "Can only rate delivered orders")
+    item_ids = [it.get("product_id") or it.get("id") for it in (o.get("items") or [])]
+    if product_id not in item_ids:
+        raise HTTPException(400, "Product not in this order")
+    existing = await db.product_ratings.find_one({"order_id": oid, "product_id": product_id})
+    if existing:
+        raise HTTPException(400, "Already rated this product")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.product_ratings.insert_one({
+        "id": f"rating-{oid}-{product_id}",
+        "order_id": oid,
+        "product_id": product_id,
+        "customer_phone": user["sub"],
+        "rating": float(rating),
+        "created_at": now,
+    })
+    all_ratings = await db.product_ratings.find(
+        {"product_id": product_id}, {"_id": 0, "rating": 1}
+    ).to_list(10000)
+    if all_ratings:
+        avg = round(sum(r["rating"] for r in all_ratings) / len(all_ratings), 1)
+        count = len(all_ratings)
+        await db.products.update_one(
+            {"id": product_id},
+            {"$set": {"rating": avg, "review_count": count, "updated_at": now}},
+        )
+    return {"ok": True, "rating": float(rating)}
+
+
 @api.get("/merchant/orders")
 async def merchant_orders(user: dict = Depends(get_current_user)):
     """Returns this merchant's orders with customer PII redacted (name + pincode + landmark only).
@@ -2739,6 +2807,7 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_
         "lat": float(payload.lat), "lng": float(payload.lng),
         "location": {"type": "Point", "coordinates": [float(payload.lng), float(payload.lat)]},
         "upi_qr_url": payload.upi_qr_url or "",
+        "weekly_off": payload.weekly_off or [],
         "trusted": True,
         "kyc_status": "approved", "published": False, "paused": False, "product_count": 0,
         "created_at": datetime.now(timezone.utc).isoformat()}
@@ -4340,8 +4409,7 @@ async def _auto_cancel_stale_orders():
             cutoff = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
             async for order in db.orders.find(
                 {"status": "pending_merchant", "payment_method": "COD",
-                 "created_at": {"$lt": cutoff}, "is_deleted": {"$ne": True},
-                 "order_type": {"$ne": "scheduled"}},
+                 "created_at": {"$lt": cutoff}, "is_deleted": {"$ne": True}},
                 {"_id": 0, "id": 1, "merchant_ids": 1, "customer": 1}
             ):
                 oid = order["id"]
