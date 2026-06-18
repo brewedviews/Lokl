@@ -47,7 +47,9 @@ export default async function ProductDetailPage(
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-6xl mx-auto px-4 md:px-8 py-6 md:py-10 grid md:grid-cols-2 gap-6 md:gap-10">
-        <ProductGallery name={product.name} images={images} aiEnhanced={product.ai_enhanced} />
+        <div className="mx-3 md:mx-0">
+          <ProductGallery name={product.name} images={images} aiEnhanced={product.ai_enhanced} />
+        </div>
         <div data-testid="pdp-info">
           {product.store_id ? (
             <Link href={`/store/${product.store_id}`} data-testid="store-name-link" className="text-[11px] uppercase tracking-widest font-bold text-[#F59E0B] hover:underline">
@@ -65,7 +67,13 @@ export default async function ProductDetailPage(
                 ? "bg-amber-50 text-amber-700"
                 : "bg-slate-100 text-slate-600"
             }`}>
-              {product.store_opens_at_label || product.store_eta_message || product.store_badge}
+              {product.store_badge === "Closed"
+              ? `Store opens ${(product.store_opens_at_label || "").replace(/^opens at\s*/i, "") || "soon"}`
+              : product.store_badge === "Away"
+              ? "Back soon"
+              : product.store_badge === "Store Offline"
+              ? "Currently unavailable"
+              : product.store_eta_message || product.store_badge}
             </div>
           )}
           <div className="flex items-center gap-3 mt-3 text-xs">

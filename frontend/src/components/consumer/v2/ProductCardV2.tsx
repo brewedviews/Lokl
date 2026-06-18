@@ -144,13 +144,13 @@ export function ProductCardV2({ p, compact = false }: Props) {
             {p.mrp && p.mrp > p.price && <span className="text-[11px] text-[#94A3B8] line-through">₹{Number(p.mrp).toLocaleString()}</span>}
           </div>
           {p.store_badge === "Away" && (
-            <div className="text-[10px] font-semibold text-[#D97706]">May be delayed</div>
+            <div className="text-[10px] font-semibold text-[#D97706]">Back soon</div>
           )}
           {p.store_badge === "Closed" && p.store_opens_at_label && (
-            <div className="text-[10px] font-semibold text-[#64748B]">{p.store_opens_at_label}</div>
+            <div className="text-[10px] font-semibold text-[#64748B]">Store opens {(p.store_opens_at_label || "").replace(/^opens at\s*/i, "")}</div>
           )}
           {p.store_badge === "Store Offline" && (
-            <div className="text-[10px] font-semibold text-[#94A3B8]">Store Offline</div>
+            <div className="text-[10px] font-semibold text-[#94A3B8]">Currently unavailable</div>
           )}
           {(!p.store_badge || p.store_badge === "LIVE") && (
             compact ? (

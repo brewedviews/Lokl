@@ -21,7 +21,6 @@ export function StoreNotifyBanner({ badge, storeId, storeName, nextOpenLabel }: 
       <div className="mb-6 bg-[#F8F6F1] rounded-2xl p-4 border border-[#E5E2DC]">
         <p className="text-sm text-[#595959]">
           <span className="font-semibold text-[#1A2B4C]">{nextOpenLabel || "Closed"}</span>
-          {" · You can schedule orders for later delivery"}
         </p>
       </div>
     );

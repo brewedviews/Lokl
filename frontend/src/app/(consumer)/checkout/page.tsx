@@ -179,10 +179,12 @@ export default function CheckoutPage() {
       setCouponError(msg);
     } finally { setCouponLoading(false); }
   };
+  // Block checkout if any cart store is closed or offline.
+  const allStoresCanOrder = uniqueStores.every((sid) => !storeAvailMap[sid] || storeAvailMap[sid].can_order);
   // We allow Pay Now in multi-store carts (no fee added — legacy "FREE") OR
   // when the delivery estimate succeeded with deliverable=true. Estimates
   // that 4xx (non-deliverable address) disable the button with a reason.
-  const canPay = items.length > 0 && (
+  const canPay = allStoresCanOrder && items.length > 0 && (
     !cartStoreId  // multi-store carts skip the estimate
     || (estimate ? estimate.deliverable : !estimating)
   );
@@ -202,6 +204,11 @@ export default function CheckoutPage() {
     const customerToken = typeof window !== "undefined" ? localStorage.getItem("bf_customer_token") : null;
     if (!hasAuth || !customerToken) { router.push("/account"); return; }
     if (estimate && !estimate.deliverable) return toast.error(estimate.reason || "Delivery unavailable for this address");
+    const closedStore = uniqueStores.find((sid) => storeAvailMap[sid] && !storeAvailMap[sid].can_order);
+    if (closedStore) {
+      const info = storeAvailMap[closedStore];
+      return toast.error(`${info?.name ?? "A store"} is currently ${(info?.badge ?? "closed").toLowerCase()}. Please try again later.`);
+    }
 
     setPlacing(true);
 
@@ -298,15 +305,14 @@ export default function CheckoutPage() {
               <strong> {uniqueStoreNames.length} separate deliveries</strong> — one from each store.
             </div>
           )}
-          {uniqueStores.some((sid) => storeAvailMap[sid]?.rank === 3) && (
-            <div data-testid="scheduled-order-notice" className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800 flex items-start gap-2">
+          {!allStoresCanOrder && (
+            <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-800 flex items-start gap-2">
               <Info size={13} className="shrink-0 mt-0.5" />
               <span>
-                One or more stores are currently closed. Your order will be fulfilled when they open.
-                {uniqueStores.filter((sid) => storeAvailMap[sid]?.rank === 3).map((sid) => {
+                {uniqueStores.filter((sid) => storeAvailMap[sid] && !storeAvailMap[sid].can_order).map((sid) => {
                   const info = storeAvailMap[sid];
-                  return info?.opens_at_label ? ` ${info.name}: ${info.opens_at_label}.` : "";
-                }).join("")}
+                  return `${info?.name ?? "A store"} is currently ${(info?.badge ?? "closed").toLowerCase()}${info?.opens_at_label ? ` · ${info.opens_at_label}` : ""}.`;
+                }).join(" ")}
               </span>
             </div>
           )}
@@ -379,15 +385,7 @@ export default function CheckoutPage() {
             {(() => {
               const avail = cartStoreId ? storeAvailMap[cartStoreId] : null;
               const badge = avail?.badge;
-              if (badge === "Closed") return (
-                <>
-                  <div className="flex justify-between text-xs items-center">
-                    <span className="text-[#595959] inline-flex items-center gap-1.5"><Clock size={11} /> Estimated arrival</span>
-                    <span className="font-semibold text-blue-700" data-testid="delivery-eta">{avail!.opens_at_label ?? "When store opens"}</span>
-                  </div>
-                  <p className="text-[10px] text-blue-700 font-semibold">This is a scheduled order — processed at store opening</p>
-                </>
-              );
+              if (badge === "Closed") return null;
               if (badge === "Unavailable") return (
                 <div className="flex justify-between text-xs items-center">
                   <span className="text-[#595959] inline-flex items-center gap-1.5"><Clock size={11} /> Estimated arrival</span>
@@ -417,7 +415,7 @@ export default function CheckoutPage() {
                     <div key={sid} className="flex justify-between items-center">
                       <span className="text-[#595959] truncate max-w-[60%]">{info.name}</span>
                       <span className={`font-semibold ${info.rank === 3 ? "text-blue-700" : info.rank >= 4 ? "text-red-500" : "text-emerald-700"}`}>
-                        {info.rank === 3 ? (info.opens_at_label || "Scheduled") : info.rank >= 4 ? "Unavailable" : info.eta_message || "~30 min"}
+                        {info.rank === 3 ? "Closed" : info.rank >= 4 ? "Unavailable" : info.eta_message || "~30 min"}
                       </span>
                     </div>
                   );
