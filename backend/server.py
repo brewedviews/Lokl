@@ -2423,13 +2423,20 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
     # This merchant's UNIQUE 4-digit OTP (each store gets its own; customer
     # receives the OTP only after that merchant accepts).
     my_otp = (o.get("merchant_otps") or {}).get(mid) or o.get("otp", "")
+    if not my_otp:
+        import random as _random
+        my_otp = str(_random.randint(1000, 9999))
+        log.warning("[rider-pickup] no OTP found for order=%s mid=%s — generated fallback %s", oid, mid, my_otp)
     if cust_phone:
         try: notify_order_accepted(cust_phone, oid, (m or {}).get("store_name", "your store"), otp=my_otp)
         except Exception: pass
     rider_phone = os.environ.get("RIDER_PHONE", "").strip()
+    if not rider_phone:
+        log.warning("[rider-pickup] RIDER_PHONE not set — skipping rider notification for order %s", oid)
     # Per-merchant rider pickup — each store's leg is its own dispatch with its
     # own OTP. Fires the moment THIS merchant accepts (not gated on all).
     if rider_phone:
+        log.info("[rider-pickup] attempting notify rider=%s order=%s", rider_phone, oid)
         try:
             addr = o.get("address") or {}
             my_items = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid] or o.get("items", [])
@@ -2453,7 +2460,8 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
                 customer_lat=addr.get("lat") or 0,
                 customer_lng=addr.get("lng") or 0,
             )
-        except Exception: pass
+        except Exception as e:
+            log.error("[rider-pickup] failed order=%s error=%s", oid, e)
     return {"ok": True, "otp": my_otp, "all_accepted": all_accepted, "my_state": "accepted"}
 
 @api.post("/merchant/orders/{oid}/handed-to-rider")
@@ -4362,6 +4370,11 @@ async def _auto_cancel_stale_orders():
 
 @app.on_event("startup")
 async def startup_seed():
+    log.info("[startup] RIDER_PHONE=%s APP_URL=%s TWILIO_FROM=%s",
+        bool(os.environ.get("RIDER_PHONE")),
+        os.environ.get("APP_URL", "NOT SET"),
+        bool(os.environ.get("TWILIO_WHATSAPP_FROM")),
+    )
     # ----- MongoDB version + geo support check -----
     try:
         info = await client.server_info()
