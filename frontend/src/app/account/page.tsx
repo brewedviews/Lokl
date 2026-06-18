@@ -157,7 +157,7 @@ export default function CustomerAccountPage() {
                   if (t.key === "wishlist") { window.location.href = "/wishlist"; return; }
                   setActiveTile(t.key);
                 }}
-                className={`relative bg-white rounded-2xl p-3 sm:p-4 flex flex-col items-center justify-center gap-2 transition-all
+                className={`relative bg-white rounded-2xl p-3 sm:p-4 ${t.key === "wishlist" ? "hidden sm:flex" : "flex"} flex-col items-center justify-center gap-2 transition-all
                   ${active ? "border-2 border-[#0A1F5C] bg-[#0A1F5C]/[0.04] shadow-md" : "border border-[#E5E2DC] hover:border-[#0A1F5C] hover:shadow-md"}`}
               >
                 <Icon size={22} strokeWidth={1.6} className={`${t.soon ? "text-[#94A3B8]" : "text-[#0A1F5C]"}`} />

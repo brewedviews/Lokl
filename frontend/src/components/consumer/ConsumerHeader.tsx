@@ -35,6 +35,7 @@ interface SuggestResponse { products: SearchProduct[]; stores: SearchStore[] }
 interface SavedAddress {
   address_id: string;
   label?: string;
+  line1?: string;
   full_address?: string;
   city_name?: string;
   is_default?: boolean;
@@ -292,10 +293,6 @@ function LocationChip({ phone }: { phone: string | null }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
-  const lat = useLocationStore((s) => s.lat);
-  const lng = useLocationStore((s) => s.lng);
-  const cluster = useLocationStore((s) => s.cluster);
-  const cityName = useLocationStore((s) => s.cityName);
   const permission = useLocationStore((s) => s.permission);
   const requestLocation = useLocationStore((s) => s.requestLocation);
   const setLocation = useLocationStore((s) => s.setLocation);
@@ -352,17 +349,11 @@ function LocationChip({ phone }: { phone: string | null }) {
   const addrPreview = defaultAddr ? clipAddress(defaultAddr) : null;
   // Mobile value can be longer because the chip flexes to fill the row.
   const mobileValue = mounted ? (
-    addrPreview ? `${addrPreview.label} · ${addrPreview.preview}`
-    : cluster ? cluster
-    : (lat != null && lng != null) ? "Detecting..."
-    : cityName || "Bhilai"
+    addrPreview ? `${addrPreview.label} · ${addrPreview.preview}` : "Bhilai"
   ) : "Bhilai";
   // Desktop chip is fixed-ish width — keep it short.
   const desktopValue = mounted ? (
-    addrPreview ? addrPreview.label
-    : cluster ? cluster
-    : (lat != null && lng != null) ? "Detecting..."
-    : cityName || "Bhilai"
+    addrPreview ? addrPreview.label : "Bhilai"
   ) : "Bhilai";
 
   const showDetect = permission !== "granted";
@@ -479,9 +470,11 @@ function LocationChip({ phone }: { phone: string | null }) {
 
 function clipAddress(a: SavedAddress): { label: string; preview: string } {
   const label = a.label || "Address";
-  // "Home • Smriti Nagar"-style line: prefer the comma-separated locality
-  // fragment when present, falling back to the first ~24 chars of the full
-  // address. This keeps the chip readable on a 320px viewport.
+  const line1 = (a.line1 || "").trim();
+  if (line1) {
+    const preview = line1.length > 22 ? line1.slice(0, 20) + "…" : line1;
+    return { label, preview };
+  }
   const full = (a.full_address || "").trim();
   const seg = full.split(",").map((s) => s.trim()).find((s) => s.length > 2 && s.length < 30);
   const preview = seg || (full.length > 28 ? full.slice(0, 26) + "…" : full || (a.city_name ?? "Bhilai"));

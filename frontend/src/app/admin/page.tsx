@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Shield, Users, Store as StoreIcon, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop } from "lucide-react";
+import { Shield, Users, Store as StoreIcon, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop, TicketPercent } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
 import { useAdminAuthStore } from "@/stores";
 import { ReturnsTab } from "@/components/admin/ReturnsTab";
@@ -28,7 +28,7 @@ import { BankRequestsTab } from "@/components/admin/BankRequestsTab";
 import { LiveMetricsTab } from "@/components/admin/LiveMetricsTab";
 import { CmsTab } from "@/components/admin/CmsTab";
 
-type Tab = "stats" | "live" | "merchants" | "bank" | "stores" | "products" | "orders" | "returns" | "customers" | "cms" | "waitlist";
+type Tab = "stats" | "live" | "merchants" | "bank" | "stores" | "products" | "orders" | "returns" | "customers" | "cms" | "waitlist" | "coupons";
 
 interface Stats {
   submitted_kyc: number;
@@ -71,6 +71,7 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ size?: n
   { id: "customers", label: "Customers", icon: UserSquare2 },
   { id: "cms", label: "Homepage CMS", icon: LayoutPanelTop },
   { id: "waitlist", label: "Waitlist", icon: Users },
+  { id: "coupons", label: "Coupons", icon: TicketPercent },
 ];
 
 export default function AdminDashboardPage() {
@@ -118,6 +119,7 @@ export default function AdminDashboardPage() {
         {tab === "customers" && <CustomersTab />}
         {tab === "cms" && <CmsTab />}
         {tab === "waitlist" && <WaitlistTab />}
+        {tab === "coupons" && <CouponsTab />}
       </main>
     </div>
   );
@@ -765,6 +767,126 @@ function WaitlistTab() {
             </table>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------- Coupons ----------------
+interface AdminCoupon {
+  id: string;
+  code: string;
+  discount_type: string;
+  discount_value: number;
+  min_order_value: number;
+  max_uses?: number | null;
+  used_count: number;
+  expires_at?: string | null;
+  created_at: string;
+}
+
+const BLANK_COUPON = { code: "", discount_type: "percent", discount_value: "", min_order_value: "", max_uses: "", expires_at: "" };
+
+function CouponsTab() {
+  const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
+  const [form, setForm] = useState(BLANK_COUPON);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    try {
+      const data = await adminFetch<{ coupons: AdminCoupon[] }>("/api/admin/coupons");
+      setCoupons(data.coupons ?? []);
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const create = async () => {
+    if (!form.code.trim() || !form.discount_value) return toast.error("Code and discount value are required");
+    setSaving(true);
+    try {
+      await adminFetch("/api/admin/coupons", {
+        method: "POST",
+        body: JSON.stringify({
+          code: form.code.trim().toUpperCase(),
+          discount_type: form.discount_type,
+          discount_value: parseFloat(form.discount_value),
+          min_order_value: parseFloat(form.min_order_value || "0"),
+          max_uses: form.max_uses ? parseInt(form.max_uses) : null,
+          expires_at: form.expires_at || null,
+        }),
+      });
+      toast.success("Coupon created");
+      setForm(BLANK_COUPON);
+      void load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setSaving(false); }
+  };
+
+  const remove = async (id: string) => {
+    if (!confirm("Delete this coupon?")) return;
+    try {
+      await adminFetch(`/api/admin/coupons/${id}`, { method: "DELETE" });
+      toast.success("Deleted");
+      void load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  };
+
+  return (
+    <div data-testid="coupons-panel">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-display text-2xl font-bold text-[#0A1F5C]">Coupons</h2>
+        <button onClick={() => void load()} className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0A1F5C] hover:underline"><RefreshCw size={12} /> Refresh</button>
+      </div>
+
+      <div className="bg-white border border-[#E5E2DC] rounded-2xl p-4 mb-6 space-y-3">
+        <h3 className="font-semibold text-[#0A1F5C] text-sm">New Coupon</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <input placeholder="Code (e.g. SAVE20)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} className="px-3 py-2 border border-[#E5E2DC] rounded-xl text-sm outline-none focus:border-[#0A1F5C]" />
+          <select value={form.discount_type} onChange={(e) => setForm({ ...form, discount_type: e.target.value })} className="px-3 py-2 border border-[#E5E2DC] rounded-xl text-sm outline-none focus:border-[#0A1F5C]">
+            <option value="percent">Percent off</option>
+            <option value="flat">Flat off (₹)</option>
+          </select>
+          <input placeholder="Discount value" type="number" min="0" value={form.discount_value} onChange={(e) => setForm({ ...form, discount_value: e.target.value })} className="px-3 py-2 border border-[#E5E2DC] rounded-xl text-sm outline-none focus:border-[#0A1F5C]" />
+          <input placeholder="Min order (₹, 0 = none)" type="number" min="0" value={form.min_order_value} onChange={(e) => setForm({ ...form, min_order_value: e.target.value })} className="px-3 py-2 border border-[#E5E2DC] rounded-xl text-sm outline-none focus:border-[#0A1F5C]" />
+          <input placeholder="Max uses (blank = unlimited)" type="number" min="1" value={form.max_uses} onChange={(e) => setForm({ ...form, max_uses: e.target.value })} className="px-3 py-2 border border-[#E5E2DC] rounded-xl text-sm outline-none focus:border-[#0A1F5C]" />
+          <input placeholder="Expires at" type="date" value={form.expires_at} onChange={(e) => setForm({ ...form, expires_at: e.target.value })} className="px-3 py-2 border border-[#E5E2DC] rounded-xl text-sm outline-none focus:border-[#0A1F5C]" />
+        </div>
+        <button onClick={create} disabled={saving} className="px-5 py-2 bg-[#0A1F5C] text-white text-sm font-semibold rounded-xl hover:bg-[#0A1F5C]/90 disabled:opacity-50">
+          {saving ? "Saving…" : "Create Coupon"}
+        </button>
+      </div>
+
+      <div className="bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-[#FDFBF7] text-left text-xs uppercase text-[#595959]">
+            <tr>
+              <th className="px-4 py-3">Code</th>
+              <th className="px-4 py-3">Discount</th>
+              <th className="px-4 py-3">Min order</th>
+              <th className="px-4 py-3">Uses</th>
+              <th className="px-4 py-3">Expires</th>
+              <th className="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {coupons.map((c) => (
+              <tr key={c.id} className="border-t border-[#E5E2DC]">
+                <td className="px-4 py-3 font-mono font-bold text-[#0A1F5C]">{c.code}</td>
+                <td className="px-4 py-3 text-[#595959]">{c.discount_type === "percent" ? `${c.discount_value}%` : `₹${c.discount_value}`}</td>
+                <td className="px-4 py-3 text-[#595959]">{c.min_order_value ? `₹${c.min_order_value}` : "—"}</td>
+                <td className="px-4 py-3 text-[#595959]">{c.used_count}{c.max_uses ? ` / ${c.max_uses}` : ""}</td>
+                <td className="px-4 py-3 text-[#595959]">{c.expires_at ? c.expires_at.slice(0, 10) : "—"}</td>
+                <td className="px-4 py-3">
+                  <button onClick={() => void remove(c.id)} className="text-xs text-red-500 hover:underline font-semibold">Delete</button>
+                </td>
+              </tr>
+            ))}
+            {coupons.length === 0 && (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-[#595959]">No coupons yet.</td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

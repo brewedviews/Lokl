@@ -131,7 +131,6 @@ export default function CartPage() {
             <h3 className="font-display text-xl font-bold text-[#1A2B4C] mb-4">Order Summary</h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between"><span className="text-[#595959]">Subtotal</span><span>₹{total.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-[#595959]">Delivery</span><span className="text-[#4F7363]">FREE</span></div>
               <div className="border-t border-[#E5E2DC] my-3"></div>
               <div className="flex justify-between font-bold text-lg"><span>Total</span><span className="text-[#1A2B4C]">₹{total.toLocaleString()}</span></div>
             </div>

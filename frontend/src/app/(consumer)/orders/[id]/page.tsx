@@ -74,7 +74,12 @@ export default function OrderTrackingPage() {
 
   const rateProduct = async (productId: string, star: number) => {
     try {
-      await apiClient.post(`/api/orders/${id}/rate`, { product_id: productId, rating: star });
+      const token = typeof window !== "undefined" ? localStorage.getItem("bf_customer_token") : null;
+      await apiClient.post(
+        `/api/orders/${id}/rate`,
+        { product_id: productId, rating: star },
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
+      );
       setRated((prev) => ({ ...prev, [productId]: true }));
       toast.success("Thanks for your rating!");
     } catch (e) {

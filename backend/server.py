@@ -2396,6 +2396,9 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
     addr_city = (payload.address.get("city") or "").strip().lower()
     if addr_city not in SERVICEABLE_CITIES:
         raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
+    addr_pincode = str(payload.address.get("pincode") or "").strip()
+    if not addr_pincode.startswith("490"):
+        raise HTTPException(400, "We only deliver to Bhilai pincodes (490xxx). Please check your pincode.")
 
     # Pre-check store availability before any stock reservations.
     payload_store_ids = list({it.get("store_id") for it in payload.items if it.get("store_id")})
@@ -4104,6 +4107,8 @@ async def add_customer_address(phone: str, payload: dict, user: dict = Depends(c
     phone = _ensure_customer_phone_match(user, phone)
     if not payload.get("line1") or not payload.get("pincode"):
         raise HTTPException(400, "line1 and pincode required")
+    if not str(payload.get("pincode", "")).strip().startswith("490"):
+        raise HTTPException(400, "We only deliver to Bhilai pincodes (490xxx). Please check your pincode.")
     addr = {
         "id": f"addr-{uuid.uuid4().hex[:8]}",
         "name": payload.get("name", ""),

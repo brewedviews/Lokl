@@ -27,12 +27,12 @@ type CategoryRow = CategoryCount & { slug: string; id?: string; product_count?: 
 // Display order + display name overrides. The spec spells "Beauty &
 // Personal Care" but the DB row is just "Beauty" — we override here.
 const VISIBLE: Array<{ slug: string; label: string }> = [
-  { slug: "men", label: "Men" },
   { slug: "women", label: "Women" },
+  { slug: "men", label: "Men" },
+  { slug: "ethnic", label: "Ethnic Wear" },
   { slug: "footwear", label: "Footwear" },
-  { slug: "accessories", label: "Accessories" },
+  { slug: "lingerie", label: "Lingerie & Innerwear" },
   { slug: "kids", label: "Kids" },
-  { slug: "beauty", label: "Beauty & Personal Care" },
 ];
 
 export function ShopByCategory() {
