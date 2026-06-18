@@ -27,6 +27,10 @@ from typing import Optional
 
 log = logging.getLogger("lokl.notify")
 
+APP_URL = os.environ.get("APP_URL", "https://www.shoplokl.in")
+SUPPORT_PHONE = os.environ.get("SUPPORT_PHONE", "+919999999999")
+SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "support@lokl.in")
+
 # Status values Twilio returns. See https://www.twilio.com/docs/sms/send-messages#monitor-the-status-of-your-message
 _TERMINAL_OK = {"delivered", "read", "sent"}
 _TERMINAL_FAIL = {"failed", "undelivered"}
@@ -74,7 +78,7 @@ def _to_whatsapp_addr(phone: str) -> Optional[str]:
 
 def _whatsapp_sender() -> str:
     """Return the configured WhatsApp sender, adding the `whatsapp:` prefix if missing."""
-    s = (os.environ.get("TWILIO_WHATSAPP_FROM") or "whatsapp:+14155238886").strip()
+    s = (os.environ.get("TWILIO_WHATSAPP_FROM") or "whatsapp:+14155238886").strip().strip("'\"`")
     return s if s.startswith("whatsapp:") else f"whatsapp:{s}"
 
 
@@ -221,22 +225,25 @@ def send_with_fallback(phone: str, body: str) -> str:
 
     Returns `"whatsapp"`, `"sms"`, or `"none"`.
     """
+    log.info("[NOTIFY] %s <- %.80s", phone, body.replace("\n", " "))
     cli = _get_twilio()
     if cli is None:
-        log.info("[NOTIFY mock] %s -> %s", phone, body[:80])
+        log.info("[NOTIFY mock] no Twilio client — skipping delivery for %s", phone)
         return "none"
     # 1) Try WhatsApp.
     to_wa = _to_whatsapp_addr(phone)
     if to_wa:
         try:
             msg = cli.messages.create(from_=_whatsapp_sender(), to=to_wa, body=body)
-            log.info("[WA] %s sent (sid=%s)", to_wa, msg.sid)
+            log.info("[NOTIFY] WhatsApp OK sid=%s to=%s", msg.sid, to_wa)
             return "whatsapp"
         except Exception as e:
-            log.info("[WA] %s submit failed → SMS fallback: %s", to_wa, e)
+            log.warning("[NOTIFY] WhatsApp failed for %s (%s) — falling back to SMS", to_wa, e)
     # 2) SMS fallback.
     if send_sms(phone, body):
+        log.info("[NOTIFY] SMS fallback delivered to %s", phone)
         return "sms"
+    log.warning("[NOTIFY] all channels failed for %s", phone)
     return "none"
 
 
@@ -284,7 +291,7 @@ def notify_order_placed(customer_phone: str, order_id: str, total: float, eta_mi
     body = (
         f"Lokl: Order {order_id} confirmed! "
         f"Amount Rs.{total:,.0f}. Store is preparing it (ETA ~{eta_min} min). "
-        f"Track: lokl.in/orders/{order_id}"
+        f"Track: {APP_URL}/orders/{order_id}"
     )
     send_with_fallback(customer_phone, body)
 
@@ -315,16 +322,19 @@ def notify_order_rejected(customer_phone: str, order_id: str) -> None:
 
 
 def notify_rider_pickup(rider_phone: str, *, order_id: str, otp: str, customer_name: str,
-                        customer_phone: str, pickup: str, drop: str, items: list[dict]) -> None:
+                        customer_phone: str, pickup: str, drop: str, items: list[dict],
+                        upi_qr_url: str = "") -> None:
     """Notify the registered rider when a merchant accepts an order."""
     item_lines = "; ".join(
         f"{it.get('qty', 1)}x {it.get('name', 'Item')}" for it in (items or [])
     ) or "(see app)"
+    qr_line = f"UPI QR: {upi_qr_url} " if upi_qr_url else ""
     body = (
         f"Lokl pickup — Order {order_id} OTP {otp}. "
         f"Pickup: {pickup} → Drop: {drop}. "
         f"Customer: {customer_name} ({customer_phone}). "
         f"Items: {item_lines}. "
+        f"{qr_line}"
         f"Reply '{otp} - Delivered' once customer hands the OTP back."
     )
     send_with_fallback(rider_phone, body)
@@ -334,7 +344,7 @@ def notify_order_on_the_way(customer_phone: str, order_id: str, otp: str) -> Non
     body = (
         f"Lokl: Order {order_id} is on the way! "
         f"Share OTP {otp} with the rider on arrival. "
-        f"Track: lokl.in/orders/{order_id}"
+        f"Track: {APP_URL}/orders/{order_id}"
     )
     send_with_fallback(customer_phone, body)
 
@@ -350,7 +360,7 @@ def notify_order_cancelled(customer_phone: str, order_id: str, reason: str) -> N
 def notify_order_delivered(customer_phone: str, order_id: str) -> None:
     body = (
         f"Lokl: Order {order_id} has been delivered. "
-        f"Loved it? Rate your store in 1 tap on lokl.in."
+        f"Loved it? Rate your store in 1 tap: {APP_URL}"
     )
     send_with_fallback(customer_phone, body)
 
@@ -376,6 +386,6 @@ def notify_rider_return_pickup(rider_phone: str, *, return_id: str, order_id: st
 def notify_return_status(customer_phone: str, return_id: str, status_label: str) -> None:
     body = (
         f"Lokl: Return {return_id} update — {status_label}. "
-        f"Track at lokl.in/returns/{return_id}"
+        f"Track at {APP_URL}/returns/{return_id}"
     )
     send_with_fallback(customer_phone, body)

@@ -50,6 +50,8 @@ def create_token(user_id: str, role: str = "merchant", token_type: str = "access
         delta = timedelta(days=JWT_REFRESH_DAYS)
     elif role == "admin":
         delta = timedelta(hours=8)
+    elif role == "customer":
+        delta = timedelta(days=365)
     else:
         delta = timedelta(minutes=JWT_ACCESS_MIN)
     payload = {

@@ -1,26 +1,12 @@
 "use client";
 
 /**
- * Checkout — delivery estimate + Razorpay Checkout wiring.
- *
- * Flow:
- *   1. Customer picks a saved address (or fills a new one).
- *   2. As soon as we have a single-store cart + city=Bhilai address, we call
- *      POST /api/v1/delivery/estimate to compute the fee + ETA. Customer-side
- *      lat/lng is the Bhilai centroid by default (the pilot is one city).
- *   3. The total shown = cart subtotal + fee from the estimate API.
- *   4. On "Pay Now" we POST /api/orders with payment_method=razorpay; the
- *      backend creates the Mongo order + Razorpay order in one go and echoes
- *      `razorpay_order_id`, `razorpay_key_id`, `amount_paise`.
- *   5. We open the Razorpay Checkout modal with those values.
- *   6. handler() fires on success → clearCart → redirect to /orders/[id].
- *      The webhook handles payment_status=paid + merchant notification.
- *   7. modal.ondismiss → toast "Payment cancelled", stay on checkout.
+ * Checkout — delivery estimate + COD order placement.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { CreditCard, Wallet, Banknote, MapPin, Plus, CheckCircle2, Truck, Clock, Loader2, Info } from "lucide-react";
+import { Banknote, MapPin, Plus, CheckCircle2, Truck, Clock, Loader2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
@@ -28,8 +14,8 @@ import { getErrorMessage } from "@/lib/api-error";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { CustomerOtpLogin } from "@/components/consumer/CustomerOtpLogin";
 import { Footer } from "@/components/consumer/Footer";
-import { useRazorpay, type RazorpayResponse } from "@/hooks/useRazorpay";
-import type { CustomerAddress, PaymentMethod } from "@/types";
+import { useRazorpay } from "@/hooks/useRazorpay";
+import type { CustomerAddress } from "@/types";
 
 interface StoreAvailInfo {
   name: string;
@@ -44,7 +30,6 @@ const BLANK_ADDR = { name: "", phone: "", line1: "", landmark: "", city: "Bhilai
 // Pilot is Bhilai-only; centroid is good enough until we wire geolocation.
 const BHILAI_LAT = 21.1938;
 const BHILAI_LNG = 81.3509;
-const RAZORPAY_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
 
 type DeliveryEstimate = {
   deliverable: boolean;
@@ -68,7 +53,7 @@ export default function CheckoutPage() {
   const [savedAddresses, setSavedAddresses] = useState<CustomerAddress[]>([]);
   const [selectedId, setSelectedId] = useState("__new__");
   const [addr, setAddr] = useState({ ...BLANK_ADDR, phone: phone?.slice(-10) ?? "" });
-  const [payment, setPayment] = useState<PaymentMethod>("RAZORPAY");
+  const [payment] = useState<"COD">("COD");
   const [placing, setPlacing] = useState(false);
   const [estimate, setEstimate] = useState<DeliveryEstimate>(null);
   const [estimating, setEstimating] = useState(false);
@@ -195,88 +180,18 @@ export default function CheckoutPage() {
 
     setPlacing(true);
 
-    // COD / UPI branch — create order directly, no payment modal.
-    if (payment !== "RAZORPAY") {
-      try {
-        const order = await api.orders.create({
-          items, address: addr, total: grandTotal, payment_method: payment,
-          customer: { name: addr.name, phone: normalizePhone(addr.phone) },
-        });
-        clearCart();
-        toast.success("Order placed!");
-        router.push(`/orders/${order.id}`);
-      } catch (e) {
-        toast.error(getErrorMessage(e));
-        setPlacing(false);
-      }
-      return;
-    }
-
-    // Razorpay branch:
-    // Step 1 — create a Razorpay order (does NOT touch our DB yet).
-    // Step 2 — open the modal. On cancel: toast + stay on checkout, nothing created.
-    // Step 3 — on payment success: send verified payment proof to POST /api/orders.
-    if (!razorpay.loaded) {
-      toast.error("Payment unavailable. Please refresh.");
-      setPlacing(false);
-      return;
-    }
-
     try {
-      const rpResp = await apiClient.post<{
-        razorpay_order_id: string;
-        amount_paise: number;
-        currency: string;
-        key_id: string;
-      }>("/api/payments/razorpay/create-order", {
-        amount: grandTotal,
-        customer_name: addr.name,
-        customer_phone: normalizePhone(addr.phone),
+      const order = await api.orders.create({
+        items, address: addr, total: grandTotal, payment_method: payment,
+        customer: { name: addr.name, phone: normalizePhone(addr.phone) },
       });
-      const rpData = rpResp.data;
-
-      razorpay.openCheckout({
-        key: rpData.key_id || RAZORPAY_KEY_ID,
-        amount: rpData.amount_paise,
-        currency: "INR",
-        order_id: rpData.razorpay_order_id,
-        name: "Lokl",
-        description: "Local fashion, delivered",
-        prefill: { name: addr.name, contact: addr.phone, email: "" },
-        theme: { color: "#0A1F5C" },
-        handler: (resp: RazorpayResponse) => {
-          // Payment succeeded — now create the Lokl order with the verified proof.
-          (async () => {
-            try {
-              const result = await apiClient.post<{ id: string }>("/api/orders", {
-                items, address: addr, total: grandTotal, payment_method: "RAZORPAY",
-                customer: { name: addr.name, phone: normalizePhone(addr.phone) },
-                razorpay_payment_id: resp.razorpay_payment_id,
-                razorpay_order_id: resp.razorpay_order_id,
-                razorpay_signature: resp.razorpay_signature,
-              });
-              clearCart();
-              toast.success("Payment successful!");
-              router.push(`/orders/${result.data.id}`);
-            } catch (e) {
-              toast.error(getErrorMessage(e));
-              setPlacing(false);
-            }
-          })();
-        },
-        modal: {
-          ondismiss: () => {
-            toast("Payment cancelled", { description: "Your order was not placed. You can retry." });
-            setPlacing(false);
-          },
-          escape: true,
-        },
-      });
+      clearCart();
+      toast.success("Order placed!");
+      router.push(`/orders/${order.id}`);
     } catch (e) {
       toast.error(getErrorMessage(e));
       setPlacing(false);
     }
-    // placing stays true while the modal is open; ondismiss or handler resets it
   };
 
   if (!hasAuth) {
@@ -342,18 +257,10 @@ export default function CheckoutPage() {
 
           <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC]">
             <h2 className="font-display text-2xl font-bold text-[#1A2B4C] mb-4">Payment</h2>
-            <div className="grid grid-cols-3 gap-3">
-              {([{ k: "RAZORPAY", i: CreditCard, label: "Card / UPI" }, { k: "UPI", i: Wallet, label: "UPI" }, { k: "COD", i: Banknote, label: "COD" }] as const).map(({ k, i: Icon, label }) => (
-                <button key={k} onClick={() => setPayment(k as PaymentMethod)} data-testid={`pay-${k.toLowerCase()}`}
-                  className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition ${payment === k ? "border-[#1A2B4C] bg-[#1A2B4C]/5" : "border-[#E5E2DC]"}`}>
-                  <Icon size={20} className={payment === k ? "text-[#E68910]" : "text-[#595959]"} />
-                  <span className="font-semibold text-sm">{label}</span>
-                </button>
-              ))}
+            <div className="flex items-center gap-3 p-4 rounded-2xl border-2 border-[#1A2B4C] bg-[#1A2B4C]/5" data-testid="pay-cod">
+              <Banknote size={20} className="text-[#E68910]" />
+              <span className="font-semibold text-sm">Pay at Delivery</span>
             </div>
-            {payment === "RAZORPAY" && (
-              <p className="text-xs text-[#595959] mt-3">Cards, UPI, NetBanking via Razorpay. Test mode active — use card <code className="bg-[#FDFBF7] px-1 rounded">4111 1111 1111 1111</code>, any future expiry and CVV.</p>
-            )}
           </div>
         </div>
 
@@ -473,12 +380,8 @@ export default function CheckoutPage() {
           </div>
           <button onClick={place} disabled={placing || !canPay} data-testid="place-order-btn"
             className="w-full mt-5 px-6 py-3.5 rounded-full bg-[#E68910] text-white font-semibold hover:bg-[#C9770E] disabled:opacity-50 transition inline-flex items-center justify-center gap-2">
-            {placing ? <><Loader2 size={14} className="animate-spin" /> {payment === "RAZORPAY" ? "Opening Razorpay…" : "Placing…"}</>
-              : payment === "RAZORPAY" ? `Pay ₹${grandTotal.toLocaleString()}` : "Place order"}
+            {placing ? <><Loader2 size={14} className="animate-spin" /> Placing…</> : "Place order"}
           </button>
-          {payment === "RAZORPAY" && !razorpay.loaded && (
-            <p className="text-[10px] text-[#595959] mt-2 text-center">Loading Razorpay…</p>
-          )}
         </div>
       </div>
       <Footer />

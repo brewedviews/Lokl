@@ -116,7 +116,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 # Updates last_seen_at on the store doc after every successful authenticated
 # merchant API call. Used by _merchant_is_active() to suppress product/store
 # feeds when a merchant is logged out during their working hours.
-MERCHANT_IDLE_TIMEOUT_MIN = 30
+MERCHANT_IDLE_TIMEOUT_MIN = 180
 
 @app.middleware("http")
 async def _track_merchant_last_seen(request: Request, call_next):
@@ -184,6 +184,7 @@ class StorefrontUpdate(BaseModel):
     area: Optional[str] = ""
     area_label: Optional[str] = ""
     pincode: Optional[str] = ""
+    upi_qr_url: Optional[str] = ""
 
 class ProductCreate(BaseModel):
     name: str; price: float; mrp: Optional[float] = None
@@ -269,18 +270,7 @@ async def login(request: Request, response: Response, payload: MerchantLogin):
     m = await db.merchants.find_one({"email": payload.email}, {"_id": 0})
     if not m or not verify_password(payload.password, m["password_hash"]):
         raise HTTPException(401, "Invalid credentials")
-    # Force the store offline on every login — the merchant must explicitly
-    # toggle it online from the dashboard. Prevents stores from accidentally
-    # showing as open after the merchant closed their browser the previous day.
-    store_id = f"store-m-{m['id']}"
-    await db.stores.update_one({"id": store_id}, {"$set": {"online": False}})
-    # Guard the dotted update — a brand-new merchant has `storefront: null`
-    # and `$set` would error trying to write `null.online`. iter-29 fix.
-    if isinstance(m.get("storefront"), dict):
-        await db.merchants.update_one({"id": m["id"]}, {"$set": {"storefront.online": False}})
     safe = {k: v for k, v in m.items() if k != "password_hash"}
-    if isinstance(safe.get("storefront"), dict):
-        safe["storefront"]["online"] = False
     _set_refresh_cookie(response, create_token(m["id"], "merchant", "refresh"))
     return {"token": create_token(m["id"], "merchant", "access"), "merchant": safe}
 
@@ -645,17 +635,7 @@ async def merchant_verify_otp(request: Request, response: Response, payload: Mer
     m = await db.merchants.find_one({"id": rec["merchant_id"]}, {"_id": 0})
     if not m:
         raise HTTPException(404, "Merchant account not found")
-    # Mirror the safety toggle from email login: force the store offline so
-    # the merchant must consciously open it after sign-in. Guard the dotted
-    # update — a brand-new merchant has `storefront: null` and `$set` would
-    # error trying to write `null.online`.
-    store_id = f"store-m-{m['id']}"
-    await db.stores.update_one({"id": store_id}, {"$set": {"online": False}})
-    if isinstance(m.get("storefront"), dict):
-        await db.merchants.update_one({"id": m["id"]}, {"$set": {"storefront.online": False}})
     safe = {k: v for k, v in m.items() if k != "password_hash"}
-    if isinstance(safe.get("storefront"), dict):
-        safe["storefront"]["online"] = False
     out = JSONResponse({
         "token": create_token(m["id"], "merchant", "access"),
         "merchant": safe,
@@ -1695,12 +1675,12 @@ def _store_availability(store: dict) -> dict:
     """Return full availability descriptor for a store.
 
     State matrix (rank 1=best):
-      Toggle OFF                                     → rank 4, Store Offline, can_order=False
-      Toggle ON + outside hours                      → rank 3, Closed,        can_order=True
-      Toggle ON + in hours + last_seen < 30 min      → rank 1, LIVE,          can_order=True
-      Toggle ON + in hours + last_seen 30–90 min     → rank 2, Away,          can_order=True
-      Toggle ON + in hours + last_seen > 90 min      → rank 4, Store Offline, can_order=False
-      Toggle ON + in hours + no last_seen (new store)→ rank 1, LIVE,          can_order=True
+      Toggle OFF                                      → rank 4, Store Offline, can_order=False
+      Toggle ON + outside hours                       → rank 3, Closed,        can_order=True
+      Toggle ON + in hours + last_seen < 60 min       → rank 1, LIVE,          can_order=True
+      Toggle ON + in hours + last_seen 60–180 min     → rank 2, Away,          can_order=True
+      Toggle ON + in hours + last_seen > 180 min      → rank 4, Store Offline, can_order=False
+      Toggle ON + in hours + no last_seen (new store) → rank 1, LIVE,          can_order=True
     """
     def _fmt_time(t: str) -> str:
         try:
@@ -1756,10 +1736,10 @@ def _store_availability(store: dict) -> dict:
     try:
         last_dt = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
         elapsed_min = (datetime.now(timezone.utc) - last_dt).total_seconds() / 60
-        if elapsed_min < 30:
+        if elapsed_min < 60:
             return {"rank": 1, "badge": "LIVE", "badge_color": "green",
                     "can_order": True, "eta_message": "Delivery in ~30 mins", "opens_at_label": None}
-        if elapsed_min < 90:
+        if elapsed_min < 180:
             return {"rank": 2, "badge": "Away", "badge_color": "yellow",
                     "can_order": True, "eta_message": "May be delayed · Store is away", "opens_at_label": None}
         return {"rank": 4, "badge": "Store Offline", "badge_color": "red",
@@ -2455,13 +2435,14 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
             pickup = (m or {}).get("store_name", "Store") + " · " + (m or {}).get("business_address", "Bhilai")
             drop_parts = [addr.get("line1", ""), addr.get("landmark", ""), addr.get("city", "Bhilai"), addr.get("pincode", "")]
             drop = ", ".join([p for p in drop_parts if p])
-            # Only ship this merchant's own items to the rider
             my_items = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid]
+            store_doc = await db.stores.find_one({"id": f"store-m-{mid}"}, {"_id": 0, "upi_qr_url": 1}) or {}
             notify_rider_pickup(
                 rider_phone, order_id=oid, otp=my_otp,
                 customer_name=(o.get("customer") or {}).get("name") or addr.get("name", "Customer"),
                 customer_phone=cust_phone or addr.get("phone", ""),
                 pickup=pickup, drop=drop, items=my_items or o.get("items", []),
+                upi_qr_url=store_doc.get("upi_qr_url") or "",
             )
         except Exception: pass
     return {"ok": True, "otp": my_otp, "all_accepted": all_accepted, "my_state": "accepted"}
@@ -2740,6 +2721,7 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_
         "closes_at": payload.closes_at or "18:00",
         "lat": float(payload.lat), "lng": float(payload.lng),
         "location": {"type": "Point", "coordinates": [float(payload.lng), float(payload.lat)]},
+        "upi_qr_url": payload.upi_qr_url or "",
         "trusted": True,
         "kyc_status": "approved", "published": False, "paused": False, "product_count": 0,
         "created_at": datetime.now(timezone.utc).isoformat()}

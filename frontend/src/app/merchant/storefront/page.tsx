@@ -14,7 +14,7 @@ import { BHILAI_AREAS, findBhilaiArea } from "@/data/bhilai-areas";
 export default function MerchantStorefrontPage() {
   const router = useRouter();
   const merchant = useMerchantAuthStore((s) => s.user) as (typeof useMerchantAuthStore extends () => infer T ? T : never) | null;
-  type Mer = { store_name?: string; business_address?: string; storefront?: { tagline?: string; story?: string; banners?: string[]; banner_public_ids?: string[]; banner?: string; locality?: string; opens_at?: string; closes_at?: string; lat?: number; lng?: number; area_slug?: string; area_label?: string; pincode?: string } };
+  type Mer = { store_name?: string; business_address?: string; storefront?: { tagline?: string; story?: string; banners?: string[]; banner_public_ids?: string[]; banner?: string; locality?: string; opens_at?: string; closes_at?: string; lat?: number; lng?: number; area_slug?: string; area_label?: string; pincode?: string; upi_qr_url?: string } };
   const m = (merchant ?? {}) as unknown as Mer;
   const [form, setForm] = useState({
     tagline: "", story: "", banners: [] as string[], banner_public_ids: [] as string[],
@@ -22,6 +22,7 @@ export default function MerchantStorefrontPage() {
     lat: "", lng: "",
     // iter-29 (Item 2) — mandatory area picker + pincode.
     area_slug: "", area_label: "", pincode: "",
+    upi_qr_url: "",
   });
   const [saving, setSaving] = useState(false);
   const [pinning, setPinning] = useState(false);
@@ -43,6 +44,7 @@ export default function MerchantStorefrontPage() {
         opens_at: s.opens_at || "10:00", closes_at: s.closes_at || "18:00",
         lat: s.lat != null ? String(s.lat) : "", lng: s.lng != null ? String(s.lng) : "",
         area_slug: s.area_slug || "", area_label: s.area_label || "", pincode: s.pincode || "",
+        upi_qr_url: (s as unknown as { upi_qr_url?: string }).upi_qr_url || "",
       });
       if (s.lat != null && s.lng != null) setPinPlaced(true);
     }).catch(() => {});
@@ -60,6 +62,7 @@ export default function MerchantStorefrontPage() {
         area_slug: s.area_slug || "",
         area_label: s.area_label || "",
         pincode: s.pincode || "",
+        upi_qr_url: s.upi_qr_url || "",
       });
       // Pre-existing record with coords → the merchant has already pinned.
       if (s.lat != null && s.lng != null) setPinPlaced(true);
@@ -136,6 +139,7 @@ export default function MerchantStorefrontPage() {
         locality: form.locality, opens_at: form.opens_at, closes_at: form.closes_at,
         lat, lng, specialties: [],
         area: form.area_slug, area_label: form.area_label, pincode: form.pincode.trim(),
+        upi_qr_url: form.upi_qr_url || "",
       } as unknown as Parameters<typeof api.merchant.saveStorefront>[0]);
       toast.success("Storefront saved");
       router.replace("/merchant/products");
@@ -257,6 +261,35 @@ export default function MerchantStorefrontPage() {
             )}
           </div>
         </div>
+
+        <Field label="UPI QR Code (optional)">
+          <div className="flex items-start gap-4">
+            {form.upi_qr_url && (
+              <div className="relative w-24 h-24 rounded-xl overflow-hidden border border-[#E5E2DC] shrink-0">
+                <Image src={form.upi_qr_url} alt="UPI QR" fill sizes="96px" className="object-cover" unoptimized />
+                <button onClick={() => setForm((f) => ({ ...f, upi_qr_url: "" }))} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-white flex items-center justify-center"><X size={11} /></button>
+              </div>
+            )}
+            {!form.upi_qr_url && (
+              <label className="w-24 h-24 rounded-xl border-2 border-dashed border-[#E5E2DC] flex flex-col items-center justify-center cursor-pointer hover:border-[#1A2B4C] text-[#595959] text-xs gap-1.5">
+                {uploading ? <Loader2 size={18} className="animate-spin" /> : <ImagePlus size={18} />}
+                <span className="text-center leading-tight">{uploading ? "Uploading…" : "Upload QR"}</span>
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploading}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setUploading(true);
+                    try {
+                      const { image_url } = await uploadImage(file, "upi_qr");
+                      setForm((f) => ({ ...f, upi_qr_url: image_url }));
+                    } catch (err) { toast.error(getErrorMessage(err)); }
+                    finally { setUploading(false); }
+                  }} />
+              </label>
+            )}
+            <p className="text-[11px] text-[#595959] mt-1">Upload your UPI QR code so the rider knows how to collect payment on delivery.</p>
+          </div>
+        </Field>
 
         <Field label="Cover images (up to 5) *">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">

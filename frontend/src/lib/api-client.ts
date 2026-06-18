@@ -263,13 +263,18 @@ function createApiClient(): AxiosInstance {
         return client(originalRequest);
       } catch (refreshErr) {
         refreshInFlight = null;
-        // Refresh failed — the session is gone. Clear our copy of the access
-        // token + emit the legacy `*-auth:change` event so guards across the
-        // app react (legacy CustomerAccount listens to it today).
-        clearToken(scope);
-        // Hard-bounce to the login surface so the user isn't stuck staring at
-        // a panel that silently 401s every interaction. Admin uses the inline
-        // login gate at /admin; merchant uses /merchant/login.
+        // For customers: only clear the token when the server explicitly says
+        // it's revoked — not on every 401 (e.g. network blip, server restart).
+        // Merchants and admins always get cleared so they're bounced to login.
+        if (scope === "customer") {
+          const body = (refreshErr as { response?: { data?: { detail?: string } } })?.response?.data;
+          const detail = ((body?.detail) ?? "").toLowerCase();
+          if (detail.includes("revoked") || detail.includes("invalid_token")) {
+            clearToken(scope);
+          }
+        } else {
+          clearToken(scope);
+        }
         if (typeof window !== "undefined") {
           const onAdminPath = window.location.pathname.startsWith("/admin");
           const onMerchantPath = window.location.pathname.startsWith("/merchant");
