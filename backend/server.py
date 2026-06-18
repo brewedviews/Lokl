@@ -2119,7 +2119,12 @@ async def feed_delivery_status():
         _visible_store_filter(),
         {"_id": 0, "online": 1, "last_seen_at": 1, "opens_at": 1, "closes_at": 1, "weekly_off": 1}
     ).to_list(1000)
-    live_stores = [s for s in stores if _store_availability(s).get("can_order")]
+    if not stores:
+        return {"status": "closed", "label": "CLOSED", "eta_label": "tomorrow", "message": "Delivery resumes"}
+    # Only rank 1 (LIVE) and rank 2 (Away) stores count as actively open.
+    # Rank 3 (Closed — outside hours) has can_order=True for legacy reasons but
+    # no store is physically taking orders right now, so we exclude it.
+    live_stores = [s for s in stores if _store_availability(s).get("rank", 4) <= 2]
     if live_stores:
         return {"status": "live", "label": "LIVE", "eta_label": "30 minutes", "message": "Fast delivery"}
     earliest = None

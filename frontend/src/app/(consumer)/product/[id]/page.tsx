@@ -60,21 +60,26 @@ export default async function ProductDetailPage(
           )}
           <h1 className="font-display text-2xl md:text-3xl font-bold text-[#0A1F5C] mt-2 leading-tight">{product.name}</h1>
           {product.store_badge && product.store_badge !== "LIVE" && (
-            <div className={`inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-[11px] font-semibold ${
-              product.store_badge === "Store Offline"
-                ? "bg-slate-100 text-slate-500"
-                : product.store_badge === "Away"
-                ? "bg-amber-50 text-amber-700"
-                : "bg-slate-100 text-slate-600"
-            }`}>
-              {product.store_badge === "Closed"
-              ? `Available from ${(product.store_opens_at_label || "").replace(/^Opens\s+(at\s+)?/i, "") || "soon"}`
-              : product.store_badge === "Away"
-              ? "Back soon"
-              : product.store_badge === "Store Offline"
-              ? "Currently unavailable"
-              : product.store_eta_message || product.store_badge}
-            </div>
+            product.store_badge === "Closed" ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full mt-2">
+                <span>⏰</span>
+                {`Available from ${(product.store_opens_at_label || "").replace(/^Opens\s+(at\s+)?/i, "") || "soon"}`}
+              </span>
+            ) : (
+              <div className={`inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-[11px] font-semibold ${
+                product.store_badge === "Store Offline"
+                  ? "bg-slate-100 text-slate-500"
+                  : product.store_badge === "Away"
+                  ? "bg-amber-50 text-amber-700"
+                  : "bg-slate-100 text-slate-600"
+              }`}>
+                {product.store_badge === "Away"
+                ? "Back soon"
+                : product.store_badge === "Store Offline"
+                ? "Currently unavailable"
+                : product.store_eta_message || product.store_badge}
+              </div>
+            )
           )}
           <div className="flex items-center gap-3 mt-3 text-xs">
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#10B981] text-white font-bold"><Star size={11} fill="currentColor" /> {product.rating || 4.5}</span>
