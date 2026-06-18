@@ -53,9 +53,40 @@ const INITIAL: LocationState = {
   hasAsked: false,
 };
 
+async function reverseGeocode(lat: number, lng: number): Promise<string> {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=15&addressdetails=1`,
+      { headers: { 'Accept-Language': 'en' } }
+    );
+    const data = await res.json();
+    const addr = data.address || {};
+
+    // Try these fields in order of specificity
+    const area =
+      addr.neighbourhood ||
+      addr.suburb ||
+      addr.quarter ||
+      addr.village ||
+      addr.town ||
+      addr.city_district ||
+      addr.county ||
+      null;
+
+    if (area) return area;
+
+    // Fallback: return postcode if area not found
+    if (addr.postcode) return addr.postcode;
+
+    return "Bhilai";
+  } catch {
+    return "Bhilai";
+  }
+}
+
 export const useLocationStore = create<LocationStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...INITIAL,
 
       setLocation: (lat, lng) => {
@@ -63,6 +94,10 @@ export const useLocationStore = create<LocationStore>()(
         if (typeof window !== "undefined") {
           window.dispatchEvent(new Event(LOCATION_EVENT));
         }
+        // Async reverse geocode — update cluster once resolved
+        reverseGeocode(lat, lng).then(cluster => {
+          set({ cluster });
+        });
       },
 
       setCity: (citySlug, cityName) => set({ citySlug, cityName }),
@@ -85,14 +120,8 @@ export const useLocationStore = create<LocationStore>()(
               });
             },
           );
-          set({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            permission: "granted",
-          });
-          if (typeof window !== "undefined") {
-            window.dispatchEvent(new Event(LOCATION_EVENT));
-          }
+          set({ permission: "granted" });
+          get().setLocation(position.coords.latitude, position.coords.longitude);
         } catch {
           set({ permission: "denied" });
         }
@@ -117,14 +146,8 @@ export const useLocationStore = create<LocationStore>()(
               timeout: 8_000, enableHighAccuracy: true, maximumAge: 60_000,
             });
           });
-          set({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            permission: "granted",
-          });
-          if (typeof window !== "undefined") {
-            window.dispatchEvent(new Event(LOCATION_EVENT));
-          }
+          set({ permission: "granted" });
+          get().setLocation(position.coords.latitude, position.coords.longitude);
         } catch { /* silent — user-permission flip races are fine */ }
       },
     }),

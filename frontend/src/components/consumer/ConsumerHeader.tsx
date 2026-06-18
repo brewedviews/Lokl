@@ -299,26 +299,11 @@ function LocationChip({ phone }: { phone: string | null }) {
   const permission = useLocationStore((s) => s.permission);
   const requestLocation = useLocationStore((s) => s.requestLocation);
   const setLocation = useLocationStore((s) => s.setLocation);
-  const setCluster = useLocationStore((s) => s.setCluster);
   const autoDetect = useLocationStore((s) => s.autoDetectIfGranted);
   const ref = useRef<HTMLDivElement | null>(null);
 
   // Silent auto-detect on mount. Cheap no-op when permission isn't granted.
   useEffect(() => { void autoDetect(); }, [autoDetect]);
-
-  // Resolve the cluster every time lat/lng changes (after detect OR after
-  // the user picks a saved address). The endpoint is forgiving — it caps
-  // out-of-Bhilai coords and just returns the closest cluster.
-  useEffect(() => {
-    if (lat == null || lng == null) return;
-    let alive = true;
-    apiClient.get<{ cluster: string | null; nearest_cluster: string }>(
-      `/api/v1/location/cluster?lat=${lat}&lng=${lng}`,
-    )
-      .then((r) => { if (alive) setCluster(r.data.cluster ?? r.data.nearest_cluster); })
-      .catch(() => { /* silent — chip stays on cached value */ });
-    return () => { alive = false; };
-  }, [lat, lng, setCluster]);
 
   // Saved-address fetch — only when popover opens for a logged-in customer.
   useEffect(() => {
@@ -369,12 +354,14 @@ function LocationChip({ phone }: { phone: string | null }) {
   const mobileValue = mounted ? (
     addrPreview ? `${addrPreview.label} · ${addrPreview.preview}`
     : cluster ? cluster
+    : (lat != null && lng != null) ? "Detecting..."
     : cityName || "Bhilai"
   ) : "Bhilai";
   // Desktop chip is fixed-ish width — keep it short.
   const desktopValue = mounted ? (
     addrPreview ? addrPreview.label
     : cluster ? cluster
+    : (lat != null && lng != null) ? "Detecting..."
     : cityName || "Bhilai"
   ) : "Bhilai";
 
