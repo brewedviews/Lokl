@@ -360,13 +360,13 @@ function SupportPanel() {
     <>
       <PanelHeader title="Support" subtitle="We typically respond within an hour during store hours." />
       <div className="grid sm:grid-cols-2 gap-3">
-        <a href="mailto:hello@lokl.in" className="border border-[#E5E2DC] rounded-2xl p-4 hover:border-[#0A1F5C] transition" data-testid="support-email">
+        <a href="mailto:hello@shoplokl.in" className="border border-[#E5E2DC] rounded-2xl p-4 hover:border-[#0A1F5C] transition" data-testid="support-email">
           <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B]">Email</div>
-          <div className="text-sm font-semibold text-[#0A1F5C] mt-0.5">hello@lokl.in</div>
+          <div className="text-sm font-semibold text-[#0A1F5C] mt-0.5">hello@shoplokl.in</div>
         </a>
-        <a href="tel:+917000070000" className="border border-[#E5E2DC] rounded-2xl p-4 hover:border-[#0A1F5C] transition" data-testid="support-phone">
+        <a href="tel:+917719052107" className="border border-[#E5E2DC] rounded-2xl p-4 hover:border-[#0A1F5C] transition" data-testid="support-phone">
           <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B]">Phone</div>
-          <div className="text-sm font-semibold text-[#0A1F5C] mt-0.5">+91 70000 70000</div>
+          <div className="text-sm font-semibold text-[#0A1F5C] mt-0.5">+91 77190 52107</div>
         </a>
       </div>
     </>

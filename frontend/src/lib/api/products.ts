@@ -41,6 +41,21 @@ export const productsApi = {
     return r.data;
   },
 
+  underFiveHundred: async (limit = 10): Promise<ProductCard[]> => {
+    const r = await apiClient.get<ProductCard[]>("/api/feed/under-499", { params: { limit } });
+    return r.data;
+  },
+
+  midRange: async (limit = 10): Promise<ProductCard[]> => {
+    const r = await apiClient.get<ProductCard[]>("/api/feed/range-499-1099", { params: { limit } });
+    return r.data;
+  },
+
+  premium: async (limit = 10): Promise<ProductCard[]> => {
+    const r = await apiClient.get<ProductCard[]>("/api/feed/above-1099", { params: { limit } });
+    return r.data;
+  },
+
   /** GET /api/me/recently-viewed — server-side recents for logged-in customers
    *  (200 with [] for anonymous, never 401). */
   recentlyViewed: async (limit = 10): Promise<ProductCard[]> => {

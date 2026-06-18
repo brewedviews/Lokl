@@ -302,11 +302,11 @@ export default function OrderTrackingPage() {
         </section>
 
         <a
-          href="mailto:hello@lokl.in"
+          href="mailto:hello@shoplokl.in"
           data-testid="help-pill"
           className="flex items-center justify-center gap-2 bg-white border border-[#E5E2DC] hover:border-[#E68910] hover:bg-[#E68910]/[0.04] text-[#0A1F5C] rounded-2xl py-3 font-semibold text-sm transition shadow-sm"
         >
-          <Phone size={14} className="text-[#E68910]" /> Need help? hello@lokl.in · +91 70000 70000
+          <Phone size={14} className="text-[#E68910]" /> Need help? hello@shoplokl.in · +91 77190 52107
         </a>
         <div className="pb-2" />
       </main>

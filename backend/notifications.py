@@ -28,8 +28,8 @@ from typing import Optional
 log = logging.getLogger("lokl.notify")
 
 APP_URL = os.environ.get("APP_URL", "https://www.shoplokl.in")
-SUPPORT_PHONE = os.environ.get("SUPPORT_PHONE", "+919999999999")
-SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "support@lokl.in")
+SUPPORT_PHONE = os.environ.get("SUPPORT_PHONE", "+917719052107")
+SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "hello@shoplokl.in")
 
 # Status values Twilio returns. See https://www.twilio.com/docs/sms/send-messages#monitor-the-status-of-your-message
 _TERMINAL_OK = {"delivered", "read", "sent"}

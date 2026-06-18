@@ -23,6 +23,7 @@ export interface OrderCreatePayload {
   total: RupeeAmount;
   payment_method: PaymentMethod;
   customer: OrderCustomer;
+  coupon_code?: string;
 }
 
 export const ordersApi = {

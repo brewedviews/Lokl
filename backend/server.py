@@ -209,6 +209,15 @@ class OrderCreate(BaseModel):
     razorpay_payment_id: Optional[str] = None
     razorpay_order_id: Optional[str] = None
     razorpay_signature: Optional[str] = None
+    coupon_code: Optional[str] = None
+
+class CouponCreate(BaseModel):
+    code: str
+    discount_type: str = "percent"  # "percent" | "flat"
+    discount_value: float
+    min_order_value: float = 0
+    max_uses: Optional[int] = None  # None = unlimited
+    expires_at: Optional[str] = None  # ISO string or None
 
 class RazorpayCreateOrderRequest(BaseModel):
     amount: float
@@ -742,8 +751,12 @@ async def feed_popular_in_city(city: Optional[str] = "Bhilai", limit: int = 12):
         ).sort("rating", -1).to_list(limit)
     items = await _enrich_badges(db, items)
     items = _attach_store_avail(items, avail_map)
-    items.sort(key=lambda p: p.get("store_availability_rank", 1))
-    for p in items: p["orders_7d"] = counts.get(p["id"], 0)
+    # Score = orders_7d * 10 + rating * 2; offline stores (rank=4) always at bottom.
+    for p in items:
+        p["orders_7d"] = counts.get(p["id"], 0)
+        p["_pop_score"] = p["orders_7d"] * 10 + float(p.get("rating") or 0) * 2
+    items.sort(key=lambda p: (p.get("store_availability_rank", 1) == 4, -p["_pop_score"]))
+    for p in items: p.pop("_pop_score", None)
     return items
 
 
@@ -752,14 +765,19 @@ async def feed_selling_fast(limit: int = 12):
     avail_map = await _availability_map()
     sids = list(avail_map.keys())
     if not sids: return []
+    # Filter to products where total stock across all sizes is < 10 (genuinely low stock).
     items = await db.products.find(
         {"store_id": {"$in": sids}, **_visible_product_filter()},
         {"_id": 0, "images": 0}
-    ).sort("created_at", -1).to_list(100)
+    ).sort("rating", -1).to_list(200)
+    def _total_stock(p: dict) -> int:
+        s = p.get("stock") or {}
+        return sum(int(v) for v in s.values() if isinstance(v, (int, float)))
+    items = [p for p in items if 0 < _total_stock(p) < 10]
     items = await _enrich_badges(db, items)
-    items = [p for p in items if p.get("badge") in ("selling_fast", "best_seller") or p.get("low_stock_size")]
     items = _attach_store_avail(items, avail_map)
-    items.sort(key=lambda p: p.get("store_availability_rank", 1))
+    # Offline stores (rank=4) always at bottom.
+    items.sort(key=lambda p: (p.get("store_availability_rank", 1) == 4, p.get("store_availability_rank", 1)))
     return items[:limit]
 
 
@@ -803,14 +821,22 @@ async def feed_new_arrivals(limit: int = 12):
     avail_map = await _availability_map()
     sids = list(avail_map.keys())
     if not sids: return []
+    since_30d = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     items = await db.products.find(
-        {"store_id": {"$in": sids}, **_visible_product_filter()},
+        {"store_id": {"$in": sids}, "created_at": {"$gte": since_30d}, **_visible_product_filter()},
         {"_id": 0, "images": 0}
-    ).sort("created_at", -1).to_list(limit)
+    ).sort("created_at", -1).to_list(limit * 3)
+    if not items:
+        # Fall back to most recent products across all time if nothing in 30 days.
+        items = await db.products.find(
+            {"store_id": {"$in": sids}, **_visible_product_filter()},
+            {"_id": 0, "images": 0}
+        ).sort("created_at", -1).to_list(limit)
     items = await _enrich_badges(db, items)
     items = _attach_store_avail(items, avail_map)
-    items.sort(key=lambda p: p.get("store_availability_rank", 1))
-    return items
+    # Offline stores (rank=4) always at bottom.
+    items.sort(key=lambda p: (p.get("store_availability_rank", 1) == 4, p.get("store_availability_rank", 1)))
+    return items[:limit]
 
 
 @api.get("/feed/trending")
@@ -849,8 +875,54 @@ async def feed_trending(limit: int = 12):
         ).sort("rating", -1).to_list(limit)
     items = await _enrich_badges(db, items)
     items = _attach_store_avail(items, avail_map)
-    items.sort(key=lambda p: p.get("store_availability_rank", 1))
+    # Offline stores (rank=4) always at bottom; within rank, preserve score order.
+    items.sort(key=lambda p: (p.get("store_availability_rank", 1) == 4, p.get("store_availability_rank", 1)))
     return items
+
+
+@api.get("/feed/under-499")
+async def feed_under_499(limit: int = 12):
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
+    if not sids: return []
+    items = await db.products.find(
+        {"store_id": {"$in": sids}, "price": {"$lt": 499}, **_visible_product_filter()},
+        {"_id": 0, "images": 0}
+    ).sort("rating", -1).to_list(limit * 2)
+    items = await _enrich_badges(db, items)
+    items = _attach_store_avail(items, avail_map)
+    items.sort(key=lambda p: (p.get("store_availability_rank", 1) == 4, p.get("store_availability_rank", 1)))
+    return items[:limit]
+
+
+@api.get("/feed/range-499-1099")
+async def feed_range_499_1099(limit: int = 12):
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
+    if not sids: return []
+    items = await db.products.find(
+        {"store_id": {"$in": sids}, "price": {"$gte": 499, "$lte": 1099}, **_visible_product_filter()},
+        {"_id": 0, "images": 0}
+    ).sort("rating", -1).to_list(limit * 2)
+    items = await _enrich_badges(db, items)
+    items = _attach_store_avail(items, avail_map)
+    items.sort(key=lambda p: (p.get("store_availability_rank", 1) == 4, p.get("store_availability_rank", 1)))
+    return items[:limit]
+
+
+@api.get("/feed/above-1099")
+async def feed_above_1099(limit: int = 12):
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
+    if not sids: return []
+    items = await db.products.find(
+        {"store_id": {"$in": sids}, "price": {"$gt": 1099}, **_visible_product_filter()},
+        {"_id": 0, "images": 0}
+    ).sort("rating", -1).to_list(limit * 2)
+    items = await _enrich_badges(db, items)
+    items = _attach_store_avail(items, avail_map)
+    items.sort(key=lambda p: (p.get("store_availability_rank", 1) == 4, p.get("store_availability_rank", 1)))
+    return items[:limit]
 
 
 @api.post("/track/view")
@@ -932,6 +1004,80 @@ async def list_offers():
         {"_id": 0}
     ).sort("rank", 1).to_list(20)
     return rows
+
+
+@api.get("/offers/{offer_id}/products")
+async def offer_products(offer_id: str, limit: int = 12):
+    """Return products linked to an offer via offer_type/offer_id tagging.
+
+    Offers can target products in three ways (set on the offer doc):
+      - offer_type = "category"  → product_ids filtered by l1_slug
+      - offer_type = "product_ids" → explicit list in offer.product_ids
+      - offer_type = "store"     → all products from offer.store_id
+    Falls back to random visible products if offer has no type set.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    offer = await db.offers.find_one(
+        {"id": offer_id, "$or": [{"expires_at": None}, {"expires_at": {"$gt": now}}]},
+        {"_id": 0},
+    )
+    if not offer:
+        raise HTTPException(404, "Offer not found or expired")
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
+    offer_type = offer.get("offer_type")
+    if offer_type == "product_ids" and offer.get("product_ids"):
+        items = await db.products.find(
+            {"id": {"$in": offer["product_ids"]}, "store_id": {"$in": sids}, **_visible_product_filter()},
+            {"_id": 0, "images": 0},
+        ).to_list(limit)
+    elif offer_type == "category" and offer.get("l1_slug"):
+        items = await db.products.find(
+            {"l1_slug": offer["l1_slug"], "store_id": {"$in": sids}, **_visible_product_filter()},
+            {"_id": 0, "images": 0},
+        ).sort("rating", -1).to_list(limit)
+    elif offer_type == "store" and offer.get("store_id"):
+        items = await db.products.find(
+            {"store_id": offer["store_id"], **_visible_product_filter()},
+            {"_id": 0, "images": 0},
+        ).sort("rating", -1).to_list(limit)
+    else:
+        items = await db.products.find(
+            {"store_id": {"$in": sids}, **_visible_product_filter()},
+            {"_id": 0, "images": 0},
+        ).sort("rating", -1).to_list(limit)
+    items = await _enrich_badges(db, items)
+    items = _attach_store_avail(items, avail_map)
+    items.sort(key=lambda p: (p.get("store_availability_rank", 1) == 4, p.get("store_availability_rank", 1)))
+    return items[:limit]
+
+
+@api.post("/coupons/validate")
+@_limit("30/minute")
+async def validate_coupon(payload: dict):
+    """Check if a coupon is valid for the given subtotal. Does NOT increment used_count."""
+    code = (payload.get("code") or "").strip().upper()
+    subtotal = float(payload.get("subtotal") or 0)
+    if not code:
+        raise HTTPException(400, "code is required")
+    now = datetime.now(timezone.utc).isoformat()
+    c = await db.coupons.find_one(
+        {"code": code, "active": True,
+         "$or": [{"expires_at": None}, {"expires_at": {"$gt": now}}]},
+        {"_id": 0},
+    )
+    if not c:
+        raise HTTPException(404, "Coupon not found or expired")
+    if subtotal < float(c.get("min_order_value") or 0):
+        raise HTTPException(400, f"Minimum order ₹{c['min_order_value']} required for this coupon")
+    max_uses = c.get("max_uses")
+    if max_uses is not None and int(c.get("used_count") or 0) >= int(max_uses):
+        raise HTTPException(400, "Coupon has reached its usage limit")
+    discount = (subtotal * float(c["discount_value"]) / 100) if c["discount_type"] == "percent" else float(c["discount_value"])
+    discount = min(discount, subtotal)
+    return {"valid": True, "code": code, "discount_type": c["discount_type"],
+            "discount_value": c["discount_value"], "discount_amount": round(discount, 2),
+            "description": c.get("description", "")}
 
 
 def _admin_only(user: dict):
@@ -1309,6 +1455,78 @@ async def admin_list_offers(user: dict = Depends(get_current_user)):
     _admin_only(user)
     rows = await db.offers.find({}, {"_id": 0}).sort("rank", 1).to_list(100)
     return rows
+
+
+@api.post("/admin/coupons")
+async def admin_create_coupon(payload: CouponCreate, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    code = payload.code.strip().upper()
+    if not code:
+        raise HTTPException(400, "code is required")
+    existing = await db.coupons.find_one({"code": code})
+    if existing:
+        raise HTTPException(409, f"Coupon code {code} already exists")
+    doc = {
+        "id": f"cpn-{uuid.uuid4().hex[:8]}",
+        "code": code,
+        "discount_type": payload.discount_type,
+        "discount_value": payload.discount_value,
+        "min_order_value": payload.min_order_value,
+        "max_uses": payload.max_uses,
+        "used_count": 0,
+        "expires_at": payload.expires_at,
+        "active": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.coupons.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.get("/admin/coupons")
+async def admin_list_coupons(user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    rows = await db.coupons.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return rows
+
+
+@api.delete("/admin/coupons/{cid}")
+async def admin_delete_coupon(cid: str, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    r = await db.coupons.delete_one({"id": cid})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Coupon not found")
+    return {"ok": True}
+
+
+@api.post("/admin/offers/migrate-types")
+async def admin_migrate_offer_types(user: dict = Depends(get_current_user)):
+    """One-shot migration: infer offer_type on legacy offers that lack it.
+
+    Heuristic: if offer has a `cta_link` pointing to /c/<slug>, set offer_type=category
+    and l1_slug from the slug. If cta_link points to /store/<id>, set offer_type=store.
+    All others remain untyped (fallback to random products in /offers/{id}/products).
+    """
+    _admin_only(user)
+    rows = await db.offers.find({"offer_type": {"$exists": False}}, {"_id": 0}).to_list(200)
+    migrated = 0
+    for r in rows:
+        link = (r.get("cta_link") or "").strip()
+        update: dict = {}
+        if "/c/" in link:
+            parts = [p for p in link.split("/") if p]
+            c_idx = next((i for i, p in enumerate(parts) if p == "c"), None)
+            if c_idx is not None and c_idx + 1 < len(parts):
+                update = {"offer_type": "category", "l1_slug": parts[c_idx + 1]}
+        elif "/store/" in link:
+            parts = [p for p in link.split("/") if p]
+            s_idx = next((i for i, p in enumerate(parts) if p == "store"), None)
+            if s_idx is not None and s_idx + 1 < len(parts):
+                update = {"offer_type": "store", "store_id": parts[s_idx + 1]}
+        if update:
+            await db.offers.update_one({"id": r["id"]}, {"$set": update})
+            migrated += 1
+    return {"migrated": migrated, "total_checked": len(rows)}
 
 
 @api.get("/admin/categories")
@@ -2252,6 +2470,29 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         # snapshot prices. This also prevents tampered-total injection.
         server_total = _sum_items_money(items_snap)
 
+        # ===== Coupon validation (if provided) =====
+        coupon_discount = Decimal("0.00")
+        applied_coupon = None
+        coupon_code = (getattr(payload, "coupon_code", None) or "").strip().upper()
+        if coupon_code:
+            now_ts = datetime.now(timezone.utc).isoformat()
+            cpn = await db.coupons.find_one(
+                {"code": coupon_code, "active": True,
+                 "$or": [{"expires_at": None}, {"expires_at": {"$gt": now_ts}}]},
+                {"_id": 0},
+            )
+            if cpn:
+                min_val = Decimal(str(cpn.get("min_order_value") or 0))
+                max_uses = cpn.get("max_uses")
+                used = int(cpn.get("used_count") or 0)
+                if server_total >= min_val and (max_uses is None or used < int(max_uses)):
+                    if cpn["discount_type"] == "percent":
+                        coupon_discount = (server_total * Decimal(str(cpn["discount_value"])) / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    else:
+                        coupon_discount = min(Decimal(str(cpn["discount_value"])), server_total)
+                    applied_coupon = coupon_code
+        server_total = max(Decimal("0.00"), server_total - coupon_discount)
+
         now = datetime.now(timezone.utc).isoformat()
         unique_mids = list(set([m for m in merchant_ids if m]))
         # CSPRNG (secrets) — these OTPs gate order delivery / WhatsApp verification, must not be predictable.
@@ -2263,6 +2504,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         merchant_timelines = {mid: _new_merchant_timeline(now) for mid in unique_mids}
         doc = {"id": order_id, "items": items_snap, "address": payload.address,
                "total": float(server_total), "payment_method": payload.payment_method,
+               "coupon_code": applied_coupon, "coupon_discount": float(coupon_discount),
                "customer": payload.customer or {},
                "status": "pending_merchant",
                "merchant_ids": unique_mids,
@@ -2303,6 +2545,8 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             doc["payment_status"] = "cod_pending"
 
         await db.orders.insert_one(doc)
+        if applied_coupon:
+            await db.coupons.update_one({"code": applied_coupon}, {"$inc": {"used_count": 1}})
     except Exception:
         # ROLL BACK any successful stock decrements before re-raising
         for pid, sz, qty in reservations:

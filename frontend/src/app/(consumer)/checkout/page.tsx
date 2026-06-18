@@ -39,6 +39,7 @@ type DeliveryEstimate = {
   eta_min?: number;
   eta_max?: number;
   distance_km?: number;
+  free_delivery_threshold?: number;
 } | null;
 
 export default function CheckoutPage() {
@@ -58,6 +59,10 @@ export default function CheckoutPage() {
   const [estimate, setEstimate] = useState<DeliveryEstimate>(null);
   const [estimating, setEstimating] = useState(false);
   const [storeAvailMap, setStoreAvailMap] = useState<Record<string, StoreAvailInfo>>({});
+  const [couponCode, setCouponCode] = useState("");
+  const [couponResult, setCouponResult] = useState<{ code: string; discount_amount: number; description: string } | null>(null);
+  const [couponError, setCouponError] = useState("");
+  const [couponLoading, setCouponLoading] = useState(false);
 
   // Single-store rule: every product in the cart must belong to the same
   // store_id for the delivery estimate to be meaningful. Multi-store carts
@@ -132,6 +137,7 @@ export default function CheckoutPage() {
           is_free: !!r.is_free_delivery,
           eta_min: r.eta_min, eta_max: r.eta_max,
           distance_km: r.distance_km,
+          free_delivery_threshold: r.free_delivery_threshold,
         });
       } catch (e) {
         if (cancelled) return;
@@ -156,7 +162,23 @@ export default function CheckoutPage() {
   };
 
   const deliveryFee = estimate?.deliverable ? estimate.fee : 0;
-  const grandTotal = subtotal + deliveryFee;
+  const discountAmount = couponResult?.discount_amount ?? 0;
+  const grandTotal = Math.max(0, subtotal + deliveryFee - discountAmount);
+
+  const applyCoupon = async () => {
+    const code = couponCode.trim().toUpperCase();
+    if (!code) return;
+    setCouponLoading(true); setCouponError(""); setCouponResult(null);
+    try {
+      const r = await apiClient.post<{ valid: boolean; discount_amount: number; code: string; description: string }>(
+        "/api/coupons/validate", { code, subtotal }
+      );
+      setCouponResult(r.data);
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Invalid coupon";
+      setCouponError(msg);
+    } finally { setCouponLoading(false); }
+  };
   // We allow Pay Now in multi-store carts (no fee added — legacy "FREE") OR
   // when the delivery estimate succeeded with deliverable=true. Estimates
   // that 4xx (non-deliverable address) disable the button with a reason.
@@ -184,6 +206,7 @@ export default function CheckoutPage() {
       const order = await api.orders.create({
         items, address: addr, total: grandTotal, payment_method: payment,
         customer: { name: addr.name, phone: normalizePhone(addr.phone) },
+        coupon_code: couponResult?.code ?? undefined,
       });
       clearCart();
       toast.success("Order placed!");
@@ -299,6 +322,32 @@ export default function CheckoutPage() {
             ))}
           </div>
 
+          {/* Coupon code */}
+          <div className="border-t border-[#E5E2DC] mt-4 pt-4" data-testid="coupon-section">
+            {couponResult ? (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-[#4F7363] font-semibold">{couponResult.code} applied</span>
+                <button onClick={() => { setCouponResult(null); setCouponCode(""); }} className="text-xs text-[#E68910] font-semibold">Remove</button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  data-testid="coupon-input"
+                  value={couponCode}
+                  onChange={(e) => { setCouponCode(e.target.value.toUpperCase()); setCouponError(""); }}
+                  onKeyDown={(e) => e.key === "Enter" && applyCoupon()}
+                  placeholder="Coupon code"
+                  className="flex-1 px-3 py-2 text-sm rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase"
+                />
+                <button onClick={applyCoupon} disabled={couponLoading || !couponCode.trim()} data-testid="apply-coupon-btn"
+                  className="px-4 py-2 text-sm font-semibold rounded-xl bg-[#1A2B4C] text-white disabled:opacity-40">
+                  {couponLoading ? "…" : "Apply"}
+                </button>
+              </div>
+            )}
+            {couponError && <p className="text-xs text-red-500 mt-1" data-testid="coupon-error">{couponError}</p>}
+          </div>
+
           {/* Delivery estimate panel */}
           <div className="border-t border-[#E5E2DC] mt-4 pt-4 space-y-2" data-testid="delivery-estimate">
             <div className="flex justify-between text-sm">
@@ -321,6 +370,9 @@ export default function CheckoutPage() {
                 <span className="text-xs text-[#595959]">—</span>
               )}
             </div>
+            {estimate?.deliverable && !estimate.is_free && (
+              <p className="text-[10px] text-[#4F7363]">Free delivery on orders above ₹{estimate.free_delivery_threshold ?? 499}</p>
+            )}
             {(() => {
               const avail = cartStoreId ? storeAvailMap[cartStoreId] : null;
               const badge = avail?.badge;
@@ -374,6 +426,12 @@ export default function CheckoutPage() {
             )}
           </div>
 
+          {discountAmount > 0 && (
+            <div className="flex justify-between text-sm text-[#4F7363] font-semibold mt-2" data-testid="coupon-discount">
+              <span>Coupon discount</span>
+              <span>−₹{discountAmount.toLocaleString()}</span>
+            </div>
+          )}
           <div className="border-t border-[#E5E2DC] mt-3 pt-3 flex justify-between font-bold">
             <span>Total</span>
             <span className="text-[#1A2B4C]" data-testid="grand-total">₹{grandTotal.toLocaleString()}</span>

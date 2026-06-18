@@ -162,6 +162,15 @@ def init(db):
 
     @router.post("/delivery/estimate")
     async def delivery_estimate(body: DeliveryEstimateRequest):
+        # Fee logic (via DeliveryService.calculate_delivery_fee):
+        #   1. Reject if store distance > city max_delivery_radius_km (from delivery_config).
+        #   2. Match the distance against delivery_tiers; use last tier as fallback.
+        #   3. fee = base_fee + per_km_fee * distance_km (distance-based pricing).
+        #   4. If order_subtotal >= free_above_order_value (default ₹499), fee = 0.
+        #   Env var overrides: FREE_DELIVERY_THRESHOLD overrides the threshold;
+        #   DELIVERY_FEE overrides the computed fee with a flat rate.
+        #   Response fields: deliverable, fee, is_free_delivery, free_delivery_threshold,
+        #   amount_for_free_delivery, distance_km, eta_min, eta_max.
         _check_india_bbox(body.customer_lat, body.customer_lng)
         store = await db.stores.find_one({"id": body.store_id, "is_deleted": {"$ne": True}}, {"_id": 0})
         if not store: raise HTTPException(404, "Store not found")

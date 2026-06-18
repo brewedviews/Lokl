@@ -74,7 +74,13 @@ class DeliveryService:
         base = Decimal(str(matched["base_fee"]))
         per_km = Decimal(str(matched["per_km_fee"]))
         fee = (base + per_km * dist).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        free_above = Decimal(str(matched["free_above_order_value"]))
+        # Env vars FREE_DELIVERY_THRESHOLD and DELIVERY_FEE override DB tier values
+        # when set (useful for quick pilot-period adjustments without a DB edit).
+        env_threshold = os.environ.get("FREE_DELIVERY_THRESHOLD")
+        env_flat_fee = os.environ.get("DELIVERY_FEE")
+        free_above = Decimal(env_threshold) if env_threshold else Decimal(str(matched["free_above_order_value"]))
+        if env_flat_fee:
+            fee = Decimal(env_flat_fee).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         is_free = order_subtotal >= free_above
         final = Decimal("0.00") if is_free else fee
         return {

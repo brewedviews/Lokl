@@ -49,8 +49,11 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "categories",      label: "Shop by category",           enabled: true, rank: 30 },
   { id: "selling_fast",    label: "Selling fast",               enabled: true, rank: 40 },
   { id: "offers",          label: "Offers for you",             enabled: true, rank: 50 },
+  { id: "under_499",       label: "Under ₹499",                 enabled: true, rank: 55 },
   { id: "recently_viewed", label: "Recently added",             enabled: true, rank: 60 },
+  { id: "mid_range",       label: "₹499–₹1099",                 enabled: true, rank: 65 },
   { id: "stores",          label: "Popular stores",             enabled: true, rank: 70 },
+  { id: "above_1099",      label: "Premium picks",              enabled: true, rank: 75 },
   { id: "customer_love",   label: "Loved by Bhilai shoppers",   enabled: true, rank: 80 },
 ];
 
@@ -64,6 +67,9 @@ export function HomeClient() {
   const [trending, setTrending] = useState<ProductCard[]>([]);
   const [sellingFast, setSellingFast] = useState<ProductCard[]>([]);
   const [recent, setRecent] = useState<ProductCard[]>([]);
+  const [under499, setUnder499] = useState<ProductCard[]>([]);
+  const [midRange, setMidRange] = useState<ProductCard[]>([]);
+  const [above1099, setAbove1099] = useState<ProductCard[]>([]);
   const [nearby, setNearby] = useState<StoreCard[]>([]);
   const [popularStores, setPopularStores] = useState<StoreCard[]>([]);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
@@ -89,6 +95,9 @@ export function HomeClient() {
     api.products.popularInCity(10).then((r) => { setTrending(r); markLoaded("trending"); }).catch(() => { markLoaded("trending"); markError("trending"); });
     api.products.sellingFast(10).then((r) => { setSellingFast(r); markLoaded("sellingFast"); }).catch(() => { markLoaded("sellingFast"); markError("sellingFast"); });
     api.products.newArrivals(10).then((r) => { setRecent(r); markLoaded("recent"); }).catch(() => { markLoaded("recent"); markError("recent"); });
+    api.products.underFiveHundred(10).then((r) => { setUnder499(r); markLoaded("under499"); }).catch(() => { markLoaded("under499"); markError("under499"); });
+    api.products.midRange(10).then((r) => { setMidRange(r); markLoaded("midRange"); }).catch(() => { markLoaded("midRange"); markError("midRange"); });
+    api.products.premium(10).then((r) => { setAbove1099(r); markLoaded("above1099"); }).catch(() => { markLoaded("above1099"); markError("above1099"); });
     api.stores.popular(10).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
   }, []);
 
@@ -178,6 +187,27 @@ export function HomeClient() {
         {recent.map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
     ) : !loaded.has("recent") ? <ProductRailSkeleton key="recent-skeleton" testid="home-recent-skeleton" /> : null,
+    under_499: errors.has("under499") ? (
+      <SectionError key="under499-error" minHeight="min-h-[320px]" />
+    ) : loaded.has("under499") && under499.length > 0 ? (
+      <HCarousel key="under_499" title="Under ₹499" subtitle="Great finds that won't break the bank" testid="home-under499">
+        {under499.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+      </HCarousel>
+    ) : !loaded.has("under499") ? <ProductRailSkeleton key="under499-skeleton" testid="home-under499-skeleton" /> : null,
+    mid_range: errors.has("midRange") ? (
+      <SectionError key="midrange-error" minHeight="min-h-[320px]" />
+    ) : loaded.has("midRange") && midRange.length > 0 ? (
+      <HCarousel key="mid_range" title="₹499–₹1099" subtitle="The sweet spot — quality meets value" testid="home-midrange">
+        {midRange.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+      </HCarousel>
+    ) : !loaded.has("midRange") ? <ProductRailSkeleton key="midrange-skeleton" testid="home-midrange-skeleton" /> : null,
+    above_1099: errors.has("above1099") ? (
+      <SectionError key="above1099-error" minHeight="min-h-[320px]" />
+    ) : loaded.has("above1099") && above1099.length > 0 ? (
+      <HCarousel key="above_1099" title="Premium picks" subtitle="Curated for the discerning shopper" testid="home-above1099">
+        {above1099.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+      </HCarousel>
+    ) : !loaded.has("above1099") ? <ProductRailSkeleton key="above1099-skeleton" testid="home-above1099-skeleton" /> : null,
     stores: errors.has("popularStores") && !storesRail.length ? (
       <SectionError key="stores-error" minHeight="min-h-[260px]" />
     ) : storesReady && storesRail.length > 0 ? (
