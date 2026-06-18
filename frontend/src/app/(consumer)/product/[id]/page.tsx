@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Star, Bike, MapPin, ShieldCheck, Truck, RefreshCw } from "lucide-react";
+import { Star, Bike, MapPin, ShieldCheck, Truck } from "lucide-react";
 import { serverFetch } from "@/lib/server-fetch";
 import { ProductGallery } from "@/components/consumer/ProductGallery";
 import { ProductActions } from "@/components/consumer/ProductActions";
@@ -47,7 +47,7 @@ export default async function ProductDetailPage(
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-6xl mx-auto px-4 md:px-8 py-6 md:py-10 grid md:grid-cols-2 gap-6 md:gap-10">
-        <div className="mx-3 md:mx-0">
+        <div className="mx-3 mt-3 md:mx-0 md:mt-0">
           <ProductGallery name={product.name} images={images} aiEnhanced={product.ai_enhanced} />
         </div>
         <div data-testid="pdp-info">
@@ -68,7 +68,7 @@ export default async function ProductDetailPage(
                 : "bg-slate-100 text-slate-600"
             }`}>
               {product.store_badge === "Closed"
-              ? `Store opens ${(product.store_opens_at_label || "").replace(/^opens at\s*/i, "") || "soon"}`
+              ? (product.store_opens_at_label || "Closed")
               : product.store_badge === "Away"
               ? "Back soon"
               : product.store_badge === "Store Offline"
@@ -103,16 +103,11 @@ export default async function ProductDetailPage(
             storeId={product.store_id}
           />
 
-          <div className="mt-6 grid grid-cols-3 gap-2 text-[11px]">
+          <div className="mt-6 grid grid-cols-2 gap-2 text-[11px]">
             <div className="p-3 rounded-2xl bg-[#F8FAFC] border border-slate-100">
               <Truck size={16} className="text-[#F59E0B] mb-1.5" />
               <div className="font-semibold">Fast delivery</div>
               <div className="text-[#64748B]">{product.store_eta_min || 45} min</div>
-            </div>
-            <div className="p-3 rounded-2xl bg-[#F8FAFC] border border-slate-100">
-              <RefreshCw size={16} className="text-[#F59E0B] mb-1.5" />
-              <div className="font-semibold">Easy returns</div>
-              <div className="text-[#64748B]">24-hour window</div>
             </div>
             <div className="p-3 rounded-2xl bg-[#F8FAFC] border border-slate-100">
               <ShieldCheck size={16} className="text-[#10B981] mb-1.5" />

@@ -3,7 +3,7 @@
 /** Size picker + add-to-bag + buy-now + share + notify-me + schedule interactions. */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Heart, ShoppingBag, Share2, Bell, CheckCircle2, Clock } from "lucide-react";
+import { Heart, ShoppingBag, Share2, Bell, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { useCartStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
@@ -43,7 +43,8 @@ export function ProductActions({
   const isAway = badge === "Away";
 
   const handleAdd = (): boolean => {
-    if (!storeCanOrder && !isClosed) { toast.error("This store is currently unavailable"); return false; }
+    if (isClosed) { toast.error("This store is currently closed"); return false; }
+    if (!storeCanOrder) { toast.error("This store is currently unavailable"); return false; }
     if (product.sizes?.length && !size) { toast.error("Please pick a size"); return false; }
     const r = addItem(product, size ?? "");
     if (!r.success && r.conflict) {
@@ -51,17 +52,6 @@ export function ProductActions({
       return false;
     }
     return true;
-  };
-
-  const handleSchedule = () => {
-    if (product.sizes?.length && !size) { toast.error("Please pick a size"); return; }
-    const r = addItem(product, size ?? "");
-    if (!r.success && r.conflict) {
-      toast.error(`Your bag already has items from ${r.conflict.existing_store_names.join(" & ")}. Lokl allows up to ${r.conflict.max_stores} stores per order.`);
-      return;
-    }
-    const whenMsg = opensAt ? `opens at ${opensAt}` : "opens";
-    toast.success(`Added! Will be delivered when ${sName} ${whenMsg}`);
   };
 
   const handleNotifySubmit = async (e: React.FormEvent) => {
@@ -112,7 +102,6 @@ export function ProductActions({
         <div className="mt-6">
           <div className="flex items-center justify-between mb-2.5">
             <h4 className="text-sm font-semibold text-[#0A1F5C]">Select size</h4>
-            <span className="text-[11px] font-bold text-[#F59E0B]">Try-at-doorstep available</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {product.sizes.map((s) => (
@@ -140,19 +129,9 @@ export function ProductActions({
             </button>
           </>
         ) : isClosed ? (
-          <>
-            <button
-              onClick={handleSchedule}
-              data-testid="schedule-delivery-btn"
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-amber-500 text-white text-sm font-bold hover:bg-amber-600 transition whitespace-nowrap"
-            >
-              <Clock size={16} /> Schedule Delivery
-            </button>
-            <button onClick={() => { if (handleAdd()) toast.success("Added to bag"); }} data-testid="add-to-bag"
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border-2 border-[#0A1F5C] text-[#0A1F5C] text-sm font-bold hover:bg-[#0A1F5C] hover:text-white transition whitespace-nowrap">
-              <ShoppingBag size={16} /> Add to bag
-            </button>
-          </>
+          <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-slate-100 text-slate-400 text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-closed-label">
+            <ShoppingBag size={16} /> Store closed
+          </div>
         ) : storeCanOrder ? (
           <>
             <button onClick={() => { if (handleAdd()) toast.success("Added to bag"); }} data-testid="add-to-bag"
@@ -184,7 +163,7 @@ export function ProductActions({
       )}
 
       {isClosed && opensAt && (
-        <p className="text-xs text-[#595959] mt-2">Will be delivered when store opens at {opensAt}</p>
+        <p className="text-[11px] text-[#64748B] mt-2">{opensAt}</p>
       )}
 
       {isOffline && notifyOpen && (
