@@ -108,7 +108,7 @@ export default function CartPage() {
                     <div className="text-xs text-amber-600 mt-0.5 font-semibold">May be delayed today</div>
                   )}
                   {storeStatus?.badge === "Closed" && storeStatus.opens_at_label && (
-                    <div className="text-xs text-[#64748B] mt-0.5 font-semibold">{storeStatus.opens_at_label}</div>
+                    <div className="text-xs text-[#64748B] mt-0.5 font-semibold">Available from {storeStatus.opens_at_label.replace(/^Opens\s+(at\s+)?/i, "")}</div>
                   )}
                   {storeStatus?.badge === "Unavailable" && (
                     <div className="text-xs text-red-500 mt-0.5 font-semibold">Store unavailable</div>

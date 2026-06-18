@@ -68,7 +68,7 @@ export default async function ProductDetailPage(
                 : "bg-slate-100 text-slate-600"
             }`}>
               {product.store_badge === "Closed"
-              ? (product.store_opens_at_label || "Closed")
+              ? `Available from ${(product.store_opens_at_label || "").replace(/^Opens\s+(at\s+)?/i, "") || "soon"}`
               : product.store_badge === "Away"
               ? "Back soon"
               : product.store_badge === "Store Offline"

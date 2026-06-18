@@ -163,7 +163,7 @@ export function ProductActions({
       )}
 
       {isClosed && opensAt && (
-        <p className="text-[11px] text-[#64748B] mt-2">{opensAt}</p>
+        <p className="text-[11px] text-[#64748B] mt-2">Available from {opensAt.replace(/^Opens\s+(at\s+)?/i, "")}</p>
       )}
 
       {isOffline && notifyOpen && (

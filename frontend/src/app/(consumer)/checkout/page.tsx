@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Banknote, MapPin, Plus, CheckCircle2, Truck, Clock, Loader2, Info } from "lucide-react";
+import { Banknote, MapPin, Plus, CheckCircle2, Truck, Clock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
@@ -306,14 +306,17 @@ export default function CheckoutPage() {
             </div>
           )}
           {!allStoresCanOrder && (
-            <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-800 flex items-start gap-2">
-              <Info size={13} className="shrink-0 mt-0.5" />
-              <span>
-                {uniqueStores.filter((sid) => storeAvailMap[sid] && !storeAvailMap[sid].can_order).map((sid) => {
-                  const info = storeAvailMap[sid];
-                  return `${info?.name ?? "A store"} is currently ${(info?.badge ?? "closed").toLowerCase()}${info?.opens_at_label ? ` · ${info.opens_at_label}` : ""}.`;
-                }).join(" ")}
-              </span>
+            <div className="mb-3 space-y-1">
+              {uniqueStores.filter((sid) => storeAvailMap[sid] && !storeAvailMap[sid].can_order).map((sid) => {
+                const info = storeAvailMap[sid];
+                const timeStr = info?.opens_at_label ? info.opens_at_label.replace(/^Opens\s+(at\s+)?/i, "") : null;
+                return (
+                  <div key={sid} className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-xl">
+                    <span>⚠️</span>
+                    <span>{info?.name ?? "A store"} is closed{timeStr ? ` · Available from ${timeStr}` : ""}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
           <div className="space-y-3 max-h-72 overflow-auto">
