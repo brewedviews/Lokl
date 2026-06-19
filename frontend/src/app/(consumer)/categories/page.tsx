@@ -98,84 +98,70 @@ function CategoriesInner() {
         </div>
       </div>
 
-      {/* MAIN BODY — L2 sidebar + product grid */}
-      <div className="flex max-w-7xl mx-auto">
+      <div className="flex" style={{minHeight: 'calc(100vh - 120px)'}}>
 
-        {/* LEFT — L2 vertical list */}
+        {/* LEFT — L2 sidebar */}
         {l2Cats.length > 0 && (
-          <div className="w-28 flex-shrink-0 bg-white border-r border-[#E5E2DC]">
-            {/* All option */}
+          <div className="w-24 flex-shrink-0 bg-white border-r border-[#E5E2DC]">
             <button
               onClick={() => setL2("")}
-              className={`w-full text-left px-3 py-3.5 border-b border-[#F0EFED] transition-all ${
-                !activeL2
-                  ? "border-l-[3px] border-l-[#1A2B4C] bg-[#FDFBF7]"
-                  : "border-l-[3px] border-l-transparent"
+              className={`w-full text-left px-2 py-3 border-b border-[#F0EFED] ${
+                !activeL2 ? "border-l-[3px] border-l-[#1A2B4C] bg-[#F5F5F5]" : "border-l-[3px] border-l-transparent"
               }`}
             >
-              <span className={`text-[12px] leading-tight ${
+              <span className={`text-[11px] leading-tight block ${
                 !activeL2 ? "font-bold text-[#1A2B4C]" : "font-medium text-[#595959]"
               }`}>All</span>
             </button>
-
             {l2Cats.map(sub => (
               <button
                 key={sub.id}
                 onClick={() => setL2(sub.slug)}
-                className={`w-full text-left px-3 py-3.5 border-b border-[#F0EFED] transition-all ${
+                className={`w-full text-left px-2 py-3 border-b border-[#F0EFED] ${
                   activeL2 === sub.slug
                     ? "border-l-[3px] border-l-[#E68910] bg-[#FFF8F0]"
                     : "border-l-[3px] border-l-transparent"
                 }`}
               >
-                <span className={`text-[12px] leading-tight block ${
-                  activeL2 === sub.slug
-                    ? "font-bold text-[#E68910]"
-                    : "font-medium text-[#595959]"
-                }`}>
-                  {sub.name}
-                </span>
+                <span className={`text-[11px] leading-tight block ${
+                  activeL2 === sub.slug ? "font-bold text-[#E68910]" : "font-medium text-[#595959]"
+                }`}>{sub.name}</span>
               </button>
             ))}
           </div>
         )}
 
-        {/* RIGHT — Product grid */}
-        <div className="flex-1 p-3 pb-24">
-          {/* Header */}
-          <div className="mb-3">
-            <span className="text-[13px] font-semibold text-[#1A2B4C]">
+        {/* RIGHT — products */}
+        <div className="flex-1 p-2 pb-24">
+          <div className="flex items-center gap-1 mb-2 px-1">
+            <span className="text-[12px] font-semibold text-[#1A2B4C]">
               {activeL1Cat?.name}{activeL2 ? ` › ${l2Cats.find(c=>c.slug===activeL2)?.name}` : ""}
             </span>
             {!loadingProducts && (
-              <span className="text-[11px] text-[#9CA3AF] ml-2">({products.length})</span>
+              <span className="text-[10px] text-[#9CA3AF]">({products.length})</span>
             )}
           </div>
 
-          {/* Skeleton */}
           {loadingProducts && (
             <div className="grid grid-cols-2 gap-2">
-              {Array.from({length: 6}).map((_,i) => (
+              {Array.from({length:6}).map((_,i) => (
                 <div key={i} className="aspect-[3/4] bg-[#E5E2DC] rounded-xl animate-pulse" />
               ))}
             </div>
           )}
 
-          {/* Products */}
           {!loadingProducts && products.length > 0 && (
             <div className="grid grid-cols-2 gap-2">
               {products.map(p => <ProductCardV2 key={p.id} p={p} />)}
             </div>
           )}
 
-          {/* Empty */}
           {!loadingProducts && products.length === 0 && (
-            <div className="text-center py-16">
+            <div className="text-center py-12">
               <p className="text-3xl mb-2">🛍️</p>
               <p className="font-semibold text-[#1A2B4C] text-sm">No products yet</p>
-              <p className="text-xs text-[#9CA3AF] mt-1">Products coming soon</p>
-              <Link href="/products"
-                className="mt-4 inline-block px-5 py-2 bg-[#1A2B4C] text-white rounded-full text-sm font-semibold">
+              <p className="text-xs text-[#9CA3AF] mt-1">Coming soon</p>
+              <Link href="/products" className="mt-3 inline-block px-5 py-2 bg-[#1A2B4C] text-white rounded-full text-sm font-semibold">
                 Browse all →
               </Link>
             </div>

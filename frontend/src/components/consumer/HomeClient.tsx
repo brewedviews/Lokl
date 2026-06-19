@@ -229,7 +229,9 @@ export function HomeClient() {
             <Link key={s.id} href={`/store/${s.slug}`}
               className="flex-shrink-0 w-36 bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden hover:shadow-sm transition active:scale-95">
               <div className="relative h-20 bg-[#E5E2DC]">
-                {s.image && <img src={s.image} alt={s.name} className="w-full h-full object-cover" />}
+                {((s as any).banner || (Array.isArray((s as any).banners) && (s as any).banners[0]) || s.image || s.logo) ? (
+                  <img src={(s as any).banner || (Array.isArray((s as any).banners) && (s as any).banners[0]) || s.image || s.logo} alt={s.name} className="w-full h-full object-cover" />
+                ) : null}
               </div>
               <div className="p-2.5">
                 <div className="font-bold text-[#1A2B4C] text-[12px] truncate">{s.name}</div>

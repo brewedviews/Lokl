@@ -112,7 +112,7 @@ export function ProductCardV2({ p, compact = false }: Props) {
   return (
     <div className="group relative bg-white rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] hover:shadow-[0_8px_24px_rgba(10,31,92,0.12)] transition" data-testid={`p-card-${p.id}`}>
       <Link href={`/product/${p.id}`} className="block active:scale-[0.98] transition">
-        <div className="relative aspect-[4/5] bg-slate-100 overflow-hidden">
+        <div className="relative aspect-[3/4] bg-slate-100 overflow-hidden">
           {p.image ? (
             <Image
               src={p.image}

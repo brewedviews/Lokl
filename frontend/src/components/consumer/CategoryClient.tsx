@@ -108,64 +108,58 @@ export function CategoryClient() {
       <main className="flex-1">
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
           {/* Header */}
-          <h1 data-testid="cat-title" className="font-display text-3xl md:text-5xl font-bold text-[#1A2B4C] leading-tight">
+          <h1 data-testid="cat-title" className="font-display text-lg font-bold text-[#1A2B4C]">
             {l1.name}
             {!isLoading && (
-              <span className="text-lg md:text-2xl font-normal text-[#595959] ml-3">({products.length} products)</span>
+              <span className="text-sm font-normal text-[#595959] ml-2">({products.length})</span>
             )}
           </h1>
 
           {/* Filter bar */}
-          <div className="mt-5 flex flex-wrap gap-2 items-center">
+          <div className="mt-2 flex gap-1.5 overflow-x-auto no-scrollbar pb-2 items-center">
             {/* Sort pills */}
-            <div className="flex gap-2 flex-wrap">
-              {SORTS.map((s) => (
-                <button
-                  key={s.key}
-                  onClick={() => setSort(s.key)}
-                  data-testid={`sort-${s.key}`}
-                  className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition ${
-                    sort === s.key
-                      ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
-                      : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
+            {SORTS.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setSort(s.key)}
+                data-testid={`sort-${s.key}`}
+                className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition ${
+                  sort === s.key
+                    ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
+                    : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
 
-            {/* Separator */}
             {(isFootwear || l2List.length > 0) && (
-              <div className="h-5 w-px bg-[#E5E2DC] mx-1 hidden sm:block" />
+              <div className="h-4 w-px bg-[#E5E2DC] mx-0.5 flex-shrink-0" />
             )}
 
             {/* Footwear: gender chips */}
             {isFootwear ? (
-              <>
-                {([["", "All"], ["women", "Women"], ["men", "Men"]] as const).map(([g, label]) => (
-                  <button
-                    key={g || "all"}
-                    onClick={() => setGender(g)}
-                    data-testid={`gender-${g || "all"}`}
-                    className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition ${
-                      gender === g
-                        ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
-                        : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </>
+              ([["", "All"], ["women", "Women"], ["men", "Men"]] as const).map(([g, label]) => (
+                <button
+                  key={g || "all"}
+                  onClick={() => setGender(g)}
+                  data-testid={`gender-${g || "all"}`}
+                  className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition ${
+                    gender === g
+                      ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
+                      : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))
             ) : (
-              /* L2 filter chips */
               l2List.length > 0 && (
                 <>
                   <button
                     onClick={() => setSelectedL2Id("")}
                     data-testid="l2-filter-all"
-                    className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition ${
+                    className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition ${
                       selectedL2Id === ""
                         ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
                         : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
@@ -178,7 +172,7 @@ export function CategoryClient() {
                       key={s.id}
                       onClick={() => setSelectedL2Id(selectedL2Id === s.id ? "" : s.id)}
                       data-testid={`l2-filter-${s.slug}`}
-                      className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition ${
+                      className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition ${
                         selectedL2Id === s.id
                           ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
                           : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"

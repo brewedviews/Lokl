@@ -55,7 +55,7 @@ function ProductsInner() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-4 pb-24">
-      <h1 className="font-display text-2xl font-bold text-[#1A2B4C] mb-4">
+      <h1 className="font-display text-lg font-bold text-[#1A2B4C] mb-2">
         {pageTitle(priceFilter)}
         {!loading && (
           <span className="text-sm font-normal text-[#9CA3AF] ml-2">
@@ -64,12 +64,12 @@ function ProductsInner() {
         )}
       </h1>
 
-      <div className="flex gap-2 overflow-x-auto pb-2 mb-3 no-scrollbar">
+      <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
         {PRICE_FILTERS.map((f) => (
           <button
             key={f.key}
             onClick={() => setFilter("price", f.key)}
-            className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition-colors ${
+            className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
               priceFilter === f.key
                 ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
                 : "bg-white text-[#595959] border-[#E5E2DC]"
@@ -80,12 +80,12 @@ function ProductsInner() {
         ))}
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-3 mb-4 no-scrollbar">
+      <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-2 mt-1.5">
         {SORT_OPTIONS.map((s) => (
           <button
             key={s.key}
             onClick={() => setFilter("sort", s.key)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+            className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-medium border transition-colors ${
               sortFilter === s.key
                 ? "bg-[#E68910] text-white border-[#E68910]"
                 : "bg-white text-[#595959] border-[#E5E2DC]"
