@@ -181,22 +181,27 @@ export function HomeClient() {
       </HCarousel>
     ) : !loaded.has("recent") ? <ProductRailSkeleton key="recent-skeleton" testid="home-recent-skeleton" /> : null,
     under_499: (
-      <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-8 mt-3 grid grid-cols-3 gap-3">
-        <Link href="/products?price=under-499" className="flex flex-col items-center justify-center bg-white border border-[#E5E2DC] rounded-2xl p-4 hover:border-[#E68910] hover:shadow-sm transition-all group">
-          <span className="text-2xl mb-1">🏷️</span>
-          <span className="font-bold text-[#1A2B4C] text-sm">Under ₹499</span>
-          <span className="text-[10px] text-[#9CA3AF] mt-0.5">Budget finds</span>
-        </Link>
-        <Link href="/products?price=499-1099" className="flex flex-col items-center justify-center bg-white border border-[#E5E2DC] rounded-2xl p-4 hover:border-[#E68910] hover:shadow-sm transition-all group">
-          <span className="text-2xl mb-1">⭐</span>
-          <span className="font-bold text-[#1A2B4C] text-sm">₹499 – ₹1,099</span>
-          <span className="text-[10px] text-[#9CA3AF] mt-0.5">Most popular</span>
-        </Link>
-        <Link href="/products?price=above-1099" className="flex flex-col items-center justify-center bg-[#1A2B4C] border border-[#1A2B4C] rounded-2xl p-4 hover:opacity-90 transition-all group">
-          <span className="text-2xl mb-1">✨</span>
-          <span className="font-bold text-white text-sm">Above ₹1,099</span>
-          <span className="text-[10px] text-white/60 mt-0.5">Premium picks</span>
-        </Link>
+      <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-8 mt-3">
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { href: "/products?price=under-499", price: "Under ₹499", sub: "Budget picks" },
+            { href: "/products?price=499-1099", price: "₹499–₹1,099", sub: "Most popular" },
+            { href: "/products?price=above-1099", price: "₹1,099+", sub: "Premium" },
+          ].map(({ href, price, sub }) => (
+            <Link
+              key={href}
+              href={href}
+              className="flex flex-col bg-white border border-[#E5E2DC] rounded-xl overflow-hidden hover:border-[#E68910] hover:shadow-sm transition-all active:scale-95"
+            >
+              <div className="flex-1 flex items-center justify-center px-2 pt-3 pb-2">
+                <span className="font-bold text-[#1A2B4C] text-[13px] text-center leading-tight">{price}</span>
+              </div>
+              <div className="bg-[#F5F4F0] px-2 py-1.5 text-center">
+                <span className="text-[10px] text-[#595959] font-medium">{sub}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
       </div>
     ),
     stores: errors.has("popularStores") && !storesRail.length ? (

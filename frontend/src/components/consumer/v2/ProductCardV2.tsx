@@ -140,7 +140,7 @@ export function ProductCardV2({ p, compact = false }: Props) {
         </div>
         <div className="p-2 pb-1 space-y-0.5">
           {!compact && (
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B] line-clamp-1">{p.store_name || "Lokl Store"}</div>
+            <div className="text-[9px] font-bold uppercase tracking-wider text-[#64748B] line-clamp-1">{p.store_name || "Lokl Store"}</div>
           )}
           <div className="text-[12px] font-semibold text-[#0F172A] line-clamp-1">{p.name}</div>
           <div className="flex items-baseline gap-1.5">

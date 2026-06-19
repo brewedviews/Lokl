@@ -24,7 +24,7 @@ export function HCarousel({ title, subtitle, link, linkLabel = "See all", testid
       </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-8 px-4 sm:px-8 max-w-7xl mx-auto">
         {Children.map(children, (c, i) => (
-          <div key={i} className="snap-start shrink-0 w-[42vw] sm:w-[200px] md:w-[220px]">{c}</div>
+          <div key={i} className="snap-start shrink-0 w-[38vw] sm:w-[180px] md:w-[200px]">{c}</div>
         ))}
       </div>
     </section>
