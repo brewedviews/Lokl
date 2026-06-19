@@ -108,11 +108,11 @@ function CategoriesInner() {
         </div>
       </div>
 
-      <div className="flex" style={{minHeight: 'calc(100vh - 120px)'}}>
+      <div className="flex relative" style={{minHeight: 'calc(100vh - 112px)'}}>
 
         {/* LEFT — FIX 4: sidebar maps l2Cats (NOT l1Cats) */}
         {l2Cats.length > 0 && (
-          <div className="w-24 flex-shrink-0 bg-white border-r border-[#E5E2DC] min-h-screen">
+          <div className="w-24 flex-shrink-0 bg-white border-r border-[#E5E2DC] sticky top-[112px] md:top-[120px] self-start overflow-y-auto" style={{maxHeight: 'calc(100vh - 112px)'}}>
             <button
               onClick={() => setL2("")}
               className={`w-full text-left px-3 py-3.5 border-b border-[#F0EFED] ${
