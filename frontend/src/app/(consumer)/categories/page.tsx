@@ -4,7 +4,6 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiClient } from "@/lib/api-client";
 import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
-import { ConsumerHeader } from "@/components/consumer/ConsumerHeader";
 
 interface L1Cat { id: string; name: string; slug: string; image?: string; }
 interface L2Cat { id: string; name: string; slug: string; }
@@ -66,7 +65,6 @@ function CategoriesInner() {
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
-      <ConsumerHeader />
 
       {/* L1 TOP TABS — horizontal scroll with images */}
       <div className="sticky top-[56px] md:top-[64px] z-30 bg-white border-b border-[#E5E2DC]">
