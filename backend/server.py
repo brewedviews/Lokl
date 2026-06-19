@@ -2706,65 +2706,65 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
 @_limit("30/minute")
 async def get_order(order_id: str, request: Request):
     auth = request.headers.get("authorization", "")
-    customer_phone = None
-    is_admin = False
-    payload: dict = {}
-
-    if auth.startswith("Bearer "):
-        try:
-            payload = decode_token(auth.split(" ", 1)[1])
-        except Exception:
-            raise HTTPException(401, "Invalid token")
-        role = payload.get("role", "customer")
-        if role == "admin":
-            is_admin = True
-        elif role == "customer":
-            customer_phone = payload.get("sub")
-        # merchant: customer_phone stays None; ownership checked below
-    else:
-        raise HTTPException(401, "Authentication required")
 
     o = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not o:
         raise HTTPException(404, "Order not found")
 
-    if not is_admin:
-        order_phone = (o.get("customer") or {}).get("phone") or o.get("customer_phone", "")
+    # If a Bearer token is present, validate it. A valid token grants full access
+    # (owner, merchant, or admin). An invalid token is treated as unauthenticated.
+    if auth.startswith("Bearer "):
+        try:
+            decode_token(auth.split(" ", 1)[1])
+            # Token valid — return full order with all fields including PII and OTP.
+            # Enrich multi-store orders with per-merchant breakdown.
+            if o.get("is_multi_store"):
+                breakdown = []
+                for mid in (o.get("merchant_ids") or []):
+                    items = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid]
+                    if not items: continue
+                    sname = items[0].get("store_name") or "Store"
+                    sid = items[0].get("store_id")
+                    breakdown.append({
+                        "merchant_id": mid,
+                        "store_id": sid,
+                        "store_name": sname,
+                        "items": items,
+                        "subtotal": round(sum(float(it.get("price", 0)) * int(it.get("qty", 1)) for it in items), 2),
+                        "state": (o.get("merchant_states") or {}).get(mid, "pending"),
+                        "timeline": (o.get("merchant_timelines") or {}).get(mid) or [],
+                        "delivered_at": (o.get("merchant_delivered_at") or {}).get(mid),
+                        # Customer sees the per-store OTP only AFTER that store accepts
+                        "otp": (o.get("merchant_otps") or {}).get(mid) if (o.get("merchant_states") or {}).get(mid) in ("handed_off", "delivered") else None,
+                        "cancel_reason": (o.get("merchant_cancelled") or {}).get(mid),
+                    })
+                o["store_breakdown"] = breakdown
+            return o
+        except Exception:
+            pass  # Invalid token — fall through to unauthenticated view
 
-        def _norm(p: str) -> str:
-            return _re.sub(r"\D", "", str(p or ""))[-10:]
-
-        if customer_phone and _norm(customer_phone) != _norm(order_phone):
-            # Phone mismatch — check if the caller is a merchant for this order
-            merchant_ids = list((o.get("merchant_states") or {}).keys())
-            merchant = await db.merchants.find_one({"id": payload.get("sub")}, {"_id": 0, "id": 1})
-            if not merchant or merchant["id"] not in merchant_ids:
-                raise HTTPException(403, "Access denied")
-
-    # Enrich multi-store orders with per-merchant breakdown for the customer
-    # tracking UI: items grouped by store + each store's own 4-step timeline.
-    if o.get("is_multi_store"):
-        breakdown = []
-        for mid in (o.get("merchant_ids") or []):
-            items = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid]
-            if not items: continue
-            sname = items[0].get("store_name") or "Store"
-            sid = items[0].get("store_id")
-            breakdown.append({
-                "merchant_id": mid,
-                "store_id": sid,
-                "store_name": sname,
-                "items": items,
-                "subtotal": round(sum(float(it.get("price", 0)) * int(it.get("qty", 1)) for it in items), 2),
-                "state": (o.get("merchant_states") or {}).get(mid, "pending"),
-                "timeline": (o.get("merchant_timelines") or {}).get(mid) or [],
-                "delivered_at": (o.get("merchant_delivered_at") or {}).get(mid),
-                # Customer sees the per-store OTP only AFTER that store accepts
-                "otp": (o.get("merchant_otps") or {}).get(mid) if (o.get("merchant_states") or {}).get(mid) in ("handed_off", "delivered") else None,
-                "cancel_reason": (o.get("merchant_cancelled") or {}).get(mid),
-            })
-        o["store_breakdown"] = breakdown
-    return o
+    # No token or invalid token — return a stripped view with no PII.
+    # Enough for WhatsApp tracking links to show status/items without exposing
+    # the customer's address, phone, or delivery OTP.
+    safe = {
+        "id": o.get("id"),
+        "status": o.get("status"),
+        "merchant_states": o.get("merchant_states"),
+        "items": [
+            {
+                "name": item.get("name"),
+                "quantity": item.get("quantity"),
+                "price": item.get("price"),
+            }
+            for item in (o.get("items") or [])
+        ],
+        "total": o.get("total"),
+        "created_at": o.get("created_at"),
+        "store_name": o.get("store_name"),
+        "eta_message": o.get("eta_message"),
+        "delivered_at": o.get("delivered_at"),
+    }
+    return safe
 
 @api.post("/orders/{oid}/rate")
 async def rate_order_product(oid: str, payload: dict, user: dict = Depends(customer_user)):

@@ -62,6 +62,7 @@ const CUSTOMER_ROUTE_PATTERNS: RegExp[] = [
   /^\/api\/customer\//,
   /^\/api\/auth\/customer\//,
   /^\/api\/orders$/,
+  /^\/api\/orders\/[^/]+$/,
   /^\/api\/orders\/[^/]+\/customer-cancel$/,
   /^\/api\/orders\/[^/]+\/returns$/,
   /^\/api\/orders\/[^/]+\/complaints$/,
