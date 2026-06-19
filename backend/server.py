@@ -2703,9 +2703,44 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
     return doc
 
 @api.get("/orders/{order_id}")
-async def get_order(order_id: str):
+@_limit("30/minute")
+async def get_order(order_id: str, request: Request):
+    auth = request.headers.get("authorization", "")
+    customer_phone = None
+    is_admin = False
+    payload: dict = {}
+
+    if auth.startswith("Bearer "):
+        try:
+            payload = decode_token(auth.split(" ", 1)[1])
+        except Exception:
+            raise HTTPException(401, "Invalid token")
+        role = payload.get("role", "customer")
+        if role == "admin":
+            is_admin = True
+        elif role == "customer":
+            customer_phone = payload.get("sub")
+        # merchant: customer_phone stays None; ownership checked below
+    else:
+        raise HTTPException(401, "Authentication required")
+
     o = await db.orders.find_one({"id": order_id}, {"_id": 0})
-    if not o: raise HTTPException(404, "Order not found")
+    if not o:
+        raise HTTPException(404, "Order not found")
+
+    if not is_admin:
+        order_phone = (o.get("customer") or {}).get("phone") or o.get("customer_phone", "")
+
+        def _norm(p: str) -> str:
+            return _re.sub(r"\D", "", str(p or ""))[-10:]
+
+        if customer_phone and _norm(customer_phone) != _norm(order_phone):
+            # Phone mismatch — check if the caller is a merchant for this order
+            merchant_ids = list((o.get("merchant_states") or {}).keys())
+            merchant = await db.merchants.find_one({"id": payload.get("sub")}, {"_id": 0, "id": 1})
+            if not merchant or merchant["id"] not in merchant_ids:
+                raise HTTPException(403, "Access denied")
+
     # Enrich multi-store orders with per-merchant breakdown for the customer
     # tracking UI: items grouped by store + each store's own 4-step timeline.
     if o.get("is_multi_store"):
