@@ -29,6 +29,14 @@ export function middleware(request: NextRequest) {
     return NextResponse.rewrite(url)
   }
 
+  // Redirect bare /orders/{id} links (e.g. from WhatsApp) to the auth-gated page.
+  const { pathname } = request.nextUrl
+  if (/^\/orders\/LOKL-[A-Z0-9]+$/.test(pathname)) {
+    const url = request.nextUrl.clone()
+    url.pathname = `/account/orders/${pathname.split('/').pop()}`
+    return NextResponse.redirect(url)
+  }
+
   return NextResponse.next()
 }
 

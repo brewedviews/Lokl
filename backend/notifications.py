@@ -293,7 +293,7 @@ def notify_order_placed(phone: str, order_id: str, total: float) -> None:
         f"Hi! 🛍️ Your Lokl order #{short} is confirmed.\n\n"
         f"Amount: ₹{total:.0f}\n"
         f"Your store is packing your order — delivery in ~30 minutes.\n\n"
-        f"Track here: {APP_URL}/orders/{order_id}\n\n"
+        f"Track here: {APP_URL}/account/orders/{order_id}\n\n"
         f"Questions? {SUPPORT_PHONE}"
     )
     send_with_fallback(phone, body)
@@ -317,7 +317,7 @@ def notify_order_accepted(phone: str, order_id: str, store_name: str, otp: str =
         f"Your rider is on the way. Expected delivery in ~30 minutes.\n\n"
         f"🔑 Delivery OTP: *{otp}*\n"
         f"Share this with your rider when they arrive.\n\n"
-        f"Track: {APP_URL}/orders/{order_id}"
+        f"Track: {APP_URL}/account/orders/{order_id}"
     )
     send_with_fallback(phone, body)
 
@@ -373,7 +373,7 @@ def notify_order_on_the_way(phone: str, order_id: str, otp: str) -> None:
         f"🚴 Your order #{short} is on the way!\n\n"
         f"🔑 OTP: *{otp}*\n"
         f"Share this with your rider on arrival to confirm delivery.\n\n"
-        f"Track: {APP_URL}/orders/{order_id}"
+        f"Track: {APP_URL}/account/orders/{order_id}"
     )
     send_with_fallback(phone, body)
 
@@ -395,7 +395,7 @@ def notify_order_delivered(phone: str, order_id: str) -> None:
     body = (
         f"🎉 Order #{short} delivered!\n\n"
         f"Hope you love it! Rate your experience:\n"
-        f"{APP_URL}/orders/{order_id}\n\n"
+        f"{APP_URL}/account/orders/{order_id}\n\n"
         f"Shop again: {APP_URL}"
     )
     send_with_fallback(phone, body)
