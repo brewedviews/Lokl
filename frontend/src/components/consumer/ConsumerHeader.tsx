@@ -126,6 +126,13 @@ export function ConsumerHeader() {
         </div>
 
         <Link
+          href="/products"
+          data-testid="nav-products"
+          className="hidden lg:flex items-center gap-1.5 text-sm font-medium hover:text-brand-accent transition shrink-0"
+        >
+          Products
+        </Link>
+        <Link
           href="/stores"
           data-testid="nav-stores"
           className="hidden lg:flex items-center gap-1.5 text-sm font-medium hover:text-brand-accent transition shrink-0"

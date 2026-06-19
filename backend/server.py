@@ -2232,6 +2232,33 @@ async def list_products(l1: Optional[str] = None, l2: Optional[str] = None,
     items.sort(key=lambda p: p.get("store_availability_rank", 1))
     return items
 
+@api.get("/products/all")
+async def all_products(
+    price: Optional[str] = None,
+    sort: Optional[str] = None,
+    limit: int = 60,
+):
+    avail_map = await _availability_map()
+    q: dict = {**_visible_product_filter()}
+    if price == "under-499":
+        q["price"] = {"$lt": 499}
+    elif price == "499-1099":
+        q["price"] = {"$gte": 499, "$lte": 1099}
+    elif price == "above-1099":
+        q["price"] = {"$gt": 1099}
+    sort_field, sort_dir = "created_at", -1
+    if sort == "price_asc":
+        sort_field, sort_dir = "price", 1
+    elif sort == "price_desc":
+        sort_field, sort_dir = "price", -1
+    elif sort == "discount":
+        sort_field, sort_dir = "discount_pct", -1
+    products = await db.products.find(q, {"_id": 0}).sort(sort_field, sort_dir).to_list(limit)
+    products = _attach_store_avail(products, avail_map)
+    products.sort(key=lambda p: p.get("store_availability_rank", 4))
+    return {"products": products, "total": len(products)}
+
+
 @api.get("/products/{pid}")
 async def get_product(pid: str):
     p = await db.products.find_one({"id": pid}, {"_id": 0})
