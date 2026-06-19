@@ -1735,6 +1735,9 @@ async def list_l2(l1_id: str):
 # used only when neither the seed has run nor any admin has saved a config).
 DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "hero",            "label": "Hero",                       "enabled": True, "rank": 10},
+    {"id": "under_499",       "label": "Under ₹499",                 "enabled": True, "rank": 12},
+    {"id": "mid_range",       "label": "₹499–₹1,099",               "enabled": True, "rank": 14},
+    {"id": "above_1099",      "label": "Premium picks",              "enabled": True, "rank": 16},
     {"id": "popular_in_city", "label": "Trending now",               "enabled": True, "rank": 20},
     {"id": "categories",      "label": "Shop by category",           "enabled": True, "rank": 30},
     {"id": "selling_fast",    "label": "Selling fast",               "enabled": True, "rank": 40},
@@ -2116,34 +2119,73 @@ async def feed_popular_stores(limit: int = 10):
 
 @api.get("/feed/delivery-status")
 async def feed_delivery_status():
-    """Returns current delivery status: live if any store can accept orders, else closed with next open time."""
+    """Returns delivery status with reason: LIVE / AWAY (in-hours but offline) / CLOSED (outside hours)."""
+    from datetime import datetime, timezone, timedelta
     stores = await db.stores.find(
         _visible_store_filter(),
         {"_id": 0, "online": 1, "last_seen_at": 1, "opens_at": 1, "closes_at": 1, "weekly_off": 1}
     ).to_list(1000)
     if not stores:
-        return {"status": "closed", "label": "CLOSED", "eta_label": "tomorrow", "message": "Delivery resumes"}
-    # Only rank 1 (LIVE) and rank 2 (Away) stores count as actively open.
-    # Rank 3 (Closed — outside hours) has can_order=True for legacy reasons but
-    # no store is physically taking orders right now, so we exclude it.
+        return {"status": "closed", "label": "CLOSED", "eta_label": "tomorrow", "message": "No stores yet"}
+
     live_stores = [s for s in stores if _store_availability(s).get("rank", 4) <= 2]
     if live_stores:
         return {"status": "live", "label": "LIVE", "eta_label": "30 minutes", "message": "Fast delivery"}
-    earliest = None
+
+    ist_now = datetime.now(timezone.utc) + timedelta(minutes=330)
+    current_minutes = ist_now.hour * 60 + ist_now.minute
+    ist_day = ist_now.strftime("%A")
+
+    in_hours_but_offline = []
     for s in stores:
+        weekly_off = s.get("weekly_off") or []
+        if ist_day in weekly_off:
+            continue
         opens = s.get("opens_at", "10:00")
-        if not earliest or opens < earliest:
-            earliest = opens
-    if earliest:
+        closes = s.get("closes_at", "21:00")
         try:
-            h, m = map(int, earliest.split(":"))
-            suffix = "AM" if h < 12 else "PM"
-            h12 = h if h <= 12 else h - 12
-            opens_fmt = f"{h12}:{m:02d} {suffix}"
+            oh, om = map(int, opens.split(":"))
+            ch, cm = map(int, closes.split(":"))
+            if oh * 60 + om <= current_minutes <= ch * 60 + cm:
+                in_hours_but_offline.append(s)
         except Exception:
-            opens_fmt = earliest
-        return {"status": "closed", "label": "CLOSED", "eta_label": f"from {opens_fmt}", "message": "Delivery resumes"}
-    return {"status": "closed", "label": "CLOSED", "eta_label": "tomorrow", "message": "Delivery resumes"}
+            pass
+
+    if in_hours_but_offline:
+        return {"status": "closed", "label": "AWAY", "eta_label": "back soon", "message": "Stores away"}
+
+    # Outside hours — find earliest opening time
+    earliest_min = None
+    earliest_opens = None
+    opens_today = False
+    for s in stores:
+        weekly_off = s.get("weekly_off") or []
+        if ist_day in weekly_off:
+            continue
+        opens = s.get("opens_at", "10:00")
+        try:
+            oh, om = map(int, opens.split(":"))
+            store_open_min = oh * 60 + om
+            if earliest_min is None or store_open_min < earliest_min:
+                earliest_min = store_open_min
+                earliest_opens = opens
+            if store_open_min > current_minutes:
+                opens_today = True
+        except Exception:
+            pass
+
+    if earliest_opens:
+        try:
+            oh, om = map(int, earliest_opens.split(":"))
+            suffix = "AM" if oh < 12 else "PM"
+            h12 = oh % 12 or 12
+            opens_fmt = f"{h12}:{om:02d} {suffix}"
+        except Exception:
+            opens_fmt = earliest_opens
+        time_label = f"at {opens_fmt}" if opens_today else f"tomorrow {opens_fmt}"
+        return {"status": "closed", "label": "CLOSED", "eta_label": time_label, "message": "Opens"}
+
+    return {"status": "closed", "label": "CLOSED", "eta_label": "tomorrow", "message": "Opens"}
 
 
 @api.get("/stores/{store_id}")

@@ -14,6 +14,9 @@ from datetime import datetime, timezone
 
 DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "hero",            "label": "Hero",                       "enabled": True, "rank": 10},
+    {"id": "under_499",       "label": "Under ₹499",                 "enabled": True, "rank": 12},
+    {"id": "mid_range",       "label": "₹499–₹1,099",               "enabled": True, "rank": 14},
+    {"id": "above_1099",      "label": "Premium picks",              "enabled": True, "rank": 16},
     {"id": "popular_in_city", "label": "Trending now",               "enabled": True, "rank": 20},
     {"id": "categories",      "label": "Shop by category",           "enabled": True, "rank": 30},
     {"id": "selling_fast",    "label": "Selling fast",               "enabled": True, "rank": 40},
@@ -54,4 +57,4 @@ async def up(db):
         "created_at": now,
         "updated_at": now,
     })
-    return "inserted homepage config (8 sections, hero, default text overrides)"
+    return "inserted homepage config (11 sections, hero, default text overrides)"

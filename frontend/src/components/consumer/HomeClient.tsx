@@ -45,15 +45,15 @@ interface SectionDoc { id: string; label: string; enabled: boolean; rank: number
 // selling_fast, offers, recently_viewed, stores, customer_love).
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "hero",            label: "Hero",                       enabled: true, rank: 10 },
+  { id: "under_499",       label: "Under ₹499",                 enabled: true, rank: 12 },
+  { id: "mid_range",       label: "₹499–₹1099",                 enabled: true, rank: 14 },
+  { id: "above_1099",      label: "Premium picks",              enabled: true, rank: 16 },
   { id: "popular_in_city", label: "Trending now",               enabled: true, rank: 20 },
   { id: "categories",      label: "Shop by category",           enabled: true, rank: 30 },
   { id: "selling_fast",    label: "Selling fast",               enabled: true, rank: 40 },
   { id: "offers",          label: "Offers for you",             enabled: true, rank: 50 },
-  { id: "under_499",       label: "Under ₹499",                 enabled: true, rank: 55 },
   { id: "recently_viewed", label: "Recently added",             enabled: true, rank: 60 },
-  { id: "mid_range",       label: "₹499–₹1099",                 enabled: true, rank: 65 },
   { id: "stores",          label: "Popular stores",             enabled: true, rank: 70 },
-  { id: "above_1099",      label: "Premium picks",              enabled: true, rank: 75 },
   { id: "customer_love",   label: "Loved by Bhilai shoppers",   enabled: true, rank: 80 },
 ];
 

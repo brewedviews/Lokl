@@ -96,7 +96,7 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
             <div className="font-bold text-[#0A1F5C] font-display text-sm" data-testid="hero-fastest-eta-mobile">{deliveryStatus?.eta_label || `${eta} minutes`}</div>
           </div>
           <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[9px] font-bold flex items-center gap-1">
-            <span className={`w-1.5 h-1.5 rounded-full ${deliveryStatus?.status === "closed" ? "bg-[#9CA3AF]" : "bg-[#F59E0B] animate-pulse"}`} />
+            <span className={`w-1.5 h-1.5 rounded-full ${deliveryStatus?.label === "AWAY" ? "bg-[#E68910]" : deliveryStatus?.status === "closed" ? "bg-[#9CA3AF]" : "bg-[#F59E0B] animate-pulse"}`} />
             {deliveryStatus?.label || "LIVE"}
           </span>
         </div>
@@ -108,7 +108,7 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
           <div className="font-bold text-[#0A1F5C] font-display text-lg" data-testid="hero-fastest-eta">{deliveryStatus?.eta_label || `${eta} minutes`}</div>
         </div>
         <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[10px] font-bold flex items-center gap-1">
-          <span className={`w-1.5 h-1.5 rounded-full ${deliveryStatus?.status === "closed" ? "bg-[#9CA3AF]" : "bg-[#F59E0B] animate-pulse"}`} />
+          <span className={`w-1.5 h-1.5 rounded-full ${deliveryStatus?.label === "AWAY" ? "bg-[#E68910]" : deliveryStatus?.status === "closed" ? "bg-[#9CA3AF]" : "bg-[#F59E0B] animate-pulse"}`} />
           {deliveryStatus?.label || "LIVE"}
         </span>
       </div>
