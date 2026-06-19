@@ -287,38 +287,50 @@ def notify_merchant_otp(merchant_phone: str, otp: str) -> None:
     send_with_fallback(merchant_phone, body)
 
 
-def notify_order_placed(customer_phone: str, order_id: str, total: float, eta_min: int = 45) -> None:
+def notify_order_placed(phone: str, order_id: str, total: float) -> None:
+    short = order_id[-6:].upper()
     body = (
-        f"Lokl: Order {order_id} confirmed! "
-        f"Amount Rs.{total:,.0f}. Store is preparing it (ETA ~{eta_min} min). "
-        f"Track: {APP_URL}/orders/{order_id}"
+        f"Hi! 🛍️ Your Lokl order #{short} is confirmed.\n\n"
+        f"Amount: ₹{total:.0f}\n"
+        f"Your store is packing your order — delivery in ~30 minutes.\n\n"
+        f"Track here: {APP_URL}/orders/{order_id}\n\n"
+        f"Questions? {SUPPORT_PHONE}"
     )
-    send_with_fallback(customer_phone, body)
+    send_with_fallback(phone, body)
 
 
 def notify_merchant_new_order(merchant_phone: str, order_id: str, total: float, items_count: int) -> None:
+    short = order_id[-6:].upper()
     body = (
-        f"Lokl: NEW ORDER {order_id} — {items_count} item(s) Rs.{total:,.0f}. "
-        f"Open your dashboard to accept fast."
+        f"🛍️ NEW ORDER #{short}\n\n"
+        f"{items_count} item(s) · ₹{total:.0f}\n\n"
+        f"Accept quickly to keep your rating high!\n"
+        f"👉 {APP_URL}/merchant/orders"
     )
     send_with_fallback(merchant_phone, body)
 
 
-def notify_order_accepted(customer_phone: str, order_id: str, store_name: str, otp: str = "") -> None:
-    otp_line = f"Share OTP {otp} with the rider on arrival from {store_name}. " if otp else ""
+def notify_order_accepted(phone: str, order_id: str, store_name: str, otp: str = "") -> None:
+    short = order_id[-6:].upper()
     body = (
-        f"Lokl: Order {order_id} accepted by {store_name}. "
-        f"{otp_line}Rider will pick up shortly."
+        f"✅ Order #{short} accepted by {store_name}!\n\n"
+        f"Your rider is on the way. Expected delivery in ~30 minutes.\n\n"
+        f"🔑 Delivery OTP: *{otp}*\n"
+        f"Share this with your rider when they arrive.\n\n"
+        f"Track: {APP_URL}/orders/{order_id}"
     )
-    send_with_fallback(customer_phone, body)
+    send_with_fallback(phone, body)
 
 
-def notify_order_rejected(customer_phone: str, order_id: str) -> None:
+def notify_order_rejected(phone: str, order_id: str) -> None:
+    short = order_id[-6:].upper()
     body = (
-        f"Lokl: Order {order_id} could not be fulfilled this time. "
-        f"If paid online, refund is auto-initiated (3-5 working days)."
+        f"😔 Order #{short} could not be fulfilled by the store.\n\n"
+        f"Since you pay at delivery, no amount was charged.\n\n"
+        f"Browse other stores: {APP_URL}\n"
+        f"Need help? {SUPPORT_PHONE}"
     )
-    send_with_fallback(customer_phone, body)
+    send_with_fallback(phone, body)
 
 
 def notify_rider_pickup(rider_phone: str, *, order_id: str, otp: str, customer_name: str,
@@ -355,29 +367,38 @@ Reply: {otp} Delivered"""
     send_with_fallback(rider_phone, body)
 
 
-def notify_order_on_the_way(customer_phone: str, order_id: str, otp: str) -> None:
+def notify_order_on_the_way(phone: str, order_id: str, otp: str) -> None:
+    short = order_id[-6:].upper()
     body = (
-        f"Lokl: Order {order_id} is on the way! "
-        f"Share OTP {otp} with the rider on arrival. "
+        f"🚴 Your order #{short} is on the way!\n\n"
+        f"🔑 OTP: *{otp}*\n"
+        f"Share this with your rider on arrival to confirm delivery.\n\n"
         f"Track: {APP_URL}/orders/{order_id}"
     )
-    send_with_fallback(customer_phone, body)
+    send_with_fallback(phone, body)
 
 
-def notify_order_cancelled(customer_phone: str, order_id: str, reason: str) -> None:
+def notify_order_cancelled(phone: str, order_id: str, reason: str = "") -> None:
+    short = order_id[-6:].upper()
     body = (
-        f"Lokl: Order {order_id} was cancelled. Reason: {reason}. "
-        f"If paid online, refund is auto-initiated (3-5 working days)."
+        f"❌ Order #{short} was cancelled.\n"
+        f"{f'Reason: {reason}' + chr(10) if reason else ''}\n"
+        f"Since you pay at delivery, no amount was charged.\n\n"
+        f"Browse other stores: {APP_URL}\n"
+        f"Need help? {SUPPORT_PHONE}"
     )
-    send_with_fallback(customer_phone, body)
+    send_with_fallback(phone, body)
 
 
-def notify_order_delivered(customer_phone: str, order_id: str) -> None:
+def notify_order_delivered(phone: str, order_id: str) -> None:
+    short = order_id[-6:].upper()
     body = (
-        f"Lokl: Order {order_id} has been delivered. "
-        f"Loved it? Rate your store in 1 tap: {APP_URL}"
+        f"🎉 Order #{short} delivered!\n\n"
+        f"Hope you love it! Rate your experience:\n"
+        f"{APP_URL}/orders/{order_id}\n\n"
+        f"Shop again: {APP_URL}"
     )
-    send_with_fallback(customer_phone, body)
+    send_with_fallback(phone, body)
 
 
 def notify_rider_return_pickup(rider_phone: str, *, return_id: str, order_id: str, otp: str,

@@ -32,7 +32,7 @@ from notifications import (
     notify_order_accepted, notify_order_rejected, notify_order_delivered,
     notify_order_on_the_way, notify_order_cancelled, notify_rider_pickup,
     notify_rider_return_pickup, notify_return_status, notify_customer_otp,
-    notify_merchant_otp, send_with_fallback,
+    notify_merchant_otp, send_with_fallback, APP_URL,
 )
 from ai_enhance import enhance_product_images
 from observability import init_sentry
@@ -2413,22 +2413,15 @@ async def notify_me_endpoint(payload: NotifyMeRequest):
          "$setOnInsert": {"created_at": now, "notified": False}},
         upsert=True,
     )
-    try:
-        send_with_fallback(
-            phone,
-            f"Hi! 👋 You'll get a WhatsApp notification when {store_name} is back online on Lokl. "
-            "Browse more at lokl.up.railway.app",
-        )
-    except Exception:
-        pass
     return {"ok": True}
 
 
 async def _send_notify_me_messages(store_id: str) -> None:
     """Background: notify all pending subscribers when a store toggles back online."""
     try:
-        store = await db.stores.find_one({"id": store_id}, {"_id": 0, "name": 1})
+        store = await db.stores.find_one({"id": store_id}, {"_id": 0, "name": 1, "slug": 1})
         store_name = (store or {}).get("name", "the store")
+        store_slug = (store or {}).get("slug", store_id)
         now = datetime.now(timezone.utc).isoformat()
         async for entry in db.notify_me.find(
             {"store_id": store_id, "notified": False}, {"_id": 0}
@@ -2436,16 +2429,9 @@ async def _send_notify_me_messages(store_id: str) -> None:
             phone = entry.get("phone")
             if not phone:
                 continue
-            product_id = entry.get("product_id")
-            product_name = None
-            if product_id:
-                p = await db.products.find_one({"id": product_id}, {"_id": 0, "name": 1})
-                if p:
-                    product_name = p.get("name")
-            item_text = product_name or "your favourites"
             msg = (
-                f"🟢 {store_name} is now online on Lokl! "
-                f"Order {item_text} now: lokl.up.railway.app/store/{store_id}"
+                f"🟢 {store_name} is now live on Lokl! "
+                f"Shop now: {APP_URL}/store/{store_slug}"
             )
             try:
                 send_with_fallback(phone, msg)
