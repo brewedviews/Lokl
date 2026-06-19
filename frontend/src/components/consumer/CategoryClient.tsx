@@ -26,7 +26,6 @@ function sortProducts(products: ProductCard[], sort: SortKey): ProductCard[] {
   const copy = [...products];
   if (sort === "price_asc") return copy.sort((a, b) => a.price - b.price);
   if (sort === "price_desc") return copy.sort((a, b) => b.price - a.price);
-  // nearest: sort by distance, unavailable stores pushed to bottom
   return copy.sort((a, b) => {
     const aRank = a.store_availability_rank ?? 1;
     const bRank = b.store_availability_rank ?? 1;
@@ -58,50 +57,60 @@ export function CategoryClient() {
   const slug = params.slug;
 
   const [cats, setCats] = useState<Cat[]>([]);
+  const [subcategories, setSubcategories] = useState<L2[]>([]);
   const [allProducts, setAllProducts] = useState<ProductCard[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [sort, setSort] = useState<SortKey>("nearest");
-  const [selectedL2Id, setSelectedL2Id] = useState("");
+  const [l2Filter, setL2Filter] = useState(""); // slug
   const [gender, setGender] = useState(genderFromL1Slug(slug));
 
   const l1 = useMemo(() => cats.find((c) => c.slug === slug), [cats, slug]);
   const isFootwear = slug === "footwear";
 
-  // Re-derive gender when slug changes (client-side nav between categories)
-  useEffect(() => { setGender(genderFromL1Slug(slug)); }, [slug]);
+  useEffect(() => { setGender(genderFromL1Slug(slug)); setL2Filter(""); }, [slug]);
 
   useEffect(() => {
     api.catalog.categories().then((r) => setCats(r as Cat[])).catch(() => {});
   }, []);
 
-  // Fetch all products for this L1 whenever l1, selectedL2Id, or gender changes.
-  // Sort (nearest) is applied client-side; price sorts are passed to backend.
+  // Fetch L2 subcategories for this L1 — backend returns array directly from /l2
+  useEffect(() => {
+    if (!l1) return;
+    apiClient.get(`/api/categories/${l1.id}/l2`)
+      .then(r => {
+        const subs = Array.isArray(r.data) ? r.data : (r.data?.subcategories || []);
+        setSubcategories(subs.length > 0 ? subs : (l1.l2 ?? []));
+      })
+      .catch(() => setSubcategories(l1.l2 ?? []));
+  }, [l1?.id]);
+
+  // l2FilterId — converts slug to DB id for the products API
+  const l2FilterId = useMemo(() => {
+    if (!l2Filter) return "";
+    const sub = subcategories.find(s => s.slug === l2Filter) ?? (l1?.l2 ?? []).find(s => s.slug === l2Filter);
+    return sub?.id ?? "";
+  }, [l2Filter, subcategories, l1]);
+
   useEffect(() => {
     if (!l1) return;
     setIsLoading(true);
     const p = new URLSearchParams({ l1: l1.id });
-    if (selectedL2Id) p.set("l2", selectedL2Id);
+    if (l2FilterId) p.set("l2", l2FilterId);
     if (gender) p.set("gender", gender);
     if (sort === "price_asc") p.set("sort", "price_asc");
     if (sort === "price_desc") p.set("sort", "price_desc");
     apiClient
       .get<ProductCard[]>(`/api/products?${p.toString()}`)
-      .then((r) => { setAllProducts(r.data); })
+      .then((r) => { setAllProducts(Array.isArray(r.data) ? r.data : []); })
       .catch(() => setAllProducts([]))
       .finally(() => setIsLoading(false));
-  }, [l1, selectedL2Id, gender, sort]);
+  }, [l1, l2FilterId, gender, sort]);
 
   const products = useMemo(() => sortProducts(allProducts, sort), [allProducts, sort]);
 
   if (!l1) return <div className="p-10 text-center text-[#595959]">Loading…</div>;
 
-  const l2List = l1.l2 ?? [];
-
-  const SORTS: Array<{ key: SortKey; label: string }> = [
-    { key: "nearest", label: "Nearest" },
-    { key: "price_asc", label: "Price: Low to High" },
-    { key: "price_desc", label: "Price: High to Low" },
-  ];
+  const l2List = subcategories.length > 0 ? subcategories : (l1.l2 ?? []);
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
@@ -115,76 +124,68 @@ export function CategoryClient() {
             )}
           </h1>
 
-          {/* Filter bar */}
-          <div className="mt-2 flex gap-1.5 overflow-x-auto no-scrollbar pb-2 items-center">
-            {/* Sort pills */}
-            {SORTS.map((s) => (
-              <button
-                key={s.key}
-                onClick={() => setSort(s.key)}
-                data-testid={`sort-${s.key}`}
-                className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition ${
-                  sort === s.key
+          {/* ROW 1 — Sort options */}
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1 mt-3">
+            {([
+              { key: "nearest", label: "Nearest" },
+              { key: "price_asc", label: "Price: Low–High" },
+              { key: "price_desc", label: "Price: High–Low" },
+            ] as Array<{ key: SortKey; label: string }>).map(opt => (
+              <button key={opt.key}
+                onClick={() => setSort(opt.key)}
+                data-testid={`sort-${opt.key}`}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
+                  sort === opt.key
                     ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
-                    : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
-                }`}
-              >
-                {s.label}
+                    : "bg-white text-[#595959] border-[#E5E2DC]"
+                }`}>
+                {opt.label}
               </button>
             ))}
+          </div>
 
-            {(isFootwear || l2List.length > 0) && (
-              <div className="h-4 w-px bg-[#E5E2DC] mx-0.5 flex-shrink-0" />
-            )}
-
-            {/* Footwear: gender chips */}
-            {isFootwear ? (
-              ([["", "All"], ["women", "Women"], ["men", "Men"]] as const).map(([g, label]) => (
-                <button
-                  key={g || "all"}
-                  onClick={() => setGender(g)}
-                  data-testid={`gender-${g || "all"}`}
-                  className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition ${
-                    gender === g
-                      ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
-                      : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))
-            ) : (
-              l2List.length > 0 && (
+          {/* ROW 2 — L2 subcategory filters or gender for footwear */}
+          {(isFootwear || l2List.length > 0) && (
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-2 mt-2">
+              {isFootwear ? (
+                ([["", "All"], ["women", "Women"], ["men", "Men"]] as const).map(([g, label]) => (
+                  <button key={g || "all"}
+                    onClick={() => setGender(g)}
+                    data-testid={`gender-${g || "all"}`}
+                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
+                      gender === g
+                        ? "bg-[#E68910] text-white border-[#E68910]"
+                        : "bg-white text-[#595959] border-[#E5E2DC]"
+                    }`}>
+                    {label}
+                  </button>
+                ))
+              ) : (
                 <>
                   <button
-                    onClick={() => setSelectedL2Id("")}
+                    onClick={() => setL2Filter("")}
                     data-testid="l2-filter-all"
-                    className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition ${
-                      selectedL2Id === ""
-                        ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
-                        : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
-                    }`}
-                  >
+                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
+                      !l2Filter ? "bg-[#E68910] text-white border-[#E68910]" : "bg-white text-[#595959] border-[#E5E2DC]"
+                    }`}>
                     All
                   </button>
-                  {l2List.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => setSelectedL2Id(selectedL2Id === s.id ? "" : s.id)}
-                      data-testid={`l2-filter-${s.slug}`}
-                      className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition ${
-                        selectedL2Id === s.id
-                          ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
-                          : "bg-white text-[#1C1C1C] border-[#E5E2DC] hover:border-[#1A2B4C]"
-                      }`}
-                    >
-                      {s.name}
+                  {l2List.map(sub => (
+                    <button key={sub.id}
+                      onClick={() => setL2Filter(l2Filter === sub.slug ? "" : sub.slug)}
+                      data-testid={`l2-filter-${sub.slug}`}
+                      className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
+                        l2Filter === sub.slug
+                          ? "bg-[#E68910] text-white border-[#E68910]"
+                          : "bg-white text-[#595959] border-[#E5E2DC]"
+                      }`}>
+                      {sub.name}
                     </button>
                   ))}
                 </>
-              )
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {/* Products */}
           {isLoading ? (

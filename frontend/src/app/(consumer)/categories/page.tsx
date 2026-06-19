@@ -31,12 +31,16 @@ function CategoriesInner() {
     }).catch(() => {});
   }, []);
 
-  // Fetch L2 when L1 changes
+  // Fetch L2 when L1 changes — backend endpoint is /l2, returns array directly
   useEffect(() => {
     if (!activeL1) return;
     setL2Cats([]);
-    apiClient.get(`/api/categories/${activeL1}/subcategories`)
-      .then(r => setL2Cats(r.data?.subcategories || []))
+    apiClient.get(`/api/categories/${activeL1}/l2`)
+      .then(r => {
+        const subs = Array.isArray(r.data) ? r.data : (r.data?.subcategories || []);
+        console.log('[L2 fetch]', activeL1, r.data);
+        setL2Cats(subs);
+      })
       .catch(() => setL2Cats([]));
   }, [activeL1]);
 
@@ -100,30 +104,30 @@ function CategoriesInner() {
 
       <div className="flex" style={{minHeight: 'calc(100vh - 120px)'}}>
 
-        {/* LEFT — L2 sidebar */}
+        {/* LEFT — L2 sidebar, text only */}
         {l2Cats.length > 0 && (
-          <div className="w-24 flex-shrink-0 bg-white border-r border-[#E5E2DC]">
+          <div className="w-24 flex-shrink-0 bg-white border-r border-[#E5E2DC] min-h-screen">
             <button
               onClick={() => setL2("")}
-              className={`w-full text-left px-2 py-3 border-b border-[#F0EFED] ${
-                !activeL2 ? "border-l-[3px] border-l-[#1A2B4C] bg-[#F5F5F5]" : "border-l-[3px] border-l-transparent"
+              className={`w-full text-left px-3 py-3.5 border-b border-[#F0EFED] ${
+                !activeL2 ? "border-l-[3px] border-l-[#E68910] bg-[#FFF8F0]" : "border-l-[3px] border-l-transparent"
               }`}
             >
-              <span className={`text-[11px] leading-tight block ${
-                !activeL2 ? "font-bold text-[#1A2B4C]" : "font-medium text-[#595959]"
+              <span className={`text-[12px] block leading-tight ${
+                !activeL2 ? "font-bold text-[#E68910]" : "font-medium text-[#595959]"
               }`}>All</span>
             </button>
             {l2Cats.map(sub => (
               <button
                 key={sub.id}
                 onClick={() => setL2(sub.slug)}
-                className={`w-full text-left px-2 py-3 border-b border-[#F0EFED] ${
+                className={`w-full text-left px-3 py-3.5 border-b border-[#F0EFED] ${
                   activeL2 === sub.slug
                     ? "border-l-[3px] border-l-[#E68910] bg-[#FFF8F0]"
                     : "border-l-[3px] border-l-transparent"
                 }`}
               >
-                <span className={`text-[11px] leading-tight block ${
+                <span className={`text-[12px] block leading-tight ${
                   activeL2 === sub.slug ? "font-bold text-[#E68910]" : "font-medium text-[#595959]"
                 }`}>{sub.name}</span>
               </button>
