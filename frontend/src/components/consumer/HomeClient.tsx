@@ -176,15 +176,31 @@ export function HomeClient() {
     ),
     category_pills: categories.length > 0 ? (
       <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-8 mt-3">
-        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-          <Link href="/products"
-            className="flex-shrink-0 px-4 py-2 bg-[#1A2B4C] text-white rounded-full text-[13px] font-semibold whitespace-nowrap">
-            All
+        <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
+          <Link href="/products" className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition">
+            <div className="w-16 h-16 rounded-2xl bg-[#1A2B4C] flex items-center justify-center">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+              </svg>
+            </div>
+            <span className="text-[11px] font-semibold text-[#1A2B4C] text-center">All</span>
           </Link>
-          {categories.slice(0, 9).map((cat) => (
+          {(categories as any[]).slice(0, 9).map((cat) => (
             <Link key={cat.id} href={`/c/${cat.slug}`}
-              className="flex-shrink-0 px-4 py-2 bg-white border border-[#E5E2DC] rounded-full text-[13px] font-semibold text-[#1A2B4C] whitespace-nowrap hover:border-[#E68910] transition-colors">
-              {cat.name}
+              className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition">
+              <div className="w-16 h-16 rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC]">
+                {cat.image ? (
+                  <img src={cat.image} alt={cat.name} className="w-full h-full object-cover object-top" />
+                ) : (
+                  <div className="w-full h-full bg-[#E5E2DC] flex items-center justify-center">
+                    <span className="text-2xl">👗</span>
+                  </div>
+                )}
+              </div>
+              <span className="text-[11px] font-semibold text-[#1A2B4C] text-center w-16 leading-tight line-clamp-2">
+                {cat.name === "Lingerie & Innerwear" ? "Lingerie" : cat.name}
+              </span>
             </Link>
           ))}
         </div>

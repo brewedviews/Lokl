@@ -21,7 +21,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Loader2, MapPin, Search, ShoppingBag, Store as StoreIcon, User, X, Crosshair, Home as HomeIcon } from "lucide-react";
 import {
-  useCartStore, useLocationStore, useCustomerAuthStore,
+  useCartStore, useLocationStore, useCustomerAuthStore, useSearchOverlay,
 } from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { useMounted } from "@/hooks/useMounted";
@@ -48,6 +48,7 @@ export function ConsumerHeader() {
   const cartCount = useCartStore((s) => s.getItemCount());
   const customerPhone = useCustomerAuthStore((s) => s.phone);
   useHeartbeat(customerPhone ? "customer" : "guest", { phone: customerPhone });
+  const showSearch = useSearchOverlay((s) => s.show);
 
   // ─── Desktop search ─────────────────────────────────────────────
   const [q, setQ] = useState("");
@@ -154,6 +155,14 @@ export function ConsumerHeader() {
         >
           <User size={16} />
         </Link>
+        <button
+          type="button"
+          onClick={showSearch}
+          className="lg:hidden w-9 h-9 flex items-center justify-center rounded-full hover:bg-[#E5E2DC] transition"
+          aria-label="Search"
+        >
+          <Search size={20} className="text-[#1A2B4C]" />
+        </button>
         <Link
           href="/cart"
           data-testid="nav-cart"
