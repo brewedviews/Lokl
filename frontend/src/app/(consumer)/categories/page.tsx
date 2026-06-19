@@ -23,7 +23,7 @@ function CategoriesInner() {
   // Fetch L1 on mount
   useEffect(() => {
     apiClient.get("/api/categories").then(r => {
-      const cats = r.data?.categories || r.data || [];
+      const cats: L1Cat[] = r.data?.categories || r.data || [];
       setL1Cats(cats);
       if (!activeL1 && cats.length > 0) {
         router.replace(`/categories?l1=${cats[0].slug}`);
@@ -31,31 +31,37 @@ function CategoriesInner() {
     }).catch(() => {});
   }, []);
 
-  // Fetch L2 when L1 changes — backend endpoint is /l2, returns array directly
+  // FIX 1: Fetch L2 using l1Cat.id (e.g. "l1-women"), NOT the slug ("women")
   useEffect(() => {
-    if (!activeL1) return;
+    if (!activeL1 || l1Cats.length === 0) return;
+    const l1Cat = l1Cats.find(c => c.slug === activeL1);
+    if (!l1Cat) return;
     setL2Cats([]);
-    apiClient.get(`/api/categories/${activeL1}/l2`)
+    apiClient.get(`/api/categories/${l1Cat.id}/l2`)
       .then(r => {
-        const subs = Array.isArray(r.data) ? r.data : (r.data?.subcategories || []);
-        console.log('[L2 fetch]', activeL1, r.data);
+        const subs: L2Cat[] = r.data?.subcategories || r.data?.l2 || (Array.isArray(r.data) ? r.data : []);
         setL2Cats(subs);
       })
       .catch(() => setL2Cats([]));
-  }, [activeL1]);
+  }, [activeL1, l1Cats]);
 
-  // Fetch products when L1 or L2 changes
+  // FIX 2: Product fetch using /api/products?l1={id}&l2={id} — /api/c/ does not exist
   useEffect(() => {
-    if (!activeL1) return;
+    if (!activeL1 || l1Cats.length === 0) return;
+    const l1Cat = l1Cats.find(c => c.slug === activeL1);
+    if (!l1Cat) return;
     setLoadingProducts(true);
-    const url = activeL2
-      ? `/api/c/${activeL1}/${activeL2}/products`
-      : `/api/c/${activeL1}/products`;
-    apiClient.get(url)
-      .then(r => setProducts(r.data?.products || []))
+    const params = new URLSearchParams();
+    params.set("l1", l1Cat.id);
+    if (activeL2 && l2Cats.length > 0) {
+      const l2Cat = l2Cats.find(c => c.slug === activeL2);
+      if (l2Cat) params.set("l2", l2Cat.id);
+    }
+    apiClient.get(`/api/products?${params.toString()}`)
+      .then(r => setProducts(Array.isArray(r.data) ? r.data : (r.data?.products || [])))
       .catch(() => setProducts([]))
       .finally(() => setLoadingProducts(false));
-  }, [activeL1, activeL2]);
+  }, [activeL1, activeL2, l1Cats, l2Cats]);
 
   const setL1 = (slug: string) => router.push(`/categories?l1=${slug}`);
   const setL2 = (slug: string) => {
@@ -104,7 +110,7 @@ function CategoriesInner() {
 
       <div className="flex" style={{minHeight: 'calc(100vh - 120px)'}}>
 
-        {/* LEFT — L2 sidebar, text only */}
+        {/* LEFT — FIX 4: sidebar maps l2Cats (NOT l1Cats) */}
         {l2Cats.length > 0 && (
           <div className="w-24 flex-shrink-0 bg-white border-r border-[#E5E2DC] min-h-screen">
             <button
@@ -139,7 +145,7 @@ function CategoriesInner() {
         <div className="flex-1 p-2 pb-24">
           <div className="flex items-center gap-1 mb-2 px-1">
             <span className="text-[12px] font-semibold text-[#1A2B4C]">
-              {activeL1Cat?.name}{activeL2 ? ` › ${l2Cats.find(c=>c.slug===activeL2)?.name}` : ""}
+              {activeL1Cat?.name}{activeL2 ? ` › ${l2Cats.find(c => c.slug === activeL2)?.name}` : ""}
             </span>
             {!loadingProducts && (
               <span className="text-[10px] text-[#9CA3AF]">({products.length})</span>
@@ -148,7 +154,7 @@ function CategoriesInner() {
 
           {loadingProducts && (
             <div className="grid grid-cols-2 gap-2">
-              {Array.from({length:6}).map((_,i) => (
+              {Array.from({length: 6}).map((_, i) => (
                 <div key={i} className="aspect-[3/4] bg-[#E5E2DC] rounded-xl animate-pulse" />
               ))}
             </div>
