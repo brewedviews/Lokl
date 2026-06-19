@@ -26,7 +26,7 @@ function CategoriesInner() {
       const cats: L1Cat[] = r.data?.categories || r.data || [];
       setL1Cats(cats);
       if (!activeL1 && cats.length > 0) {
-        router.replace(`/categories?l1=${cats[0].slug}`);
+        if (cats[0]) router.replace(`/categories?l1=${cats[0].slug}`);
       }
     }).catch(() => {});
   }, []);
