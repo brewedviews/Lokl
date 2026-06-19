@@ -49,6 +49,7 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
   const [trending, setTrending] = useState<TrendingRow[]>([]);
   const [suggestions, setSuggestions] = useState<SuggestResponse | null>(null);
   const [loadingSugg, setLoadingSugg] = useState(false);
+  const [trendingProducts, setTrendingProducts] = useState<SearchProduct[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // Load trending + recent every time the overlay opens. Trending is
@@ -62,6 +63,8 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
     setQ("");
     setSuggestions(null);
     setLoadingSugg(false);
+    setTrendingProducts([]);
+    api.products.popularInCity(8).then((r) => setTrendingProducts(r as unknown as SearchProduct[])).catch(() => {});
     // Pop the keyboard up on mobile by focusing the input post-mount.
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
@@ -225,12 +228,41 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
                     : `See all results for "${q}" →`}
                 </button>
               )}
+              {!loadingSugg && products.length === 0 && stores.length === 0 && trendingProducts.length > 0 && (
+                <div className="mt-3">
+                  <div className="text-[10px] uppercase tracking-widest text-text-secondary mb-2 px-1">Popular right now</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {trendingProducts.slice(0, 6).map((p) => (
+                      <button key={p.id} onClick={() => { onClose(); router.push(`/product/${p.id}`); }}
+                        className="text-left rounded-xl overflow-hidden bg-white border border-[#E5E2DC]">
+                        <div className="relative aspect-square bg-slate-100">
+                          {p.image && <Image src={p.image} alt={p.name} fill sizes="30vw" className="object-cover" />}
+                        </div>
+                        <div className="p-1.5">
+                          <div className="text-[11px] font-semibold text-[#0A1F5C] line-clamp-1">{p.name}</div>
+                          {p.price != null && <div className="text-[10px] text-[#64748B]">₹{Number(p.price).toLocaleString()}</div>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* Recent + Popular (when no query) */}
           {!showResults && (
             <div className="px-3 sm:px-5 py-4 space-y-5">
+              <section>
+                <div className="flex flex-wrap gap-2">
+                  {["Kurta", "Jeans", "Sneakers", "Saree", "Kids wear", "Ethnic"].map((term) => (
+                    <button key={term} onClick={() => submit(term)}
+                      className="px-3 py-1.5 bg-[#FDFBF7] border border-[#E5E2DC] rounded-full text-sm text-[#1A2B4C] font-medium">
+                      🔍 {term}
+                    </button>
+                  ))}
+                </div>
+              </section>
               {recent.length > 0 && (
                 <section data-testid="search-overlay-recent">
                   <div className="flex items-center justify-between mb-2">
@@ -273,6 +305,25 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
                         className="px-3 py-1.5 rounded-full bg-brand-primary/8 border border-brand-primary/20 text-xs text-brand-primary font-medium hover:bg-brand-primary/15 capitalize"
                       >
                         {t.q}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+              {trendingProducts.length > 0 && (
+                <section>
+                  <div className="text-[10px] uppercase tracking-widest text-text-secondary mb-2">Popular right now</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {trendingProducts.slice(0, 6).map((p) => (
+                      <button key={p.id} onClick={() => { onClose(); router.push(`/product/${p.id}`); }}
+                        className="text-left rounded-xl overflow-hidden bg-white border border-[#E5E2DC]">
+                        <div className="relative aspect-square bg-slate-100">
+                          {p.image && <Image src={p.image} alt={p.name} fill sizes="30vw" className="object-cover" />}
+                        </div>
+                        <div className="p-1.5">
+                          <div className="text-[11px] font-semibold text-[#0A1F5C] line-clamp-1">{p.name}</div>
+                          {p.price != null && <div className="text-[10px] text-[#64748B]">₹{Number(p.price).toLocaleString()}</div>}
+                        </div>
                       </button>
                     ))}
                   </div>

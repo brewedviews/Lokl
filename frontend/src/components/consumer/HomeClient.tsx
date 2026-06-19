@@ -26,13 +26,11 @@ import { HeroV2 } from "@/components/consumer/v2/HeroV2";
 import { OffersStrip } from "@/components/consumer/v2/OffersStrip";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
-import { StoreCardV2 } from "@/components/consumer/v2/StoreCardV2";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
-import { ShopByCategory } from "@/components/consumer/ShopByCategory";
 import { Footer } from "@/components/consumer/Footer";
 import { Skeleton, ProductCardSkeleton, StoreCardSkeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
-import type { ProductCard, StoreCard } from "@/types";
+import type { ProductCard, StoreCard, CategoryNode } from "@/types";
 
 interface OfferDoc { id: string; title: string; subtitle?: string; image?: string; cta_label?: string; cta_link?: string; background?: string }
 interface TestimonialDoc { id: string; name: string; city: string; quote?: string; message?: string; rating?: number; avatar?: string }
@@ -45,15 +43,15 @@ interface SectionDoc { id: string; label: string; enabled: boolean; rank: number
 // `DEFAULT_HOMEPAGE_SECTIONS` in server.py (hero, popular_in_city, categories,
 // selling_fast, offers, recently_viewed, stores, customer_love).
 const DEFAULT_SECTIONS: SectionDoc[] = [
-  { id: "hero",            label: "Hero",                       enabled: true, rank: 10 },
-  { id: "under_499",       label: "Under ₹499",                 enabled: true, rank: 12 },
-  { id: "popular_in_city", label: "Trending now",               enabled: true, rank: 20 },
-  { id: "categories",      label: "Shop by category",           enabled: true, rank: 30 },
+  { id: "hero",            label: "Hero",                       enabled: true, rank: 1  },
+  { id: "under_499",       label: "Under ₹499",                 enabled: true, rank: 2  },
+  { id: "category_pills",  label: "Category pills",             enabled: true, rank: 3  },
+  { id: "popular_in_city", label: "Trending now",               enabled: true, rank: 10 },
+  { id: "stores",          label: "Popular stores",             enabled: true, rank: 20 },
+  { id: "offers",          label: "Offers for you",             enabled: true, rank: 30 },
   { id: "selling_fast",    label: "Selling fast",               enabled: true, rank: 40 },
-  { id: "offers",          label: "Offers for you",             enabled: true, rank: 50 },
-  { id: "recently_viewed", label: "Recently added",             enabled: true, rank: 60 },
-  { id: "stores",          label: "Popular stores",             enabled: true, rank: 70 },
-  { id: "customer_love",   label: "Loved by Bhilai shoppers",   enabled: true, rank: 80 },
+  { id: "recently_viewed", label: "Recently added",             enabled: true, rank: 50 },
+  { id: "customer_love",   label: "Loved by Bhilai shoppers",   enabled: true, rank: 70 },
 ];
 
 export function HomeClient() {
@@ -66,6 +64,7 @@ export function HomeClient() {
   const [trending, setTrending] = useState<ProductCard[]>([]);
   const [sellingFast, setSellingFast] = useState<ProductCard[]>([]);
   const [recent, setRecent] = useState<ProductCard[]>([]);
+  const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [nearby, setNearby] = useState<StoreCard[]>([]);
   const [popularStores, setPopularStores] = useState<StoreCard[]>([]);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
@@ -88,6 +87,7 @@ export function HomeClient() {
     }).catch(() => { markLoaded("hero"); /* fall back to DEFAULT_SECTIONS */ });
     api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
     api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
+    api.catalog.categories().then((r) => setCategories(r)).catch(() => {});
     api.products.popularInCity(10).then((r) => { setTrending(r); markLoaded("trending"); }).catch(() => { markLoaded("trending"); markError("trending"); });
     api.products.sellingFast(10).then((r) => { setSellingFast(r); markLoaded("sellingFast"); }).catch(() => { markLoaded("sellingFast"); markError("sellingFast"); });
     api.products.newArrivals(10).then((r) => { setRecent(r); markLoaded("recent"); }).catch(() => { markLoaded("recent"); markError("recent"); });
@@ -153,33 +153,6 @@ export function HomeClient() {
   // `site_config.sections[].id`.
   const sectionRenderers: Record<string, React.ReactNode> = {
     hero: <HeroV2 key="hero" stats={stats} hero={hero} />,
-    popular_in_city: errors.has("trending") ? (
-      <SectionError key="trending-error" minHeight="min-h-[320px]" />
-    ) : loaded.has("trending") && trending.length > 0 ? (
-      <HCarousel key="trending" title="Trending now" subtitle="Most ordered products nearby this week" testid="home-trending">
-        {trending.map((p) => <ProductCardV2 key={p.id} p={p} />)}
-      </HCarousel>
-    ) : !loaded.has("trending") ? <ProductRailSkeleton key="trending-skeleton" testid="home-trending-skeleton" /> : null,
-    categories: <ShopByCategory key="categories" />,
-    selling_fast: errors.has("sellingFast") ? (
-      <SectionError key="selling-fast-error" minHeight="min-h-[320px]" />
-    ) : loaded.has("sellingFast") && sellingFast.length > 0 ? (
-      <HCarousel key="selling_fast" title="Selling fast" subtitle="Don't miss out — limited stock" testid="home-selling-fast">
-        {sellingFast.map((p) => <ProductCardV2 key={p.id} p={p} />)}
-      </HCarousel>
-    ) : !loaded.has("sellingFast") ? <ProductRailSkeleton key="selling-fast-skeleton" testid="home-selling-fast-skeleton" /> : null,
-    offers: errors.has("offers") ? (
-      <SectionError key="offers-error" minHeight="min-h-[120px]" />
-    ) : loaded.has("offers") && offers.length > 0 ? (
-      <OffersStrip key="offers" offers={offers} />
-    ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
-    recently_viewed: errors.has("recent") ? (
-      <SectionError key="recent-error" minHeight="min-h-[320px]" />
-    ) : loaded.has("recent") && recent.length > 0 ? (
-      <HCarousel key="recent" title="Recently added" subtitle="Fresh drops from Bhilai stores" testid="home-recent">
-        {recent.map((p) => <ProductCardV2 key={p.id} p={p} />)}
-      </HCarousel>
-    ) : !loaded.has("recent") ? <ProductRailSkeleton key="recent-skeleton" testid="home-recent-skeleton" /> : null,
     under_499: (
       <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-8 mt-3">
         <div className="grid grid-cols-3 gap-2">
@@ -188,11 +161,8 @@ export function HomeClient() {
             { href: "/products?price=499-1099", price: "₹499–₹1,099", sub: "Most popular" },
             { href: "/products?price=above-1099", price: "₹1,099+", sub: "Premium" },
           ].map(({ href, price, sub }) => (
-            <Link
-              key={href}
-              href={href}
-              className="flex flex-col bg-white border border-[#E5E2DC] rounded-xl overflow-hidden hover:border-[#E68910] hover:shadow-sm transition-all active:scale-95"
-            >
+            <Link key={href} href={href}
+              className="flex flex-col bg-white border border-[#E5E2DC] rounded-xl overflow-hidden hover:border-[#E68910] hover:shadow-sm transition-all active:scale-95">
               <div className="flex-1 flex items-center justify-center px-2 pt-3 pb-2">
                 <span className="font-bold text-[#1A2B4C] text-[13px] text-center leading-tight">{price}</span>
               </div>
@@ -204,13 +174,75 @@ export function HomeClient() {
         </div>
       </div>
     ),
-    stores: errors.has("popularStores") && !storesRail.length ? (
-      <SectionError key="stores-error" minHeight="min-h-[260px]" />
-    ) : storesReady && storesRail.length > 0 ? (
-      <HCarousel key="stores" title={storesTitle} subtitle="Trusted local merchants delivering today" testid="home-stores" link="/stores" linkLabel="See all">
-        {storesRail.map((s) => <StoreCardV2 key={s.id} s={s} />)}
+    category_pills: categories.length > 0 ? (
+      <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-8 mt-3">
+        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+          <Link href="/products"
+            className="flex-shrink-0 px-4 py-2 bg-[#1A2B4C] text-white rounded-full text-[13px] font-semibold whitespace-nowrap">
+            All
+          </Link>
+          {categories.slice(0, 9).map((cat) => (
+            <Link key={cat.id} href={`/c/${cat.slug}`}
+              className="flex-shrink-0 px-4 py-2 bg-white border border-[#E5E2DC] rounded-full text-[13px] font-semibold text-[#1A2B4C] whitespace-nowrap hover:border-[#E68910] transition-colors">
+              {cat.name}
+            </Link>
+          ))}
+        </div>
+      </div>
+    ) : null,
+    popular_in_city: errors.has("trending") ? (
+      <SectionError key="trending-error" minHeight="min-h-[320px]" />
+    ) : loaded.has("trending") && trending.length > 0 ? (
+      <HCarousel key="trending" title="Trending now" subtitle="Most ordered products nearby this week" testid="home-trending" link="/products" linkLabel="See all">
+        {trending.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
       </HCarousel>
+    ) : !loaded.has("trending") ? <ProductRailSkeleton key="trending-skeleton" testid="home-trending-skeleton" /> : null,
+    stores: errors.has("popularStores") && !storesRail.length ? (
+      <SectionError key="stores-error" minHeight="min-h-[200px]" />
+    ) : storesReady && storesRail.length > 0 ? (
+      <section key="stores" className="pt-8" data-testid="home-stores">
+        <div className="px-4 sm:px-8 flex items-end justify-between gap-3 mb-3 max-w-7xl mx-auto">
+          <div>
+            <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">{storesTitle}</h2>
+            <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Trusted local merchants delivering today</p>
+          </div>
+          <a href="/stores" className="text-xs font-bold text-[#F59E0B] shrink-0 hover:underline">See all →</a>
+        </div>
+        <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 sm:px-8 max-w-7xl mx-auto pb-1">
+          {storesRail.map((s) => (
+            <Link key={s.id} href={`/store/${s.slug}`}
+              className="flex-shrink-0 w-36 bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden hover:shadow-sm transition active:scale-95">
+              <div className="relative h-20 bg-[#E5E2DC]">
+                {s.image && <img src={s.image} alt={s.name} className="w-full h-full object-cover" />}
+              </div>
+              <div className="p-2.5">
+                <div className="font-bold text-[#1A2B4C] text-[12px] truncate">{s.name}</div>
+                <div className="text-[10px] text-[#9CA3AF] mt-0.5">⚡ {s.eta_min ?? 30} min</div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
     ) : !storesReady ? <StoreRailSkeleton key="stores-skeleton" /> : null,
+    offers: errors.has("offers") ? (
+      <SectionError key="offers-error" minHeight="min-h-[120px]" />
+    ) : loaded.has("offers") && offers.length > 0 ? (
+      <OffersStrip key="offers" offers={offers} />
+    ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
+    selling_fast: errors.has("sellingFast") ? (
+      <SectionError key="selling-fast-error" minHeight="min-h-[320px]" />
+    ) : loaded.has("sellingFast") && sellingFast.length > 0 ? (
+      <HCarousel key="selling_fast" title="Selling fast" subtitle="Don't miss out — limited stock" testid="home-selling-fast" link="/products?sort=discount" linkLabel="See all">
+        {sellingFast.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
+      </HCarousel>
+    ) : !loaded.has("sellingFast") ? <ProductRailSkeleton key="selling-fast-skeleton" testid="home-selling-fast-skeleton" /> : null,
+    recently_viewed: errors.has("recent") ? (
+      <SectionError key="recent-error" minHeight="min-h-[320px]" />
+    ) : loaded.has("recent") && recent.length > 0 ? (
+      <HCarousel key="recent" title="Recently added" subtitle="Fresh drops from Bhilai stores" testid="home-recent" link="/products?sort=newest" linkLabel="See all">
+        {recent.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
+      </HCarousel>
+    ) : !loaded.has("recent") ? <ProductRailSkeleton key="recent-skeleton" testid="home-recent-skeleton" /> : null,
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
   };
 

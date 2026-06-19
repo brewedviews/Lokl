@@ -36,11 +36,15 @@ export default async function ProductDetailPage(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const data = await serverFetch<ProductDetailResponse>(`/api/products/${id}`);
+  const [data, relatedRaw] = await Promise.all([
+    serverFetch<ProductDetailResponse>(`/api/products/${id}`),
+    serverFetch<{ from_store: ProductCard[]; similar: ProductCard[] }>(`/api/products/${id}/related`),
+  ]);
   if (!data?.product) notFound();
 
   const product = data.product;
-  const similar = data.similar ?? [];
+  const fromStore = relatedRaw?.from_store ?? [];
+  const similar = relatedRaw?.similar ?? [];
   const discount = product.mrp ? Math.round((1 - product.price / product.mrp) * 100) : 0;
   const images = (product.images && product.images.length > 0) ? product.images : [product.image].filter(Boolean);
 
@@ -123,11 +127,23 @@ export default async function ProductDetailPage(
         </div>
       </div>
 
+      {fromStore.length > 0 && (
+        <section className="max-w-6xl mx-auto px-4 md:px-8 mt-10 md:mt-14" data-testid="from-store-rail">
+          <h2 className="font-display text-xl md:text-2xl font-bold text-[#0A1F5C] mb-4">More from {product.store_name}</h2>
+          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+            {fromStore.slice(0, 8).map((p) => (
+              <div key={p.id} className="shrink-0 w-[38vw] sm:w-[180px]"><ProductCardV2 p={p} /></div>
+            ))}
+          </div>
+        </section>
+      )}
       {similar.length > 0 && (
-        <section id="similar-products" className="max-w-6xl mx-auto px-4 md:px-8 mt-10 md:mt-14" data-testid="similar-products">
-          <h2 className="font-display text-2xl md:text-3xl font-bold text-[#0A1F5C] mb-5">You might also love</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
-            {similar.slice(0, 4).map((p) => <ProductCardV2 key={p.id} p={p} />)}
+        <section id="similar-products" className="max-w-6xl mx-auto px-4 md:px-8 mt-8 md:mt-12" data-testid="similar-products">
+          <h2 className="font-display text-xl md:text-2xl font-bold text-[#0A1F5C] mb-4">You might also like</h2>
+          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+            {similar.slice(0, 8).map((p) => (
+              <div key={p.id} className="shrink-0 w-[38vw] sm:w-[180px]"><ProductCardV2 p={p} /></div>
+            ))}
           </div>
         </section>
       )}

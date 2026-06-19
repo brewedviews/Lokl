@@ -1734,17 +1734,15 @@ async def list_l2(l1_id: str):
 # (the seed is the canonical authored ordering; this constant is the fallback
 # used only when neither the seed has run nor any admin has saved a config).
 DEFAULT_HOMEPAGE_SECTIONS = [
-    {"id": "hero",            "label": "Hero",                       "enabled": True, "rank": 10},
-    {"id": "under_499",       "label": "Under ₹499",                 "enabled": True, "rank": 12},
-    {"id": "mid_range",       "label": "₹499–₹1,099",               "enabled": True, "rank": 14},
-    {"id": "above_1099",      "label": "Premium picks",              "enabled": True, "rank": 16},
-    {"id": "popular_in_city", "label": "Trending now",               "enabled": True, "rank": 20},
-    {"id": "categories",      "label": "Shop by category",           "enabled": True, "rank": 30},
+    {"id": "hero",            "label": "Hero",                       "enabled": True, "rank": 1},
+    {"id": "under_499",       "label": "Under ₹499",                 "enabled": True, "rank": 2},
+    {"id": "category_pills",  "label": "Category pills",             "enabled": True, "rank": 3},
+    {"id": "popular_in_city", "label": "Trending now",               "enabled": True, "rank": 10},
+    {"id": "stores",          "label": "Popular stores in Bhilai",   "enabled": True, "rank": 20},
+    {"id": "offers",          "label": "Offers for you",             "enabled": True, "rank": 30},
     {"id": "selling_fast",    "label": "Selling fast",               "enabled": True, "rank": 40},
-    {"id": "offers",          "label": "Offers for you",             "enabled": True, "rank": 50},
-    {"id": "recently_viewed", "label": "Recently added",             "enabled": True, "rank": 60},
-    {"id": "stores",          "label": "Popular stores in Bhilai",   "enabled": True, "rank": 70},
-    {"id": "customer_love",   "label": "Loved by Bhilai shoppers",   "enabled": True, "rank": 80},
+    {"id": "recently_viewed", "label": "Recently added",             "enabled": True, "rank": 50},
+    {"id": "customer_love",   "label": "Loved by Bhilai shoppers",   "enabled": True, "rank": 70},
 ]
 DEFAULT_HERO = {
     "image": "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png",
@@ -2231,6 +2229,27 @@ async def list_products(l1: Optional[str] = None, l2: Optional[str] = None,
     items = _attach_store_avail(items, avail_map)
     items.sort(key=lambda p: p.get("store_availability_rank", 1))
     return items
+
+@api.get("/products/{pid}/related")
+async def related_products(pid: str):
+    product = await db.products.find_one({"id": pid}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Product not found")
+    store_id = product.get("store_id")
+    category = product.get("category") or product.get("l1_id")
+    avail_map = await _availability_map()
+    from_store = await db.products.find(
+        {**_visible_product_filter(), "store_id": store_id, "id": {"$ne": pid}},
+        {"_id": 0}
+    ).limit(8).to_list(8)
+    similar_q: dict = {**_visible_product_filter(), "id": {"$ne": pid}, "store_id": {"$ne": store_id}}
+    if category:
+        similar_q["l1_id"] = category
+    similar = await db.products.find(similar_q, {"_id": 0}).limit(8).to_list(8)
+    _attach_store_avail(from_store, avail_map)
+    _attach_store_avail(similar, avail_map)
+    return {"from_store": from_store, "similar": similar}
+
 
 @api.get("/products/all")
 async def all_products(

@@ -15,8 +15,8 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Grid3x3, Heart, Search as SearchIcon, User } from "lucide-react";
-import { useSearchOverlay, useWishlistStore } from "@/stores";
+import { Home, Grid3x3, Heart, ShoppingBag, User } from "lucide-react";
+import { useWishlistStore } from "@/stores";
 import { useMounted } from "@/hooks/useMounted";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +24,6 @@ export function StickyBottomNav() {
   const pathname = usePathname();
   const mounted = useMounted();
   const wishlistCount = useWishlistStore((s) => s.products.length);
-  const showSearch = useSearchOverlay((s) => s.show);
 
   if (pathname.startsWith("/merchant") || pathname.startsWith("/admin")) return null;
 
@@ -50,18 +49,10 @@ export function StickyBottomNav() {
           </Link>
         </li>
         <li className="flex items-center justify-center">
-          <button
-            type="button"
-            onClick={() => showSearch()}
-            data-testid="nav-search"
-            className="w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition text-slate-600 hover:text-brand-accent-alt"
-          >
-            <span className="relative">
-              <span className="absolute -inset-1.5 rounded-full bg-brand-accent/15 -z-10" />
-              <SearchIcon size={20} />
-            </span>
-            <span className="text-[10px] font-medium">Search</span>
-          </button>
+          <Link href="/products" data-testid="nav-all-products" className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/products") ? "text-brand-accent-alt" : "text-slate-600")}>
+            <ShoppingBag size={20} />
+            <span className="text-[10px] font-medium">All</span>
+          </Link>
         </li>
         <li className="flex items-center justify-center">
           <Link href="/wishlist" data-testid="nav-wishlist" className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/wishlist") ? "text-brand-accent-alt" : "text-slate-600")}>

@@ -37,26 +37,33 @@ export default function CategoryHubPage() {
           {cats.length === 0 ? (
             <div className="py-10 text-center text-sm text-[#64748B]">Loading categories…</div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 sm:gap-4 mt-5">
-              {cats.map((c) => (
-                <Link
-                  key={c.id}
-                  href={`/c/${c.slug}`}
-                  data-testid={`category-tile-${c.slug}`}
-                  className="group bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-[0_2px_8px_rgba(10,31,92,0.06)] hover:shadow-md transition active:scale-95"
-                >
-                  <div className="relative aspect-square bg-slate-100">
-                    {c.image && (
-                      <Image src={c.image} alt={c.name} fill sizes="(max-width: 640px) 33vw, 16vw" className="object-cover group-hover:scale-105 transition duration-500" />
-                    )}
-                  </div>
-                  <div className="text-center py-2 px-1">
-                    <div className="text-[12px] font-bold text-[#0A1F5C]">{c.name}</div>
-                    <div className="text-[10px] text-[#64748B] mt-0.5">{(c.product_count ?? c.count ?? 0).toLocaleString()} products</div>
-                  </div>
+            <>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 sm:gap-4 mt-5">
+                {cats.map((c) => (
+                  <Link
+                    key={c.id}
+                    href={`/c/${c.slug}`}
+                    data-testid={`category-tile-${c.slug}`}
+                    className="group bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-[0_2px_8px_rgba(10,31,92,0.06)] hover:shadow-md transition active:scale-95"
+                  >
+                    <div className="relative h-20 bg-slate-100">
+                      {c.image && (
+                        <Image src={c.image} alt={c.name} fill sizes="(max-width: 640px) 33vw, 16vw" className="object-cover group-hover:scale-105 transition duration-500" />
+                      )}
+                    </div>
+                    <div className="text-center py-2 px-1">
+                      <div className="text-[12px] font-bold text-[#0A1F5C]">{c.name}</div>
+                      <div className="text-[10px] text-[#64748B] mt-0.5">{(c.product_count ?? c.count ?? 0).toLocaleString()} products</div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+              <div className="mt-6">
+                <Link href="/products" className="block w-full py-3.5 text-center bg-[#1A2B4C] text-white rounded-2xl font-semibold text-sm">
+                  Browse all products →
                 </Link>
-              ))}
-            </div>
+              </div>
+            </>
           )}
         </section>
         {offers.length > 0 && <OffersStrip offers={offers} />}
