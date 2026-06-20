@@ -28,7 +28,7 @@ YES_NO = ["Yes", "No"]
 
 HEADERS = [
     "name", "description",
-    "l1", "l2", "gender",
+    "l1_category", "l2_subcategory", "gender",
     "mrp", "price",
     "sizes", "stock_per_size",
     "returnable",
@@ -85,10 +85,10 @@ def build_template_xlsx() -> bytes:
     info_lines = [
         "",
         "• Fill one row per product on the 'Products' sheet.",
-        "• Click into the l1 / l2 / gender / returnable cells — a DROPDOWN arrow appears on the right.",
+        "• Click into the l1_category / l2_subcategory / gender / returnable cells — a DROPDOWN arrow appears on the right.",
         "  You cannot type custom categories: only listed values are accepted.",
         "• See the 'L1 → L2 reference' sheet for which sub-category belongs to which category.",
-        "• For categories without sub-categories (Footwear, Streetwear, Kids, etc.) leave l2 blank.",
+        "• For categories without sub-categories (Footwear, Streetwear, Kids, etc.) leave l2_subcategory blank.",
         "• sizes: semicolon-separated, e.g.  S;M;L;XL  or  7;8;9;10",
         "• stock_per_size: same length as sizes, e.g. 50;100;39;10 — quantity per size.",
         "• returnable: Yes / No. Defaults to No if blank. (Innerwear, perishables: keep No.)",
@@ -115,7 +115,7 @@ def build_template_xlsx() -> bytes:
         subs = L2_BY_L1.get(c["id"], [])
         if not subs:
             ref.cell(row=row, column=1, value=c["name"])
-            ref.cell(row=row, column=2, value="(no sub-category — leave l2 blank)").font = Font(italic=True, color="888888")
+            ref.cell(row=row, column=2, value="(no sub-category — leave l2_subcategory blank)").font = Font(italic=True, color="888888")
             row += 1
         else:
             for s in subs:
@@ -128,9 +128,14 @@ def build_template_xlsx() -> bytes:
     return buf.getvalue()
 
 
+_HEADER_ALIAS = {"l1_category": "l1", "l2_subcategory": "l2"}
+
+
 def parse_uploaded_xlsx(data: bytes) -> list[dict]:
     """Parse the merchant's uploaded xlsx into row dicts using header names.
     Tolerates extra/blank columns and the 'How to fill' sheet.
+    Maps l1_category → l1 and l2_subcategory → l2 so _row_to_product in
+    server.py can consume the output without modification.
     """
     wb = load_workbook(io.BytesIO(data), data_only=True)
     ws = wb["Products"] if "Products" in wb.sheetnames else wb.active
@@ -138,7 +143,8 @@ def parse_uploaded_xlsx(data: bytes) -> list[dict]:
     rows: list[dict] = []
     for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
         if row_idx == 1:
-            headers = [str(h).strip().lower() if h is not None else "" for h in row]
+            raw = [str(h).strip().lower() if h is not None else "" for h in row]
+            headers = [_HEADER_ALIAS.get(h, h) for h in raw]
             continue
         if not any(v not in (None, "") for v in row):
             continue
