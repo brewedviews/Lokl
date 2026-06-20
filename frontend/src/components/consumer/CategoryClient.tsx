@@ -65,7 +65,6 @@ export function CategoryClient() {
   const [gender, setGender] = useState(genderFromL1Slug(slug));
 
   const l1 = useMemo(() => cats.find((c) => c.slug === slug), [cats, slug]);
-  const isFootwear = slug === "footwear";
 
   useEffect(() => { setGender(genderFromL1Slug(slug)); setL2Filter(""); }, [slug]);
 
@@ -144,46 +143,29 @@ export function CategoryClient() {
             ))}
           </div>
 
-          {/* ROW 2 — L2 subcategory filters or gender for footwear */}
-          {(isFootwear || l2List.length > 0) && (
+          {/* ROW 2 — L2 subcategory filters */}
+          {l2List.length > 0 && (
             <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-2 mt-2">
-              {isFootwear ? (
-                ([["", "All"], ["women", "Women"], ["men", "Men"]] as const).map(([g, label]) => (
-                  <button key={g || "all"}
-                    onClick={() => setGender(g)}
-                    data-testid={`gender-${g || "all"}`}
-                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
-                      gender === g
-                        ? "bg-[#E68910] text-white border-[#E68910]"
-                        : "bg-white text-[#595959] border-[#E5E2DC]"
-                    }`}>
-                    {label}
-                  </button>
-                ))
-              ) : (
-                <>
-                  <button
-                    onClick={() => setL2Filter("")}
-                    data-testid="l2-filter-all"
-                    className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
-                      !l2Filter ? "bg-[#E68910] text-white border-[#E68910]" : "bg-white text-[#595959] border-[#E5E2DC]"
-                    }`}>
-                    All
-                  </button>
-                  {l2List.map(sub => (
-                    <button key={sub.id}
-                      onClick={() => setL2Filter(l2Filter === sub.slug ? "" : sub.slug)}
-                      data-testid={`l2-filter-${sub.slug}`}
-                      className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
-                        l2Filter === sub.slug
-                          ? "bg-[#E68910] text-white border-[#E68910]"
-                          : "bg-white text-[#595959] border-[#E5E2DC]"
-                      }`}>
-                      {sub.name}
-                    </button>
-                  ))}
-                </>
-              )}
+              <button
+                onClick={() => setL2Filter("")}
+                data-testid="l2-filter-all"
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
+                  !l2Filter ? "bg-[#E68910] text-white border-[#E68910]" : "bg-white text-[#595959] border-[#E5E2DC]"
+                }`}>
+                All
+              </button>
+              {l2List.map(sub => (
+                <button key={sub.id}
+                  onClick={() => setL2Filter(l2Filter === sub.slug ? "" : sub.slug)}
+                  data-testid={`l2-filter-${sub.slug}`}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
+                    l2Filter === sub.slug
+                      ? "bg-[#E68910] text-white border-[#E68910]"
+                      : "bg-white text-[#595959] border-[#E5E2DC]"
+                  }`}>
+                  {sub.name}
+                </button>
+              ))}
             </div>
           )}
 

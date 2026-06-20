@@ -36,11 +36,11 @@ HEADERS = [
 # 10 example rows the merchant can replace.
 EXAMPLES = [
     ["Indigo Block-Print Kurta", "Pure cotton hand-block",
-     "Women", "Ethnic wear", "", 3499, 1899, "S;M;L;XL", "50;100;39;10", "Yes"],
+     "Women", "Kurtas & Suits", "", 3499, 1899, "S;M;L;XL", "50;100;39;10", "Yes"],
     ["Oversized Tee", "240GSM oversized graphic tee",
-     "Men", "T-shirts", "", 1499, 899, "M;L;XL", "30;45;20", "Yes"],
+     "Men", "T-Shirts", "", 1499, 899, "M;L;XL", "30;45;20", "Yes"],
     ["White Court Sneakers", "Classic low-top court sneakers",
-     "Footwear", "", "women", 4999, 3499, "7;8;9;10", "8;12;10;6", "No"],
+     "Footwear", "Casual Shoes", "", 4999, 3499, "7;8;9;10", "8;12;10;6", "No"],
 ]
 
 

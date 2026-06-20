@@ -23,9 +23,22 @@ const BUSINESS_CATEGORIES = [
   "Multi-category",
 ];
 
+const L2_BY_CATEGORY: Record<string, string[]> = {
+  "Women's Fashion":      ["Dresses","Tops","Bottoms","Co-ord Sets","Jumpsuits & Playsuits","Formals","Active Wear","Sleepwear","Sweaters & Cardigans","Jackets & Coats","Sarees & Dupattas","Kurtas & Suits"],
+  "Men's Fashion":        ["T-Shirts","Shirts","Jeans","Trousers","Shorts","Polos","Formals","Active Wear","Sweaters & Hoodies","Jackets","Inner Wear","Winterwear"],
+  "Ethnic Wear":          ["Sarees","Kurtas & Kurtis","Lehengas","Sherwanis","Salwar Suits","Dupattas & Stoles","Dhoti & Mundu","Indo-Western"],
+  "Footwear":             ["Casual Shoes","Sports & Running","Formal Shoes","Sandals & Slippers","Heels & Wedges","Boots","Ethnic Footwear","Kids Footwear"],
+  "Lingerie & Innerwear": ["Bras","Briefs & Panties","Shapewear","Sleepwear & Nightwear","Thermal Wear","Men's Innerwear","Socks & Stockings","Swimwear"],
+  "Kids":                 ["Girls Clothing","Boys Clothing","Infant & Toddler","Kids Footwear","School Uniforms","Kids Ethnic Wear","Kids Accessories","Nightwear"],
+  "Accessories":          ["Bags & Handbags","Belts","Sunglasses","Watches","Jewellery","Scarves & Stoles","Caps & Hats","Wallets"],
+  "Beauty":               ["Skincare","Haircare","Makeup","Fragrances","Nail Care","Men's Grooming","Personal Hygiene"],
+  "Sports":               ["Activewear","Sports Shoes","Gym & Fitness","Yoga & Pilates","Cricket","Football","Outdoor & Trekking","Sports Accessories"],
+  "Multi-category":       [],
+};
+
 interface KycForm {
   pan_number: string; gst_number: string; business_name: string;
-  business_category: string; business_address: string;
+  business_category: string; business_subcategory: string; business_address: string;
   bank_account_number: string; bank_ifsc: string; account_holder_name: string;
   // Cloudinary public_ids for private KYC docs (preferred).
   pan_doc_public_id: string; gst_doc_public_id: string; cancelled_cheque_public_id: string;
@@ -46,7 +59,7 @@ export default function MerchantKycPage() {
   const [kycMeta, setKycMeta] = useState<KycMeta>({ kyc_status: "draft", hold_comment: null, docs_present: {} });
   const [form, setForm] = useState<KycForm>({
     pan_number: "", gst_number: "", business_name: "", business_category: "",
-    business_address: "", bank_account_number: "", bank_ifsc: "", account_holder_name: "",
+    business_subcategory: "", business_address: "", bank_account_number: "", bank_ifsc: "", account_holder_name: "",
     pan_doc_public_id: "", gst_doc_public_id: "", cancelled_cheque_public_id: "",
     pan_doc_b64: "", gst_doc_b64: "", cancelled_cheque_b64: "",
   });
@@ -63,7 +76,7 @@ export default function MerchantKycPage() {
           ...f,
           pan_number: m.pan_number || "", gst_number: m.gst_number || "",
           business_name: m.business_name || "", business_category: m.business_category || "",
-          business_address: m.business_address || "",
+          business_subcategory: m.business_subcategory || "", business_address: m.business_address || "",
           bank_account_number: m.bank_account_number || "", bank_ifsc: m.bank_ifsc || "",
           account_holder_name: m.account_holder_name || "",
         }));
@@ -153,7 +166,10 @@ export default function MerchantKycPage() {
             <Field label="PAN number *"><input data-testid="kyc-pan" maxLength={10} value={form.pan_number} onChange={(e) => set("pan_number", e.target.value.toUpperCase())} placeholder="ABCDE1234F" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" /></Field>
             <Field label="GST number (optional)"><input data-testid="kyc-gst" value={form.gst_number} onChange={(e) => set("gst_number", e.target.value.toUpperCase())} placeholder="22ABCDE1234F1Z5" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" /></Field>
             <Field label="Registered business name *"><input data-testid="kyc-business-name" value={form.business_name} onChange={(e) => set("business_name", e.target.value)} placeholder="e.g. Bunto Store Pvt Ltd" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
-            <Field label="Business category *"><select data-testid="kyc-category" value={form.business_category} onChange={(e) => set("business_category", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"><option value="">Select category</option>{BUSINESS_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
+            <Field label="Business category *"><select data-testid="kyc-category" value={form.business_category} onChange={(e) => { set("business_category", e.target.value); set("business_subcategory", ""); }} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"><option value="">Select category</option>{BUSINESS_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
+            {form.business_category && (L2_BY_CATEGORY[form.business_category] ?? []).length > 0 && (
+              <Field label="Primary subcategory (optional)"><select data-testid="kyc-subcategory" value={form.business_subcategory} onChange={(e) => set("business_subcategory", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"><option value="">Select subcategory (optional)</option>{(L2_BY_CATEGORY[form.business_category] ?? []).map((s) => <option key={s}>{s}</option>)}</select></Field>
+            )}
             <Field label="Business address *" full><textarea data-testid="kyc-address" rows={2} value={form.business_address} onChange={(e) => set("business_address", e.target.value)} placeholder="House no, street, locality, city, pincode" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
             <FileUpload label="PAN card (image)" testId="kyc-pan-doc" file={files.pan} busy={uploading.pan} onChange={(f) => handleFile("pan_doc_public_id", "pan", f)} />
             <FileUpload label="GST certificate (optional, image)" testId="kyc-gst-doc" file={files.gst} busy={uploading.gst} onChange={(f) => handleFile("gst_doc_public_id", "gst", f)} />
@@ -192,6 +208,7 @@ export default function MerchantKycPage() {
             <Row label="GST" value={form.gst_number || "—"} />
             <Row label="Business" value={form.business_name} />
             <Row label="Category" value={form.business_category} />
+            {form.business_subcategory && <Row label="Subcategory" value={form.business_subcategory} />}
             <Row label="Address" value={form.business_address} />
             <Row label="Account holder" value={form.account_holder_name} />
             <Row label="Account / IFSC" value={`${form.bank_account_number} · ${form.bank_ifsc}`} />
