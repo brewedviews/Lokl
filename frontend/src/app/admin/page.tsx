@@ -42,7 +42,8 @@ interface Merchant {
   id: string; email: string; phone?: string; store_name: string; owner_name?: string;
   kyc_status: string; kyc_submitted_at?: string; approved_at?: string;
   hold_comment?: string; pan_number?: string; business_name?: string;
-  business_category?: string;
+  business_category?: string; plan?: string; subscription_status?: string;
+  plan_expires_at?: string;
 }
 interface AdminStoreItem {
   id: string; name: string; merchant_id: string; published?: boolean; paused?: boolean;
@@ -188,6 +189,9 @@ function MerchantsTab() {
   // Inline Reject form state — mirrors the Hold pattern exactly.
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [planFor, setPlanFor] = useState<string | null>(null);
+  const [planSelection, setPlanSelection] = useState("growth");
+  const [planBusy, setPlanBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -244,6 +248,20 @@ function MerchantsTab() {
     setRejectReason("");
   };
 
+  const activatePlan = async (mid: string) => {
+    setPlanBusy(mid);
+    try {
+      await adminFetch<{ message: string }>(`/api/admin/merchant/${mid}/activate-plan`, {
+        method: "POST",
+        body: JSON.stringify({ plan: planSelection }),
+      });
+      toast.success(`Plan ${planSelection} activated`);
+      setPlanFor(null);
+      void load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setPlanBusy(null); }
+  };
+
   const openKycDoc = async (mid: string, doc: "pan_doc" | "gst_doc" | "cancelled_cheque") => {
     try {
       const r = await adminFetch<{ url: string }>(`/api/admin/kyc/${mid}/signed-url?doc=${doc}`);
@@ -278,6 +296,23 @@ function MerchantsTab() {
                   <div className="text-xs text-[#595959] mt-0.5">PAN: {m.pan_number || "—"} · Category: {m.business_category || "—"}</div>
                   <div className="text-[10px] uppercase tracking-widest text-[#E68910] mt-2">{m.kyc_status}</div>
                   {m.hold_comment && <div className="text-xs text-[#E68910] mt-1">Hold: {m.hold_comment}</div>}
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    <span className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded-full ${
+                      m.plan === "pro" ? "bg-purple-100 text-purple-600" :
+                      m.plan === "growth" ? "bg-[#E68910]/15 text-[#E68910]" :
+                      m.plan === "starter" ? "bg-[#1A2B4C]/10 text-[#1A2B4C]" :
+                      "bg-zinc-100 text-zinc-500"
+                    }`}>{m.plan ?? "free"}</span>
+                    {m.plan_expires_at && (
+                      <span className="text-[9px] text-[#9CA3AF]">exp {m.plan_expires_at.slice(0, 10)}</span>
+                    )}
+                    <button
+                      onClick={() => { setPlanFor(planFor === m.id ? null : m.id); setPlanSelection(m.plan ?? "growth"); }}
+                      className="text-[9px] font-semibold text-[#E68910] underline-offset-2 hover:underline"
+                    >
+                      Change plan
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <button onClick={() => openKycDoc(m.id, "pan_doc")} data-testid={`kyc-pan-${m.id}`} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[#E5E2DC] hover:border-[#0A1F5C]"><FileText size={11} /> PAN <ExternalLink size={10} /></button>
@@ -321,6 +356,25 @@ function MerchantsTab() {
                   <div className="flex items-center justify-end gap-2">
                     <button onClick={() => { setRejectingId(null); setRejectReason(""); }} data-testid={`reject-cancel-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC] text-[#595959]">Cancel</button>
                     <button onClick={() => confirmReject(m.id)} disabled={busy === m.id || !rejectReason.trim()} data-testid={`reject-confirm-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-40">{busy === m.id ? "Saving…" : "Confirm Reject"}</button>
+                  </div>
+                </div>
+              )}
+              {planFor === m.id && (
+                <div className="mt-3 p-3 bg-[#F5F0FF] border border-purple-200 rounded-xl space-y-2" data-testid={`plan-form-${m.id}`}>
+                  <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Activate / change plan</label>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={planSelection}
+                      onChange={(e) => setPlanSelection(e.target.value)}
+                      className="flex-1 px-3 py-2 rounded-lg border border-[#E5E2DC] text-sm bg-white focus:border-[#0A1F5C] outline-none"
+                    >
+                      <option value="free">Free</option>
+                      <option value="starter">Starter — ₹499/mo</option>
+                      <option value="growth">Growth — ₹999/mo</option>
+                      <option value="pro">Pro — ₹1,999/mo</option>
+                    </select>
+                    <button onClick={() => setPlanFor(null)} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC] text-[#595959]">Cancel</button>
+                    <button onClick={() => activatePlan(m.id)} disabled={planBusy === m.id} data-testid={`plan-activate-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-purple-600 text-white disabled:opacity-40">{planBusy === m.id ? "Saving…" : "Activate"}</button>
                   </div>
                 </div>
               )}

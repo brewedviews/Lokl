@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Toaster } from "sonner";
-import { Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark, ShoppingBag } from "lucide-react";
+import { Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark, ShoppingBag, Crown } from "lucide-react";
 import { useMerchantAuthStore } from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { api } from "@/lib/api";
@@ -55,7 +55,7 @@ function playOrderAlert(ctxRef: { current: AudioContext | null }) {
 const PUBLIC = ["/merchant/login", "/merchant/register"];
 const APPROVED_ONLY = [
   "/merchant/orders", "/merchant/storefront", "/merchant/bank",
-  "/merchant/products", "/merchant/analytics",
+  "/merchant/products", "/merchant/analytics", "/merchant/subscription",
 ];
 
 export default function MerchantLayout({ children }: { children: React.ReactNode }) {
@@ -185,11 +185,12 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
 
   const links = isApproved
     ? [
-        { to: "/merchant/orders",     label: "Order requests",  icon: Bell },
-        { to: "/merchant/products",   label: "Products",        icon: Package },
-        { to: "/merchant/analytics",  label: "Sales analytics", icon: BarChart3 },
-        { to: "/merchant/storefront", label: "Storefront",      icon: Store },
-        { to: "/merchant/bank",       label: "Bank details",    icon: Landmark },
+        { to: "/merchant/orders",       label: "Order requests",  icon: Bell },
+        { to: "/merchant/products",     label: "Products",        icon: Package },
+        { to: "/merchant/analytics",    label: "Sales analytics", icon: BarChart3 },
+        { to: "/merchant/storefront",   label: "Storefront",      icon: Store },
+        { to: "/merchant/bank",         label: "Bank details",    icon: Landmark },
+        { to: "/merchant/subscription", label: "Subscription",    icon: Crown },
       ]
     : [
         { to: "/merchant/onboarding", label: "Onboarding", icon: Rocket },

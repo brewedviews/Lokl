@@ -3638,6 +3638,144 @@ async def merchant_analytics(period: str = "30d", user: dict = Depends(get_curre
         "trend": trend,
         "top_products": top, "demo_mode": False}
 
+PLAN_LIMITS = {
+    "free":    {"products": 10,   "boosts": 0,  "images": 1,  "priority": 0, "expires_days": 30},
+    "starter": {"products": 30,   "boosts": 0,  "images": 1,  "priority": 1, "expires_days": 30},
+    "growth":  {"products": 100,  "boosts": 3,  "images": 5,  "priority": 2, "expires_days": 30},
+    "pro":     {"products": 9999, "boosts": 10, "images": 10, "priority": 3, "expires_days": 30},
+}
+
+
+@api.get("/merchant/subscription")
+async def get_subscription(user: dict = Depends(get_current_user)):
+    merchant = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
+    if not merchant:
+        raise HTTPException(404, "Merchant not found")
+    plan = merchant.get("plan", "free")
+    expires_at = merchant.get("plan_expires_at")
+    now = datetime.now(timezone.utc)
+    is_expired = False
+    if expires_at:
+        try:
+            exp_dt = datetime.fromisoformat(str(expires_at))
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            is_expired = exp_dt < now
+        except Exception:
+            pass
+    days_left = None
+    if expires_at and not is_expired:
+        try:
+            exp_dt = datetime.fromisoformat(str(expires_at))
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            days_left = max(0, (exp_dt - now).days)
+        except Exception:
+            pass
+    return {
+        "plan": plan,
+        "status": "expired" if is_expired else merchant.get("subscription_status", "active"),
+        "expires_at": expires_at,
+        "days_left": days_left,
+        "limits": PLAN_LIMITS.get(plan, PLAN_LIMITS["free"]),
+        "is_expired": is_expired,
+    }
+
+
+@api.post("/merchant/subscription/activate")
+async def activate_subscription(payload: dict, user: dict = Depends(get_current_user)):
+    plan = payload.get("plan", "starter")
+    if plan not in ["starter", "growth", "pro"]:
+        raise HTTPException(400, "Invalid plan")
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(days=30)
+    await db.merchants.update_one(
+        {"id": user["sub"]},
+        {"$set": {
+            "plan": plan,
+            "plan_started_at": now.isoformat(),
+            "plan_expires_at": expires_at.isoformat(),
+            "subscription_status": "pending_verification",
+            "subscription_payment_ref": payload.get("payment_ref", ""),
+            "subscription_requested_at": now.isoformat(),
+        }}
+    )
+    await db.admin_notifications.insert_one({
+        "type": "subscription_request",
+        "merchant_id": user["sub"],
+        "plan": plan,
+        "payment_ref": payload.get("payment_ref", ""),
+        "created_at": now.isoformat(),
+    })
+    return {"message": "Subscription request submitted. Admin will verify and activate within 2 hours."}
+
+
+@api.get("/merchant/analytics/summary")
+async def merchant_analytics_summary(user: dict = Depends(get_current_user)):
+    merchant_id = user["sub"]
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=today_start.weekday())
+    last_week_start = week_start - timedelta(days=7)
+
+    today_orders = await db.orders.count_documents({
+        "merchant_ids": merchant_id,
+        "created_at": {"$gte": today_start.isoformat()},
+    })
+
+    today_rev_pipe = [
+        {"$match": {"merchant_ids": merchant_id, "created_at": {"$gte": today_start.isoformat()},
+                    "status": {"$in": ["delivered", "accepted", "out_for_delivery"]}}},
+        {"$group": {"_id": None, "total": {"$sum": "$total"}}},
+    ]
+    today_rev = await db.orders.aggregate(today_rev_pipe).to_list(1)
+    today_revenue = today_rev[0]["total"] if today_rev else 0
+
+    week_orders = await db.orders.count_documents({
+        "merchant_ids": merchant_id,
+        "created_at": {"$gte": week_start.isoformat()},
+    })
+    last_week_orders = await db.orders.count_documents({
+        "merchant_ids": merchant_id,
+        "created_at": {"$gte": last_week_start.isoformat(), "$lt": week_start.isoformat()},
+    })
+    pending = await db.orders.count_documents({
+        "merchant_ids": merchant_id,
+        "status": "placed",
+    })
+
+    top_products_pipe = [
+        {"$match": {"merchant_ids": merchant_id, "created_at": {"$gte": week_start.isoformat()}}},
+        {"$unwind": "$items"},
+        {"$match": {"items.merchant_id": merchant_id}},
+        {"$group": {"_id": "$items.product_id", "name": {"$first": "$items.name"},
+                    "orders": {"$sum": 1}, "revenue": {"$sum": "$items.price"}}},
+        {"$sort": {"orders": -1}},
+        {"$limit": 5},
+    ]
+    top_products = await db.orders.aggregate(top_products_pipe).to_list(5)
+
+    low_stock = await db.products.find(
+        {"merchant_id": merchant_id, "total_stock": {"$gt": 0, "$lt": 5}},
+        {"_id": 0, "id": 1, "name": 1, "total_stock": 1},
+    ).to_list(5)
+
+    wow_change = 0
+    if last_week_orders > 0:
+        wow_change = round(((week_orders - last_week_orders) / last_week_orders) * 100)
+
+    return {
+        "today_orders": today_orders,
+        "today_revenue": today_revenue,
+        "week_orders": week_orders,
+        "last_week_orders": last_week_orders,
+        "wow_change": wow_change,
+        "pending_orders": pending,
+        "top_products": top_products,
+        "low_stock": low_stock,
+    }
+
+
 @api.get("/merchant/analytics/report.csv")
 async def merchant_report_csv(period: str = "30d", user: dict = Depends(get_current_user)):
     start, end = _period_window(period)
@@ -3806,6 +3944,25 @@ async def admin_hold(mid: str, request: Request, body: dict = None):
     }, "$push": {"notifications": {"type": "kyc-on-hold", "title": "KYC on hold — action needed",
             "body": comment, "time": now}}})
     return {"ok": True}
+
+@api.post("/admin/merchant/{mid}/activate-plan")
+async def admin_activate_plan(mid: str, payload: dict, request: Request):
+    _check_admin(request.headers.get("authorization"))
+    plan = payload.get("plan", "starter")
+    if plan not in ["free", "starter", "growth", "pro"]:
+        raise HTTPException(400, "Invalid plan")
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(days=30)
+    await db.merchants.update_one(
+        {"id": mid},
+        {"$set": {
+            "plan": plan,
+            "plan_started_at": now.isoformat(),
+            "plan_expires_at": expires_at.isoformat(),
+            "subscription_status": "active",
+        }}
+    )
+    return {"message": f"Plan {plan} activated for merchant {mid}"}
 
 @api.post("/merchant/kyc/resubmit")
 async def merchant_kyc_resubmit(user: dict = Depends(get_current_user)):
