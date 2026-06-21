@@ -5,12 +5,7 @@ import { apiClient } from "@/lib/api-client";
 import type { ProductCard } from "@/types";
 import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
 
-const PRICE_FILTERS = [
-  { key: "", label: "All" },
-  { key: "under-499", label: "Under ₹499" },
-  { key: "499-1099", label: "₹499 – ₹1,099" },
-  { key: "above-1099", label: "Above ₹1,099" },
-];
+interface L1Cat { id: string; name: string; slug: string; image?: string; }
 
 const SORT_OPTIONS = [
   { key: "newest", label: "Newest" },
@@ -19,10 +14,8 @@ const SORT_OPTIONS = [
   { key: "discount", label: "Best Discount" },
 ];
 
-function pageTitle(price: string) {
-  if (price === "under-499") return "Under ₹499";
-  if (price === "499-1099") return "₹499 – ₹1,099";
-  if (price === "above-1099") return "Premium Picks";
+function pageTitle(cat: L1Cat | undefined) {
+  if (cat) return cat.name;
   return "All Products in Bhilai";
 }
 
@@ -31,12 +24,23 @@ function ProductsInner() {
   const router = useRouter();
   const [products, setProducts] = useState<ProductCard[]>([]);
   const [loading, setLoading] = useState(true);
+  const [categories, setCategories] = useState<L1Cat[]>([]);
+
+  const categoryFilter = searchParams.get("l1") || "";
   const priceFilter = searchParams.get("price") || "";
   const sortFilter = searchParams.get("sort") || "newest";
 
   useEffect(() => {
+    apiClient.get("/api/categories").then((r) => {
+      const cats: L1Cat[] = r.data?.categories || r.data || [];
+      setCategories(cats);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     setLoading(true);
     const params = new URLSearchParams();
+    if (categoryFilter) params.set("l1", categoryFilter);
     if (priceFilter) params.set("price", priceFilter);
     if (sortFilter && sortFilter !== "newest") params.set("sort", sortFilter);
     apiClient
@@ -44,7 +48,7 @@ function ProductsInner() {
       .then((r) => setProducts(r.data.products || []))
       .catch(() => setProducts([]))
       .finally(() => setLoading(false));
-  }, [priceFilter, sortFilter]);
+  }, [categoryFilter, priceFilter, sortFilter]);
 
   const setFilter = (key: string, val: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -53,10 +57,12 @@ function ProductsInner() {
     router.push(`/products?${params.toString()}`);
   };
 
+  const activeL1 = categories.find((c) => c.id === categoryFilter);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-4 pb-24">
       <h1 className="font-display text-lg font-bold text-[#1A2B4C] mb-2">
-        {pageTitle(priceFilter)}
+        {pageTitle(activeL1)}
         {!loading && (
           <span className="text-sm font-normal text-[#9CA3AF] ml-2">
             ({products.length} products)
@@ -64,20 +70,39 @@ function ProductsInner() {
         )}
       </h1>
 
+      {/* Category pills */}
       <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
-        {PRICE_FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setFilter("price", f.key)}
-            className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
-              priceFilter === f.key
-                ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
-                : "bg-white text-[#595959] border-[#E5E2DC]"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+        {categories.length === 0 ? (
+          Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex-shrink-0 w-16 h-7 bg-[#E5E2DC] rounded-full animate-pulse" />
+          ))
+        ) : (
+          <>
+            <button
+              onClick={() => setFilter("l1", "")}
+              className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                !categoryFilter
+                  ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
+                  : "bg-white text-[#595959] border-[#E5E2DC]"
+              }`}
+            >
+              All
+            </button>
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => setFilter("l1", cat.id)}
+                className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                  categoryFilter === cat.id
+                    ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
+                    : "bg-white text-[#595959] border-[#E5E2DC]"
+                }`}
+              >
+                {cat.name === "Lingerie & Innerwear" ? "Lingerie" : cat.name}
+              </button>
+            ))}
+          </>
+        )}
       </div>
 
       <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-2 mt-1.5">

@@ -14,6 +14,7 @@ function CategoriesInner() {
 
   const [l1Cats, setL1Cats] = useState<L1Cat[]>([]);
   const [l2Cats, setL2Cats] = useState<L2Cat[]>([]);
+  const [loadingL2, setLoadingL2] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
 
@@ -37,12 +38,14 @@ function CategoriesInner() {
     const l1Cat = l1Cats.find(c => c.slug === activeL1);
     if (!l1Cat) return;
     setL2Cats([]);
+    setLoadingL2(true);
     apiClient.get(`/api/categories/${l1Cat.id}/l2`)
       .then(r => {
         const subs: L2Cat[] = r.data?.subcategories || r.data?.l2 || (Array.isArray(r.data) ? r.data : []);
         setL2Cats(subs);
       })
-      .catch(() => setL2Cats([]));
+      .catch(() => setL2Cats([]))
+      .finally(() => setLoadingL2(false));
   }, [activeL1, l1Cats]);
 
   // FIX 2: Product fetch using /api/products?l1={id}&l2={id} — /api/c/ does not exist
@@ -79,65 +82,81 @@ function CategoriesInner() {
       {/* L1 TOP TABS — horizontal scroll with images */}
       <div className="sticky top-[56px] md:top-[64px] z-30 bg-white border-b border-[#E5E2DC]">
         <div className="flex overflow-x-auto no-scrollbar px-3 gap-2 py-2">
-          {l1Cats.map(cat => {
-            const isActive = activeL1 === cat.slug;
-            return (
-              <button
-                key={cat.id}
-                onClick={() => setL1(cat.slug)}
-                className={`flex-shrink-0 flex flex-col items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all min-w-[56px] ${
-                  isActive
-                    ? "bg-[#1A2B4C]"
-                    : "bg-[#FDFBF7] border border-[#E5E2DC]"
-                }`}
-              >
-                {cat.image && (
-                  <div className="w-8 h-8 rounded-lg overflow-hidden bg-[#E5E2DC]">
-                    <img src={cat.image} alt={cat.name}
-                      className="w-full h-full object-cover object-top" />
-                  </div>
-                )}
-                <span className={`text-[10px] font-bold whitespace-nowrap leading-tight ${
-                  isActive ? "text-white" : "text-[#1A2B4C]"
-                }`}>
-                  {cat.name.replace("Lingerie & Innerwear", "Lingerie").replace("Ethnic Wear", "Ethnic")}
-                </span>
-              </button>
-            );
-          })}
+          {l1Cats.length === 0 ? (
+            Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#E5E2DC] animate-pulse min-w-[56px] h-14" />
+            ))
+          ) : (
+            l1Cats.map(cat => {
+              const isActive = activeL1 === cat.slug;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setL1(cat.slug)}
+                  className={`flex-shrink-0 flex flex-col items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all min-w-[56px] ${
+                    isActive
+                      ? "bg-[#1A2B4C]"
+                      : "bg-[#FDFBF7] border border-[#E5E2DC]"
+                  }`}
+                >
+                  {cat.image && (
+                    <div className="w-8 h-8 rounded-lg overflow-hidden bg-[#E5E2DC]">
+                      <img src={cat.image} alt={cat.name}
+                        className="w-full h-full object-cover object-top" />
+                    </div>
+                  )}
+                  <span className={`text-[10px] font-bold whitespace-nowrap leading-tight ${
+                    isActive ? "text-white" : "text-[#1A2B4C]"
+                  }`}>
+                    {cat.name.replace("Lingerie & Innerwear", "Lingerie").replace("Ethnic Wear", "Ethnic")}
+                  </span>
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
 
       <div className="flex relative" style={{minHeight: 'calc(100vh - 112px)'}}>
 
-        {/* LEFT — FIX 4: sidebar maps l2Cats (NOT l1Cats) */}
-        {l2Cats.length > 0 && (
+        {/* LEFT — L2 sidebar with skeleton while loading */}
+        {(loadingL2 || l2Cats.length > 0) && (
           <div className="w-24 flex-shrink-0 bg-white border-r border-[#E5E2DC] sticky top-[112px] md:top-[120px] self-start overflow-y-auto" style={{maxHeight: 'calc(100vh - 112px)'}}>
-            <button
-              onClick={() => setL2("")}
-              className={`w-full text-left px-3 py-3.5 border-b border-[#F0EFED] ${
-                !activeL2 ? "border-l-[3px] border-l-[#E68910] bg-[#FFF8F0]" : "border-l-[3px] border-l-transparent"
-              }`}
-            >
-              <span className={`text-[12px] block leading-tight ${
-                !activeL2 ? "font-bold text-[#E68910]" : "font-medium text-[#595959]"
-              }`}>All</span>
-            </button>
-            {l2Cats.map(sub => (
-              <button
-                key={sub.id}
-                onClick={() => setL2(sub.slug)}
-                className={`w-full text-left px-3 py-3.5 border-b border-[#F0EFED] ${
-                  activeL2 === sub.slug
-                    ? "border-l-[3px] border-l-[#E68910] bg-[#FFF8F0]"
-                    : "border-l-[3px] border-l-transparent"
-                }`}
-              >
-                <span className={`text-[12px] block leading-tight ${
-                  activeL2 === sub.slug ? "font-bold text-[#E68910]" : "font-medium text-[#595959]"
-                }`}>{sub.name}</span>
-              </button>
-            ))}
+            {loadingL2 ? (
+              Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="px-3 py-3.5 border-b border-[#F0EFED]">
+                  <div className="h-3 bg-[#E5E2DC] rounded animate-pulse w-14" />
+                </div>
+              ))
+            ) : (
+              <>
+                <button
+                  onClick={() => setL2("")}
+                  className={`w-full text-left px-3 py-3.5 border-b border-[#F0EFED] ${
+                    !activeL2 ? "border-l-[3px] border-l-[#E68910] bg-[#FFF8F0]" : "border-l-[3px] border-l-transparent"
+                  }`}
+                >
+                  <span className={`text-[12px] block leading-tight ${
+                    !activeL2 ? "font-bold text-[#E68910]" : "font-medium text-[#595959]"
+                  }`}>All</span>
+                </button>
+                {l2Cats.map(sub => (
+                  <button
+                    key={sub.id}
+                    onClick={() => setL2(sub.slug)}
+                    className={`w-full text-left px-3 py-3.5 border-b border-[#F0EFED] ${
+                      activeL2 === sub.slug
+                        ? "border-l-[3px] border-l-[#E68910] bg-[#FFF8F0]"
+                        : "border-l-[3px] border-l-transparent"
+                    }`}
+                  >
+                    <span className={`text-[12px] block leading-tight ${
+                      activeL2 === sub.slug ? "font-bold text-[#E68910]" : "font-medium text-[#595959]"
+                    }`}>{sub.name}</span>
+                  </button>
+                ))}
+              </>
+            )}
           </div>
         )}
 

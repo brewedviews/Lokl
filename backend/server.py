@@ -2254,11 +2254,13 @@ async def related_products(pid: str):
 @api.get("/products/all")
 async def all_products(
     price: Optional[str] = None,
+    l1: Optional[str] = None,
     sort: Optional[str] = None,
     limit: int = 60,
 ):
     avail_map = await _availability_map()
     q: dict = {**_visible_product_filter()}
+    if l1: q["l1_id"] = l1
     if price == "under-499":
         q["price"] = {"$lt": 499}
     elif price == "499-1099":

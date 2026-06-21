@@ -62,6 +62,7 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
   const pathname = usePathname();
   const router = useRouter();
   const [hydrated, setHydrated] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
 
   const user = useMerchantAuthStore((s) => s.user);
@@ -79,8 +80,20 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
   const initialPollDone = useRef(false);
   const userInteractedRef = useRef(false);
 
+  useEffect(() => {
+    if (!isPublic) document.title = "Lokl.shop — Merchant Dashboard";
+  }, [isPublic]);
+
   // Step 1 — wait one render for Zustand persist to finish rehydrating.
   useEffect(() => { setHydrated(true); }, []);
+
+  // Step 1b — stop showing the checking spinner once user identity is known.
+  // Covers: public routes, no token, and user already in store.
+  // The /auth/me path sets checking=false inside the fetch promise below.
+  useEffect(() => {
+    if (!hydrated) return;
+    if (isPublic || !token || user) setChecking(false);
+  }, [hydrated, isPublic, token, user]);
 
   useEffect(() => {
     const markInteracted = () => { userInteractedRef.current = true; };
@@ -115,10 +128,12 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
     let cancelled = false;
     api.auth.me().then((m) => {
       if (!cancelled && m) setAuth(token, m);
+      if (!cancelled) setChecking(false);
     }).catch(() => {
       if (!cancelled) {
         clearAuth();
         router.replace("/merchant/login");
+        setChecking(false);
       }
     });
     return () => { cancelled = true; };
@@ -172,10 +187,10 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
   if (isPublic) {
     return (<><Toaster position="top-center" richColors />{children}</>);
   }
-  if (!hydrated) {
+  if (!hydrated || checking) {
     return (
       <div className="min-h-screen bg-brand-bg flex items-center justify-center">
-        <div className="w-8 h-8 rounded-full border-2 border-brand-primary border-t-transparent animate-spin" />
+        <div className="w-8 h-8 rounded-full border-2 border-[#E68910] border-t-transparent animate-spin" />
       </div>
     );
   }
@@ -226,7 +241,7 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
       <aside data-testid="merchant-sidebar" className="hidden md:flex w-64 border-r border-card-border flex-col bg-brand-bg">
         <Link href="/merchant/orders" data-testid="merchant-logo" className="p-6 flex items-center gap-2 border-b border-card-border">
           <span className="font-display text-2xl font-bold text-brand-primary">
-            lokl<span className="text-brand-accent">.</span>
+            lokl<span className="text-brand-accent">.</span>shop
           </span>
         </Link>
         <nav className="flex-1 p-3 space-y-1">
