@@ -198,14 +198,14 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
   // effect is already queued — render nothing meanwhile.
   if (!isAuthed) return null;
 
-  const links = isApproved
+  const links: Array<{ to: string; label: string; icon: React.ComponentType<{ size?: number }>; disabled?: boolean }> = isApproved
     ? [
         { to: "/merchant/orders",       label: "Order requests",  icon: Bell },
         { to: "/merchant/products",     label: "Products",        icon: Package },
         { to: "/merchant/analytics",    label: "Sales analytics", icon: BarChart3 },
         { to: "/merchant/storefront",   label: "Storefront",      icon: Store },
         { to: "/merchant/bank",         label: "Bank details",    icon: Landmark },
-        { to: "/merchant/subscription", label: "Subscription",    icon: Crown },
+        { to: "/merchant/subscription", label: "Subscription",    icon: Crown, disabled: true },
       ]
     : [
         { to: "/merchant/onboarding", label: "Onboarding", icon: Rocket },
@@ -247,6 +247,17 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
         <nav className="flex-1 p-3 space-y-1">
           {links.map((l) => {
             const isActive = pathname.startsWith(l.to);
+            if (l.disabled) {
+              return (
+                <div key={l.to}
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-card text-sm font-medium text-[#9CA3AF] cursor-not-allowed opacity-50 select-none"
+                >
+                  <l.icon size={16} />
+                  <span className="flex-1">{l.label}</span>
+                  <span className="text-[10px] bg-[#E5E2DC] text-[#9CA3AF] px-2 py-0.5 rounded-full font-medium">Soon</span>
+                </div>
+              );
+            }
             return (
               <Link key={l.to} href={l.to}
                 data-testid={`nav-${l.label.toLowerCase().replace(/\s/g, "-")}`}

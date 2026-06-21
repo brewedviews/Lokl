@@ -67,12 +67,12 @@ const PLANS: Plan[] = [
     tagline: "For stores serious about sales",
     features: [
       { text: "100 products", included: true },
-      { text: "⚡ Priority placement — appear above Starter stores", included: true },
-      { text: "✅ Featured in 'Stores near you' on homepage", included: true },
+      { text: "Priority placement — appear above Starter stores", included: true },
+      { text: "Featured in 'Stores near you' on homepage", included: true },
       { text: "Offers & coupons for your store", included: true },
       { text: "3 product boosts/month (pin to top of category)", included: true },
       { text: "Sales analytics — see what's selling", included: true },
-      { text: "📊 Weekly WhatsApp sales report (every Monday)", included: true },
+      { text: "Weekly WhatsApp sales report (every Monday)", included: true },
       { text: "Verified Store badge", included: true },
     ],
     cta: "Choose Growth — ₹999/month",
@@ -87,8 +87,8 @@ const PLANS: Plan[] = [
     tagline: "For stores that want to dominate",
     features: [
       { text: "Unlimited products", included: true },
-      { text: "🏆 Top #1 placement — always first in your category", included: true },
-      { text: "🏠 Permanent homepage feature slot", included: true },
+      { text: "Top placement — always first in your category", included: true },
+      { text: "Permanent homepage feature slot", included: true },
       { text: "10 product boosts/month", included: true },
       { text: "Custom offer banner on homepage", included: true },
       { text: "Daily WhatsApp sales summary (every evening)", included: true },
@@ -148,7 +148,6 @@ export default function SubscriptionPage() {
   if (submitted) {
     return (
       <div className="min-h-screen bg-[#FDFBF7] flex flex-col items-center justify-center px-6 text-center pb-24">
-        <div className="text-5xl mb-4">🎉</div>
         <h2 className="font-bold text-[#1A2B4C] text-xl mb-2">Request submitted!</h2>
         <p className="text-[#595959] text-sm mb-6">
           We&apos;ll verify your payment and activate your plan within 2 hours.

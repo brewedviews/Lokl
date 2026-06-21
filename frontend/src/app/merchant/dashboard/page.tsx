@@ -56,8 +56,8 @@ export default function MerchantDashboard() {
           }`}
         >
           {subscription.is_expired
-            ? "⚠️ Your subscription has expired — orders are paused. Renew now →"
-            : `⏰ ${subscription.days_left} days left on your plan — Renew to keep getting orders →`}
+            ? "Your subscription has expired — orders are paused. Renew now"
+            : `${subscription.days_left} days left on your plan — Renew to keep getting orders`}
         </Link>
       )}
 

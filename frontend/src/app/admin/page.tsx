@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Shield, Users, Store as StoreIcon, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop, TicketPercent } from "lucide-react";
+import { Shield, Users, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop, TicketPercent } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
 import { useAdminAuthStore } from "@/stores";
 import { ReturnsTab } from "@/components/admin/ReturnsTab";
@@ -28,7 +28,7 @@ import { BankRequestsTab } from "@/components/admin/BankRequestsTab";
 import { LiveMetricsTab } from "@/components/admin/LiveMetricsTab";
 import { CmsTab } from "@/components/admin/CmsTab";
 
-type Tab = "stats" | "live" | "merchants" | "bank" | "stores" | "products" | "orders" | "returns" | "customers" | "cms" | "waitlist" | "coupons";
+type Tab = "stats" | "live" | "merchants" | "bank" | "products" | "orders" | "returns" | "customers" | "cms" | "waitlist" | "coupons";
 
 interface Stats {
   submitted_kyc: number;
@@ -65,7 +65,6 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ size?: n
   { id: "live", label: "Live", icon: Activity },
   { id: "merchants", label: "Merchants", icon: Users },
   { id: "bank", label: "Bank/Address", icon: Landmark },
-  { id: "stores", label: "Stores", icon: StoreIcon },
   { id: "products", label: "Products", icon: Package },
   { id: "orders", label: "Orders", icon: ShoppingBag },
   { id: "returns", label: "Returns", icon: RotateCcw },
@@ -113,7 +112,6 @@ export default function AdminDashboardPage() {
         {tab === "live" && <LiveMetricsTab />}
         {tab === "merchants" && <MerchantsTab />}
         {tab === "bank" && <BankRequestsTab />}
-        {tab === "stores" && <StoresTab />}
         {tab === "products" && <ProductsTab />}
         {tab === "orders" && <OrdersTab />}
         {tab === "returns" && <ReturnsTab />}
@@ -179,24 +177,29 @@ function Stat({ label, value }: { label: string; value: number | string }) {
 // ---------------- Merchants ----------------
 function MerchantsTab() {
   const [items, setItems] = useState<Merchant[]>([]);
+  const [stores, setStores] = useState<AdminStoreItem[]>([]);
   const [filter, setFilter] = useState<string>("submitted");
   const [busy, setBusy] = useState<string | null>(null);
-  // Inline Hold form state — replaces the legacy window.prompt() flow that
-  // shipped a 400 to the backend when the user dismissed the native prompt
-  // (the empty-string `reason` was being sent on Cancel).
   const [holdingFor, setHoldingFor] = useState<string | null>(null);
   const [holdComment, setHoldComment] = useState("");
-  // Inline Reject form state — mirrors the Hold pattern exactly.
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [planFor, setPlanFor] = useState<string | null>(null);
   const [planSelection, setPlanSelection] = useState("growth");
   const [planBusy, setPlanBusy] = useState<string | null>(null);
+  const [deleteFor, setDeleteFor] = useState<AdminStoreItem | null>(null);
+  const [deleteOtp, setDeleteOtp] = useState("");
+  const [deleteSent, setDeleteSent] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const url = filter === "all" ? "/api/admin/merchants" : `/api/admin/merchants?status=${filter}`;
-      setItems(await adminFetch<Merchant[]>(url));
+      const [ms, ss] = await Promise.all([
+        adminFetch<Merchant[]>(url),
+        adminFetch<AdminStoreItem[]>("/api/admin/stores"),
+      ]);
+      setItems(ms);
+      setStores(ss);
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   }, [filter]);
   useEffect(() => { void load(); }, [load]);
@@ -262,12 +265,48 @@ function MerchantsTab() {
     finally { setPlanBusy(null); }
   };
 
+  const toggleStore = async (s: AdminStoreItem) => {
+    setBusy(`store-${s.id}`);
+    try {
+      const action = s.paused ? "unpause" : "pause";
+      await adminFetch<{ ok: boolean }>(`/api/admin/stores/${s.id}/${action}`, { method: "POST" });
+      toast.success(`Store ${action}d`);
+      void load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(null); }
+  };
+
+  const requestDeleteOtp = async (s: AdminStoreItem) => {
+    setDeleteFor(s); setDeleteOtp(""); setDeleteSent(false);
+    try {
+      const r = await adminFetch<{ ok: boolean; otp_demo?: string }>(`/api/admin/stores/${s.id}/request-delete-otp`, { method: "POST" });
+      setDeleteSent(true);
+      if (r.otp_demo) setDeleteOtp(r.otp_demo);
+      toast.success("OTP sent");
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); setDeleteFor(null); }
+  };
+
+  const confirmDeleteStore = async () => {
+    if (!deleteFor) return;
+    if (deleteOtp.length !== 6) { toast.error("Enter the 6-digit OTP"); return; }
+    setBusy(`store-${deleteFor.id}`);
+    try {
+      await adminFetch<{ ok: boolean }>(`/api/admin/stores/${deleteFor.id}`, { method: "DELETE", body: JSON.stringify({ otp: deleteOtp }) });
+      toast.success(`Deleted ${deleteFor.name}`);
+      setDeleteFor(null);
+      void load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(null); }
+  };
+
   const openKycDoc = async (mid: string, doc: "pan_doc" | "gst_doc" | "cancelled_cheque") => {
     try {
       const r = await adminFetch<{ url: string }>(`/api/admin/kyc/${mid}/signed-url?doc=${doc}`);
       window.open(r.url, "_blank", "noopener,noreferrer");
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   };
+
+  const storeMap = Object.fromEntries(stores.map((s) => [s.merchant_id, s]));
 
   return (
     <div data-testid="merchants-panel">
@@ -378,117 +417,57 @@ function MerchantsTab() {
                   </div>
                 </div>
               )}
+              {storeMap[m.id] && (
+                <div className="mt-3 pt-3 border-t border-[#F0EFED] flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-3 text-xs text-[#595959] flex-wrap">
+                    <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] uppercase ${
+                      storeMap[m.id].paused ? "bg-red-100 text-red-500"
+                        : storeMap[m.id].published ? "bg-green-100 text-green-600"
+                        : "bg-zinc-100 text-zinc-500"
+                    }`}>
+                      {storeMap[m.id].paused ? "paused" : storeMap[m.id].published ? "live" : "draft"}
+                    </span>
+                    <span>{storeMap[m.id].locality || "no area"}</span>
+                    <span>{storeMap[m.id].product_count ?? 0} products</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => toggleStore(storeMap[m.id])}
+                      disabled={busy === `store-${storeMap[m.id].id}`}
+                      className="text-xs font-semibold text-[#E68910] hover:underline disabled:opacity-50"
+                    >
+                      {storeMap[m.id].paused ? "Unpause store" : "Pause store"}
+                    </button>
+                    <button
+                      onClick={() => requestDeleteOtp(storeMap[m.id])}
+                      disabled={busy === `store-${storeMap[m.id].id}`}
+                      className="text-xs font-semibold text-red-500 hover:underline disabled:opacity-50"
+                    >
+                      Delete store
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// ---------------- Stores ----------------
-function StoresTab() {
-  const [items, setItems] = useState<AdminStoreItem[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [q, setQ] = useState("");
-  const [deleteFor, setDeleteFor] = useState<AdminStoreItem | null>(null);
-  const [deleteOtp, setDeleteOtp] = useState("");
-  const [deleteSent, setDeleteSent] = useState(false);
-
-  const load = async () => {
-    try { setItems(await adminFetch<AdminStoreItem[]>("/api/admin/stores")); }
-    catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
-  };
-  useEffect(() => { void load(); }, []);
-
-  const toggle = async (s: AdminStoreItem) => {
-    setBusy(s.id);
-    try {
-      const action = s.paused ? "unpause" : "pause";
-      await adminFetch<{ ok: boolean }>(`/api/admin/stores/${s.id}/${action}`, { method: "POST" });
-      toast.success(`Store ${action}d`);
-      void load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(null); }
-  };
-
-  const requestDeleteOtp = async (s: AdminStoreItem) => {
-    setDeleteFor(s); setDeleteOtp(""); setDeleteSent(false);
-    try {
-      const r = await adminFetch<{ ok: boolean; otp_demo?: string }>(`/api/admin/stores/${s.id}/request-delete-otp`, { method: "POST" });
-      setDeleteSent(true);
-      // The backend MOCKS the email and returns the OTP in dev. Prefill so QA flows are smooth.
-      if (r.otp_demo) setDeleteOtp(r.otp_demo);
-      toast.success("OTP sent (mock — prefilled for demo)");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-      setDeleteFor(null);
-    }
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteFor) return;
-    if (deleteOtp.length !== 6) { toast.error("Enter the 6-digit OTP"); return; }
-    setBusy(deleteFor.id);
-    try {
-      await adminFetch<{ ok: boolean }>(`/api/admin/stores/${deleteFor.id}`, {
-        method: "DELETE",
-        body: JSON.stringify({ otp: deleteOtp }),
-      });
-      toast.success(`Deleted ${deleteFor.name}`);
-      setDeleteFor(null);
-      void load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-    } finally { setBusy(null); }
-  };
-
-  const filtered = items.filter((s) => !q || s.name.toLowerCase().includes(q.toLowerCase()));
-
-  return (
-    <div data-testid="stores-panel">
-      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-        <h2 className="font-display text-2xl font-bold text-[#0A1F5C]">Stores ({filtered.length})</h2>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" data-testid="stores-search" className="px-3 py-2 rounded-full border border-[#E5E2DC] text-sm" />
-      </div>
-      <div className="bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-[#FDFBF7] text-left text-xs uppercase text-[#595959]">
-            <tr><th className="px-4 py-3">Store</th><th className="px-4 py-3">Locality</th><th className="px-4 py-3 text-right">Products</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr>
-          </thead>
-          <tbody>
-            {filtered.map((s) => (
-              <tr key={s.id} className="border-t border-[#E5E2DC]" data-testid={`store-row-${s.id}`}>
-                <td className="px-4 py-3 font-semibold text-[#0A1F5C]">{s.name}<div className="text-[11px] text-[#595959] font-normal">{s.merchant?.email}</div></td>
-                <td className="px-4 py-3 text-[#595959]">{s.locality || "—"}</td>
-                <td className="px-4 py-3 text-right">{s.product_count ?? 0}</td>
-                <td className="px-4 py-3"><span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${s.paused ? "bg-red-100 text-red-500" : s.published ? "bg-[#4F7363]/15 text-[#4F7363]" : "bg-zinc-100 text-zinc-700"}`}>{s.paused ? "paused" : s.published ? "live" : "draft"}</span></td>
-                <td className="px-4 py-3 text-right space-x-3 whitespace-nowrap">
-                  <button onClick={() => toggle(s)} disabled={busy === s.id} data-testid={`store-toggle-${s.id}`} className="text-xs font-semibold text-[#E68910] hover:underline disabled:opacity-50">{s.paused ? "Unpause" : "Pause"}</button>
-                  <button onClick={() => requestDeleteOtp(s)} disabled={busy === s.id} data-testid={`store-delete-${s.id}`} className="text-xs font-semibold text-red-500 hover:underline disabled:opacity-50">Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
 
       {deleteFor && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setDeleteFor(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl max-w-md w-full p-6" data-testid="store-delete-modal">
+          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl max-w-md w-full p-6">
             <div className="font-display text-xl font-bold text-[#0A1F5C]">Delete {deleteFor.name}?</div>
             <p className="text-xs text-[#595959] mt-2">
-              This wipes the store, its products, the merchant account, and all related orders. An OTP has been sent to the admin inbox (mocked in dev).
+              This wipes the store, its products, the merchant account, and all related orders. An OTP has been sent to the admin inbox.
             </p>
             <input value={deleteOtp} onChange={(e) => setDeleteOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              placeholder="6-digit OTP" data-testid="store-delete-otp"
+              placeholder="6-digit OTP"
               className="mt-4 w-full px-4 py-3 rounded-xl border border-[#E5E2DC] text-center font-mono text-lg tracking-[0.4em]" />
             <div className="flex items-center justify-end gap-2 mt-5">
               <button onClick={() => setDeleteFor(null)} className="px-4 py-2 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC]">Cancel</button>
-              <button onClick={confirmDelete} disabled={!deleteSent || busy === deleteFor.id || deleteOtp.length !== 6}
-                data-testid="store-delete-confirm"
+              <button onClick={confirmDeleteStore} disabled={!deleteSent || deleteOtp.length !== 6}
                 className="px-4 py-2 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-50">
-                {busy === deleteFor.id ? "Deleting…" : "Confirm delete"}
+                Confirm delete
               </button>
             </div>
           </div>

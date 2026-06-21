@@ -44,7 +44,7 @@ export function MerchantAuthForm({ mode }: { mode: "login" | "register" }) {
       <div className="hidden md:flex md:w-1/2 bg-[#1A2B4C] text-white p-12 flex-col justify-between relative overflow-hidden">
         <div className="bf-noise absolute inset-0 opacity-40" />
         <div data-testid="merchant-auth-logo" className="relative flex items-center gap-2">
-          <span className="font-display text-3xl font-bold">lokl<span className="text-[#E68910]">.</span></span>
+          <span className="font-display text-3xl font-bold text-white">lokl<span className="text-[#E68910]">.</span><span className="text-white">shop</span></span>
         </div>
         <div className="relative">
           <h1 className="font-display text-5xl font-bold leading-tight">Your store. <br /><span className="text-[#E68910]">All of Bhilai.</span></h1>
@@ -64,7 +64,7 @@ export function MerchantAuthForm({ mode }: { mode: "login" | "register" }) {
             <span className="font-display text-2xl font-bold text-[#1A2B4C]">lokl<span className="text-[#E68910]">.</span></span>
           </div>
           <h2 className="font-display text-3xl md:text-4xl font-bold text-[#1A2B4C]">{isLogin ? "Welcome back" : "Open your store"}</h2>
-          <p className="text-[#595959] mt-2">{isLogin ? "Sign in to your merchant dashboard" : "List your store on Lokl.shop in minutes"}</p>
+          <p className="text-[#595959] mt-2">{isLogin ? "Sign in to your Lokl.shop merchant account" : "List your store on Lokl.shop in minutes"}</p>
 
           {isLogin ? (
             <div className="mt-6"><MerchantOtpLogin /></div>

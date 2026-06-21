@@ -268,9 +268,6 @@ export default function MerchantProductsPage() {
           >
             <Plus size={14} /> Add product
           </button>
-          <button onClick={publishStore} data-testid="publish-store-btn" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#4F7363] text-white text-sm font-semibold hover:bg-[#3D5A4C]">
-            Go live
-          </button>
         </div>
       </div>
 
@@ -323,7 +320,7 @@ export default function MerchantProductsPage() {
                 <div className="w-16 h-16 rounded-xl overflow-hidden bg-[#F5F5F5] flex-shrink-0">
                   {p.image
                     ? <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
-                    : <div className="w-full h-full flex items-center justify-center text-2xl">📦</div>
+                    : <div className="w-full h-full flex items-center justify-center bg-[#E5E2DC]"><Package size={20} className="text-[#9CA3AF]" /></div>
                   }
                 </div>
 
@@ -356,7 +353,15 @@ export default function MerchantProductsPage() {
                       </button>
                     )}
                     <span className="text-xs text-[#9CA3AF] ml-1">
-                      · {prod.total_stock ?? 0} in stock
+                      {(() => {
+                        if (prod.total_stock && prod.total_stock > 0) return `· ${prod.total_stock} in stock`;
+                        const stockDict = (prod as any).stock as Record<string, number> | undefined;
+                        if (stockDict && typeof stockDict === "object") {
+                          const t = Object.values(stockDict).reduce((s: number, v) => s + (parseInt(String(v)) || 0), 0);
+                          if (t > 0) return `· ${t} in stock`;
+                        }
+                        return "· Update stock";
+                      })()}
                     </span>
                   </div>
                 </div>
@@ -372,7 +377,7 @@ export default function MerchantProductsPage() {
                         : "bg-green-50 text-green-700 border border-green-200"
                     }`}
                   >
-                    {prod.paused ? "⏸ Paused" : "🟢 Live"}
+                    {prod.paused ? "Paused" : "Live"}
                   </button>
                   <button
                     onClick={() => openEdit(p)}

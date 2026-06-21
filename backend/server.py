@@ -3337,6 +3337,8 @@ async def create_merchant_product(payload: ProductCreate, user: dict = Depends(g
         "store_name": m["store_name"], "store_city": m.get("city", ""),
         "rating": 4.5, "paused": False, **payload.model_dump(),
         "created_at": datetime.now(timezone.utc).isoformat()}
+    if isinstance(doc.get("stock"), dict):
+        doc["total_stock"] = sum(int(v) for v in doc["stock"].values() if isinstance(v, (int, float)))
     await db.products.insert_one(doc)
     cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
@@ -3348,6 +3350,8 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
     p = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0})
     if not p: raise HTTPException(404, "Product not found")
     payload.pop("id", None); payload.pop("merchant_id", None)
+    if isinstance(payload.get("stock"), dict):
+        payload["total_stock"] = sum(int(v) for v in payload["stock"].values() if isinstance(v, (int, float)))
     # If the cover Cloudinary asset is being replaced (different public_id),
     # delete the previous asset to avoid orphaned Cloudinary storage.
     new_pid = payload.get("image_public_id")
