@@ -3368,6 +3368,18 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
         await _maybe_autopublish_store(user["sub"])
     return await db.products.find_one({"id": pid}, {"_id": 0})
 
+@api.patch("/merchant/products/{pid}")
+async def quick_update_product(pid: str, payload: dict, user: dict = Depends(get_current_user)):
+    """Quick partial update — price, mrp, total_stock, paused, status only."""
+    product = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0, "id": 1})
+    if not product:
+        raise HTTPException(404)
+    allowed = {"price", "mrp", "total_stock", "paused", "status"}
+    update = {k: v for k, v in payload.items() if k in allowed}
+    if update:
+        await db.products.update_one({"id": pid}, {"$set": update})
+    return {"ok": True}
+
 @api.post("/merchant/ai/enhance-image")
 async def merchant_ai_enhance_image(payload: dict, user: dict = Depends(get_current_user)):
     """Generate 4 standalone catalog-grade images from a raw product photo.

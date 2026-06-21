@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Package, Plus, Download, ExternalLink, Upload, X, Star, Edit3, Loader2 } from "lucide-react";
+import { Package, Plus, Download, Upload, X, Star, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
@@ -19,13 +19,6 @@ import { downloads } from "@/lib/downloads";
 import { useMerchantAuthStore } from "@/stores";
 import { uploadImage, deleteUploadedImage } from "@/lib/uploads";
 import type { Product } from "@/types";
-
-const STATUS_TONE: Record<string, string> = {
-  draft: "bg-zinc-100 text-zinc-700",
-  pending_review: "bg-[#E68910]/15 text-[#E68910]",
-  active: "bg-[#4F7363]/15 text-[#4F7363]",
-  paused: "bg-red-100 text-red-500",
-};
 
 interface L2 { id: string; name: string }
 interface Category { id: string; name: string; l2: L2[] }
@@ -64,6 +57,9 @@ export default function MerchantProductsPage() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkUploadBusy, setBulkUploadBusy] = useState(false);
   const [customSizesInput, setCustomSizesInput] = useState("");
+  const [editingPrice, setEditingPrice] = useState<string | null>(null);
+  const [priceInput, setPriceInput] = useState("");
+  const [step, setStep] = useState(1);
   const bulkInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = async () => {
@@ -147,7 +143,7 @@ export default function MerchantProductsPage() {
         await api.merchant.createProduct(body as Partial<Product>);
         toast.success("Product created");
       }
-      setOpenAdd(false); setEditingId(null); setForm(blankForm); setCustomSizesInput("");
+      setOpenAdd(false); setEditingId(null); setForm(blankForm); setCustomSizesInput(""); setStep(1);
       void load();
     } catch (e) { toast.error(getErrorMessage(e)); }
     finally { setSubmitBusy(false); }
@@ -160,7 +156,6 @@ export default function MerchantProductsPage() {
       // the iter-44 regression that opened the edit modal blank.
       const r = await apiClient.get<{ product: Product & { image_public_id?: string; image_public_ids?: string[]; stock?: Record<string, number>; sizes?: string[]; l1_id?: string; l2_id?: string; gender?: string; mrp?: number; return_eligible?: boolean; images?: string[]; size_type?: string } }>(`/api/products/${p.id}`);
       const d = r.data.product;
-      // Infer size_type if not stored: match sizes against known presets.
       let sizeType = d.size_type || "";
       if (!sizeType && d.sizes && d.sizes.length > 0) {
         const szs = d.sizes;
@@ -189,6 +184,7 @@ export default function MerchantProductsPage() {
         return_eligible: !!d.return_eligible,
         size_type: sizeType,
       });
+      setStep(1);
       setOpenAdd(true);
     } catch (e) { toast.error(getErrorMessage(e)); }
   };
@@ -229,11 +225,26 @@ export default function MerchantProductsPage() {
     catch (e) { toast.error(getErrorMessage(e)); }
   };
 
+  const savePrice = async (pid: string) => {
+    const newPrice = parseFloat(priceInput);
+    if (!isNaN(newPrice) && newPrice > 0) {
+      try {
+        await apiClient.patch(`/api/merchant/products/${pid}`, { price: newPrice });
+        setItems(ps => ps.map(p => p.id === pid ? { ...p, price: newPrice } : p));
+        toast.success("Price updated");
+      } catch {
+        toast.error("Failed to update price");
+      }
+    }
+    setEditingPrice(null);
+  };
+
   const currentL1 = cats.find((c) => c.id === form.l1_id);
   const hasL2 = !!(currentL1 && currentL1.l2 && currentL1.l2.length > 0);
 
   return (
-    <div className="p-6 md:p-10">
+    <div className="p-4 md:p-8">
+      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <h1 data-testid="products-title" className="font-display text-3xl md:text-4xl font-bold text-[#1A2B4C] flex items-center gap-2">
@@ -250,7 +261,11 @@ export default function MerchantProductsPage() {
             <input ref={bulkInputRef} data-testid="bulk-csv" type="file" accept=".xlsx,.csv" className="hidden"
               onChange={(e) => { handleBulkUpload(e.target.files?.[0]); if (bulkInputRef.current) bulkInputRef.current.value = ""; }} />
           </label>
-          <button onClick={() => { setEditingId(null); setForm(blankForm); setOpenAdd(true); }} data-testid="add-product-btn" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#E68910] text-white text-sm font-semibold hover:bg-[#C9770E]">
+          <button
+            onClick={() => { setEditingId(null); setForm(blankForm); setStep(1); setOpenAdd(true); }}
+            data-testid="add-product-btn"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#E68910] text-white text-sm font-semibold hover:bg-[#C9770E]"
+          >
             <Plus size={14} /> Add product
           </button>
           <button onClick={publishStore} data-testid="publish-store-btn" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#4F7363] text-white text-sm font-semibold hover:bg-[#3D5A4C]">
@@ -259,9 +274,20 @@ export default function MerchantProductsPage() {
         </div>
       </div>
 
-      <input data-testid="products-search" placeholder="Search products…" value={q} onChange={(e) => setQ(e.target.value)}
-        className="w-full max-w-md mb-5 px-4 py-2.5 rounded-full border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
+      {/* Search */}
+      <div className="relative mb-4">
+        <input
+          type="text"
+          data-testid="products-search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search your products..."
+          className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-sm bg-white"
+        />
+        <Search size={15} className="absolute left-3 top-3 text-[#9CA3AF]" />
+      </div>
 
+      {/* Bulk action bar */}
       {selected.length > 0 && (
         <div data-testid="bulk-bar" className="sticky top-4 z-30 mb-3 bg-[#1A2B4C] text-white rounded-2xl px-4 py-3 flex items-center justify-between shadow-lg">
           <span className="text-sm font-semibold">{selected.length} selected</span>
@@ -274,6 +300,7 @@ export default function MerchantProductsPage() {
         </div>
       )}
 
+      {/* Product cards */}
       {filtered.length === 0 ? (
         <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center" data-testid="products-empty">
           <Package size={28} className="mx-auto text-[#94A3B8] mb-2" />
@@ -281,198 +308,391 @@ export default function MerchantProductsPage() {
           <p className="text-sm text-[#595959] mt-1">Click <strong>Add product</strong> to upload your first item.</p>
         </div>
       ) : (
-        <div className="bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-[#FDFBF7] text-left text-xs uppercase text-[#595959]">
-              <tr>
-                <th className="px-3 py-3 w-10"></th>
-                <th className="px-4 py-3">Product</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Price</th><th className="px-4 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p) => {
-                const status = (p as Product & { paused?: boolean }).paused ? "paused" : "active";
-                const isSel = selected.includes(p.id);
-                return (
-                  <tr key={p.id} className="border-t border-[#E5E2DC]" data-testid={`mp-${p.id}`}>
-                    <td className="px-3 py-3">
-                      <input type="checkbox" data-testid={`sel-${p.id}`} checked={isSel}
-                        onChange={() => setSelected((s) => isSel ? s.filter((x) => x !== p.id) : [...s, p.id])}
-                        className="w-4 h-4 accent-[#E68910]" />
-                    </td>
-                    <td className="px-4 py-3 flex items-center gap-3">
-                      {p.image ? (
-                        <Image src={p.image} alt={p.name} width={48} height={48} className="w-12 h-12 rounded-xl object-cover bg-[#FDFBF7] border border-[#E5E2DC]" unoptimized />
-                      ) : <div className="w-12 h-12 rounded-xl bg-[#FDFBF7] border border-[#E5E2DC]" />}
-                      <div className="min-w-0">
-                        <div className="font-semibold text-[#1A2B4C] truncate">{p.name}</div>
-                        <div className="text-[11px] text-[#595959] truncate">{p.description?.slice(0, 60) || "—"}</div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${STATUS_TONE[status]}`}>{status}</span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold">₹{Number(p.price).toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                      <a href={`/product/${p.id}`} target="_blank" rel="noopener noreferrer" data-testid={`preview-${p.id}`} title="Preview PDP" className="inline-flex items-center gap-1 text-xs font-semibold text-[#1A2B4C] hover:underline">
-                        Preview <ExternalLink size={11} />
-                      </a>
-                      <button onClick={() => openEdit(p)} data-testid={`edit-product-${p.id}`} className="inline-flex items-center gap-1 text-xs font-semibold text-[#1A2B4C] hover:underline">
-                        <Edit3 size={11} /> Edit
+        <div className="space-y-2">
+          {filtered.map((p) => {
+            const prod = p as Product & { paused?: boolean; total_stock?: number };
+            const isSel = selected.includes(p.id);
+            return (
+              <div key={p.id} className="bg-white rounded-2xl border border-[#E5E2DC] p-3 flex items-center gap-3" data-testid={`mp-${p.id}`}>
+                {/* Checkbox */}
+                <input type="checkbox" data-testid={`sel-${p.id}`} checked={isSel}
+                  onChange={() => setSelected((s) => isSel ? s.filter((x) => x !== p.id) : [...s, p.id])}
+                  className="w-4 h-4 accent-[#E68910] flex-shrink-0" />
+
+                {/* Image */}
+                <div className="w-16 h-16 rounded-xl overflow-hidden bg-[#F5F5F5] flex-shrink-0">
+                  {p.image
+                    ? <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
+                    : <div className="w-full h-full flex items-center justify-center text-2xl">📦</div>
+                  }
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-[#1A2B4C] text-sm truncate">{p.name}</div>
+                  <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                    {editingPrice === p.id ? (
+                      <form onSubmit={(e) => { e.preventDefault(); void savePrice(p.id); }} className="flex items-center gap-1">
+                        <span className="text-xs text-[#9CA3AF]">₹</span>
+                        <input
+                          type="number"
+                          value={priceInput}
+                          onChange={e => setPriceInput(e.target.value)}
+                          className="w-20 px-1.5 py-0.5 text-sm font-bold text-[#1A2B4C] border border-[#E68910] rounded-lg outline-none"
+                          autoFocus
+                          onBlur={() => void savePrice(p.id)}
+                        />
+                      </form>
+                    ) : (
+                      <button
+                        onClick={() => { setEditingPrice(p.id); setPriceInput(String(p.price)); }}
+                        className="flex items-center gap-1 text-sm font-bold text-[#1A2B4C] hover:text-[#E68910]"
+                      >
+                        ₹{Number(p.price).toLocaleString("en-IN")}
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
                       </button>
-                      {status === "paused" ? (
-                        <button onClick={() => togglePublish(p, "live")} data-testid={`go-live-${p.id}`} className="text-xs font-semibold text-[#4F7363] hover:underline">Go live</button>
-                      ) : (
-                        <button onClick={() => togglePublish(p, "paused")} data-testid={`pause-${p.id}`} className="text-xs font-semibold text-[#E68910] hover:underline">Pause</button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    )}
+                    <span className="text-xs text-[#9CA3AF] ml-1">
+                      · {prod.total_stock ?? 0} in stock
+                    </span>
+                  </div>
+                </div>
+
+                {/* Right side — pause toggle + edit */}
+                <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={() => togglePublish(p, prod.paused ? "live" : "paused")}
+                    data-testid={prod.paused ? `go-live-${p.id}` : `pause-${p.id}`}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                      prod.paused
+                        ? "bg-[#F5F5F5] text-[#9CA3AF] border border-[#E5E2DC]"
+                        : "bg-green-50 text-green-700 border border-green-200"
+                    }`}
+                  >
+                    {prod.paused ? "⏸ Paused" : "🟢 Live"}
+                  </button>
+                  <button
+                    onClick={() => openEdit(p)}
+                    data-testid={`edit-product-${p.id}`}
+                    className="text-xs text-[#E68910] font-semibold px-2"
+                  >
+                    Edit →
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
+      {/* Bottom sheet — add / edit product */}
       {openAdd && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setOpenAdd(false)}>
-          <div className="bg-white rounded-3xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} data-testid="new-product-modal">
-            <h2 className="font-display text-2xl font-bold text-[#1A2B4C] mb-4">{editingId ? "Edit product" : "New product"}</h2>
-            <div className="space-y-3">
-              <input data-testid="prod-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Product name *" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-              <div className="grid grid-cols-2 gap-3">
-                <input data-testid="prod-price" inputMode="numeric" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="Selling price (₹) *" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-                <input data-testid="prod-mrp" inputMode="numeric" value={form.mrp} onChange={(e) => setForm({ ...form, mrp: e.target.value })} placeholder="MRP (₹)" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-              </div>
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/40 z-40"
+            onClick={() => {
+              if (confirm("Discard changes?")) { setOpenAdd(false); setStep(1); }
+            }}
+          />
 
-              {/* Category */}
-              <select data-testid="prod-l1" required value={form.l1_id} onChange={(e) => setForm({ ...form, l1_id: e.target.value, l2_id: "", gender: "" })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white">
-                <option value="">Select category *</option>
-                {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              {hasL2 ? (
-                <select data-testid="prod-l2" required value={form.l2_id} onChange={(e) => setForm({ ...form, l2_id: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white">
-                  <option value="">Select sub-category *</option>
-                  {(currentL1?.l2 || []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              ) : form.l1_id ? (
-                <select data-testid="prod-gender" required value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white">
-                  <option value="">Select gender *</option>
-                  {GENDERS.map((g) => <option key={g} value={g}>{g}</option>)}
-                </select>
-              ) : null}
-
-              {/* Image upload */}
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-widest text-[#595959] mb-1.5">Product images (up to {MAX_IMAGES}) *</div>
-                <div className="flex flex-wrap gap-2">
-                  {form.images.map((img, i) => (
-                    <div key={i} className="relative w-20 h-24 rounded-xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC]" data-testid={`prod-image-thumb-${i}`}>
-                      <Image src={img} alt={`image ${i + 1}`} fill sizes="80px" className="object-cover" unoptimized />
-                      <button type="button" onClick={() => removeImage(i)} aria-label={`Remove image ${i + 1}`} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white/95 shadow flex items-center justify-center hover:bg-red-100">
-                        <X size={12} className="text-red-500" />
-                      </button>
-                      {i === 0 && <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-full bg-[#1A2B4C] text-white text-[9px] font-bold flex items-center gap-0.5"><Star size={8} /> COVER</div>}
-                    </div>
-                  ))}
-                  {form.images.length < MAX_IMAGES && (
-                    <label className="w-20 h-24 rounded-xl border-2 border-dashed border-[#E5E2DC] hover:border-[#1A2B4C] flex flex-col items-center justify-center gap-1 cursor-pointer text-[#595959] text-[10px]">
-                      {imageBusy ? <Loader2 size={16} className="animate-spin" /> : <><Upload size={14} /><span>Upload</span></>}
-                      <input data-testid="prod-add-image" type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { onPickFile(e.target.files?.[0]); e.target.value = ""; }} />
-                    </label>
-                  )}
-                </div>
-              </div>
-
-              {/* Sizes + stock */}
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-widest text-[#595959] mb-1.5">Sizes & inventory</div>
-                <select
-                  data-testid="prod-size-type"
-                  value={form.size_type}
-                  onChange={(e) => {
-                    const st = e.target.value;
-                    if (st === "free_size") {
-                      setForm((f) => ({ ...f, size_type: st, sizes: ["Free Size"], stock: { "Free Size": 0 } }));
-                    } else if (st === "custom") {
-                      setForm((f) => ({ ...f, size_type: st, sizes: [], stock: {} }));
-                      setCustomSizesInput("");
-                    } else if (st) {
-                      setForm((f) => ({ ...f, size_type: st, sizes: [], stock: {} }));
-                    } else {
-                      setForm((f) => ({ ...f, size_type: "", sizes: [], stock: {} }));
-                    }
-                  }}
-                  className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white mb-2"
-                >
-                  <option value="">Select size type</option>
-                  {Object.entries(SIZE_TYPE_OPTIONS).map(([key, { label }]) => (
-                    <option key={key} value={key}>{label}</option>
-                  ))}
-                </select>
-
-                {form.size_type && form.size_type !== "free_size" && form.size_type !== "custom" && (
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {(SIZE_TYPE_OPTIONS[form.size_type]?.sizes || []).map((sz) => {
-                      const has = form.sizes.includes(sz);
-                      return (
-                        <button key={sz} type="button" onClick={() => toggleSize(sz)} data-testid={`size-toggle-${sz}`}
-                          className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${has ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white text-[#1A2B4C] border-[#E5E2DC]"}`}>
-                          {sz}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {form.size_type === "custom" && (
-                  <input
-                    data-testid="prod-custom-sizes"
-                    value={customSizesInput}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      setCustomSizesInput(raw);
-                      const parsed = raw.split(",").map((s) => s.trim()).filter(Boolean);
-                      setForm((f) => ({
-                        ...f,
-                        sizes: parsed,
-                        stock: Object.fromEntries(parsed.map((sz) => [sz, f.stock[sz] ?? 0])),
-                      }));
-                    }}
-                    placeholder="e.g. 30×32, 32×34, 34×36"
-                    className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] mb-2"
-                  />
-                )}
-
-                {form.sizes.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {form.sizes.map((sz) => (
-                      <label key={sz} className="text-xs">
-                        <span className="text-[#595959]">{sz} stock</span>
-                        <input data-testid={`prod-stock-${sz}`} type="number" min={0} value={form.stock[sz] ?? 0}
-                          onChange={(e) => setForm((f) => ({ ...f, stock: { ...f.stock, [sz]: Math.max(0, Number(e.target.value || 0)) } }))}
-                          className="mt-0.5 w-full px-3 py-1.5 rounded-lg border border-[#E5E2DC] outline-none" />
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <textarea data-testid="prod-desc" rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Product description" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-
-              <label className="flex items-start gap-2 text-xs">
-                <input data-testid="prod-return-eligible" type="checkbox" checked={form.return_eligible} onChange={(e) => setForm({ ...form, return_eligible: e.target.checked })} className="mt-0.5 w-4 h-4 accent-[#E68910]" />
-                <span><strong>Return eligible</strong> — customers can return this within 24 hours of delivery</span>
-              </label>
+          {/* Sheet */}
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl max-h-[92vh] flex flex-col" data-testid="new-product-modal">
+            {/* Handle bar */}
+            <div className="flex justify-center pt-3 pb-2">
+              <div className="w-10 h-1 bg-[#E5E2DC] rounded-full" />
             </div>
-            <div className="flex gap-2 pt-5">
-              <button onClick={() => { setOpenAdd(false); setEditingId(null); setForm(blankForm); setCustomSizesInput(""); }} className="flex-1 px-5 py-2.5 rounded-full border border-[#E5E2DC]">Cancel</button>
-              <button onClick={submit} disabled={submitBusy || imageBusy} data-testid="save-product-btn" className="flex-1 px-5 py-2.5 rounded-full bg-[#E68910] text-white font-semibold disabled:opacity-50">
-                {submitBusy ? "Saving…" : editingId ? "Update" : "Create"}
+
+            {/* Header */}
+            <div className="px-5 pb-3 flex items-center justify-between">
+              <h2 className="font-display text-lg font-bold text-[#1A2B4C]">
+                {editingId ? "Edit product" : "Add product"}
+              </h2>
+              <button
+                onClick={() => { setOpenAdd(false); setStep(1); }}
+                className="w-8 h-8 rounded-full bg-[#F5F5F5] flex items-center justify-center text-[#595959]"
+              >
+                ✕
               </button>
             </div>
+
+            {/* Progress steps */}
+            <div className="px-5 pb-4">
+              <div className="flex items-center gap-2">
+                {["Basics", "Pricing", "Photos"].map((label, i) => (
+                  <div key={label} className="flex items-center gap-2 flex-1">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                      step > i + 1 ? "bg-green-500 text-white"
+                      : step === i + 1 ? "bg-[#1A2B4C] text-white"
+                      : "bg-[#F5F5F5] text-[#9CA3AF]"
+                    }`}>
+                      {step > i + 1 ? "✓" : i + 1}
+                    </div>
+                    <span className={`text-xs font-semibold ${step === i + 1 ? "text-[#1A2B4C]" : "text-[#9CA3AF]"}`}>
+                      {label}
+                    </span>
+                    {i < 2 && <div className={`flex-1 h-px ${step > i + 1 ? "bg-green-400" : "bg-[#E5E2DC]"}`} />}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Step content — scrollable */}
+            <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-4">
+
+              {/* STEP 1 — BASICS */}
+              {step === 1 && (
+                <>
+                  <div>
+                    <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-1">Product name *</label>
+                    <input
+                      autoFocus
+                      data-testid="prod-name"
+                      value={form.name}
+                      onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                      placeholder="e.g. Floral A-Line Dress"
+                      className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-1">Description</label>
+                    <textarea
+                      data-testid="prod-desc"
+                      value={form.description}
+                      onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                      placeholder="Fabric, fit, occasion..."
+                      rows={2}
+                      className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-sm resize-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-1">Category *</label>
+                    <select
+                      data-testid="prod-l1"
+                      required
+                      value={form.l1_id}
+                      onChange={(e) => setForm({ ...form, l1_id: e.target.value, l2_id: "", gender: "" })}
+                      className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white text-sm"
+                    >
+                      <option value="">Select category</option>
+                      {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  {hasL2 ? (
+                    <div>
+                      <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-1">Sub-category *</label>
+                      <select
+                        data-testid="prod-l2"
+                        required
+                        value={form.l2_id}
+                        onChange={(e) => setForm({ ...form, l2_id: e.target.value })}
+                        className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white text-sm"
+                      >
+                        <option value="">Select sub-category</option>
+                        {(currentL1?.l2 || []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
+                  ) : form.l1_id ? (
+                    <div>
+                      <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-1">Gender *</label>
+                      <select
+                        data-testid="prod-gender"
+                        required
+                        value={form.gender}
+                        onChange={(e) => setForm({ ...form, gender: e.target.value })}
+                        className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white text-sm"
+                      >
+                        <option value="">Select gender</option>
+                        {GENDERS.map((g) => <option key={g} value={g}>{g}</option>)}
+                      </select>
+                    </div>
+                  ) : null}
+                </>
+              )}
+
+              {/* STEP 2 — PRICING */}
+              {step === 2 && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-1">Selling price ₹ *</label>
+                      <input
+                        data-testid="prod-price"
+                        type="number"
+                        value={form.price}
+                        onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
+                        placeholder="999"
+                        className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-sm"
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-1">MRP ₹</label>
+                      <input
+                        data-testid="prod-mrp"
+                        type="number"
+                        value={form.mrp}
+                        onChange={e => setForm(f => ({ ...f, mrp: e.target.value }))}
+                        placeholder="1499"
+                        className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-bold text-[#595959] uppercase tracking-wide mb-1.5">Sizes & inventory</div>
+                    <select
+                      data-testid="prod-size-type"
+                      value={form.size_type}
+                      onChange={(e) => {
+                        const st = e.target.value;
+                        if (st === "free_size") {
+                          setForm((f) => ({ ...f, size_type: st, sizes: ["Free Size"], stock: { "Free Size": 0 } }));
+                        } else if (st === "custom") {
+                          setForm((f) => ({ ...f, size_type: st, sizes: [], stock: {} }));
+                          setCustomSizesInput("");
+                        } else if (st) {
+                          setForm((f) => ({ ...f, size_type: st, sizes: [], stock: {} }));
+                        } else {
+                          setForm((f) => ({ ...f, size_type: "", sizes: [], stock: {} }));
+                        }
+                      }}
+                      className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white mb-2 text-sm"
+                    >
+                      <option value="">Select size type</option>
+                      {Object.entries(SIZE_TYPE_OPTIONS).map(([key, { label }]) => (
+                        <option key={key} value={key}>{label}</option>
+                      ))}
+                    </select>
+
+                    {form.size_type && form.size_type !== "free_size" && form.size_type !== "custom" && (
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {(SIZE_TYPE_OPTIONS[form.size_type]?.sizes || []).map((sz) => {
+                          const has = form.sizes.includes(sz);
+                          return (
+                            <button key={sz} type="button" onClick={() => toggleSize(sz)} data-testid={`size-toggle-${sz}`}
+                              className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${has ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white text-[#1A2B4C] border-[#E5E2DC]"}`}>
+                              {sz}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {form.size_type === "custom" && (
+                      <input
+                        data-testid="prod-custom-sizes"
+                        value={customSizesInput}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          setCustomSizesInput(raw);
+                          const parsed = raw.split(",").map((s) => s.trim()).filter(Boolean);
+                          setForm((f) => ({
+                            ...f,
+                            sizes: parsed,
+                            stock: Object.fromEntries(parsed.map((sz) => [sz, f.stock[sz] ?? 0])),
+                          }));
+                        }}
+                        placeholder="e.g. 30×32, 32×34, 34×36"
+                        className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] mb-2 text-sm"
+                      />
+                    )}
+
+                    {form.sizes.length > 0 && (
+                      <div className="grid grid-cols-3 gap-2">
+                        {form.sizes.map((sz) => (
+                          <label key={sz} className="text-xs">
+                            <span className="text-[#595959]">{sz} stock</span>
+                            <input data-testid={`prod-stock-${sz}`} type="number" min={0} value={form.stock[sz] ?? 0}
+                              onChange={(e) => setForm((f) => ({ ...f, stock: { ...f.stock, [sz]: Math.max(0, Number(e.target.value || 0)) } }))}
+                              className="mt-0.5 w-full px-3 py-1.5 rounded-lg border border-[#E5E2DC] outline-none text-sm" />
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <label className="flex items-start gap-2 text-xs">
+                    <input data-testid="prod-return-eligible" type="checkbox" checked={form.return_eligible} onChange={(e) => setForm({ ...form, return_eligible: e.target.checked })} className="mt-0.5 w-4 h-4 accent-[#E68910]" />
+                    <span><strong>Return eligible</strong> — customers can return this within 24 hours of delivery</span>
+                  </label>
+                </>
+              )}
+
+              {/* STEP 3 — IMAGES */}
+              {step === 3 && (
+                <>
+                  <p className="text-sm text-[#595959]">Add photos of your product. First image is the cover. You can skip and add later.</p>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-widest text-[#595959] mb-1.5">Product images (up to {MAX_IMAGES})</div>
+                    <div className="flex flex-wrap gap-2">
+                      {form.images.map((img, i) => (
+                        <div key={i} className="relative w-20 h-24 rounded-xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC]" data-testid={`prod-image-thumb-${i}`}>
+                          <Image src={img} alt={`image ${i + 1}`} fill sizes="80px" className="object-cover" unoptimized />
+                          <button type="button" onClick={() => removeImage(i)} aria-label={`Remove image ${i + 1}`} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white/95 shadow flex items-center justify-center hover:bg-red-100">
+                            <X size={12} className="text-red-500" />
+                          </button>
+                          {i === 0 && <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-full bg-[#1A2B4C] text-white text-[9px] font-bold flex items-center gap-0.5"><Star size={8} /> COVER</div>}
+                        </div>
+                      ))}
+                      {form.images.length < MAX_IMAGES && (
+                        <label className="w-20 h-24 rounded-xl border-2 border-dashed border-[#E5E2DC] hover:border-[#1A2B4C] flex flex-col items-center justify-center gap-1 cursor-pointer text-[#595959] text-[10px]">
+                          {imageBusy ? <Loader2 size={16} className="animate-spin" /> : <><Upload size={14} /><span>Upload</span></>}
+                          <input data-testid="prod-add-image" type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { onPickFile(e.target.files?.[0]); e.target.value = ""; }} />
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer buttons */}
+            <div className="px-5 py-4 border-t border-[#E5E2DC] flex gap-3">
+              {step > 1 && (
+                <button
+                  onClick={() => setStep(s => s - 1)}
+                  className="px-5 py-3 rounded-xl border border-[#E5E2DC] text-sm font-semibold text-[#595959]"
+                >
+                  ← Back
+                </button>
+              )}
+              {step < 3 ? (
+                <button
+                  onClick={() => {
+                    if (step === 1 && !form.name) { toast.error("Enter product name"); return; }
+                    if (step === 1 && !form.l1_id) { toast.error("Select a category"); return; }
+                    if (step === 2 && !form.price) { toast.error("Enter price"); return; }
+                    setStep(s => s + 1);
+                  }}
+                  className="flex-1 py-3 bg-[#1A2B4C] text-white rounded-xl font-bold text-sm"
+                >
+                  Next →
+                </button>
+              ) : (
+                <div className="flex-1 flex gap-2">
+                  <button
+                    onClick={() => void submit()}
+                    disabled={submitBusy}
+                    className="flex-1 py-3 bg-white border border-[#E5E2DC] text-[#595959] rounded-xl font-semibold text-sm disabled:opacity-50"
+                  >
+                    Skip photos & save
+                  </button>
+                  <button
+                    onClick={() => void submit()}
+                    disabled={submitBusy}
+                    className="flex-1 py-3 bg-[#E68910] text-white rounded-xl font-bold text-sm disabled:opacity-50"
+                  >
+                    {submitBusy ? "Saving..." : editingId ? "Save changes" : "Add product"}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
