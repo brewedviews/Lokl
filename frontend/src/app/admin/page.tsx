@@ -421,26 +421,26 @@ function MerchantsTab() {
                 <div className="mt-3 pt-3 border-t border-[#F0EFED] flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-3 text-xs text-[#595959] flex-wrap">
                     <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] uppercase ${
-                      storeMap[m.id].paused ? "bg-red-100 text-red-500"
-                        : storeMap[m.id].published ? "bg-green-100 text-green-600"
+                      storeMap[m.id]?.paused ? "bg-red-100 text-red-500"
+                        : storeMap[m.id]?.published ? "bg-green-100 text-green-600"
                         : "bg-zinc-100 text-zinc-500"
                     }`}>
-                      {storeMap[m.id].paused ? "paused" : storeMap[m.id].published ? "live" : "draft"}
+                      {storeMap[m.id]?.paused ? "paused" : storeMap[m.id]?.published ? "live" : "draft"}
                     </span>
-                    <span>{storeMap[m.id].locality || "no area"}</span>
-                    <span>{storeMap[m.id].product_count ?? 0} products</span>
+                    <span>{storeMap[m.id]?.locality || "no area"}</span>
+                    <span>{storeMap[m.id]?.product_count ?? 0} products</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <button
-                      onClick={() => toggleStore(storeMap[m.id])}
-                      disabled={busy === `store-${storeMap[m.id].id}`}
+                      onClick={() => toggleStore(storeMap[m.id]!)}
+                      disabled={busy === `store-${storeMap[m.id]?.id}`}
                       className="text-xs font-semibold text-[#E68910] hover:underline disabled:opacity-50"
                     >
-                      {storeMap[m.id].paused ? "Unpause store" : "Pause store"}
+                      {storeMap[m.id]?.paused ? "Unpause store" : "Pause store"}
                     </button>
                     <button
-                      onClick={() => requestDeleteOtp(storeMap[m.id])}
-                      disabled={busy === `store-${storeMap[m.id].id}`}
+                      onClick={() => requestDeleteOtp(storeMap[m.id]!)}
+                      disabled={busy === `store-${storeMap[m.id]?.id}`}
                       className="text-xs font-semibold text-red-500 hover:underline disabled:opacity-50"
                     >
                       Delete store
