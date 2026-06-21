@@ -27,9 +27,9 @@ GENDERS = ["women", "men", "unisex", "kids"]
 YES_NO = ["Yes", "No"]
 
 HEADERS = [
-    "name", "description",
-    "l1_category", "l2_subcategory", "gender",
-    "mrp", "price",
+    "product name", "product description",
+    "l1 category", "l2 category", "gender",
+    "mrp", "selling price",
     "sizes", "stock_per_size",
     "returnable",
 ]
@@ -85,12 +85,12 @@ def build_template_xlsx() -> bytes:
     info_lines = [
         "",
         "• Fill one row per product on the 'Products' sheet.",
-        "• Click into the l1_category / l2_subcategory / gender / returnable cells — a DROPDOWN arrow appears on the right.",
+        "• Click into the l1 category / l2 category / gender / returnable cells — a DROPDOWN arrow appears on the right.",
         "  You cannot type custom categories: only listed values are accepted.",
         "• See the 'L1 → L2 reference' sheet for which sub-category belongs to which category.",
-        "• For categories without sub-categories (Footwear, Streetwear, Kids, etc.) leave l2_subcategory blank.",
-        "• sizes: semicolon-separated, e.g.  S;M;L;XL  or  7;8;9;10",
-        "• stock_per_size: same length as sizes, e.g. 50;100;39;10 — quantity per size.",
+        "• For categories without sub-categories (Footwear, Streetwear, Kids, etc.) leave l2 category blank.",
+        "• sizes: comma or semicolon-separated, e.g.  S,M,L,XL  or  S;M;L;XL  or  7;8;9;10",
+        "• stock_per_size: same count as sizes, e.g. 50,100,39,10 — quantity per size.",
         "• returnable: Yes / No. Defaults to No if blank. (Innerwear, perishables: keep No.)",
         "• mrp / price are in INR.",
         "• After upload, every row appears in Products as a draft — add images & tweak before go-live.",
@@ -115,7 +115,7 @@ def build_template_xlsx() -> bytes:
         subs = L2_BY_L1.get(c["id"], [])
         if not subs:
             ref.cell(row=row, column=1, value=c["name"])
-            ref.cell(row=row, column=2, value="(no sub-category — leave l2_subcategory blank)").font = Font(italic=True, color="888888")
+            ref.cell(row=row, column=2, value="(no sub-category — leave l2 category blank)").font = Font(italic=True, color="888888")
             row += 1
         else:
             for s in subs:
@@ -128,7 +128,21 @@ def build_template_xlsx() -> bytes:
     return buf.getvalue()
 
 
-_HEADER_ALIAS = {"l1_category": "l1", "l2_subcategory": "l2"}
+_HEADER_ALIAS = {
+    "product name":        "name",
+    "product_name":        "name",
+    "l1 category":         "l1",
+    "l1_category":         "l1",
+    "l2 category":         "l2",
+    "l2_category":         "l2",
+    "l2 sub-category":     "l2",
+    "selling price":       "price",
+    "selling_price":       "price",
+    "sale price":          "price",
+    "stock per size":      "stock_per_size",
+    "stock":               "stock_per_size",
+    "product description": "description",
+}
 
 
 def parse_uploaded_xlsx(data: bytes) -> list[dict]:

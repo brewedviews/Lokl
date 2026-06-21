@@ -3466,33 +3466,55 @@ async def merchant_bulk_template(user: dict = Depends(get_current_user)):
     )
 
 
+_L1_NORMALIZE = {
+    "women": "l1-women", "women's fashion": "l1-women", "womens fashion": "l1-women",
+    "men": "l1-men", "men's fashion": "l1-men", "mens fashion": "l1-men",
+    "ethnic": "l1-ethnic", "ethnic wear": "l1-ethnic",
+    "footwear": "l1-footwear", "shoes": "l1-footwear",
+    "lingerie": "l1-lingerie", "lingerie & innerwear": "l1-lingerie", "innerwear": "l1-lingerie",
+    "kids": "l1-kids", "children": "l1-kids",
+    "accessories": "l1-accessories",
+    "beauty": "l1-beauty", "personal care": "l1-beauty",
+    "sports": "l1-sports", "fitness": "l1-sports",
+}
+
+_GENDER_NORMALIZE = {
+    "male": "Male", "men": "Male", "man": "Male", "gents": "Male",
+    "female": "Female", "women": "Female", "woman": "Female", "ladies": "Female",
+    "unisex": "Unisex", "both": "Unisex",
+    "kids": "Kids", "children": "Kids",
+    "n/a": "N/A", "na": "N/A", "": "N/A",
+}
+
+
 def _row_to_product(row: dict, l1_by_name: dict, l2_by_name: dict) -> tuple[dict | None, str | None]:
     """Parse one bulk-upload row (from xlsx or csv) into a product doc fragment.
     Returns (doc, skip_reason). doc is None when the row should be skipped."""
-    name = str(row.get("name") or "").strip()
+    name = str(row.get("product name") or row.get("name") or row.get("product_name") or "").strip()
     if not name:
         return None, "blank-name"
-    l1_name = str(row.get("l1") or row.get("category") or "").strip().lower()
-    l1_id = l1_by_name.get(l1_name)
+    l1_raw = (row.get("l1_category") or row.get("l1 category") or row.get("l1") or row.get("category") or "").strip().lower()
+    l1_id = _L1_NORMALIZE.get(l1_raw) or l1_by_name.get(l1_raw)
     if not l1_id:
-        return None, f"{name}: unknown L1 '{l1_name}'"
-    l2_name = str(row.get("l2") or row.get("subcategory") or "").strip().lower()
-    l2_id = l2_by_name.get((l1_id, l2_name), "") if l2_name else ""
-    gender = str(row.get("gender") or "").strip().lower()
+        return None, f"{name}: unknown L1 '{l1_raw}'"
+    l2_raw = str(row.get("l2 category") or row.get("l2_category") or row.get("l2") or row.get("subcategory") or "").strip().lower()
+    l2_id = l2_by_name.get((l1_id, l2_raw), "") if l2_raw else ""
+    gender_raw = (row.get("gender") or "").strip().lower()
+    gender = _GENDER_NORMALIZE.get(gender_raw, str(row.get("gender") or "N/A").strip())
     if l1_id in L2_BY_L1 and not l2_id:
         return None, f"{name}: L2 required for category"
-    if l1_id not in L2_BY_L1 and not gender:
-        gender = "unisex"
-    sizes_raw = str(row.get("sizes") or "").strip()
-    sizes = [s.strip() for s in sizes_raw.replace("|", ";").split(";") if s.strip()] if sizes_raw else []
-    try: price = float((row.get("price") or row.get("selling_price") or 0) or 0)
+    if l1_id not in L2_BY_L1 and gender == "N/A":
+        gender = "Unisex"
+    sizes_raw = row.get("sizes") or row.get("size") or ""
+    sizes = [s.strip() for s in _re.split(r"[,;|]+", str(sizes_raw)) if s.strip()]
+    try: price = float((row.get("selling price") or row.get("price") or row.get("selling_price") or 0) or 0)
     except (ValueError, TypeError): price = 0
     try: mrp = float(row.get("mrp") or 0)
     except (ValueError, TypeError): mrp = 0
-    stock_raw = str(row.get("stock_per_size") or row.get("stock") or "").strip()
+    stock_raw = str(row.get("stock_per_size") or row.get("stock per size") or row.get("stock") or "").strip()
     stock_dict: dict = {}
     if stock_raw:
-        parts = [p.strip() for p in stock_raw.replace("|", ";").split(";") if p.strip() != ""]
+        parts = [p.strip() for p in _re.split(r"[,;|]+", stock_raw) if p.strip() != ""]
         if len(parts) == len(sizes) and sizes:
             for sz, n in zip(sizes, parts):
                 try: stock_dict[sz] = int(float(n))
