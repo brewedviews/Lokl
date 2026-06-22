@@ -3541,6 +3541,12 @@ async def create_merchant_product(payload: ProductCreate, user: dict = Depends(g
     store_id = f"store-m-{user['sub']}"
     store = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if not store: raise HTTPException(400, "Set up storefront first")
+    merchant_plan = m.get("plan", "free")
+    plan_config = PLAN_LIMITS.get(merchant_plan, PLAN_LIMITS["free"])
+    product_limit = plan_config.get("products", 10)
+    existing_count = await db.products.count_documents({"merchant_id": user["sub"], "is_deleted": {"$ne": True}})
+    if existing_count >= product_limit:
+        raise HTTPException(400, f"You have reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to add more products.")
     pid = f"prod-{uuid.uuid4().hex[:10]}"
     doc = {"id": pid, "merchant_id": user["sub"], "store_id": store_id,
         "store_name": m["store_name"], "store_city": m.get("city", ""),
@@ -3767,6 +3773,14 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
     store = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if not store: raise HTTPException(400, "Set up storefront first")
 
+    merchant_plan = m.get("plan", "free")
+    plan_config = PLAN_LIMITS.get(merchant_plan, PLAN_LIMITS["free"])
+    product_limit = plan_config.get("products", 10)
+    existing_count = await db.products.count_documents({"merchant_id": user["sub"], "is_deleted": {"$ne": True}})
+    remaining_slots = product_limit - existing_count
+    if remaining_slots <= 0:
+        raise HTTPException(400, f"You have reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to upload more products.")
+
     raw_bytes = await _validate_bulk_upload(file)
     fname = (file.filename or "").lower()
     rows: list[dict] = []
@@ -3791,9 +3805,15 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
     created_ids: list[str] = []
     created_names: list[str] = []
     skipped: list[str] = []
+    slots_used = 0
+    limit_hit = False
     for row in rows:
         # Skip blank rows
         if not any((v not in (None, "") for v in row.values())):
+            continue
+        if slots_used >= remaining_slots:
+            limit_hit = True
+            skipped.append("plan product limit reached")
             continue
         doc_frag, reason = _row_to_product(row, l1_by_name, l2_by_name)
         if doc_frag is None:
@@ -3812,11 +3832,15 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
         })
         created_ids.append(pid)
         created_names.append(doc_frag["name"])
+        slots_used += 1
     cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
     await _maybe_autopublish_store(user["sub"])
-    return {"created": len(created_ids), "created_ids": created_ids,
-            "names": created_names[:50], "skipped": skipped[:50]}
+    result: dict = {"created": len(created_ids), "created_ids": created_ids,
+                    "names": created_names[:50], "skipped": skipped[:50]}
+    if limit_hit:
+        result["warning"] = f"Some rows were skipped: you reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to upload more."
+    return result
 
 
 # ===== Merchant AI =====
