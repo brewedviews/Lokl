@@ -51,7 +51,7 @@ function playLoudPing(ctxRef: AudioCtxRef) {
 }
 
 type OrderEx = Order & { my_state?: string; my_otp?: string; merchant_subtotal?: number; return_status?: string; is_multi_store?: boolean };
-type ItemEx = Order["items"][number] & { image?: string };
+type ItemEx = Order["items"][number] & { images?: string[]; product_image?: string; thumbnail?: string };
 
 function formatCountdown(iso: string): string {
   const ms = new Date(iso).getTime() - Date.now();
@@ -200,71 +200,74 @@ export default function MerchantOrdersPage() {
       )}
 
       {pickupReservations.length > 0 && (
-        <section className="mb-10" data-testid="pickup-reservations">
-          <h2 className="font-display text-xl font-bold text-[#1A2B4C] mb-1 flex items-center gap-2">
-            <Store size={18} className="text-[#4F7363]" /> Store pickups <span className="text-xs font-normal text-[#595959]">({pickupReservations.length})</span>
+        <section className="mb-8" data-testid="pickup-reservations">
+          <h2 className="font-display text-base font-bold text-[#1A2B4C] mb-1 flex items-center gap-2">
+            <Store size={15} className="text-[#4F7363]" /> Store pickups <span className="text-xs font-normal text-[#595959]">({pickupReservations.length})</span>
           </h2>
-          <p className="text-xs text-[#595959] mb-3">When the customer arrives, check their code matches yours, then confirm.</p>
-          <div className="space-y-3">
+          <p className="text-xs text-[#595959] mb-2">Check the customer&apos;s code matches, then confirm.</p>
+          <div className="space-y-2">
             {pickupReservations.map((o) => {
               return (
-                <div key={o.id} data-testid={`pickup-${o.id}`} className="bg-white border border-[#4F7363]/40 rounded-2xl overflow-hidden">
-                  {/* Header row */}
-                  <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[#E5E2DC]">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-semibold text-sm text-[#1A2B4C] truncate">{o.id}</span>
-                      <span className="shrink-0 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-[#4F7363]/10 text-[#4F7363]">Pickup</span>
+                <div key={o.id} data-testid={`pickup-${o.id}`} className="bg-white border border-[#4F7363]/40 rounded-xl overflow-hidden">
+                  {/* Row 1: order ID + timer + price */}
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[#E5E2DC]">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="font-semibold text-xs text-[#1A2B4C] truncate">{o.id}</span>
+                      <span className="shrink-0 text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-full bg-[#4F7363]/10 text-[#4F7363]">Pickup</span>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
                       {o.pickup_expires_at && <PickupTimer expiresAt={o.pickup_expires_at} />}
-                      <span className="font-bold text-sm text-[#1A2B4C]">₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</span>
+                      <span className="font-bold text-xs text-[#1A2B4C]">₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</span>
                     </div>
                   </div>
-                  {/* Product thumbnails */}
-                  <div className="flex gap-2 px-4 py-3 overflow-x-auto no-scrollbar">
-                    {o.items.map((it, i) => {
-                      const itEx = it as ItemEx;
-                      return (
-                        <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1">
+                  {/* Row 2: thumbnails + inline code */}
+                  <div className="flex items-center gap-3 px-3 py-2">
+                    <div className="flex gap-1.5 overflow-x-auto no-scrollbar flex-1">
+                      {o.items.map((it, i) => {
+                        const itEx = it as ItemEx;
+                        const imgSrc = itEx.image || itEx.images?.[0] || itEx.product_image || itEx.thumbnail || null;
+                        return (
                           <button
-                            onClick={() => itEx.image ? setPreviewProduct({ name: itEx.name, image: itEx.image }) : undefined}
-                            className={`w-14 h-16 rounded-xl overflow-hidden border border-[#E5E2DC] bg-[#F5F4F0] ${itEx.image ? "cursor-pointer hover:opacity-90" : "cursor-default"}`}
+                            key={i}
+                            onClick={() => imgSrc ? setPreviewProduct({ name: itEx.name, image: imgSrc }) : undefined}
+                            title={`${it.name}${it.size ? ` (${it.size})` : ""} ×${it.qty}`}
+                            className={`flex-shrink-0 w-9 h-11 rounded-lg overflow-hidden border border-[#E5E2DC] bg-[#F5F4F0] ${imgSrc ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
                           >
-                            {itEx.image ? (
-                              <img src={itEx.image} alt={itEx.name} className="w-full h-full object-cover" />
+                            {imgSrc ? (
+                              <img src={imgSrc} alt={it.name} className="w-full h-full object-cover" />
                             ) : (
-                              <div className="w-full h-full" />
+                              <div className="w-full h-full bg-[#E5E2DC] flex items-center justify-center text-[10px] font-bold text-[#9CA3AF]">
+                                {it.name?.[0]?.toUpperCase() || "P"}
+                              </div>
                             )}
                           </button>
-                          <span className="text-[10px] text-[#595959] max-w-[56px] text-center truncate">×{it.qty}{it.size ? ` ${it.size}` : ""}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {/* Pickup code */}
-                  {o.pickup_code && (
-                    <div className="mx-4 mb-3 bg-[#0A1F5C] rounded-xl px-4 py-3 text-center">
-                      <div className="text-[9px] uppercase tracking-widest text-white/50 mb-0.5">Customer code</div>
-                      <div data-testid={`pickup-code-${o.id}`} className="font-display text-3xl font-bold tracking-[0.35em] tabular-nums text-[#4F7363]">{o.pickup_code}</div>
+                        );
+                      })}
                     </div>
-                  )}
-                  {/* Actions */}
-                  <div className="flex gap-2 px-4 pb-4">
+                    {o.pickup_code && (
+                      <div className="shrink-0 bg-[#0A1F5C] rounded-lg px-3 py-1.5 text-center">
+                        <div className="text-[8px] uppercase tracking-wider text-white/50 leading-none mb-0.5">Code</div>
+                        <div data-testid={`pickup-code-${o.id}`} className="font-display text-xl font-bold tracking-[0.3em] tabular-nums text-[#4F7363] leading-none">{o.pickup_code}</div>
+                      </div>
+                    )}
+                  </div>
+                  {/* Row 3: actions */}
+                  <div className="flex gap-2 px-3 pb-3">
                     <button
                       onClick={() => confirmPickup(o.id)}
                       disabled={confirming === o.id || cancelling === o.id}
                       data-testid={`confirm-pickup-${o.id}`}
-                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full bg-[#4F7363] text-white font-semibold text-sm hover:bg-[#3a5a4d] disabled:opacity-50"
+                      className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full bg-[#4F7363] text-white font-semibold text-xs hover:bg-[#3a5a4d] disabled:opacity-50"
                     >
-                      <CheckCircle2 size={14} /> {confirming === o.id ? "Confirming…" : "Mark as picked up"}
+                      <CheckCircle2 size={12} /> {confirming === o.id ? "Confirming…" : "Mark as picked up"}
                     </button>
                     <button
                       onClick={() => cancelPickup(o.id)}
                       disabled={confirming === o.id || cancelling === o.id}
                       data-testid={`cancel-pickup-${o.id}`}
-                      className="px-4 py-2.5 rounded-full border border-red-200 text-red-500 font-semibold text-sm hover:bg-red-50 disabled:opacity-50 inline-flex items-center gap-1.5"
+                      className="px-3 py-1.5 rounded-full border border-red-200 text-red-500 font-semibold text-xs hover:bg-red-50 disabled:opacity-50 inline-flex items-center gap-1"
                     >
-                      <X size={14} /> {cancelling === o.id ? "Cancelling…" : "Cancel"}
+                      <X size={12} /> {cancelling === o.id ? "Cancelling…" : "Cancel"}
                     </button>
                   </div>
                 </div>
