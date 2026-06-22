@@ -40,6 +40,7 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   rejected:         "Rejected",
   returning:        "Returning",
   returned:         "Returned",
+  reserved:         "Reserved for Pickup",
 };
 
 export function formatOrderStatus(status: OrderStatus | string): string {
