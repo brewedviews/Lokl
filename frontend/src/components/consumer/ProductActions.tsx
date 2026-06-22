@@ -203,11 +203,19 @@ export function ProductActions({
       )}
 
       {showPickupSheet && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowPickupSheet(false)} />
-          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6">
-              <div className="w-10 h-1 bg-[#E5E2DC] rounded-full mx-auto mb-5" />
+        <>
+          <div className="fixed inset-0 bg-black/50 z-[55]" onClick={() => setShowPickupSheet(false)} />
+          <div
+            className="fixed bottom-0 left-0 right-0 z-[60] bg-white rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drag handle */}
+            <div className="flex-shrink-0 flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 bg-[#E5E2DC] rounded-full" />
+            </div>
+
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto px-6 pt-3 pb-2">
               {!reservation ? (
                 <>
                   <h3 className="font-display text-xl font-bold text-[#0A1F5C] mb-1">Reserve for pickup</h3>
@@ -232,17 +240,9 @@ export function ProductActions({
                       </div>
                     </div>
                   )}
-                  <div className="bg-[#4F7363]/10 rounded-xl px-4 py-3 text-xs text-[#4F7363] font-medium mb-5">
+                  <div className="bg-[#4F7363]/10 rounded-xl px-4 py-3 text-xs text-[#4F7363] font-medium">
                     Your item will be held for 4 hours. No payment now — pay at store.
                   </div>
-                  <button
-                    onClick={() => void handleReservePickup()}
-                    disabled={reserving || !!(product.sizes?.length && !size)}
-                    data-testid="confirm-reserve-btn"
-                    className="w-full py-3.5 rounded-full bg-[#0A1F5C] text-white font-bold text-sm hover:bg-[#0F1F3D] disabled:opacity-50 transition inline-flex items-center justify-center gap-2"
-                  >
-                    <Store size={15} /> {reserving ? "Reserving…" : "Confirm & Reserve"}
-                  </button>
                 </>
               ) : (
                 <>
@@ -253,13 +253,36 @@ export function ProductActions({
                     <h3 className="font-display text-xl font-bold text-[#0A1F5C]">Reserved!</h3>
                     <p className="text-sm text-[#595959] mt-1">Show this code at <span className="font-semibold">{sName}</span></p>
                   </div>
-                  <div className="bg-[#0A1F5C] rounded-2xl p-5 text-center mb-4">
+                  <div className="bg-[#0A1F5C] rounded-2xl p-5 text-center">
                     <div className="text-[10px] uppercase tracking-widest text-white/60 mb-1">Your pickup code</div>
                     <div data-testid="pickup-code-display" className="font-display text-5xl font-bold tracking-[0.3em] tabular-nums text-[#E68910]">{reservation.pickupCode}</div>
                     <p className="text-xs text-white/60 mt-2">Valid for 4 hours · Holds your item at the store</p>
                   </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer — always visible above nav bar */}
+            <div className="flex-shrink-0 px-6 pb-8 pt-3 border-t border-[#E5E2DC]">
+              {!reservation ? (
+                <>
+                  <button
+                    onClick={() => void handleReservePickup()}
+                    disabled={reserving || !!(product.sizes?.length && !size)}
+                    data-testid="confirm-reserve-btn"
+                    className="w-full py-3.5 rounded-full bg-[#0A1F5C] text-white font-bold text-sm hover:bg-[#0F1F3D] disabled:opacity-50 transition inline-flex items-center justify-center gap-2 mb-2"
+                  >
+                    <Store size={15} /> {reserving ? "Reserving…" : "Confirm & Reserve"}
+                  </button>
+                  <button onClick={() => setShowPickupSheet(false)}
+                    className="w-full text-center text-sm text-[#595959] py-2">
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
                   <a href={`/account/orders/${reservation.orderId}`}
-                    className="block w-full text-center py-3 rounded-full border border-[#0A1F5C] text-[#0A1F5C] font-semibold text-sm mb-3 hover:bg-[#0A1F5C]/5 transition">
+                    className="block w-full text-center py-3 rounded-full border border-[#0A1F5C] text-[#0A1F5C] font-semibold text-sm mb-2 hover:bg-[#0A1F5C]/5 transition">
                     View order details
                   </a>
                   <button onClick={() => setShowPickupSheet(false)}
@@ -270,7 +293,7 @@ export function ProductActions({
               )}
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {isAway && (

@@ -398,14 +398,14 @@ export default function MerchantProductsPage() {
         <>
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-black/40 z-40"
+            className="fixed inset-0 bg-black/40 z-[55]"
             onClick={() => {
               if (confirm("Discard changes?")) { setOpenAdd(false); setStep(1); }
             }}
           />
 
           {/* Sheet */}
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl max-h-[92vh] flex flex-col" data-testid="new-product-modal">
+          <div className="fixed bottom-0 left-0 right-0 z-[60] bg-white rounded-t-3xl max-h-[92vh] flex flex-col" data-testid="new-product-modal">
             {/* Handle bar */}
             <div className="flex justify-center pt-3 pb-2">
               <div className="w-10 h-1 bg-[#E5E2DC] rounded-full" />
@@ -656,7 +656,7 @@ export default function MerchantProductsPage() {
             </div>
 
             {/* Footer buttons */}
-            <div className="px-5 py-4 border-t border-[#E5E2DC] flex gap-3">
+            <div className="flex-shrink-0 px-5 pt-4 pb-8 border-t border-[#E5E2DC] bg-white flex gap-3">
               {step > 1 && (
                 <button
                   onClick={() => setStep(s => s - 1)}
