@@ -111,8 +111,8 @@ export function HomeClient() {
             const byStore: Record<string, ProductCard[]> = {};
             products.forEach((p: any) => {
               if (!p.store_id) return;
-              if (!byStore[p.store_id]) byStore[p.store_id] = [];
-              if (byStore[p.store_id].length < 8) byStore[p.store_id].push(p);
+              const bucket = byStore[p.store_id] ?? (byStore[p.store_id] = []);
+              if (bucket.length < 8) bucket.push(p);
             });
             const rails = Object.entries(byStore).map(([sid, prods]) => ({
               store_id: sid,
