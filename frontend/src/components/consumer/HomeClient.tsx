@@ -6,13 +6,22 @@
  * Section order (desktop & mobile):
  *   1. Hero
  *   2. Price bentos (under_499)
- *   3. Category pills (with skeleton)
- *   4. Store rails — one per store, 8 products each
- *   5. New this week — only if ≥3 genuinely new products
- *   6. Best deals — only if ≥3 products with discount
+ *   3. Category pills
+ *   4. Store rails — one per active store (from /api/feed/home-products)
+ *   5. Trending now (from home-products)
+ *   6. Best deals (from home-products)
  *   7. Offers for you
  *   8. Popular stores
  *   9. Loved by Bhilai shoppers
+ *
+ * API calls on mount (all parallel):
+ *   • /api/feed/home-products  — store rails + trending + best deals (one request)
+ *   • /api/categories
+ *   • /api/site/homepage-config
+ *   • /api/site/home-stats
+ *   • /api/catalog/offers
+ *   • /api/catalog/testimonials
+ *   • /api/feed/popular-stores  — for the store cards section only
  */
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -33,13 +42,15 @@ interface TestimonialDoc { id: string; name: string; city: string; quote?: strin
 interface HomeStatsDoc { fastest_eta_min?: number }
 interface HeroConfigDoc { image?: string; eyebrow?: string; title_line1?: string; title_line2?: string; subtitle?: string }
 interface SectionDoc { id: string; label: string; enabled: boolean; rank: number }
+interface HomeProductsRail { store_id: string; store_name: string; store_slug: string; store_banner?: string; store_tagline?: string; products: ProductCard[] }
+interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCard[]; best_deals: ProductCard[] }
 
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "hero",           label: "Hero",                      enabled: true, rank: 1  },
   { id: "under_499",      label: "Under ₹499",                enabled: true, rank: 2  },
   { id: "category_pills", label: "Category pills",            enabled: true, rank: 3  },
   { id: "store_rail",     label: "From our stores",           enabled: true, rank: 10 },
-  { id: "new_arrivals",   label: "New this week",             enabled: true, rank: 20 },
+  { id: "new_arrivals",   label: "Trending now",              enabled: true, rank: 20 },
   { id: "best_deals",     label: "Best deals",                enabled: true, rank: 30 },
   { id: "offers",         label: "Offers for you",            enabled: true, rank: 40 },
   { id: "stores",         label: "Popular stores",            enabled: true, rank: 50 },
@@ -53,15 +64,16 @@ export function HomeClient() {
   const [hero, setHero] = useState<HeroConfigDoc | null>(null);
   const [sections, setSections] = useState<SectionDoc[]>(DEFAULT_SECTIONS);
   const [offers, setOffers] = useState<OfferDoc[]>([]);
-  const [sellingFast, setSellingFast] = useState<ProductCard[]>([]);
-  const [recent, setRecent] = useState<ProductCard[]>([]);
+  const [trending, setTrending] = useState<ProductCard[]>([]);
+  const [bestDeals, setBestDeals] = useState<ProductCard[]>([]);
+  const [storeRails, setStoreRails] = useState<HomeProductsRail[]>([]);
   const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [nearby, setNearby] = useState<StoreCard[]>([]);
   const [popularStores, setPopularStores] = useState<StoreCard[]>([]);
-  const [storeRails, setStoreRails] = useState<{ store: StoreCard; products: ProductCard[] }[]>([]);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Set<string>>(new Set());
+
   const markLoaded = (key: string) =>
     setLoaded((prev) => { const next = new Set(prev); next.add(key); return next; });
   const markError = (key: string) =>
@@ -78,9 +90,24 @@ export function HomeClient() {
     api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
     api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
     api.catalog.categories().then((r) => setCategories(r)).catch(() => {});
-    api.products.sellingFast(10).then((r) => { setSellingFast(r); markLoaded("sellingFast"); }).catch(() => { markLoaded("sellingFast"); markError("sellingFast"); });
-    api.products.newArrivals(10).then((r) => { setRecent(r); markLoaded("recent"); }).catch(() => { markLoaded("recent"); markError("recent"); });
     api.stores.popular(10).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
+
+    // Single request for all product content — replaces N+1 store fetches
+    apiClient.get<HomeProductsResponse>("/api/feed/home-products").then((r) => {
+      const data = r.data || { store_rails: [], trending: [], best_deals: [] };
+      setStoreRails(data.store_rails || []);
+      setTrending(data.trending || []);
+      setBestDeals(data.best_deals || []);
+      markLoaded("storeRails");
+      markLoaded("sellingFast");
+      markLoaded("recent");
+    }).catch(() => {
+      markLoaded("storeRails");
+      markLoaded("sellingFast");
+      markLoaded("recent");
+      markError("sellingFast");
+      markError("recent");
+    });
   }, []);
 
   useEffect(() => {
@@ -89,27 +116,10 @@ export function HomeClient() {
     }
   }, [lat, lng]);
 
-  // Fetch per-store product rails once we have the stores list.
-  useEffect(() => {
-    if (popularStores.length === 0) return;
-    Promise.all(
-      popularStores.slice(0, 3).map((s) =>
-        apiClient
-          .get<ProductCard[]>(`/api/products?store=${s.id}&limit=8`)
-          .then((r) => ({ store: s, products: (Array.isArray(r.data) ? r.data : []).slice(0, 8) }))
-          .catch(() => ({ store: s, products: [] as ProductCard[] }))
-      )
-    ).then((rails) => {
-      setStoreRails(rails.filter((r) => r.products.length > 0));
-      markLoaded("storeRails");
-    });
-  }, [popularStores]);
-
   const storesReady = loaded.has("nearby") || loaded.has("popularStores");
   const storesRail = nearby.length > 0 ? nearby : popularStores;
   const storesTitle = nearby.length > 0 ? "Stores near you" : "Popular stores in Bhilai";
 
-  // Skeleton primitives
   const ProductRailSkeleton = ({ testid }: { testid: string }) => (
     <div key={testid} className="px-4 md:px-8 py-4 min-h-[320px]">
       <Skeleton className="h-5 w-36 rounded-full mb-1" />
@@ -164,7 +174,6 @@ export function HomeClient() {
       </div>
     ),
 
-    // Category tiles — show skeletons while loading
     category_pills: (
       <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-8 mt-3">
         <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
@@ -209,16 +218,16 @@ export function HomeClient() {
       </div>
     ),
 
-    // Store rails — one per active store, products fetched in parallel
+    // Store rails — one per active store, all from a single API call
     store_rail: loaded.has("storeRails") ? (
       storeRails.length > 0
         ? storeRails.map((r) => (
             <HCarousel
-              key={`store-${r.store.id}`}
-              title={`From ${r.store.name}`}
-              subtitle="Shop local, delivered fast"
-              testid={`store-rail-${r.store.id}`}
-              link={`/store/${(r.store as any).slug}`}
+              key={`store-${r.store_id}`}
+              title={`From ${r.store_name}`}
+              subtitle={r.store_tagline || "Shop local, delivered fast"}
+              testid={`store-rail-${r.store_id}`}
+              link={`/store/${r.store_slug}`}
               linkLabel="See all"
             >
               {r.products.map((p) => <ProductCardV2 key={p.id} p={p} />)}
@@ -227,20 +236,20 @@ export function HomeClient() {
         : null
     ) : <StoreRailSkeleton key="store-rail-skeleton" />,
 
-    // New arrivals — only render if ≥3 genuinely new products
+    // Trending products
     new_arrivals: errors.has("recent") ? null
-      : loaded.has("recent") && recent.length >= 3 ? (
-          <HCarousel key="new-arrivals" title="New this week" subtitle="Fresh drops from Bhilai stores" testid="home-new-arrivals" link="/products?sort=newest" linkLabel="See all">
-            {recent.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
+      : loaded.has("recent") && trending.length >= 3 ? (
+          <HCarousel key="new-arrivals" title="Trending now" subtitle="What everyone in Bhilai is buying" testid="home-new-arrivals" link="/products?sort=trending" linkLabel="See all">
+            {trending.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
           </HCarousel>
         )
       : !loaded.has("recent") ? <ProductRailSkeleton key="new-arrivals-skeleton" testid="home-new-arrivals-skeleton" /> : null,
 
-    // Best deals — only render if ≥3 discounted products
+    // Best deals
     best_deals: errors.has("sellingFast") ? null
-      : loaded.has("sellingFast") && sellingFast.length >= 3 ? (
+      : loaded.has("sellingFast") && bestDeals.length >= 3 ? (
           <HCarousel key="best-deals" title="Best deals" subtitle="Top discounts in Bhilai" testid="home-best-deals" link="/products?sort=discount" linkLabel="See all">
-            {sellingFast.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
+            {bestDeals.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
           </HCarousel>
         )
       : !loaded.has("sellingFast") ? <ProductRailSkeleton key="best-deals-skeleton" testid="home-best-deals-skeleton" /> : null,
@@ -283,18 +292,18 @@ export function HomeClient() {
 
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
 
-    // Backward-compat aliases for CMS configs that still use old section IDs
+    // Backward-compat aliases for CMS configs using old section IDs
     selling_fast: errors.has("sellingFast") ? null
-      : loaded.has("sellingFast") && sellingFast.length >= 3 ? (
+      : loaded.has("sellingFast") && bestDeals.length >= 3 ? (
           <HCarousel key="selling-fast-compat" title="Best deals" subtitle="Top discounts in Bhilai" testid="home-selling-fast" link="/products?sort=discount" linkLabel="See all">
-            {sellingFast.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
+            {bestDeals.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
           </HCarousel>
         )
       : !loaded.has("sellingFast") ? <ProductRailSkeleton key="selling-fast-skeleton" testid="home-selling-fast-skeleton" /> : null,
     recently_viewed: errors.has("recent") ? null
-      : loaded.has("recent") && recent.length >= 3 ? (
-          <HCarousel key="recently-viewed-compat" title="New this week" subtitle="Fresh drops from Bhilai stores" testid="home-recent" link="/products?sort=newest" linkLabel="See all">
-            {recent.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
+      : loaded.has("recent") && trending.length >= 3 ? (
+          <HCarousel key="recently-viewed-compat" title="Trending now" subtitle="What everyone in Bhilai is buying" testid="home-recent" link="/products?sort=trending" linkLabel="See all">
+            {trending.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
           </HCarousel>
         )
       : !loaded.has("recent") ? <ProductRailSkeleton key="recent-skeleton" testid="home-recent-skeleton" /> : null,

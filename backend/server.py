@@ -886,6 +886,71 @@ async def feed_trending(limit: int = 12):
     return items
 
 
+@api.get("/feed/home-products")
+async def feed_home_products():
+    """Single aggregated endpoint: store rails + trending + best deals.
+    Replaces 4+ separate product feed calls on the homepage."""
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
+    if not sids:
+        return {"store_rails": [], "trending": [], "best_deals": []}
+
+    all_products = await db.products.find(
+        {"store_id": {"$in": sids}, **_visible_product_filter()},
+        {"_id": 0, "images": 0},
+    ).sort("created_at", -1).to_list(300)
+
+    all_products = await _enrich_badges(db, all_products)
+    all_products = _attach_store_avail(all_products, avail_map)
+    all_products.sort(key=lambda p: p.get("store_availability_rank", 1))
+
+    # Group by store — up to 8 products per rail
+    from collections import defaultdict as _dd
+    by_store: dict = _dd(list)
+    for p in all_products:
+        sid = p.get("store_id")
+        if sid and len(by_store[sid]) < 8:
+            by_store[sid].append(p)
+
+    stores_meta = await db.stores.find(
+        {"id": {"$in": sids}},
+        {"_id": 0, "id": 1, "name": 1, "slug": 1, "storefront": 1, "banner": 1, "tagline": 1},
+    ).to_list(50)
+    store_meta_map = {s["id"]: s for s in stores_meta}
+
+    store_rails = []
+    for sid in sids:
+        prods = by_store.get(sid, [])
+        if not prods:
+            continue
+        s = store_meta_map.get(sid, {})
+        sf = s.get("storefront") or {}
+        banners = sf.get("banners") or []
+        banner = banners[0] if banners else s.get("banner")
+        store_rails.append({
+            "store_id": sid,
+            "store_name": s.get("name", "Store"),
+            "store_slug": s.get("slug") or sid,
+            "store_banner": banner,
+            "store_tagline": sf.get("tagline") or s.get("tagline") or "",
+            "products": prods,
+        })
+
+    # Trending — sort by rating (no extra queries needed)
+    trending = sorted(all_products, key=lambda p: float(p.get("rating") or 0), reverse=True)[:8]
+    if not trending:
+        trending = all_products[:8]
+
+    # Best deals — products with mrp > price, sorted by discount %
+    best_deals = sorted(
+        [p for p in all_products if (p.get("mrp") or 0) > (p.get("price") or 0)],
+        key=lambda p: ((p.get("mrp", 0) - p.get("price", 0)) / max(p.get("mrp", 1), 1)),
+        reverse=True,
+    )[:8]
+
+    return {"store_rails": store_rails, "trending": trending, "best_deals": best_deals}
+
+
 @api.get("/feed/under-499")
 async def feed_under_499(limit: int = 12):
     avail_map = await _availability_map()
