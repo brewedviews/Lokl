@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
-import { CustomerOtpLogin } from "@/components/consumer/CustomerOtpLogin";
 import type { Product } from "@/types";
 
 export function ProductActions({
@@ -40,7 +39,6 @@ export function ProductActions({
 
   const [reserving, setReserving] = useState(false);
   const [reservation, setReservation] = useState<{ orderId: string; pickupCode: string; expiresAt: string } | null>(null);
-  const [showPickupAuth, setShowPickupAuth] = useState(false);
 
   const badge = storeBadge ?? product.store_badge ?? "LIVE";
   const opensAt = storeOpensAtLabel ?? product.store_opens_at_label ?? null;
@@ -82,13 +80,12 @@ export function ProductActions({
     }
   };
 
-  const handleReservePickup = async (overridePhone?: string, overrideToken?: string) => {
-    if (!isCustomerAuth && !overridePhone) { setShowPickupAuth(true); return; }
+  const handleReservePickup = async () => {
+    if (!isCustomerAuth) { router.push("/account"); return; }
     if (product.sizes?.length && !size) { toast.error("Please pick a size first"); return; }
-    const phone = overridePhone ?? customerPhone ?? "";
-    const token = overrideToken ?? (typeof window !== "undefined" ? localStorage.getItem("bf_customer_token") : null);
     setReserving(true);
     try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("bf_customer_token") : null;
       const r = await apiClient.post<{ id: string; pickup_code: string; pickup_expires_at: string }>(
         "/api/orders",
         {
@@ -96,7 +93,7 @@ export function ProductActions({
           address: { name: customerUser?.name || "Customer", line1: "Store Pickup", city: "bhilai", pincode: "490001" },
           total: product.price,
           payment_method: "COD",
-          customer: { name: customerUser?.name || "Customer", phone },
+          customer: { name: customerUser?.name || "Customer", phone: customerPhone || "" },
           order_type: "pickup",
         },
         token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
@@ -201,19 +198,6 @@ export function ProductActions({
         >
           <Store size={15} /> {reserving ? "Reserving…" : "Reserve for store pickup"}
         </button>
-      )}
-
-      {showPickupAuth && !reservation && (
-        <div className="mt-3 p-4 bg-[#F0F4FF] rounded-2xl">
-          <CustomerOtpLogin
-            title="Sign in to reserve"
-            subtitle="Enter your WhatsApp number to reserve this item for pickup."
-            onSuccess={(phone, token) => {
-              setShowPickupAuth(false);
-              void handleReservePickup(phone, token);
-            }}
-          />
-        </div>
       )}
 
       {reservation && (
