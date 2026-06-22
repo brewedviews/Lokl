@@ -3,10 +3,11 @@
 /** Size picker + add-to-bag + buy-now + share + notify-me + schedule interactions. */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Heart, ShoppingBag, Share2, Bell, CheckCircle2 } from "lucide-react";
+import { Heart, ShoppingBag, Share2, Bell, CheckCircle2, Store } from "lucide-react";
 import { toast } from "sonner";
-import { useCartStore } from "@/stores";
+import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
+import { getErrorMessage } from "@/lib/api-error";
 import type { Product } from "@/types";
 
 export function ProductActions({
@@ -26,12 +27,18 @@ export function ProductActions({
 }) {
   const router = useRouter();
   const addItem = useCartStore((s) => s.addItem);
+  const customerPhone = useCustomerAuthStore((s) => s.phone);
+  const customerUser = useCustomerAuthStore((s) => s.user);
+  const isCustomerAuth = useCustomerAuthStore((s) => s.isAuthenticated);
   const [size, setSize] = useState<string | null>(product.sizes?.[0] || null);
 
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [notifyPhone, setNotifyPhone] = useState("");
   const [notifySubmitted, setNotifySubmitted] = useState(false);
   const [notifyLoading, setNotifyLoading] = useState(false);
+
+  const [reserving, setReserving] = useState(false);
+  const [reservation, setReservation] = useState<{ orderId: string; pickupCode: string; expiresAt: string } | null>(null);
 
   const badge = storeBadge ?? product.store_badge ?? "LIVE";
   const opensAt = storeOpensAtLabel ?? product.store_opens_at_label ?? null;
@@ -70,6 +77,32 @@ export function ProductActions({
       toast.error("Could not save. Please try again.");
     } finally {
       setNotifyLoading(false);
+    }
+  };
+
+  const handleReservePickup = async () => {
+    if (!isCustomerAuth) { toast.error("Sign in to reserve for pickup"); router.push("/login"); return; }
+    if (product.sizes?.length && !size) { toast.error("Please pick a size first"); return; }
+    setReserving(true);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("bf_customer_token") : null;
+      const r = await apiClient.post<{ id: string; pickup_code: string; pickup_expires_at: string }>(
+        "/api/orders",
+        {
+          items: [{ id: product.id, qty: 1, size: size ?? "", price: product.price, name: product.name, store_id: sId, store_name: sName }],
+          address: { name: customerUser?.name || "Customer", line1: "Store Pickup", city: "bhilai", pincode: "490001" },
+          total: product.price,
+          payment_method: "COD",
+          customer: { name: customerUser?.name || "Customer", phone: customerPhone || "" },
+          order_type: "pickup",
+        },
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
+      );
+      setReservation({ orderId: r.data.id, pickupCode: r.data.pickup_code, expiresAt: r.data.pickup_expires_at });
+    } catch (e) {
+      toast.error(getErrorMessage(e) || "Could not reserve. Please try again.");
+    } finally {
+      setReserving(false);
     }
   };
 
@@ -155,6 +188,27 @@ export function ProductActions({
           <Share2 size={16} />
         </button>
       </div>
+
+      {!isOffline && !reservation && (
+        <button
+          onClick={() => void handleReservePickup()}
+          disabled={reserving}
+          data-testid="reserve-pickup-btn"
+          className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border border-[#0A1F5C]/30 text-[#0A1F5C] text-sm font-semibold hover:bg-[#0A1F5C]/5 disabled:opacity-50 transition whitespace-nowrap"
+        >
+          <Store size={15} /> {reserving ? "Reserving…" : "Reserve for store pickup"}
+        </button>
+      )}
+
+      {reservation && (
+        <div className="mt-3 p-4 bg-[#0A1F5C] text-white rounded-2xl text-center">
+          <div className="text-[10px] uppercase tracking-widest text-white/60 mb-1">Your pickup code</div>
+          <div data-testid="pickup-code-display" className="font-display text-4xl font-bold tracking-[0.3em] tabular-nums text-[#E68910]">{reservation.pickupCode}</div>
+          <p className="text-xs text-white/70 mt-2">Show this code at {sName} to collect your item.</p>
+          <p className="text-[11px] text-white/50 mt-1">Order {reservation.orderId}</p>
+          <a href={`/account/orders/${reservation.orderId}`} className="mt-3 inline-block text-xs text-[#E68910] font-semibold underline">View order details</a>
+        </div>
+      )}
 
       {isAway && (
         <div className="mt-3 px-4 py-2 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold text-center">

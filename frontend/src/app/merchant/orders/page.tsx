@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bell, BellOff, Bike, CheckCircle2, MapPin, RotateCcw, MessageSquareWarning } from "lucide-react";
+import { Bell, BellOff, Bike, CheckCircle2, MapPin, RotateCcw, MessageSquareWarning, Store } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
@@ -57,6 +57,8 @@ export default function MerchantOrdersPage() {
   const [returns, setReturns] = useState<Return[]>([]);
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [muted, setMuted] = useState(false);
+  const [pickupCodes, setPickupCodes] = useState<Record<string, string>>({});
+  const [verifying, setVerifying] = useState<string | null>(null);
   const seenIds = useRef<Set<string>>(new Set());
   const audioCtxRef = useRef<AudioContext | null>(null);
   const initialLoadDone = useRef(false);
@@ -69,7 +71,7 @@ export default function MerchantOrdersPage() {
     const load = async () => {
       try {
         const data = await api.merchant.listOrders() as OrderEx[];
-        const news = data.filter((o) => (o.my_state === "pending" || (o.my_state === undefined && o.status === "pending_merchant")) && !seenIds.current.has(o.id));
+        const news = data.filter((o) => o.order_type !== "pickup" && (o.my_state === "pending" || (o.my_state === undefined && o.status === "pending_merchant")) && !seenIds.current.has(o.id));
         if (news.length > 0 && initialLoadDone.current && !muted) {
           playLoudPing(audioCtxRef);
           news.forEach((o) => {
@@ -105,9 +107,26 @@ export default function MerchantOrdersPage() {
   const accept = async (id: string) => { await api.merchant.acceptOrder(id); toast.success("Order accepted — waiting for rider"); refresh(); };
   const handToRider = async (id: string) => { await api.merchant.handToRider(id); toast.success("Handed to rider · on the way"); refresh(); };
 
+  const verifyPickup = async (oid: string) => {
+    const code = (pickupCodes[oid] || "").trim();
+    if (code.length !== 4) { toast.error("Enter the 4-digit code the customer shows you"); return; }
+    setVerifying(oid);
+    try {
+      await apiClient.post(`/api/merchant/orders/${oid}/verify-pickup`, { code });
+      toast.success("Pickup confirmed — order marked as delivered");
+      refresh();
+    } catch (e) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Incorrect code";
+      toast.error(msg);
+    } finally {
+      setVerifying(null);
+    }
+  };
+
   const myState = (o: OrderEx) => o.my_state || o.status;
-  const pending = orders.filter((o) => myState(o) === "pending" || (o.my_state === undefined && o.status === "pending_merchant"));
-  const accepted = orders.filter((o) => myState(o) === "accepted");
+  const pickupReservations = orders.filter((o) => o.order_type === "pickup" && o.status === "reserved");
+  const pending = orders.filter((o) => o.order_type !== "pickup" && (myState(o) === "pending" || (o.my_state === undefined && o.status === "pending_merchant")));
+  const accepted = orders.filter((o) => o.order_type !== "pickup" && (myState(o) === "accepted"));
   const onWay = orders.filter((o) => myState(o) === "handed_off" || (o.my_state === undefined && o.status === "on_the_way"));
   const returning = orders.filter((o) => o.return_status && o.return_status !== "completed");
   const returned = orders.filter((o) => o.status === "returned");
@@ -130,6 +149,63 @@ export default function MerchantOrdersPage() {
           <button onClick={() => playLoudPing(audioCtxRef)} data-testid="test-ping" className="text-xs font-semibold text-[#E68910] hover:underline">Test sound</button>
         </div>
       </div>
+
+      {pickupReservations.length > 0 && (
+        <section className="mb-10" data-testid="pickup-reservations">
+          <h2 className="font-display text-xl font-bold text-[#1A2B4C] mb-1 flex items-center gap-2">
+            <Store size={18} className="text-[#4F7363]" /> Store pickups <span className="text-xs font-normal text-[#595959]">({pickupReservations.length})</span>
+          </h2>
+          <p className="text-xs text-[#595959] mb-3">Enter the 4-digit code the customer shows you to confirm pickup.</p>
+          <div className="space-y-3">
+            {pickupReservations.map((o) => {
+              const expiresAt = o.pickup_expires_at ? new Date(o.pickup_expires_at) : null;
+              const minutesLeft = expiresAt ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 60000)) : null;
+              return (
+                <div key={o.id} data-testid={`pickup-${o.id}`} className="bg-white border-2 border-[#4F7363]/40 rounded-2xl p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <div>
+                      <div className="font-display text-lg font-bold text-[#1A2B4C]">{o.id}</div>
+                      <div className="text-xs text-[#595959]">{new Date(o.created_at).toLocaleString()}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-display text-2xl font-bold text-[#4F7363]">₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</div>
+                      {minutesLeft !== null && (
+                        <div className={`text-xs font-semibold ${minutesLeft < 30 ? "text-red-500" : "text-[#595959]"}`}>
+                          {minutesLeft}m left to collect
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-1 mb-4 text-sm">
+                    {o.items.map((it, i) => (
+                      <div key={i} className="flex justify-between"><span>{it.name} × {it.qty}{it.size ? ` (${it.size})` : ""}</span><span>₹{(it.price * it.qty).toLocaleString()}</span></div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="tel"
+                      maxLength={4}
+                      value={pickupCodes[o.id] || ""}
+                      onChange={(e) => setPickupCodes((prev) => ({ ...prev, [o.id]: e.target.value.replace(/\D/g, "").slice(0, 4) }))}
+                      placeholder="4-digit code"
+                      data-testid={`pickup-code-input-${o.id}`}
+                      className="flex-1 px-4 py-3 rounded-full border-2 border-[#E5E2DC] text-center text-xl font-mono tracking-widest outline-none focus:border-[#4F7363]"
+                    />
+                    <button
+                      onClick={() => verifyPickup(o.id)}
+                      disabled={verifying === o.id}
+                      data-testid={`verify-pickup-${o.id}`}
+                      className="px-5 py-3 rounded-full bg-[#4F7363] text-white font-semibold text-sm hover:bg-[#3a5a4d] disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {verifying === o.id ? "Verifying…" : "Confirm pickup"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="space-y-3 mb-10">
         {pending.length === 0 ? (

@@ -33,6 +33,7 @@ from notifications import (
     notify_order_on_the_way, notify_order_cancelled, notify_rider_pickup,
     notify_rider_return_pickup, notify_return_status, notify_customer_otp,
     notify_merchant_otp, send_with_fallback, APP_URL,
+    notify_pickup_reserved, notify_merchant_pickup_reserved,
 )
 from ai_enhance import enhance_product_images
 from observability import init_sentry
@@ -212,6 +213,7 @@ class OrderCreate(BaseModel):
     coupon_code: Optional[str] = None
     customer_lat: Optional[float] = None
     customer_lng: Optional[float] = None
+    order_type: str = "delivery"  # "delivery" | "pickup"
 
 class CouponCreate(BaseModel):
     code: str
@@ -2505,17 +2507,21 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
     else:
         cust_in.phone = payload_phone
 
-    addr_city = (payload.address.get("city") or "").strip().lower()
-    if addr_city not in SERVICEABLE_CITIES:
-        raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
-    addr_pincode = str(payload.address.get("pincode") or "").strip()
-    _BHILAI_PINCODES = {"490001", "490006", "490009", "490020", "490023"}
-    if addr_pincode and addr_pincode not in _BHILAI_PINCODES:
-        raise HTTPException(400, "We only deliver to Bhilai pincodes (490xxx). Please check your pincode.")
+    order_type = (getattr(payload, "order_type", None) or "delivery").lower()
+
+    if order_type != "pickup":
+        addr_city = (payload.address.get("city") or "").strip().lower()
+        if addr_city not in SERVICEABLE_CITIES:
+            raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
+        addr_pincode = str(payload.address.get("pincode") or "").strip()
+        _BHILAI_PINCODES = {"490001", "490006", "490009", "490020", "490023"}
+        if addr_pincode and addr_pincode not in _BHILAI_PINCODES:
+            raise HTTPException(400, "We only deliver to Bhilai pincodes (490xxx). Please check your pincode.")
 
     # Pre-check store availability before any stock reservations.
+    # Pickup reservations skip the can_order check — the customer is walking in.
     payload_store_ids = list({it.get("store_id") for it in payload.items if it.get("store_id")})
-    if payload_store_ids:
+    if payload_store_ids and order_type != "pickup":
         unavailable_stores = []
         for sid in payload_store_ids:
             store_doc = await db.stores.find_one({"id": sid, **_visible_store_filter()}, {"_id": 0})
@@ -2640,6 +2646,12 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                             {"label": "Order on the way", "time": None},
                             {"label": "Delivered", "time": None}]}
 
+        if order_type == "pickup":
+            doc["order_type"] = "pickup"
+            doc["pickup_code"] = f"{_otp_rng.randint(1000, 9999)}"
+            doc["pickup_expires_at"] = (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat()
+            doc["status"] = "reserved"
+
         # ===== Payment method branch =====
         # COD: order goes straight to merchant queue (existing behavior).
         # razorpay: frontend calls POST /payments/razorpay/create-order first, completes
@@ -2676,7 +2688,13 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         await _upsert_customer(payload.customer, payload.address)
     cust_phone = (payload.customer or {}).get("phone") or (payload.address or {}).get("phone")
     if cust_phone:
-        try: notify_order_placed(cust_phone, order_id, float(server_total))
+        try:
+            if order_type == "pickup":
+                _pickup_store_name = (items_snap[0].get("store_name") or "the store") if items_snap else "the store"
+                notify_pickup_reserved(cust_phone, order_id, _pickup_store_name,
+                                       doc["pickup_code"], doc["pickup_expires_at"])
+            else:
+                notify_order_placed(cust_phone, order_id, float(server_total))
         except Exception: pass
     # Notify merchants for COD and Razorpay (payment verified at order creation time).
     if doc.get("payment_method") in ("COD", "razorpay"):
@@ -2684,7 +2702,12 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1})
             if m and m.get("phone"):
                 their_items = [it for it in items_snap if it.get("merchant_id") == mid]
-                try: notify_merchant_new_order(m["phone"], order_id, float(server_total), len(their_items))
+                try:
+                    if order_type == "pickup":
+                        notify_merchant_pickup_reserved(m["phone"], order_id, len(their_items),
+                                                        doc["pickup_expires_at"])
+                    else:
+                        notify_merchant_new_order(m["phone"], order_id, float(server_total), len(their_items))
                 except Exception: pass
     await audit_service.log("order_initiated", order_id=order_id,
                             razorpay_order_id=doc.get("razorpay_order_id"),
@@ -2844,6 +2867,8 @@ async def merchant_orders(user: dict = Depends(get_current_user)):
         # Hide other merchants' OTPs from this merchant's view
         if o.get("merchant_otps"):
             o["merchant_otps"] = {mid: o["my_otp"]}
+        # Strip pickup code from merchant view — they verify by entering what the customer shows
+        o.pop("pickup_code", None)
         cleaned.append(o)
     return cleaned
 
@@ -2958,6 +2983,38 @@ async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_us
         try: notify_order_on_the_way(cust_phone, oid, my_otp)
         except Exception: pass
     return {"ok": True, "all_handed": all_handed, "my_state": "handed_off"}
+
+
+@api.post("/merchant/orders/{oid}/verify-pickup")
+async def verify_pickup(oid: str, body: dict, user: dict = Depends(merchant_user)):
+    """Verify the customer's 4-digit pickup code and mark the order as delivered."""
+    mid = user["sub"]
+    o = await db.orders.find_one({"id": oid, "order_type": "pickup", "merchant_ids": mid}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Pickup order not found")
+    if o.get("status") != "reserved":
+        raise HTTPException(400, "This reservation is no longer active")
+    expires_at = o.get("pickup_expires_at", "")
+    if expires_at and datetime.now(timezone.utc).isoformat() > expires_at:
+        await db.orders.update_one({"id": oid}, {"$set": {"status": "cancelled"}})
+        raise HTTPException(400, "This pickup reservation has expired")
+    submitted = str(body.get("code", "")).strip()
+    if submitted != str(o.get("pickup_code", "")):
+        raise HTTPException(400, "Incorrect pickup code")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.orders.update_one({"id": oid}, {"$set": {"status": "delivered", "delivered_at": now}})
+    return {"ok": True}
+
+
+@api.get("/admin/expire-pickups")
+async def expire_pickups(user: dict = Depends(admin_user)):
+    """Mark expired pickup reservations as cancelled. Run periodically."""
+    now = datetime.now(timezone.utc).isoformat()
+    result = await db.orders.update_many(
+        {"order_type": "pickup", "status": "reserved", "pickup_expires_at": {"$lt": now}},
+        {"$set": {"status": "cancelled"}},
+    )
+    return {"expired": result.modified_count}
 
 
 # ===== Admin order management =====

@@ -425,3 +425,44 @@ def notify_return_status(customer_phone: str, return_id: str, status_label: str)
         f"Track at {APP_URL}/returns/{return_id}"
     )
     send_with_fallback(customer_phone, body)
+
+
+def notify_pickup_reserved(customer_phone: str, order_id: str, store_name: str,
+                            pickup_code: str, expires_at_iso: str) -> None:
+    """Notify the customer that their store pickup is reserved with a 4-digit code."""
+    short = order_id[-6:].upper()
+    try:
+        from datetime import datetime, timezone
+        exp_dt = datetime.fromisoformat(expires_at_iso.replace("Z", "+00:00"))
+        exp_str = exp_dt.strftime("%-I:%M %p")
+    except Exception:
+        exp_str = "6 hours"
+    body = (
+        f"Your Lokl store pickup is confirmed!\n\n"
+        f"Order #{short} · {store_name}\n\n"
+        f"Show this code at the store:\n"
+        f"*{pickup_code}*\n\n"
+        f"Valid until {exp_str}. The store will scan this code when you arrive.\n\n"
+        f"Track: {APP_URL}/account/orders/{order_id}"
+    )
+    send_with_fallback(customer_phone, body)
+
+
+def notify_merchant_pickup_reserved(merchant_phone: str, order_id: str,
+                                     items_count: int, expires_at_iso: str) -> None:
+    """Notify the merchant that a customer has reserved items for store pickup."""
+    short = order_id[-6:].upper()
+    try:
+        from datetime import datetime, timezone
+        exp_dt = datetime.fromisoformat(expires_at_iso.replace("Z", "+00:00"))
+        exp_str = exp_dt.strftime("%-I:%M %p")
+    except Exception:
+        exp_str = "6 hours from now"
+    body = (
+        f"Store pickup reserved — #{short}\n\n"
+        f"{items_count} item(s) reserved for in-store pickup.\n"
+        f"Customer will arrive by {exp_str}.\n\n"
+        f"Verify the 4-digit code the customer shows you.\n"
+        f"See orders: {APP_URL}/merchant/orders"
+    )
+    send_with_fallback(merchant_phone, body)

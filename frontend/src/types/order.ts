@@ -26,7 +26,8 @@ export type OrderStatus =
   | "cancelled"
   | "rejected"
   | "returning"
-  | "returned";
+  | "returned"
+  | "reserved";
 
 export type PaymentMethod = "COD" | "UPI" | "WALLET" | "RAZORPAY";
 
@@ -130,6 +131,11 @@ export interface Order {
   razorpay_payment_id?: string | null;
 
   created_at: IsoDateTime;
+
+  // Pickup order fields
+  order_type?: "delivery" | "pickup";
+  pickup_code?: string;
+  pickup_expires_at?: IsoDateTime;
 }
 
 // ============================================================================

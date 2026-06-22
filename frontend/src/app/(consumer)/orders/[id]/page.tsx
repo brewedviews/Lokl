@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import Image from "next/image";
 import {
   CheckCircle2, Bike, Package, MessageCircle, AlertCircle,
-  ShieldCheck, MapPin, Receipt, Clock, ShoppingBag, Phone,
+  ShieldCheck, MapPin, Receipt, Clock, ShoppingBag, Phone, Store,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -149,19 +149,28 @@ export default function OrderTrackingPage() {
   }
 
   const status = (order.status || "").toLowerCase();
+  const isPickup = order.order_type === "pickup";
+  const pickupCode = order.pickup_code;
+  const pickupExpiresAt = order.pickup_expires_at;
   const showOtp = !order.is_multi_store && status === "on_the_way" && order.otp;
   const address = order.address;
   const isDeliveredLike = status === "delivered" || status === "returned";
   const isCancelledLike = status === "cancelled";
 
+  const minutesLeft = pickupExpiresAt
+    ? Math.max(0, Math.floor((new Date(pickupExpiresAt).getTime() - Date.now()) / 60000))
+    : null;
+
   const title =
+    isPickup && status === "reserved" ? "Ready for pickup" :
     status === "delivered" ? "Delivered" :
     status === "on_the_way" ? "On the way" :
     status === "cancelled" ? "Cancelled" :
     status === "returned" ? "Returned" :
     "Order confirmed";
   const subtitle =
-    status === "delivered" ? "Hope you love it. Return-eligible items can be returned within 24 hours."
+    isPickup && status === "reserved" ? "Show the code below at the store. Your reservation is held for 6 hours."
+    : status === "delivered" ? "Hope you love it. Return-eligible items can be returned within 24 hours."
     : status === "on_the_way" ? "Your order is en-route. Share the OTP with the rider on arrival."
     : status === "cancelled" ? "This order was cancelled."
     : status === "returned" ? "Pickup completed. Refunds are processed offline."
@@ -182,13 +191,18 @@ export default function OrderTrackingPage() {
                 Order <span className="font-semibold text-[#0A1F5C]" data-testid="order-id">{order.id}</span> · Placed {new Date(order.created_at).toLocaleString()}
               </p>
             </div>
-            {!isCancelledLike && !isDeliveredLike && (
+            {isPickup && (
+              <div className="inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold bg-[#4F7363]/10 text-[#4F7363] border-[#4F7363]/30">
+                <Store size={12} /> Store Pickup
+              </div>
+            )}
+            {!isCancelledLike && !isDeliveredLike && !isPickup && (
               <div className="inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold bg-[#E68910]/10 text-[#E68910] border-[#E68910]/30">
                 <Clock size={12} /> 35–45 min
               </div>
             )}
           </div>
-          {status !== "cancelled" && (
+          {status !== "cancelled" && !isPickup && (
             <div className="mt-5 sm:mt-6">
               <ProgressStepper status={status} />
             </div>
@@ -200,6 +214,21 @@ export default function OrderTrackingPage() {
             <div className="text-[10px] uppercase tracking-[0.25em] text-white/60">Share with the rider</div>
             <div data-testid="delivery-otp" className="font-display text-4xl sm:text-6xl font-bold tracking-[0.3em] tabular-nums text-[#E68910] mt-2">{order.otp}</div>
             <p className="text-[11px] sm:text-xs text-white/70 mt-2">The rider will ask for this 4-digit code on arrival. Do not share until then.</p>
+          </section>
+        )}
+
+        {isPickup && status === "reserved" && pickupCode && (
+          <section data-testid="pickup-code-card" className="bg-[#0A1F5C] text-white rounded-3xl p-5 sm:p-6 text-center border-2 border-[#4F7363]/60 shadow-sm">
+            <div className="flex items-center justify-center gap-1.5 text-[10px] uppercase tracking-[0.25em] text-white/60 mb-1">
+              <Store size={12} /> Show at store
+            </div>
+            <div data-testid="pickup-code-display" className="font-display text-4xl sm:text-6xl font-bold tracking-[0.3em] tabular-nums text-[#4F7363] mt-1">{pickupCode}</div>
+            <p className="text-[11px] sm:text-xs text-white/70 mt-2">Show this code to the store staff when you arrive.</p>
+            {minutesLeft !== null && (
+              <p className={`text-xs font-semibold mt-1.5 ${minutesLeft < 30 ? "text-red-400" : "text-white/50"}`}>
+                {minutesLeft > 0 ? `${minutesLeft} minutes left to collect` : "Reservation has expired"}
+              </p>
+            )}
           </section>
         )}
 
@@ -218,7 +247,7 @@ export default function OrderTrackingPage() {
           </section>
         )}
 
-        {address && (
+        {address && !isPickup && (
           <section data-testid="delivery-address" className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm">
             <div className="flex items-start gap-3">
               <div className="w-9 h-9 rounded-xl bg-[#0A1F5C]/8 text-[#0A1F5C] grid place-items-center shrink-0">
