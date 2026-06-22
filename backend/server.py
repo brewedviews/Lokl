@@ -890,22 +890,27 @@ async def feed_trending(limit: int = 12):
 async def feed_home_products():
     """Single aggregated endpoint: store rails + trending + best deals.
     Replaces 4+ separate product feed calls on the homepage."""
-    # Broader filter than _visibility_store_filter(): only require kyc approved.
-    # published/paused/online affect availability rank, not visibility here.
     stores_raw = await db.stores.find(
-        {"kyc_status": "approved", "is_deleted": {"$ne": True}},
-        {"_id": 0, "id": 1, "online": 1, "last_seen_at": 1,
-         "opens_at": 1, "closes_at": 1, "weekly_off": 1},
-    ).to_list(200)
-    avail_map = {s["id"]: _store_availability(s) for s in stores_raw}
+        {"is_deleted": {"$ne": True}},
+        {"_id": 0, "id": 1, "name": 1, "slug": 1, "storefront": 1,
+         "banner": 1, "tagline": 1, "online": 1, "last_seen_at": 1,
+         "opens_at": 1, "closes_at": 1, "weekly_off": 1, "kyc_status": 1},
+    ).to_list(100)
+    avail_map = {s["id"]: _store_availability(s) for s in stores_raw if s.get("id")}
     sids = list(avail_map.keys())
+    print(f"[home-products] stores={len(stores_raw)} sids={len(sids)}")
     if not sids:
         return {"store_rails": [], "trending": [], "best_deals": []}
 
     all_products = await db.products.find(
-        {"store_id": {"$in": sids}, **_visible_product_filter()},
-        {"_id": 0, "images": 0},
+        {
+            "store_id": {"$in": sids},
+            "is_deleted": {"$ne": True},
+            "status": {"$nin": ["deleted", "rejected"]},
+        },
+        {"_id": 0},
     ).sort("created_at", -1).to_list(300)
+    print(f"[home-products] products={len(all_products)}")
 
     all_products = await _enrich_badges(db, all_products)
     all_products = _attach_store_avail(all_products, avail_map)
@@ -919,11 +924,7 @@ async def feed_home_products():
         if sid and len(by_store[sid]) < 8:
             by_store[sid].append(p)
 
-    stores_meta = await db.stores.find(
-        {"id": {"$in": sids}},
-        {"_id": 0, "id": 1, "name": 1, "slug": 1, "storefront": 1, "banner": 1, "tagline": 1},
-    ).to_list(50)
-    store_meta_map = {s["id"]: s for s in stores_meta}
+    store_meta_map = {s["id"]: s for s in stores_raw if s.get("id")}
 
     store_rails = []
     for sid in sids:
@@ -5200,6 +5201,22 @@ async def _auto_cancel_stale_orders():
         await _asyncio.sleep(300)  # check every 5 minutes
 
 
+async def fix_paused_products(database):
+    """One-time repair: unpause all products that have valid data."""
+    r1 = await database.products.update_many(
+        {"paused": True, "is_deleted": {"$ne": True}},
+        {"$set": {"paused": False, "status": "published"}},
+    )
+    if r1.modified_count:
+        log.info("[startup] Unpaused %d products (paused=True)", r1.modified_count)
+    r2 = await database.products.update_many(
+        {"status": "paused", "is_deleted": {"$ne": True}},
+        {"$set": {"status": "published", "paused": False}},
+    )
+    if r2.modified_count:
+        log.info("[startup] Published %d products (status=paused)", r2.modified_count)
+
+
 @app.on_event("startup")
 async def startup_seed():
     log.info("[startup] RIDER_PHONE=%s APP_URL=%s TWILIO_FROM=%s",
@@ -5221,6 +5238,12 @@ async def startup_seed():
         await cache_service.connect()
     except Exception as e:
         log.warning("Cache connect skipped: %s", e)
+
+    # Unpause any products that were accidentally left paused.
+    try:
+        await fix_paused_products(db)
+    except Exception as e:
+        log.warning("fix_paused_products skipped: %s", e)
 
     # Auto-apply pending Mongo migrations (indexes + $jsonSchema validators +
     # soft-delete backfill). Idempotent — completed versions are skipped.

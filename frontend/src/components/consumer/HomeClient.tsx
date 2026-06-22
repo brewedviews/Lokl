@@ -95,17 +95,34 @@ export function HomeClient() {
     // Single request for all product content — replaces N+1 store fetches
     apiClient.get<HomeProductsResponse>("/api/feed/home-products").then((r) => {
       const data = r.data || { store_rails: [], trending: [], best_deals: [] };
-      setStoreRails(data.store_rails || []);
-      setTrending(data.trending || []);
-      setBestDeals(data.best_deals || []);
+      const hasProducts = (data.trending?.length || 0) + (data.store_rails?.length || 0) > 0;
 
-      // Fallback: if home-products returned nothing, try direct products endpoint
-      if (!data.trending?.length && !data.store_rails?.length) {
-        apiClient.get<{ products?: ProductCard[] }>("/api/products?limit=16").then((r2) => {
-          const products = r2.data?.products || [];
+      if (hasProducts) {
+        setStoreRails(data.store_rails || []);
+        setTrending(data.trending || []);
+        setBestDeals(data.best_deals || []);
+      } else {
+        // Direct fallback — fetch products without feed filtering
+        apiClient.get("/api/products?limit=24&sort=newest").then((r2: any) => {
+          const products: ProductCard[] = r2.data?.products || r2.data || [];
           if (products.length > 0) {
             setTrending(products.slice(0, 8));
             setBestDeals(products.slice(8, 16));
+            const byStore: Record<string, ProductCard[]> = {};
+            products.forEach((p: any) => {
+              if (!p.store_id) return;
+              if (!byStore[p.store_id]) byStore[p.store_id] = [];
+              if (byStore[p.store_id].length < 8) byStore[p.store_id].push(p);
+            });
+            const rails = Object.entries(byStore).map(([sid, prods]) => ({
+              store_id: sid,
+              store_name: (prods[0] as any)?.store_name || "Local Store",
+              store_slug: (prods[0] as any)?.store_slug || sid,
+              store_banner: (prods[0] as any)?.store_banner || "",
+              store_tagline: "Shop local, delivered fast",
+              products: prods,
+            }));
+            if (rails.length > 0) setStoreRails(rails);
           }
         }).catch(() => {});
       }
@@ -114,6 +131,14 @@ export function HomeClient() {
       markLoaded("sellingFast");
       markLoaded("recent");
     }).catch(() => {
+      // On total failure still try direct products
+      apiClient.get("/api/products?limit=16").then((r2: any) => {
+        const products: ProductCard[] = r2.data?.products || [];
+        if (products.length > 0) {
+          setTrending(products.slice(0, 8));
+          setBestDeals(products.slice(8));
+        }
+      }).catch(() => {});
       markLoaded("storeRails");
       markLoaded("sellingFast");
       markLoaded("recent");
