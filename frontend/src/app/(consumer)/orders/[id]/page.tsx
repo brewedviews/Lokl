@@ -176,9 +176,9 @@ export default function OrderTrackingPage() {
   const isPickup = order.order_type === "pickup";
   const pickupCode = order.pickup_code;
   const pickupExpiresAt = order.pickup_expires_at;
-  const pickupStoreName = (order as Record<string, unknown>).store_name as string | undefined;
-  const pickupStoreAddress = (order as Record<string, unknown>).store_address as string | undefined;
-  const pickupMapsLink = (order as Record<string, unknown>).maps_link as string | undefined;
+  const pickupStoreName = order.store_name;
+  const pickupStoreAddress = order.store_address;
+  const pickupMapsLink = order.maps_link;
   const showOtp = !order.is_multi_store && status === "on_the_way" && order.otp;
   const address = order.address;
   const isDeliveredLike = status === "delivered" || status === "returned";

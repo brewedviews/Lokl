@@ -136,6 +136,9 @@ export interface Order {
   order_type?: "delivery" | "pickup";
   pickup_code?: string;
   pickup_expires_at?: IsoDateTime;
+  store_name?: string;
+  store_address?: string;
+  maps_link?: string;
 }
 
 // ============================================================================

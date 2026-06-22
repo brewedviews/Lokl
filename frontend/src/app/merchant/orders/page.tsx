@@ -216,7 +216,7 @@ export default function MerchantOrdersPage() {
                       <span className="shrink-0 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-[#4F7363]/10 text-[#4F7363]">Pickup</span>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
-                      {(o as any).pickup_expires_at && <PickupTimer expiresAt={(o as any).pickup_expires_at} />}
+                      {o.pickup_expires_at && <PickupTimer expiresAt={o.pickup_expires_at} />}
                       <span className="font-bold text-sm text-[#1A2B4C]">₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</span>
                     </div>
                   </div>
@@ -242,10 +242,10 @@ export default function MerchantOrdersPage() {
                     })}
                   </div>
                   {/* Pickup code */}
-                  {(o as any).pickup_code && (
+                  {o.pickup_code && (
                     <div className="mx-4 mb-3 bg-[#0A1F5C] rounded-xl px-4 py-3 text-center">
                       <div className="text-[9px] uppercase tracking-widest text-white/50 mb-0.5">Customer code</div>
-                      <div data-testid={`pickup-code-${o.id}`} className="font-display text-3xl font-bold tracking-[0.35em] tabular-nums text-[#4F7363]">{(o as any).pickup_code}</div>
+                      <div data-testid={`pickup-code-${o.id}`} className="font-display text-3xl font-bold tracking-[0.35em] tabular-nums text-[#4F7363]">{o.pickup_code}</div>
                     </div>
                   )}
                   {/* Actions */}
