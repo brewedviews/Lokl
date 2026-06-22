@@ -428,25 +428,36 @@ def notify_return_status(customer_phone: str, return_id: str, status_label: str)
 
 
 def notify_pickup_reserved(customer_phone: str, order_id: str, store_name: str,
-                            pickup_code: str, expires_at_iso: str,
-                            maps_link: str = "") -> None:
+                            pickup_code: str, expires_at: str,
+                            store_address: str = "", maps_link: str = "") -> None:
     """Notify the customer that their store pickup is reserved with a 4-digit code."""
     short = order_id[-6:].upper()
     try:
-        from datetime import datetime, timezone
-        exp_dt = datetime.fromisoformat(expires_at_iso.replace("Z", "+00:00"))
-        exp_str = exp_dt.strftime("%-I:%M %p")
+        from datetime import datetime, timedelta, timezone
+        exp_utc = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        exp_ist = exp_utc + timedelta(minutes=330)
+        # Format: 5:30 PM
+        h = exp_ist.hour % 12 or 12
+        ampm = "AM" if exp_ist.hour < 12 else "PM"
+        exp_str = f"{h}:{exp_ist.minute:02d} {ampm}"
+        # today vs tomorrow in IST
+        now_ist = datetime.now(timezone.utc) + timedelta(minutes=330)
+        exp_day = "today" if exp_ist.date() == now_ist.date() else "tomorrow"
     except Exception:
-        exp_str = "4 hours"
-    map_line = f"\n📍 Store location: {maps_link}" if maps_link else ""
+        exp_str = "soon"
+        exp_day = "today"
     body = (
-        f"Your Lokl store pickup is confirmed!\n\n"
-        f"Order #{short} · {store_name}{map_line}\n\n"
-        f"Show this code at the store:\n"
-        f"*{pickup_code}*\n\n"
-        f"Valid until {exp_str}. Show this to the staff when you arrive.\n\n"
-        f"Track: {APP_URL}/account/orders/{order_id}"
+        f"Item reserved at {store_name}!\n\n"
+        f"Order #{short}\n"
+        f"Your code: *{pickup_code}*\n\n"
+        f"Show this code at the store counter.\n"
+        f"Reserved until {exp_str} {exp_day}.\n\n"
     )
+    if store_address:
+        body += f"Store: {store_address}\n"
+    if maps_link:
+        body += f"Directions: {maps_link}\n"
+    body += f"\nPay at the store after trying the product.\nTrack: {APP_URL}/account/orders/{order_id}"
     send_with_fallback(customer_phone, body)
 
 

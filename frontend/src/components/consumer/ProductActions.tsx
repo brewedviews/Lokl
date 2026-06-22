@@ -50,6 +50,19 @@ export function ProductActions({
   const isClosed = badge === "Closed";
   const isAway = badge === "Away";
 
+  // store_can_pickup is set by the backend feed; fall back to badge-based heuristic
+  const canPickup = (product as any)?.store_can_pickup ?? (!isOffline && !isAway);
+
+  const toIST = (iso: string): string => {
+    try {
+      const ms = new Date(iso).getTime() + 5.5 * 3600 * 1000;
+      const d = new Date(ms);
+      const h = d.getUTCHours() % 12 || 12;
+      const m = String(d.getUTCMinutes()).padStart(2, "0");
+      return `${h}:${m} ${d.getUTCHours() < 12 ? "AM" : "PM"}`;
+    } catch { return ""; }
+  };
+
   const handleAdd = (): boolean => {
     if (isClosed) { toast.error("This store is currently closed"); return false; }
     if (!storeCanOrder) { toast.error("This store is currently unavailable"); return false; }
@@ -192,13 +205,21 @@ export function ProductActions({
       {!isOffline && (
         <button
           onClick={() => {
+            if (reservation) { setShowPickupSheet(true); return; }
+            if (!canPickup) return;
             if (!isCustomerAuth) { router.push("/account"); return; }
             setShowPickupSheet(true);
           }}
+          disabled={!reservation && !canPickup}
           data-testid="reserve-pickup-btn"
-          className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border border-[#0A1F5C]/30 text-[#0A1F5C] text-sm font-semibold hover:bg-[#0A1F5C]/5 transition whitespace-nowrap"
+          className={`mt-3 w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full text-sm font-semibold transition whitespace-nowrap ${
+            !reservation && !canPickup
+              ? "border border-[#E5E2DC] text-[#9CA3AF] cursor-not-allowed"
+              : "border border-[#0A1F5C]/30 text-[#0A1F5C] hover:bg-[#0A1F5C]/5"
+          }`}
         >
-          <Store size={15} /> {reservation ? "View pickup code" : "Reserve for store pickup"}
+          <Store size={15} />
+          {reservation ? "View pickup code" : !canPickup ? "Store pickup unavailable" : "Reserve for store pickup"}
         </button>
       )}
 
@@ -241,7 +262,7 @@ export function ProductActions({
                     </div>
                   )}
                   <div className="bg-[#4F7363]/10 rounded-xl px-4 py-3 text-xs text-[#4F7363] font-medium">
-                    Your item will be held for 4 hours. No payment now — pay at store.
+                    Your item is held for up to 4 hours. Pay when you visit the store.
                   </div>
                 </>
               ) : (
@@ -256,7 +277,9 @@ export function ProductActions({
                   <div className="bg-[#0A1F5C] rounded-2xl p-5 text-center">
                     <div className="text-[10px] uppercase tracking-widest text-white/60 mb-1">Your pickup code</div>
                     <div data-testid="pickup-code-display" className="font-display text-5xl font-bold tracking-[0.3em] tabular-nums text-[#E68910]">{reservation.pickupCode}</div>
-                    <p className="text-xs text-white/60 mt-2">Valid for 4 hours · Holds your item at the store</p>
+                    <p className="text-xs text-white/60 mt-2">
+                      {reservation.expiresAt ? `Reserved until ${toIST(reservation.expiresAt)}` : "Holds your item at the store"}
+                    </p>
                   </div>
                 </>
               )}

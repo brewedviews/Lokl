@@ -2092,6 +2092,9 @@ def _attach_store_avail(products: list, avail_map: dict) -> list:
         p["store_eta_message"] = avail["eta_message"]
         p["store_opens_at_label"] = avail["opens_at_label"]
         p["store_availability_rank"] = avail["rank"]
+        # can_pickup: True for LIVE (rank 1) and Closed-by-hours (rank 3, can_order=True).
+        # False for Away (rank 2), weekly-off (rank 3, can_order=False), and Offline (rank 4).
+        p["store_can_pickup"] = avail.get("rank", 4) in (1, 3) and avail.get("can_order", False)
     return products
 
 
@@ -2592,18 +2595,45 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             raise HTTPException(400, "We only deliver to Bhilai pincodes (490xxx). Please check your pincode.")
 
     # Pre-check store availability before any stock reservations.
-    # Pickup: allow rank 1–3 (LIVE / Away / Closed), block only rank 4 (Store Offline).
+    # Pickup: block Away (rank 2) and Offline (rank≥4); compute dynamic window.
     # Delivery: require can_order=True.
     payload_store_ids = list({it.get("store_id") for it in payload.items if it.get("store_id")})
+    _pickup_expires_at = None  # set during pre-check for pickup orders
     if payload_store_ids:
         unavailable_stores = []
         for sid in payload_store_ids:
             store_doc = await db.stores.find_one({"id": sid, **_visible_store_filter()}, {"_id": 0})
             avail = _store_availability(store_doc) if store_doc else {"can_order": False, "rank": 4, "eta_message": "Store unavailable"}
             if order_type == "pickup":
-                if avail.get("rank", 4) >= 4:
-                    store_name = (store_doc or {}).get("name", sid)
-                    unavailable_stores.append(f"{store_name}: Store is offline — pickup unavailable")
+                store_rank = avail.get("rank", 4)
+                store_name = (store_doc or {}).get("name", sid)
+                if store_rank >= 4:
+                    unavailable_stores.append(f"{store_name}: Store is not accepting reservations right now")
+                elif store_rank == 2:
+                    unavailable_stores.append(f"{store_name}: Store is currently away. Please try again when the store is back.")
+                else:
+                    # Rank 1 (LIVE) or rank 3 (Closed by hours) — compute smart pickup window
+                    _now_utc = datetime.now(timezone.utc)
+                    _ist_now = _now_utc + timedelta(minutes=330)
+                    _closes_str = (store_doc or {}).get("closes_at") or "21:00"
+                    _opens_str = (store_doc or {}).get("opens_at") or "10:00"
+                    try:
+                        _close_h, _close_m = map(int, _closes_str.split(":")[:2])
+                        _open_h, _open_m = map(int, _opens_str.split(":")[:2])
+                        _cur_min = _ist_now.hour * 60 + _ist_now.minute
+                        _close_min = _close_h * 60 + _close_m
+                        _open_min = _open_h * 60 + _open_m
+                        if _cur_min < _open_min or _cur_min >= _close_min:
+                            unavailable_stores.append(f"{store_name}: Store is currently closed. Pickup reservations are only available during store hours.")
+                        else:
+                            _mins_until_close = _close_min - _cur_min
+                            if _mins_until_close < 30:
+                                unavailable_stores.append(f"{store_name}: Store closes soon. Not enough time for a pickup reservation.")
+                            else:
+                                _window_min = min(4 * 60, _mins_until_close)
+                                _pickup_expires_at = _now_utc + timedelta(minutes=_window_min)
+                    except Exception:
+                        _pickup_expires_at = datetime.now(timezone.utc) + timedelta(hours=4)
             else:
                 if not avail["can_order"]:
                     store_name = (store_doc or {}).get("name", sid)
@@ -2728,7 +2758,8 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         if order_type == "pickup":
             doc["order_type"] = "pickup"
             doc["pickup_code"] = f"{_otp_rng.randint(1000, 9999)}"
-            doc["pickup_expires_at"] = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
+            _exp = _pickup_expires_at or (datetime.now(timezone.utc) + timedelta(hours=4))
+            doc["pickup_expires_at"] = _exp.isoformat()
             doc["status"] = "reserved"
             _ps_id = (items_snap[0].get("store_id") or "") if items_snap else ""
             _ps_name = (items_snap[0].get("store_name") or "") if items_snap else ""
@@ -2783,6 +2814,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                 notify_pickup_reserved(cust_phone, order_id,
                                        doc.get("store_name") or "the store",
                                        doc["pickup_code"], doc["pickup_expires_at"],
+                                       store_address=doc.get("store_address", ""),
                                        maps_link=doc.get("maps_link", ""))
             else:
                 notify_order_placed(cust_phone, order_id, float(server_total))
