@@ -2684,15 +2684,22 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             await db.products.update_one({"id": pid}, {"$inc": {stock_field: qty}})
         raise
 
-    if payload.customer and payload.customer.get("phone"):
+    if order_type != "pickup" and payload.customer and payload.customer.get("phone"):
         await _upsert_customer(payload.customer, payload.address)
     cust_phone = (payload.customer or {}).get("phone") or (payload.address or {}).get("phone")
     if cust_phone:
         try:
             if order_type == "pickup":
+                _pickup_store_id = (items_snap[0].get("store_id") or "") if items_snap else ""
                 _pickup_store_name = (items_snap[0].get("store_name") or "the store") if items_snap else "the store"
+                _pickup_maps_link = ""
+                if _pickup_store_id:
+                    _store_doc = await db.stores.find_one({"id": _pickup_store_id}, {"_id": 0, "lat": 1, "lng": 1})
+                    if _store_doc and _store_doc.get("lat") and _store_doc.get("lng"):
+                        _pickup_maps_link = f"https://maps.google.com/?q={_store_doc['lat']},{_store_doc['lng']}"
                 notify_pickup_reserved(cust_phone, order_id, _pickup_store_name,
-                                       doc["pickup_code"], doc["pickup_expires_at"])
+                                       doc["pickup_code"], doc["pickup_expires_at"],
+                                       maps_link=_pickup_maps_link)
             else:
                 notify_order_placed(cust_phone, order_id, float(server_total))
         except Exception: pass
@@ -2867,8 +2874,6 @@ async def merchant_orders(user: dict = Depends(get_current_user)):
         # Hide other merchants' OTPs from this merchant's view
         if o.get("merchant_otps"):
             o["merchant_otps"] = {mid: o["my_otp"]}
-        # Strip pickup code from merchant view — they verify by entering what the customer shows
-        o.pop("pickup_code", None)
         cleaned.append(o)
     return cleaned
 
@@ -3003,6 +3008,37 @@ async def verify_pickup(oid: str, body: dict, user: dict = Depends(merchant_user
         raise HTTPException(400, "Incorrect pickup code")
     now = datetime.now(timezone.utc).isoformat()
     await db.orders.update_one({"id": oid}, {"$set": {"status": "delivered", "delivered_at": now}})
+    return {"ok": True}
+
+
+@api.post("/merchant/orders/{oid}/confirm-pickup")
+async def confirm_pickup(oid: str, user: dict = Depends(merchant_user)):
+    """Mark a pickup reservation as delivered after visual code verification."""
+    mid = user["sub"]
+    o = await db.orders.find_one({"id": oid, "order_type": "pickup", "merchant_ids": mid}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Pickup order not found")
+    if o.get("status") != "reserved":
+        raise HTTPException(400, "This reservation is no longer active")
+    expires_at = o.get("pickup_expires_at", "")
+    if expires_at and datetime.now(timezone.utc).isoformat() > expires_at:
+        await db.orders.update_one({"id": oid}, {"$set": {"status": "cancelled"}})
+        raise HTTPException(400, "This pickup reservation has expired")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.orders.update_one({"id": oid}, {"$set": {"status": "delivered", "delivered_at": now}})
+    return {"ok": True}
+
+
+@api.post("/merchant/orders/{oid}/cancel-pickup")
+async def cancel_pickup_reservation(oid: str, user: dict = Depends(merchant_user)):
+    """Cancel a pickup reservation (e.g. customer no-show or item unavailable)."""
+    mid = user["sub"]
+    o = await db.orders.find_one({"id": oid, "order_type": "pickup", "merchant_ids": mid}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Pickup order not found")
+    if o.get("status") != "reserved":
+        raise HTTPException(400, "This reservation is no longer active")
+    await db.orders.update_one({"id": oid}, {"$set": {"status": "cancelled"}})
     return {"ok": True}
 
 

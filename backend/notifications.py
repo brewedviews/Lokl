@@ -428,7 +428,8 @@ def notify_return_status(customer_phone: str, return_id: str, status_label: str)
 
 
 def notify_pickup_reserved(customer_phone: str, order_id: str, store_name: str,
-                            pickup_code: str, expires_at_iso: str) -> None:
+                            pickup_code: str, expires_at_iso: str,
+                            maps_link: str = "") -> None:
     """Notify the customer that their store pickup is reserved with a 4-digit code."""
     short = order_id[-6:].upper()
     try:
@@ -437,12 +438,13 @@ def notify_pickup_reserved(customer_phone: str, order_id: str, store_name: str,
         exp_str = exp_dt.strftime("%-I:%M %p")
     except Exception:
         exp_str = "6 hours"
+    map_line = f"\n📍 Store location: {maps_link}" if maps_link else ""
     body = (
         f"Your Lokl store pickup is confirmed!\n\n"
-        f"Order #{short} · {store_name}\n\n"
+        f"Order #{short} · {store_name}{map_line}\n\n"
         f"Show this code at the store:\n"
         f"*{pickup_code}*\n\n"
-        f"Valid until {exp_str}. The store will scan this code when you arrive.\n\n"
+        f"Valid until {exp_str}. Show this to the staff when you arrive.\n\n"
         f"Track: {APP_URL}/account/orders/{order_id}"
     )
     send_with_fallback(customer_phone, body)

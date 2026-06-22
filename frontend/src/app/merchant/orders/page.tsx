@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bell, BellOff, Bike, CheckCircle2, MapPin, RotateCcw, MessageSquareWarning, Store } from "lucide-react";
+import { Bell, BellOff, Bike, CheckCircle2, MapPin, RotateCcw, MessageSquareWarning, Store, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
@@ -57,8 +57,8 @@ export default function MerchantOrdersPage() {
   const [returns, setReturns] = useState<Return[]>([]);
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [muted, setMuted] = useState(false);
-  const [pickupCodes, setPickupCodes] = useState<Record<string, string>>({});
-  const [verifying, setVerifying] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState<string | null>(null);
   const seenIds = useRef<Set<string>>(new Set());
   const audioCtxRef = useRef<AudioContext | null>(null);
   const initialLoadDone = useRef(false);
@@ -107,19 +107,31 @@ export default function MerchantOrdersPage() {
   const accept = async (id: string) => { await api.merchant.acceptOrder(id); toast.success("Order accepted — waiting for rider"); refresh(); };
   const handToRider = async (id: string) => { await api.merchant.handToRider(id); toast.success("Handed to rider · on the way"); refresh(); };
 
-  const verifyPickup = async (oid: string) => {
-    const code = (pickupCodes[oid] || "").trim();
-    if (code.length !== 4) { toast.error("Enter the 4-digit code the customer shows you"); return; }
-    setVerifying(oid);
+  const confirmPickup = async (oid: string) => {
+    setConfirming(oid);
     try {
-      await apiClient.post(`/api/merchant/orders/${oid}/verify-pickup`, { code });
+      await apiClient.post(`/api/merchant/orders/${oid}/confirm-pickup`, {});
       toast.success("Pickup confirmed — order marked as delivered");
       refresh();
     } catch (e) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Incorrect code";
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Could not confirm pickup";
       toast.error(msg);
     } finally {
-      setVerifying(null);
+      setConfirming(null);
+    }
+  };
+
+  const cancelPickup = async (oid: string) => {
+    setCancelling(oid);
+    try {
+      await apiClient.post(`/api/merchant/orders/${oid}/cancel-pickup`, {});
+      toast.success("Reservation cancelled");
+      refresh();
+    } catch (e) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Could not cancel reservation";
+      toast.error(msg);
+    } finally {
+      setCancelling(null);
     }
   };
 
@@ -155,7 +167,7 @@ export default function MerchantOrdersPage() {
           <h2 className="font-display text-xl font-bold text-[#1A2B4C] mb-1 flex items-center gap-2">
             <Store size={18} className="text-[#4F7363]" /> Store pickups <span className="text-xs font-normal text-[#595959]">({pickupReservations.length})</span>
           </h2>
-          <p className="text-xs text-[#595959] mb-3">Enter the 4-digit code the customer shows you to confirm pickup.</p>
+          <p className="text-xs text-[#595959] mb-3">When the customer arrives, check their code matches yours, then tap &ldquo;Mark as picked up&rdquo;.</p>
           <div className="space-y-3">
             {pickupReservations.map((o) => {
               const expiresAt = o.pickup_expires_at ? new Date(o.pickup_expires_at) : null;
@@ -181,23 +193,29 @@ export default function MerchantOrdersPage() {
                       <div key={i} className="flex justify-between"><span>{it.name} × {it.qty}{it.size ? ` (${it.size})` : ""}</span><span>₹{(it.price * it.qty).toLocaleString()}</span></div>
                     ))}
                   </div>
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="tel"
-                      maxLength={4}
-                      value={pickupCodes[o.id] || ""}
-                      onChange={(e) => setPickupCodes((prev) => ({ ...prev, [o.id]: e.target.value.replace(/\D/g, "").slice(0, 4) }))}
-                      placeholder="4-digit code"
-                      data-testid={`pickup-code-input-${o.id}`}
-                      className="flex-1 px-4 py-3 rounded-full border-2 border-[#E5E2DC] text-center text-xl font-mono tracking-widest outline-none focus:border-[#4F7363]"
-                    />
+                  {(o as any).pickup_code && (
+                    <div className="bg-[#0A1F5C] rounded-2xl p-4 text-center mb-4">
+                      <div className="text-[10px] uppercase tracking-widest text-white/60 mb-1">Customer shows this code</div>
+                      <div data-testid={`pickup-code-${o.id}`} className="font-display text-4xl font-bold tracking-[0.35em] tabular-nums text-[#4F7363]">{(o as any).pickup_code}</div>
+                      <p className="text-xs text-white/50 mt-1">Verify it matches the customer&apos;s screen</p>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
                     <button
-                      onClick={() => verifyPickup(o.id)}
-                      disabled={verifying === o.id}
-                      data-testid={`verify-pickup-${o.id}`}
-                      className="px-5 py-3 rounded-full bg-[#4F7363] text-white font-semibold text-sm hover:bg-[#3a5a4d] disabled:opacity-50 whitespace-nowrap"
+                      onClick={() => confirmPickup(o.id)}
+                      disabled={confirming === o.id || cancelling === o.id}
+                      data-testid={`confirm-pickup-${o.id}`}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#4F7363] text-white font-semibold text-sm hover:bg-[#3a5a4d] disabled:opacity-50"
                     >
-                      {verifying === o.id ? "Verifying…" : "Confirm pickup"}
+                      <CheckCircle2 size={14} /> {confirming === o.id ? "Confirming…" : "Mark as picked up"}
+                    </button>
+                    <button
+                      onClick={() => cancelPickup(o.id)}
+                      disabled={confirming === o.id || cancelling === o.id}
+                      data-testid={`cancel-pickup-${o.id}`}
+                      className="px-4 py-3 rounded-full border border-red-200 text-red-500 font-semibold text-sm hover:bg-red-50 disabled:opacity-50 inline-flex items-center gap-1.5"
+                    >
+                      <X size={14} /> {cancelling === o.id ? "Cancelling…" : "Cancel"}
                     </button>
                   </div>
                 </div>

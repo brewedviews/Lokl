@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type ComponentType } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import Image from "next/image";
@@ -18,11 +18,17 @@ import type { Order, OrderTimelineEntry } from "@/types";
 
 const RETURN_WINDOW_HOURS = 24;
 
-const STEPS = [
+const DELIVERY_STEPS = [
   { key: "placed", label: "Placed", icon: ShoppingBag },
   { key: "confirmed", label: "Confirmed", icon: CheckCircle2 },
   { key: "on_the_way", label: "Out for delivery", icon: Bike },
   { key: "delivered", label: "Delivered", icon: ShieldCheck },
+] as const;
+
+const PICKUP_STEPS = [
+  { key: "reserved", label: "Reserved", icon: ShoppingBag },
+  { key: "at_store", label: "At store", icon: Store },
+  { key: "collected", label: "Collected", icon: ShieldCheck },
 ] as const;
 
 function stepIndexFromStatus(s: string) {
@@ -33,12 +39,13 @@ function stepIndexFromStatus(s: string) {
   return 0;
 }
 
-function ProgressStepper({ status }: { status: string }) {
-  const activeIdx = stepIndexFromStatus(status);
+type StepDef = { key: string; label: string; icon: ComponentType<{ size?: number; strokeWidth?: number }> };
+
+function ProgressStepper({ steps, activeIdx }: { steps: readonly StepDef[]; activeIdx: number }) {
   return (
     <div data-testid="order-stepper" className="relative">
       <div className="flex items-start justify-between gap-1">
-        {STEPS.map((s, i) => {
+        {steps.map((s, i) => {
           const done = i <= activeIdx;
           const Icon = s.icon;
           return (
@@ -202,9 +209,19 @@ export default function OrderTrackingPage() {
               </div>
             )}
           </div>
-          {status !== "cancelled" && !isPickup && (
+          {status !== "cancelled" && (
             <div className="mt-5 sm:mt-6">
-              <ProgressStepper status={status} />
+              {isPickup ? (
+                <ProgressStepper
+                  steps={PICKUP_STEPS}
+                  activeIdx={status === "delivered" ? 2 : 0}
+                />
+              ) : (
+                <ProgressStepper
+                  steps={DELIVERY_STEPS}
+                  activeIdx={stepIndexFromStatus(status)}
+                />
+              )}
             </div>
           )}
         </section>
@@ -294,7 +311,7 @@ export default function OrderTrackingPage() {
                 </div>
                 <div className="font-semibold text-sm text-[#0A1F5C] shrink-0">₹{(it.price * (it.qty || 1)).toLocaleString()}</div>
               </div>
-              {status === "delivered" && (() => {
+              {status === "delivered" && !isPickup && (() => {
                 const pid = it.id;
                 if (!pid) return null;
                 return rated[pid] ? (

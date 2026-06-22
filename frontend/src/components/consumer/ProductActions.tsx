@@ -39,6 +39,7 @@ export function ProductActions({
 
   const [reserving, setReserving] = useState(false);
   const [reservation, setReservation] = useState<{ orderId: string; pickupCode: string; expiresAt: string } | null>(null);
+  const [showPickupSheet, setShowPickupSheet] = useState(false);
 
   const badge = storeBadge ?? product.store_badge ?? "LIVE";
   const opensAt = storeOpensAtLabel ?? product.store_opens_at_label ?? null;
@@ -81,7 +82,6 @@ export function ProductActions({
   };
 
   const handleReservePickup = async () => {
-    if (!isCustomerAuth) { router.push("/account"); return; }
     if (product.sizes?.length && !size) { toast.error("Please pick a size first"); return; }
     setReserving(true);
     try {
@@ -90,7 +90,7 @@ export function ProductActions({
         "/api/orders",
         {
           items: [{ id: product.id, qty: 1, size: size ?? "", price: product.price, name: product.name, store_id: sId, store_name: sName }],
-          address: { name: customerUser?.name || "Customer", line1: "Store Pickup", city: "bhilai", pincode: "490001" },
+          address: {},
           total: product.price,
           payment_method: "COD",
           customer: { name: customerUser?.name || "Customer", phone: customerPhone || "" },
@@ -189,24 +189,87 @@ export function ProductActions({
         </button>
       </div>
 
-      {!isOffline && !reservation && (
+      {!isOffline && (
         <button
-          onClick={() => void handleReservePickup()}
-          disabled={reserving}
+          onClick={() => {
+            if (!isCustomerAuth) { router.push("/account"); return; }
+            setShowPickupSheet(true);
+          }}
           data-testid="reserve-pickup-btn"
-          className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border border-[#0A1F5C]/30 text-[#0A1F5C] text-sm font-semibold hover:bg-[#0A1F5C]/5 disabled:opacity-50 transition whitespace-nowrap"
+          className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border border-[#0A1F5C]/30 text-[#0A1F5C] text-sm font-semibold hover:bg-[#0A1F5C]/5 transition whitespace-nowrap"
         >
-          <Store size={15} /> {reserving ? "Reserving…" : "Reserve for store pickup"}
+          <Store size={15} /> {reservation ? "View pickup code" : "Reserve for store pickup"}
         </button>
       )}
 
-      {reservation && (
-        <div className="mt-3 p-4 bg-[#0A1F5C] text-white rounded-2xl text-center">
-          <div className="text-[10px] uppercase tracking-widest text-white/60 mb-1">Your pickup code</div>
-          <div data-testid="pickup-code-display" className="font-display text-4xl font-bold tracking-[0.3em] tabular-nums text-[#E68910]">{reservation.pickupCode}</div>
-          <p className="text-xs text-white/70 mt-2">Show this code at {sName} to collect your item.</p>
-          <p className="text-[11px] text-white/50 mt-1">Order {reservation.orderId}</p>
-          <a href={`/account/orders/${reservation.orderId}`} className="mt-3 inline-block text-xs text-[#E68910] font-semibold underline">View order details</a>
+      {showPickupSheet && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowPickupSheet(false)} />
+          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6">
+              <div className="w-10 h-1 bg-[#E5E2DC] rounded-full mx-auto mb-5" />
+              {!reservation ? (
+                <>
+                  <h3 className="font-display text-xl font-bold text-[#0A1F5C] mb-1">Reserve for pickup</h3>
+                  <p className="text-sm text-[#595959] mb-4">at <span className="font-semibold text-[#0A1F5C]">{sName}</span></p>
+                  <div className="flex gap-3 p-4 bg-[#FDFBF7] rounded-2xl border border-[#E5E2DC] mb-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-[#0A1F5C] text-sm">{product.name}</div>
+                      <div className="text-[#595959] text-xs mt-0.5">Qty: 1{size ? ` · Size: ${size}` : ""}</div>
+                    </div>
+                    <div className="font-bold text-[#0A1F5C]">₹{Number(product.price).toLocaleString()}</div>
+                  </div>
+                  {product.sizes && product.sizes.length > 0 && (
+                    <div className="mb-4">
+                      <div className="text-xs font-semibold text-[#0A1F5C] mb-2">Size</div>
+                      <div className="flex flex-wrap gap-2">
+                        {product.sizes.map((s) => (
+                          <button key={s} onClick={() => setSize(s)}
+                            className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-slate-200 hover:border-[#0A1F5C]"}`}>
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="bg-[#4F7363]/10 rounded-xl px-4 py-3 text-xs text-[#4F7363] font-medium mb-5">
+                    Your item will be held for 6 hours. No payment now — pay at store.
+                  </div>
+                  <button
+                    onClick={() => void handleReservePickup()}
+                    disabled={reserving || !!(product.sizes?.length && !size)}
+                    data-testid="confirm-reserve-btn"
+                    className="w-full py-3.5 rounded-full bg-[#0A1F5C] text-white font-bold text-sm hover:bg-[#0F1F3D] disabled:opacity-50 transition inline-flex items-center justify-center gap-2"
+                  >
+                    <Store size={15} /> {reserving ? "Reserving…" : "Confirm & Reserve"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="text-center mb-5">
+                    <div className="w-12 h-12 rounded-full bg-[#4F7363]/15 grid place-items-center mx-auto mb-3">
+                      <Store size={22} className="text-[#4F7363]" />
+                    </div>
+                    <h3 className="font-display text-xl font-bold text-[#0A1F5C]">Reserved!</h3>
+                    <p className="text-sm text-[#595959] mt-1">Show this code at <span className="font-semibold">{sName}</span></p>
+                  </div>
+                  <div className="bg-[#0A1F5C] rounded-2xl p-5 text-center mb-4">
+                    <div className="text-[10px] uppercase tracking-widest text-white/60 mb-1">Your pickup code</div>
+                    <div data-testid="pickup-code-display" className="font-display text-5xl font-bold tracking-[0.3em] tabular-nums text-[#E68910]">{reservation.pickupCode}</div>
+                    <p className="text-xs text-white/60 mt-2">Valid for 6 hours · Holds your item at the store</p>
+                  </div>
+                  <a href={`/account/orders/${reservation.orderId}`}
+                    className="block w-full text-center py-3 rounded-full border border-[#0A1F5C] text-[#0A1F5C] font-semibold text-sm mb-3 hover:bg-[#0A1F5C]/5 transition">
+                    View order details
+                  </a>
+                  <button onClick={() => setShowPickupSheet(false)}
+                    className="w-full text-center text-sm text-[#595959] py-2">
+                    Close
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

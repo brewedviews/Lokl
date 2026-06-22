@@ -13,15 +13,6 @@ type Cat = Omit<CategoryNode, "l2"> & { l2?: L2[] };
 
 type SortKey = "nearest" | "price_asc" | "price_desc";
 
-function genderFromL1Slug(slug: string | undefined): string {
-  switch (slug) {
-    case "women": return "women";
-    case "men": return "men";
-    case "kids": return "kids";
-    default: return "";
-  }
-}
-
 function sortProducts(products: ProductCard[], sort: SortKey): ProductCard[] {
   const copy = [...products];
   if (sort === "price_asc") return copy.sort((a, b) => a.price - b.price);
@@ -62,11 +53,10 @@ export function CategoryClient() {
   const [isLoading, setIsLoading] = useState(true);
   const [sort, setSort] = useState<SortKey>("nearest");
   const [l2Filter, setL2Filter] = useState(""); // slug
-  const [gender, setGender] = useState(genderFromL1Slug(slug));
 
   const l1 = useMemo(() => cats.find((c) => c.slug === slug), [cats, slug]);
 
-  useEffect(() => { setGender(genderFromL1Slug(slug)); setL2Filter(""); }, [slug]);
+  useEffect(() => { setL2Filter(""); }, [slug]);
 
   useEffect(() => {
     api.catalog.categories().then((r) => setCats(r as Cat[])).catch(() => {});
@@ -95,7 +85,6 @@ export function CategoryClient() {
     setIsLoading(true);
     const p = new URLSearchParams({ l1: l1.id });
     if (l2FilterId) p.set("l2", l2FilterId);
-    if (gender) p.set("gender", gender);
     if (sort === "price_asc") p.set("sort", "price_asc");
     if (sort === "price_desc") p.set("sort", "price_desc");
     apiClient
@@ -103,7 +92,7 @@ export function CategoryClient() {
       .then((r) => { setAllProducts(Array.isArray(r.data) ? r.data : []); })
       .catch(() => setAllProducts([]))
       .finally(() => setIsLoading(false));
-  }, [l1, l2FilterId, gender, sort]);
+  }, [l1, l2FilterId, sort]);
 
   const products = useMemo(() => sortProducts(allProducts, sort), [allProducts, sort]);
 
