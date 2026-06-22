@@ -271,11 +271,11 @@ export function HomeClient() {
             </HCarousel>
           ))
         : null
-    ) : <StoreRailSkeleton key="store-rail-skeleton" />,
+    ) : <ProductRailSkeleton key="store-rail-skeleton" testid="home-store-rail-skeleton" />,
 
     // Trending products
     new_arrivals: errors.has("recent") ? null
-      : loaded.has("recent") && trending.length >= 3 ? (
+      : loaded.has("recent") && trending.length >= 1 ? (
           <HCarousel key="new-arrivals" title="Trending now" subtitle="What everyone in Bhilai is buying" testid="home-new-arrivals" link="/products?sort=trending" linkLabel="See all">
             {trending.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
           </HCarousel>
@@ -284,7 +284,7 @@ export function HomeClient() {
 
     // Best deals
     best_deals: errors.has("sellingFast") ? null
-      : loaded.has("sellingFast") && bestDeals.length >= 3 ? (
+      : loaded.has("sellingFast") && bestDeals.length >= 1 ? (
           <HCarousel key="best-deals" title="Best deals" subtitle="Top discounts in Bhilai" testid="home-best-deals" link="/products?sort=discount" linkLabel="See all">
             {bestDeals.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
           </HCarousel>
@@ -331,14 +331,14 @@ export function HomeClient() {
 
     // Backward-compat aliases for CMS configs using old section IDs
     selling_fast: errors.has("sellingFast") ? null
-      : loaded.has("sellingFast") && bestDeals.length >= 3 ? (
+      : loaded.has("sellingFast") && bestDeals.length >= 1 ? (
           <HCarousel key="selling-fast-compat" title="Best deals" subtitle="Top discounts in Bhilai" testid="home-selling-fast" link="/products?sort=discount" linkLabel="See all">
             {bestDeals.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
           </HCarousel>
         )
       : !loaded.has("sellingFast") ? <ProductRailSkeleton key="selling-fast-skeleton" testid="home-selling-fast-skeleton" /> : null,
     recently_viewed: errors.has("recent") ? null
-      : loaded.has("recent") && trending.length >= 3 ? (
+      : loaded.has("recent") && trending.length >= 1 ? (
           <HCarousel key="recently-viewed-compat" title="Trending now" subtitle="What everyone in Bhilai is buying" testid="home-recent" link="/products?sort=trending" linkLabel="See all">
             {trending.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
           </HCarousel>
