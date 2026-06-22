@@ -890,7 +890,14 @@ async def feed_trending(limit: int = 12):
 async def feed_home_products():
     """Single aggregated endpoint: store rails + trending + best deals.
     Replaces 4+ separate product feed calls on the homepage."""
-    avail_map = await _availability_map()
+    # Broader filter than _visibility_store_filter(): only require kyc approved.
+    # published/paused/online affect availability rank, not visibility here.
+    stores_raw = await db.stores.find(
+        {"kyc_status": "approved", "is_deleted": {"$ne": True}},
+        {"_id": 0, "id": 1, "online": 1, "last_seen_at": 1,
+         "opens_at": 1, "closes_at": 1, "weekly_off": 1},
+    ).to_list(200)
+    avail_map = {s["id"]: _store_availability(s) for s in stores_raw}
     sids = list(avail_map.keys())
     if not sids:
         return {"store_rails": [], "trending": [], "best_deals": []}

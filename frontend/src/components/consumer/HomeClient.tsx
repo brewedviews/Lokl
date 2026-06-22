@@ -98,6 +98,18 @@ export function HomeClient() {
       setStoreRails(data.store_rails || []);
       setTrending(data.trending || []);
       setBestDeals(data.best_deals || []);
+
+      // Fallback: if home-products returned nothing, try direct products endpoint
+      if (!data.trending?.length && !data.store_rails?.length) {
+        apiClient.get<{ products?: ProductCard[] }>("/api/products?limit=16").then((r2) => {
+          const products = r2.data?.products || [];
+          if (products.length > 0) {
+            setTrending(products.slice(0, 8));
+            setBestDeals(products.slice(8, 16));
+          }
+        }).catch(() => {});
+      }
+
       markLoaded("storeRails");
       markLoaded("sellingFast");
       markLoaded("recent");
