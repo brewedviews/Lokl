@@ -51,6 +51,29 @@ function playLoudPing(ctxRef: AudioCtxRef) {
 }
 
 type OrderEx = Order & { my_state?: string; my_otp?: string; merchant_subtotal?: number; return_status?: string; is_multi_store?: boolean };
+type ItemEx = Order["items"][number] & { image?: string };
+
+function formatCountdown(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return "Expired";
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function PickupTimer({ expiresAt }: { expiresAt: string }) {
+  const [label, setLabel] = useState(() => formatCountdown(expiresAt));
+  useEffect(() => {
+    const t = setInterval(() => setLabel(formatCountdown(expiresAt)), 30000);
+    return () => clearInterval(t);
+  }, [expiresAt]);
+  const expired = label === "Expired";
+  return (
+    <span className={`text-xs font-semibold tabular-nums ${expired ? "text-red-500" : "text-[#595959]"}`}>
+      {expired ? "Expired" : `${label} left`}
+    </span>
+  );
+}
 
 export default function MerchantOrdersPage() {
   const [orders, setOrders] = useState<OrderEx[]>([]);
@@ -59,6 +82,7 @@ export default function MerchantOrdersPage() {
   const [muted, setMuted] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const [previewProduct, setPreviewProduct] = useState<{ name: string; image: string } | null>(null);
   const seenIds = useRef<Set<string>>(new Set());
   const audioCtxRef = useRef<AudioContext | null>(null);
   const initialLoadDone = useRef(false);
@@ -162,50 +186,75 @@ export default function MerchantOrdersPage() {
         </div>
       </div>
 
+      {previewProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setPreviewProduct(null)}>
+          <div className="absolute inset-0 bg-black/70" />
+          <div className="relative bg-white rounded-2xl overflow-hidden shadow-2xl max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setPreviewProduct(null)} className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60">
+              <X size={14} />
+            </button>
+            <img src={previewProduct.image} alt={previewProduct.name} className="w-full aspect-[3/4] object-cover" />
+            <div className="p-3 text-sm font-semibold text-[#1A2B4C]">{previewProduct.name}</div>
+          </div>
+        </div>
+      )}
+
       {pickupReservations.length > 0 && (
         <section className="mb-10" data-testid="pickup-reservations">
           <h2 className="font-display text-xl font-bold text-[#1A2B4C] mb-1 flex items-center gap-2">
             <Store size={18} className="text-[#4F7363]" /> Store pickups <span className="text-xs font-normal text-[#595959]">({pickupReservations.length})</span>
           </h2>
-          <p className="text-xs text-[#595959] mb-3">When the customer arrives, check their code matches yours, then tap &ldquo;Mark as picked up&rdquo;.</p>
+          <p className="text-xs text-[#595959] mb-3">When the customer arrives, check their code matches yours, then confirm.</p>
           <div className="space-y-3">
             {pickupReservations.map((o) => {
-              const expiresAt = o.pickup_expires_at ? new Date(o.pickup_expires_at) : null;
-              const minutesLeft = expiresAt ? Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 60000)) : null;
               return (
-                <div key={o.id} data-testid={`pickup-${o.id}`} className="bg-white border-2 border-[#4F7363]/40 rounded-2xl p-5">
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                    <div>
-                      <div className="font-display text-lg font-bold text-[#1A2B4C]">{o.id}</div>
-                      <div className="text-xs text-[#595959]">{new Date(o.created_at).toLocaleString()}</div>
+                <div key={o.id} data-testid={`pickup-${o.id}`} className="bg-white border border-[#4F7363]/40 rounded-2xl overflow-hidden">
+                  {/* Header row */}
+                  <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[#E5E2DC]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-semibold text-sm text-[#1A2B4C] truncate">{o.id}</span>
+                      <span className="shrink-0 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-[#4F7363]/10 text-[#4F7363]">Pickup</span>
                     </div>
-                    <div className="text-right">
-                      <div className="font-display text-2xl font-bold text-[#4F7363]">₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</div>
-                      {minutesLeft !== null && (
-                        <div className={`text-xs font-semibold ${minutesLeft < 30 ? "text-red-500" : "text-[#595959]"}`}>
-                          {minutesLeft}m left to collect
+                    <div className="flex items-center gap-3 shrink-0">
+                      {(o as any).pickup_expires_at && <PickupTimer expiresAt={(o as any).pickup_expires_at} />}
+                      <span className="font-bold text-sm text-[#1A2B4C]">₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</span>
+                    </div>
+                  </div>
+                  {/* Product thumbnails */}
+                  <div className="flex gap-2 px-4 py-3 overflow-x-auto no-scrollbar">
+                    {o.items.map((it, i) => {
+                      const itEx = it as ItemEx;
+                      return (
+                        <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1">
+                          <button
+                            onClick={() => itEx.image ? setPreviewProduct({ name: itEx.name, image: itEx.image }) : undefined}
+                            className={`w-14 h-16 rounded-xl overflow-hidden border border-[#E5E2DC] bg-[#F5F4F0] ${itEx.image ? "cursor-pointer hover:opacity-90" : "cursor-default"}`}
+                          >
+                            {itEx.image ? (
+                              <img src={itEx.image} alt={itEx.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full" />
+                            )}
+                          </button>
+                          <span className="text-[10px] text-[#595959] max-w-[56px] text-center truncate">×{it.qty}{it.size ? ` ${it.size}` : ""}</span>
                         </div>
-                      )}
-                    </div>
+                      );
+                    })}
                   </div>
-                  <div className="space-y-1 mb-4 text-sm">
-                    {o.items.map((it, i) => (
-                      <div key={i} className="flex justify-between"><span>{it.name} × {it.qty}{it.size ? ` (${it.size})` : ""}</span><span>₹{(it.price * it.qty).toLocaleString()}</span></div>
-                    ))}
-                  </div>
+                  {/* Pickup code */}
                   {(o as any).pickup_code && (
-                    <div className="bg-[#0A1F5C] rounded-2xl p-4 text-center mb-4">
-                      <div className="text-[10px] uppercase tracking-widest text-white/60 mb-1">Customer shows this code</div>
-                      <div data-testid={`pickup-code-${o.id}`} className="font-display text-4xl font-bold tracking-[0.35em] tabular-nums text-[#4F7363]">{(o as any).pickup_code}</div>
-                      <p className="text-xs text-white/50 mt-1">Verify it matches the customer&apos;s screen</p>
+                    <div className="mx-4 mb-3 bg-[#0A1F5C] rounded-xl px-4 py-3 text-center">
+                      <div className="text-[9px] uppercase tracking-widest text-white/50 mb-0.5">Customer code</div>
+                      <div data-testid={`pickup-code-${o.id}`} className="font-display text-3xl font-bold tracking-[0.35em] tabular-nums text-[#4F7363]">{(o as any).pickup_code}</div>
                     </div>
                   )}
-                  <div className="flex gap-2">
+                  {/* Actions */}
+                  <div className="flex gap-2 px-4 pb-4">
                     <button
                       onClick={() => confirmPickup(o.id)}
                       disabled={confirming === o.id || cancelling === o.id}
                       data-testid={`confirm-pickup-${o.id}`}
-                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#4F7363] text-white font-semibold text-sm hover:bg-[#3a5a4d] disabled:opacity-50"
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full bg-[#4F7363] text-white font-semibold text-sm hover:bg-[#3a5a4d] disabled:opacity-50"
                     >
                       <CheckCircle2 size={14} /> {confirming === o.id ? "Confirming…" : "Mark as picked up"}
                     </button>
@@ -213,7 +262,7 @@ export default function MerchantOrdersPage() {
                       onClick={() => cancelPickup(o.id)}
                       disabled={confirming === o.id || cancelling === o.id}
                       data-testid={`cancel-pickup-${o.id}`}
-                      className="px-4 py-3 rounded-full border border-red-200 text-red-500 font-semibold text-sm hover:bg-red-50 disabled:opacity-50 inline-flex items-center gap-1.5"
+                      className="px-4 py-2.5 rounded-full border border-red-200 text-red-500 font-semibold text-sm hover:bg-red-50 disabled:opacity-50 inline-flex items-center gap-1.5"
                     >
                       <X size={14} /> {cancelling === o.id ? "Cancelling…" : "Cancel"}
                     </button>

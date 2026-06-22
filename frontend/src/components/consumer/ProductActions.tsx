@@ -233,7 +233,7 @@ export function ProductActions({
                     </div>
                   )}
                   <div className="bg-[#4F7363]/10 rounded-xl px-4 py-3 text-xs text-[#4F7363] font-medium mb-5">
-                    Your item will be held for 6 hours. No payment now — pay at store.
+                    Your item will be held for 4 hours. No payment now — pay at store.
                   </div>
                   <button
                     onClick={() => void handleReservePickup()}
@@ -256,7 +256,7 @@ export function ProductActions({
                   <div className="bg-[#0A1F5C] rounded-2xl p-5 text-center mb-4">
                     <div className="text-[10px] uppercase tracking-widest text-white/60 mb-1">Your pickup code</div>
                     <div data-testid="pickup-code-display" className="font-display text-5xl font-bold tracking-[0.3em] tabular-nums text-[#E68910]">{reservation.pickupCode}</div>
-                    <p className="text-xs text-white/60 mt-2">Valid for 6 hours · Holds your item at the store</p>
+                    <p className="text-xs text-white/60 mt-2">Valid for 4 hours · Holds your item at the store</p>
                   </div>
                   <a href={`/account/orders/${reservation.orderId}`}
                     className="block w-full text-center py-3 rounded-full border border-[#0A1F5C] text-[#0A1F5C] font-semibold text-sm mb-3 hover:bg-[#0A1F5C]/5 transition">

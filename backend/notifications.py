@@ -437,7 +437,7 @@ def notify_pickup_reserved(customer_phone: str, order_id: str, store_name: str,
         exp_dt = datetime.fromisoformat(expires_at_iso.replace("Z", "+00:00"))
         exp_str = exp_dt.strftime("%-I:%M %p")
     except Exception:
-        exp_str = "6 hours"
+        exp_str = "4 hours"
     map_line = f"\n📍 Store location: {maps_link}" if maps_link else ""
     body = (
         f"Your Lokl store pickup is confirmed!\n\n"
@@ -459,7 +459,7 @@ def notify_merchant_pickup_reserved(merchant_phone: str, order_id: str,
         exp_dt = datetime.fromisoformat(expires_at_iso.replace("Z", "+00:00"))
         exp_str = exp_dt.strftime("%-I:%M %p")
     except Exception:
-        exp_str = "6 hours from now"
+        exp_str = "4 hours from now"
     body = (
         f"Store pickup reserved — #{short}\n\n"
         f"{items_count} item(s) reserved for in-store pickup.\n"

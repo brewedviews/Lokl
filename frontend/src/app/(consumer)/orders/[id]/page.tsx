@@ -70,6 +70,23 @@ function ProgressStepper({ steps, activeIdx }: { steps: readonly StepDef[]; acti
   );
 }
 
+function formatPickupCountdown(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return "Expired";
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")} left`;
+}
+
+function PickupTimer({ expiresAt, className }: { expiresAt: string; className?: string }) {
+  const [label, setLabel] = useState(() => formatPickupCountdown(expiresAt));
+  useEffect(() => {
+    const t = setInterval(() => setLabel(formatPickupCountdown(expiresAt)), 30000);
+    return () => clearInterval(t);
+  }, [expiresAt]);
+  return <span className={className}>{label}</span>;
+}
+
 export default function OrderTrackingPage() {
   const { id } = useParams<{ id: string }>();
   const [order, setOrder] = useState<Order | null>(null);
@@ -159,14 +176,13 @@ export default function OrderTrackingPage() {
   const isPickup = order.order_type === "pickup";
   const pickupCode = order.pickup_code;
   const pickupExpiresAt = order.pickup_expires_at;
+  const pickupStoreName = (order as Record<string, unknown>).store_name as string | undefined;
+  const pickupStoreAddress = (order as Record<string, unknown>).store_address as string | undefined;
+  const pickupMapsLink = (order as Record<string, unknown>).maps_link as string | undefined;
   const showOtp = !order.is_multi_store && status === "on_the_way" && order.otp;
   const address = order.address;
   const isDeliveredLike = status === "delivered" || status === "returned";
   const isCancelledLike = status === "cancelled";
-
-  const minutesLeft = pickupExpiresAt
-    ? Math.max(0, Math.floor((new Date(pickupExpiresAt).getTime() - Date.now()) / 60000))
-    : null;
 
   const title =
     isPickup && status === "reserved" ? "Ready for pickup" :
@@ -176,7 +192,7 @@ export default function OrderTrackingPage() {
     status === "returned" ? "Returned" :
     "Order confirmed";
   const subtitle =
-    isPickup && status === "reserved" ? "Show the code below at the store. Your reservation is held for 6 hours."
+    isPickup && status === "reserved" ? "Show the code below at the store. Your reservation is held for 4 hours."
     : status === "delivered" ? "Hope you love it. Return-eligible items can be returned within 24 hours."
     : status === "on_the_way" ? "Your order is en-route. Share the OTP with the rider on arrival."
     : status === "cancelled" ? "This order was cancelled."
@@ -241,11 +257,34 @@ export default function OrderTrackingPage() {
             </div>
             <div data-testid="pickup-code-display" className="font-display text-4xl sm:text-6xl font-bold tracking-[0.3em] tabular-nums text-[#4F7363] mt-1">{pickupCode}</div>
             <p className="text-[11px] sm:text-xs text-white/70 mt-2">Show this code to the store staff when you arrive.</p>
-            {minutesLeft !== null && (
-              <p className={`text-xs font-semibold mt-1.5 ${minutesLeft < 30 ? "text-red-400" : "text-white/50"}`}>
-                {minutesLeft > 0 ? `${minutesLeft} minutes left to collect` : "Reservation has expired"}
-              </p>
+            {pickupExpiresAt && (
+              <PickupTimer expiresAt={pickupExpiresAt} className="text-xs font-semibold mt-1.5 text-white/50" />
             )}
+          </section>
+        )}
+
+        {isPickup && (pickupStoreName || pickupStoreAddress || pickupMapsLink) && (
+          <section data-testid="pickup-store-location" className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[#4F7363]/10 text-[#4F7363] grid place-items-center shrink-0">
+                <Store size={16} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-[#64748B]">Store location</div>
+                {pickupStoreName && <div className="text-sm font-semibold text-[#0A1F5C] mt-0.5">{pickupStoreName}</div>}
+                {pickupStoreAddress && <div className="text-sm text-[#64748B] mt-0.5">{pickupStoreAddress}</div>}
+                {pickupMapsLink && (
+                  <a
+                    href={pickupMapsLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 mt-2 text-xs font-semibold text-[#4F7363] hover:underline"
+                  >
+                    <MapPin size={12} /> Get directions
+                  </a>
+                )}
+              </div>
+            </div>
           </section>
         )}
 
@@ -336,21 +375,23 @@ export default function OrderTrackingPage() {
           </div>
         </section>
 
-        <section data-testid="bill-summary" className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <Receipt size={16} className="text-[#0A1F5C]" />
-            <h2 className="font-display text-base sm:text-lg font-bold text-[#0A1F5C]">Bill summary</h2>
-          </div>
-          <div className="text-sm space-y-2">
-            <div className="flex items-baseline justify-between"><span className="text-[#64748B]">Item total</span><span className="text-[#0A1F5C] font-medium">₹{subtotal.toLocaleString()}</span></div>
-            <div className="flex items-baseline justify-between"><span className="text-[#64748B]">Delivery fee</span><span className="text-emerald-700 font-semibold">FREE</span></div>
-          </div>
-          <div className="border-t border-[#E5E2DC] mt-3 pt-3 flex items-baseline justify-between">
-            <span className="text-sm font-semibold text-[#0A1F5C]">Total paid</span>
-            <span className="font-display text-xl font-bold text-[#0A1F5C]">₹{total.toLocaleString()}</span>
-          </div>
-          <p className="text-[11px] text-[#64748B] mt-2">Paid via {(order.payment_method || "COD").replace(/_/g, " ")}.</p>
-        </section>
+        {!isPickup && (
+          <section data-testid="bill-summary" className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm">
+            <div className="flex items-center gap-2 mb-3">
+              <Receipt size={16} className="text-[#0A1F5C]" />
+              <h2 className="font-display text-base sm:text-lg font-bold text-[#0A1F5C]">Bill summary</h2>
+            </div>
+            <div className="text-sm space-y-2">
+              <div className="flex items-baseline justify-between"><span className="text-[#64748B]">Item total</span><span className="text-[#0A1F5C] font-medium">₹{subtotal.toLocaleString()}</span></div>
+              <div className="flex items-baseline justify-between"><span className="text-[#64748B]">Delivery fee</span><span className="text-emerald-700 font-semibold">FREE</span></div>
+            </div>
+            <div className="border-t border-[#E5E2DC] mt-3 pt-3 flex items-baseline justify-between">
+              <span className="text-sm font-semibold text-[#0A1F5C]">Total paid</span>
+              <span className="font-display text-xl font-bold text-[#0A1F5C]">₹{total.toLocaleString()}</span>
+            </div>
+            <p className="text-[11px] text-[#64748B] mt-2">Paid via {(order.payment_method || "COD").replace(/_/g, " ")}.</p>
+          </section>
+        )}
 
         <a
           href="mailto:hello@shoplokl.in"
