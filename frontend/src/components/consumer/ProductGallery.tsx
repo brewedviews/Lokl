@@ -17,10 +17,10 @@ export function ProductGallery({
   const next = () => setImgIdx((i) => (i + 1) % images.length);
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
+    touchStartX.current = e.touches[0]?.clientX ?? touchStartX.current;
   };
   const handleTouchEnd = (e: React.TouchEvent) => {
-    touchEndX.current = e.changedTouches[0].clientX;
+    touchEndX.current = e.changedTouches[0]?.clientX ?? touchEndX.current;
     const diff = touchStartX.current - touchEndX.current;
     if (Math.abs(diff) > 40) {
       if (diff > 0) next();
