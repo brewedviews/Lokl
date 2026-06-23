@@ -310,7 +310,7 @@ export function HomeClient() {
         </div>
         <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 sm:px-8 max-w-7xl mx-auto pb-1">
           {storesRail.map((s) => (
-            <Link key={s.id} href={`/store/${(s as any).slug}`}
+            <Link key={s.id} href={`/store/${(s as any).slug || s.id}`}
               className="flex-shrink-0 w-36 bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden hover:shadow-sm transition active:scale-95">
               <div className="relative h-20 bg-[#E5E2DC]">
                 {((s as any).banner || (Array.isArray((s as any).banners) && (s as any).banners[0]) || s.image || s.logo) ? (

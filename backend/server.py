@@ -418,6 +418,15 @@ async def me(user: dict = Depends(get_current_user)):
 import re as _re
 
 
+def _slugify(name: str) -> str:
+    """Convert a store name to a URL-safe slug."""
+    s = name.lower().strip()
+    s = _re.sub(r"[^\w\s-]", "", s)
+    s = _re.sub(r"[\s_]+", "-", s)
+    s = _re.sub(r"-+", "-", s)
+    return s.strip("-")
+
+
 def _normalize_customer_phone(raw: str) -> Optional[str]:
     """Convert any common Indian phone format to a 12-digit E.164 string
     (e.g. '919998887776'). Returns None if the input isn't 10/11/12 digits."""
@@ -2266,8 +2275,13 @@ async def feed_delivery_status():
 
 @api.get("/stores/{store_id}")
 async def get_store(store_id: str):
-    s = await db.stores.find_one({"id": store_id, **_visible_store_filter()}, {"_id": 0})
+    s = await db.stores.find_one(
+        {"$or": [{"slug": store_id}, {"id": store_id}], **_visible_store_filter()},
+        {"_id": 0},
+    )
     if not s: raise HTTPException(404, "Store not found")
+    # Resolve the actual store id for subsequent product query
+    store_id = s["id"]
     avail = _store_availability(s)
     s["badge"] = avail["badge"]
     s["badge_color"] = avail["badge_color"]
@@ -3415,6 +3429,8 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_
     if existing:
         for k in ("published", "paused", "product_count", "created_at"):
             if k in existing: store_doc[k] = existing[k]
+    # Preserve existing slug; generate from store name on first save.
+    store_doc["slug"] = (existing or {}).get("slug") or _slugify(m["store_name"]) or store_id
     await db.stores.update_one({"id": store_id}, {"$set": store_doc}, upsert=True)
     await db.merchants.update_one({"id": user["sub"]}, {"$set": {"storefront": store_doc}})
     return {"ok": True, "store": store_doc}
@@ -5257,6 +5273,24 @@ async def _auto_cancel_stale_orders():
         await _asyncio.sleep(300)  # check every 5 minutes
 
 
+async def fix_store_slugs(database):
+    """Backfill slug field for any stores that don't have one."""
+    stores = await database.stores.find(
+        {"$or": [{"slug": {"$exists": False}}, {"slug": ""}, {"slug": None}]},
+        {"_id": 1, "id": 1, "name": 1},
+    ).to_list(1000)
+    for s in stores:
+        name = s.get("name") or s.get("id") or "store"
+        slug = _re.sub(r"[^\w\s-]", "", name.lower().strip())
+        slug = _re.sub(r"[\s_]+", "-", slug)
+        slug = _re.sub(r"-+", "-", slug).strip("-")
+        if not slug:
+            slug = s.get("id", "store")
+        await database.stores.update_one({"_id": s["_id"]}, {"$set": {"slug": slug}})
+    if stores:
+        log.info("[startup] Backfilled slugs for %d stores", len(stores))
+
+
 async def fix_paused_products(database):
     """One-time repair: unpause all products that have valid data."""
     r1 = await database.products.update_many(
@@ -5300,6 +5334,12 @@ async def startup_seed():
         await fix_paused_products(db)
     except Exception as e:
         log.warning("fix_paused_products skipped: %s", e)
+
+    # Backfill slug field for stores that don't have one.
+    try:
+        await fix_store_slugs(db)
+    except Exception as e:
+        log.warning("fix_store_slugs skipped: %s", e)
 
     # Auto-apply pending Mongo migrations (indexes + $jsonSchema validators +
     # soft-delete backfill). Idempotent — completed versions are skipped.

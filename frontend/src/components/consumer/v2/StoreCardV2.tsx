@@ -37,7 +37,7 @@ export function StoreCardV2({ s }: { s: AnyStore }) {
   });
   return (
     <Link
-      href={`/store/${s.id}`}
+      href={`/store/${s.slug || s.id}`}
       data-testid={`store-card-${s.id}`}
       className="group block bg-white rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] hover:shadow-[0_8px_24px_rgba(10,31,92,0.12)] transition active:scale-[0.99]"
     >
