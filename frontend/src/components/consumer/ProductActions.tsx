@@ -39,7 +39,7 @@ export function ProductActions({
         product_id: product.id,
         product_name: product.name,
         price: product.price,
-        mrp: product.mrp,
+        mrp: product.mrp ?? undefined,
         category: (product as any).l1_id,
       });
     } catch {}
