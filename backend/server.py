@@ -2277,6 +2277,17 @@ async def feed_delivery_status():
     return {"status": "closed", "label": "CLOSED", "eta_label": "tomorrow", "message": "Opens"}
 
 
+@api.get("/delivery/check-serviceability")
+async def check_serviceability(lat: float, lng: float):
+    """Check if a location is within the Bhilai delivery zone."""
+    in_zone = _is_in_bhilai_delivery_zone(lat, lng)
+    return {
+        "serviceable": in_zone,
+        "message": "We deliver here!" if in_zone else "Sorry, we don't deliver to this location yet. We're expanding soon!",
+        "zone": "Bhilai" if in_zone else None,
+    }
+
+
 @api.get("/stores/{store_id}")
 async def get_store(store_id: str):
     s = await db.stores.find_one(
@@ -2398,6 +2409,37 @@ async def get_product(pid: str):
 
 # ===== Orders =====
 SERVICEABLE_CITIES = ["bhilai"]
+BHILAI_PINCODES = {"490001", "490006", "490009", "490020", "490023", "490025", "490026"}
+
+# Bhilai delivery zone polygon — [lat, lng] vertices in order
+BHILAI_DELIVERY_POLYGON = [
+    [21.181171, 81.304172],  # A
+    [21.196210, 81.306039],  # B
+    [21.200802, 81.320573],  # C
+    [21.206586, 81.313630],  # D
+    [21.211084, 81.308707],  # E
+    [21.223536, 81.319850],  # F
+    [21.208805, 81.377901],  # G
+    [21.197012, 81.383133],  # H
+    [21.152275, 81.342198],  # I
+    [21.174136, 81.300888],  # J
+]
+
+def _point_in_polygon(lat: float, lng: float, polygon: list) -> bool:
+    """Ray casting algorithm — returns True if point (lat, lng) is inside polygon."""
+    n = len(polygon)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = polygon[i][1], polygon[i][0]  # lng=x, lat=y
+        xj, yj = polygon[j][1], polygon[j][0]
+        if ((yi > lng) != (yj > lng)) and (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+def _is_in_bhilai_delivery_zone(lat: float, lng: float) -> bool:
+    return _point_in_polygon(lat, lng, BHILAI_DELIVERY_POLYGON)
 
 # ---------- Multi-merchant state helpers ----------
 _STATE_RANK = {"pending": 0, "accepted": 1, "handed_off": 2, "delivered": 3}
@@ -2608,9 +2650,21 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         if addr_city not in SERVICEABLE_CITIES:
             raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
         addr_pincode = str(payload.address.get("pincode") or "").strip()
-        _BHILAI_PINCODES = {"490001", "490006", "490009", "490020", "490023"}
-        if addr_pincode and addr_pincode not in _BHILAI_PINCODES:
+        if addr_pincode and addr_pincode not in BHILAI_PINCODES:
             raise HTTPException(400, "We only deliver to Bhilai pincodes (490xxx). Please check your pincode.")
+        c_lat = payload.customer_lat
+        c_lng = payload.customer_lng
+        if c_lat and c_lng:
+            try:
+                if not _is_in_bhilai_delivery_zone(float(c_lat), float(c_lng)):
+                    raise HTTPException(
+                        400,
+                        "Sorry, we don't deliver to your location yet. Lokl currently delivers within Bhilai only."
+                    )
+            except HTTPException:
+                raise
+            except Exception:
+                pass
 
     # Pre-check store availability before any stock reservations.
     # Pickup: block Away (rank 2) and Offline (rank≥4); compute dynamic window.

@@ -67,6 +67,20 @@ export default function CheckoutPage() {
   const [couponResult, setCouponResult] = useState<{ code: string; discount_amount: number; description: string } | null>(null);
   const [couponError, setCouponError] = useState("");
   const [couponLoading, setCouponLoading] = useState(false);
+  const [unserviceable, setUnserviceable] = useState(false);
+  const [unserviceableMessage, setUnserviceableMessage] = useState("");
+
+  useEffect(() => {
+    if (!customerLat || !customerLng) return;
+    apiClient.get(`/api/delivery/check-serviceability?lat=${customerLat}&lng=${customerLng}`)
+      .then((r: any) => {
+        if (!r.data.serviceable) {
+          setUnserviceable(true);
+          setUnserviceableMessage(r.data.message);
+        }
+      })
+      .catch(() => {});
+  }, [customerLat, customerLng]);
 
   useEffect(() => {
     if (items.length === 0) return;
@@ -285,6 +299,12 @@ export default function CheckoutPage() {
     <div className="min-h-screen bg-[#FDFBF7]">
       <div className="max-w-5xl mx-auto px-4 md:px-8 py-10 grid md:grid-cols-3 gap-8">
         <div className="md:col-span-2 space-y-6">
+          {unserviceable && (
+            <div className="mx-4 mb-4 p-4 bg-red-50 border border-red-200 rounded-2xl">
+              <p className="font-semibold text-red-700 text-sm">Area not serviceable</p>
+              <p className="text-red-600 text-xs mt-1">{unserviceableMessage}</p>
+            </div>
+          )}
           {savedAddresses.length > 0 && (
             <div className="bg-white rounded-2xl p-5 border border-[#E5E2DC]" data-testid="saved-addresses">
               <h3 className="text-[11px] uppercase tracking-widest text-[#595959] mb-3">Deliver to</h3>
@@ -478,7 +498,7 @@ export default function CheckoutPage() {
             <span>Total</span>
             <span className="text-[#1A2B4C]" data-testid="grand-total">₹{grandTotal.toLocaleString()}</span>
           </div>
-          <button onClick={place} disabled={placing || !canPay} data-testid="place-order-btn"
+          <button onClick={place} disabled={placing || !canPay || unserviceable} data-testid="place-order-btn"
             className="w-full mt-5 px-6 py-3.5 rounded-full bg-[#E68910] text-white font-semibold hover:bg-[#C9770E] disabled:opacity-50 transition inline-flex items-center justify-center gap-2">
             {placing ? <><Loader2 size={14} className="animate-spin" /> Placing…</> : "Place order"}
           </button>

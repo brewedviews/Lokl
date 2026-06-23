@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { Heart, ShoppingBag, Share2, Bell, CheckCircle2, Store } from "lucide-react";
 import { toast } from "sonner";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
+import { useLocationStore } from "@/stores/location.store";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import type { Product } from "@/types";
@@ -31,7 +32,17 @@ export function ProductActions({
   const customerPhone = useCustomerAuthStore((s) => s.phone);
   const customerUser = useCustomerAuthStore((s) => s.user);
   const isCustomerAuth = useCustomerAuthStore((s) => s.isAuthenticated);
+  const lat = useLocationStore((s) => s.lat);
+  const lng = useLocationStore((s) => s.lng);
   const [size, setSize] = useState<string | null>(product.sizes?.[0] || null);
+  const [outsideZone, setOutsideZone] = useState(false);
+
+  useEffect(() => {
+    if (!lat || !lng) return;
+    apiClient.get(`/api/delivery/check-serviceability?lat=${lat}&lng=${lng}`)
+      .then((r: any) => { if (!r.data.serviceable) setOutsideZone(true); })
+      .catch(() => {});
+  }, [lat, lng]);
 
   useEffect(() => {
     try {
@@ -219,6 +230,12 @@ export function ProductActions({
           <Share2 size={16} />
         </button>
       </div>
+
+      {outsideZone && (
+        <p className="text-center text-xs text-red-500 mt-2">
+          Delivery not available at your location. Try store pickup instead.
+        </p>
+      )}
 
       {!isOffline && (
         <button
