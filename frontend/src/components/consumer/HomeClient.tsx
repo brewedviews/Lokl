@@ -28,7 +28,6 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { HeroV2 } from "@/components/consumer/v2/HeroV2";
-import { OffersStrip } from "@/components/consumer/v2/OffersStrip";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
@@ -37,7 +36,7 @@ import { Skeleton, ProductCardSkeleton, StoreCardSkeleton } from "@/components/u
 import { useLocationStore } from "@/stores";
 import type { ProductCard, StoreCard, CategoryNode } from "@/types";
 
-interface OfferDoc { id: string; title: string; subtitle?: string; image?: string; cta_label?: string; cta_link?: string; background?: string }
+interface OfferDoc { id: string; title: string; subtitle?: string; description?: string; code?: string; image?: string; cta_label?: string; cta_link?: string; background?: string }
 interface TestimonialDoc { id: string; name: string; city: string; quote?: string; message?: string; rating?: number; avatar?: string }
 interface HomeStatsDoc { fastest_eta_min?: number }
 interface HeroConfigDoc { image?: string; eyebrow?: string; title_line1?: string; title_line2?: string; subtitle?: string }
@@ -54,6 +53,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "best_deals",     label: "Best deals",                enabled: true, rank: 30 },
   { id: "offers",         label: "Offers for you",            enabled: true, rank: 40 },
   { id: "stores",         label: "Popular stores",            enabled: true, rank: 50 },
+  { id: "merchant_cta",  label: "Open a store",              enabled: true, rank: 55 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: true, rank: 70 },
 ];
 
@@ -294,7 +294,36 @@ export function HomeClient() {
     offers: errors.has("offers") ? (
       <SectionError key="offers-error" minHeight="min-h-[120px]" />
     ) : loaded.has("offers") && offers.length > 0 ? (
-      <OffersStrip key="offers" offers={offers} />
+      <div key="offers" className="py-3">
+        <div className="px-4 md:px-8 mb-2 flex items-center justify-between">
+          <h3 className="font-display font-bold text-[#1A2B4C] text-base">Offers for you</h3>
+        </div>
+        <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 md:px-8 pb-1">
+          {offers.slice(0, 6).map((offer) => (
+            <div
+              key={offer.id}
+              className="flex-shrink-0 w-64 bg-white border border-[#E5E2DC] rounded-xl overflow-hidden flex"
+            >
+              <div className="w-1 bg-[#E68910] flex-shrink-0" />
+              <div className="px-3 py-3 flex-1 min-w-0">
+                <p className="font-bold text-[#1A2B4C] text-sm truncate">
+                  {offer.title || offer.subtitle}
+                </p>
+                {(offer.description || offer.subtitle) && (
+                  <p className="text-xs text-[#595959] mt-0.5 truncate">
+                    {offer.description || offer.subtitle}
+                  </p>
+                )}
+                {offer.code && (
+                  <span className="inline-block mt-1.5 text-[10px] font-bold font-mono bg-[#FFF4E6] text-[#E68910] px-2 py-0.5 rounded-full border border-[#E68910]/30">
+                    {offer.code}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
 
     stores: errors.has("popularStores") && !storesRail.length ? (
@@ -326,6 +355,33 @@ export function HomeClient() {
         </div>
       </section>
     ) : !storesReady ? <StoreRailSkeleton key="stores-skeleton" /> : null,
+
+    merchant_cta: (
+      <a
+        key="merchant-cta"
+        href="https://lokl.shop"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block mx-4 md:mx-8 my-3"
+      >
+        <div className="bg-[#1A2B4C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-white font-bold text-sm leading-tight">
+              Own a store in Bhilai?
+            </p>
+            <p className="text-white/60 text-xs mt-0.5">
+              Join Lokl — list your products for free
+            </p>
+          </div>
+          <div className="flex-shrink-0 flex items-center gap-2 bg-[#E68910] text-white text-xs font-bold px-3 py-2 rounded-xl">
+            <span>Join free</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M5 12h14M12 5l7 7-7 7"/>
+            </svg>
+          </div>
+        </div>
+      </a>
+    ),
 
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
 
