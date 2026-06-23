@@ -10,6 +10,7 @@ import { Banknote, MapPin, Plus, CheckCircle2, Truck, Clock, Loader2 } from "luc
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
+import { trackCheckoutStart, trackPurchase } from "@/lib/analytics";
 import { getErrorMessage } from "@/lib/api-error";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { useLocationStore } from "@/stores/location.store";
@@ -66,6 +67,22 @@ export default function CheckoutPage() {
   const [couponResult, setCouponResult] = useState<{ code: string; discount_amount: number; description: string } | null>(null);
   const [couponError, setCouponError] = useState("");
   const [couponLoading, setCouponLoading] = useState(false);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    try {
+      trackCheckoutStart({
+        cart_value: subtotal,
+        item_count: items.length,
+        items: items.map((it) => ({
+          product_id: (it as any).id || it.key,
+          product_name: it.name,
+          price: it.price,
+          quantity: it.qty,
+        })),
+      });
+    } catch {}
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Single-store rule: every product in the cart must belong to the same
   // store_id for the delivery estimate to be meaningful. Multi-store carts
@@ -217,6 +234,12 @@ export default function CheckoutPage() {
     setPlacing(true);
 
     try {
+      const orderItems = items.map((it) => ({
+        product_id: (it as any).id || it.key,
+        product_name: it.name,
+        price: it.price,
+        quantity: it.qty,
+      }));
       const order = await api.orders.create({
         items, address: addr, total: grandTotal, payment_method: payment,
         customer: { name: addr.name, phone: normalizePhone(addr.phone) },
@@ -225,6 +248,15 @@ export default function CheckoutPage() {
         customer_lng: customerLng ?? null,
       });
       clearCart();
+      try {
+        trackPurchase({
+          order_id: order.id,
+          value: grandTotal,
+          delivery_fee: deliveryFee,
+          payment_method: payment,
+          items: orderItems,
+        });
+      } catch {}
       toast.success("Order placed!");
       router.push(`/orders/${order.id}`);
     } catch (e) {

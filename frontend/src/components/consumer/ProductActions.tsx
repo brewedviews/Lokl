@@ -1,7 +1,8 @@
 "use client";
 
 /** Size picker + add-to-bag + buy-now + share + notify-me + schedule interactions. */
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { trackAddToCart, trackPickupStart, trackPickupComplete, trackProductView } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
 import { Heart, ShoppingBag, Share2, Bell, CheckCircle2, Store } from "lucide-react";
 import { toast } from "sonner";
@@ -31,6 +32,18 @@ export function ProductActions({
   const customerUser = useCustomerAuthStore((s) => s.user);
   const isCustomerAuth = useCustomerAuthStore((s) => s.isAuthenticated);
   const [size, setSize] = useState<string | null>(product.sizes?.[0] || null);
+
+  useEffect(() => {
+    try {
+      trackProductView({
+        product_id: product.id,
+        product_name: product.name,
+        price: product.price,
+        mrp: product.mrp,
+        category: (product as any).l1_id,
+      });
+    } catch {}
+  }, [product.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [notifyPhone, setNotifyPhone] = useState("");
@@ -72,6 +85,9 @@ export function ProductActions({
       toast.error(`Your bag already has items from ${r.conflict.existing_store_names.join(" & ")}. Lokl allows up to ${r.conflict.max_stores} stores per order.`);
       return false;
     }
+    try {
+      trackAddToCart({ product_id: product.id, product_name: product.name, price: product.price, size: size ?? "", source: "product_page" });
+    } catch {}
     return true;
   };
 
@@ -97,6 +113,7 @@ export function ProductActions({
   const handleReservePickup = async () => {
     if (product.sizes?.length && !size) { toast.error("Please pick a size first"); return; }
     setReserving(true);
+    try { trackPickupStart(product.id, sId); } catch {}
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("bf_customer_token") : null;
       const r = await apiClient.post<{ id: string; pickup_code: string; pickup_expires_at: string }>(
@@ -112,6 +129,7 @@ export function ProductActions({
         token ? { headers: { Authorization: `Bearer ${token}` } } : undefined,
       );
       setReservation({ orderId: r.data.id, pickupCode: r.data.pickup_code, expiresAt: r.data.pickup_expires_at });
+      try { trackPickupComplete(product.id, r.data.id, sId); } catch {}
     } catch (e) {
       toast.error(getErrorMessage(e) || "Could not reserve. Please try again.");
     } finally {

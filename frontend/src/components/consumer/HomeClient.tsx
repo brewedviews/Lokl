@@ -36,6 +36,11 @@ import { Footer } from "@/components/consumer/Footer";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
 import type { ProductCard, StoreCard, CategoryNode } from "@/types";
+import {
+  trackSectionImpression, trackCategoryTileClick, trackCategoryTileImpression,
+  trackPriceFilterClick, trackProductClick, trackStoreClick,
+  trackOfferClick, trackMerchantCTAClick, observeImpression,
+} from "@/lib/analytics";
 
 interface OfferDoc { id: string; title: string; subtitle?: string; description?: string; code?: string; image?: string; cta_label?: string; cta_link?: string; background?: string }
 interface TestimonialDoc { id: string; name: string; city: string; quote?: string; message?: string; rating?: number; avatar?: string }
@@ -250,17 +255,21 @@ export function HomeClient() {
   );
 
   const sectionRenderers: Record<string, React.ReactNode> = {
-    hero: <HeroV2 key="hero" stats={stats} hero={hero} />,
+    hero: (
+      <div key="hero" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("hero")); } catch {} } }}>
+        <HeroV2 stats={stats} hero={hero} />
+      </div>
+    ),
 
     under_499: (
-      <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-8 mt-3">
+      <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-8 mt-3" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}>
         <div className="grid grid-cols-3 gap-2">
           {[
-            { href: "/products?price=under-499", price: "Under ₹499", sub: "Budget picks" },
-            { href: "/products?price=499-1099", price: "₹499–₹1,099", sub: "Most popular" },
-            { href: "/products?price=above-1099", price: "₹1,099+", sub: "Premium" },
-          ].map(({ href, price, sub }) => (
-            <Link key={href} href={href}
+            { href: "/products?price=under-499", price: "Under ₹499", sub: "Budget picks", filter: "under_499" as const },
+            { href: "/products?price=499-1099", price: "₹499–₹1,099", sub: "Most popular", filter: "499_999" as const },
+            { href: "/products?price=above-1099", price: "₹1,099+", sub: "Premium", filter: "premium" as const },
+          ].map(({ href, price, sub, filter }) => (
+            <Link key={href} href={href} onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
               className="flex flex-col bg-white border border-[#E5E2DC] rounded-xl overflow-hidden hover:border-[#E68910] hover:shadow-sm transition-all active:scale-95">
               <div className="flex-1 flex items-center justify-center px-2 pt-3 pb-2">
                 <span className="font-bold text-[#1A2B4C] text-[13px] text-center leading-tight">{price}</span>
@@ -295,8 +304,10 @@ export function HomeClient() {
                 </div>
                 <span className="text-[11px] font-semibold text-[#1A2B4C] text-center">All</span>
               </Link>
-              {(categories as any[]).slice(0, 9).map((cat) => (
+              {(categories as any[]).slice(0, 9).map((cat, catIdx) => (
                 <Link key={cat.id} href={`/c/${cat.slug}`}
+                  onClick={() => { try { trackCategoryTileClick(cat.name, catIdx); } catch {} }}
+                  ref={(el) => { if (el) { try { observeImpression(el, () => trackCategoryTileImpression(cat.name, catIdx)); } catch {} } }}
                   className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition">
                   <div className="w-16 h-16 rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC]">
                     {cat.image ? (
@@ -330,7 +341,11 @@ export function HomeClient() {
               link={`/store/${r.store_slug}`}
               linkLabel="See all"
             >
-              {r.products.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+              {r.products.map((p, pIdx) => (
+                <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: r.store_name, position: pIdx }); } catch {} }}>
+                  <ProductCardV2 p={p} />
+                </div>
+              ))}
             </HCarousel>
           ))
         : null
@@ -340,7 +355,11 @@ export function HomeClient() {
     trending: errors.has("recent") ? null
       : loaded.has("recent") && trending.length >= 1 ? (
           <HCarousel key="trending" title="Trending now" subtitle="What everyone in Bhilai is buying" testid="home-new-arrivals" link="/products?sort=trending" linkLabel="See all">
-            {trending.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
+            {trending.slice(0, 8).map((p, pIdx) => (
+              <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "trending", position: pIdx }); } catch {} }}>
+                <ProductCardV2 p={p} />
+              </div>
+            ))}
           </HCarousel>
         )
       : !loaded.has("recent") ? <ProductRailSkeleton key="trending-skeleton" testid="home-new-arrivals-skeleton" /> : null,
@@ -349,7 +368,11 @@ export function HomeClient() {
     best_deals: errors.has("sellingFast") ? null
       : loaded.has("sellingFast") && bestDeals.length >= 1 ? (
           <HCarousel key="best-deals" title="Best deals" subtitle="Top discounts in Bhilai" testid="home-best-deals" link="/products?sort=discount" linkLabel="See all">
-            {bestDeals.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
+            {bestDeals.slice(0, 8).map((p, pIdx) => (
+              <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "best_deals", position: pIdx }); } catch {} }}>
+                <ProductCardV2 p={p} />
+              </div>
+            ))}
           </HCarousel>
         )
       : !loaded.has("sellingFast") ? <ProductRailSkeleton key="best-deals-skeleton" testid="home-best-deals-skeleton" /> : null,
@@ -357,7 +380,7 @@ export function HomeClient() {
     offers: errors.has("offers") ? (
       <SectionError key="offers-error" minHeight="min-h-[120px]" />
     ) : loaded.has("offers") && offers.length > 0 ? (
-      <section key="offers" className="pt-8" data-testid="offers-strip">
+      <section key="offers" className="pt-8" data-testid="offers-strip" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("offers")); } catch {} } }}>
         <div className="px-4 sm:px-8 mb-3 max-w-7xl mx-auto">
           <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C]">Offers for you</h2>
           <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Limited-time campaigns from your nearby stores.</p>
@@ -390,6 +413,7 @@ export function HomeClient() {
                 key={offer.id}
                 href={href}
                 data-testid={`offer-${offer.id}`}
+                onClick={() => { try { trackOfferClick(offer.id, offer.code || ""); } catch {} }}
                 className="snap-start shrink-0 w-[78vw] sm:w-[340px] rounded-2xl overflow-hidden relative shadow-[0_8px_24px_rgba(10,31,92,0.12)] transition active:scale-[0.98]"
                 style={cardStyle}
               >
@@ -415,6 +439,7 @@ export function HomeClient() {
         <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 sm:px-8 max-w-7xl mx-auto pb-1">
           {storesRail.map((s) => (
             <Link key={s.id} href={`/store/${(s as any).slug || s.id}`}
+              onClick={() => { try { trackStoreClick(s.id, s.name, "homepage_stores"); } catch {} }}
               className="flex-shrink-0 w-36 bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden hover:shadow-sm transition active:scale-95">
               <div className="relative h-20 bg-[#E5E2DC]">
                 {((s as any).banner || (Array.isArray((s as any).banners) && (s as any).banners[0]) || s.image || s.logo) ? (
@@ -437,6 +462,7 @@ export function HomeClient() {
         href="https://lokl.up.railway.app/merchant/register"
         target="_blank"
         rel="noopener noreferrer"
+        onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
         className="block mx-4 md:mx-8 my-3"
       >
         <div className="bg-[#1A2B4C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
