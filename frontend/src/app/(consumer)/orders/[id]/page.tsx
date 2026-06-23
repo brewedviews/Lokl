@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import Image from "next/image";
 import {
   CheckCircle2, Bike, Package, MessageCircle, AlertCircle,
-  ShieldCheck, MapPin, Receipt, Clock, ShoppingBag, Phone, Store,
+  ShieldCheck, MapPin, Receipt, Clock, ShoppingBag, Phone, Store, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -300,6 +300,16 @@ export default function OrderTrackingPage() {
             >
               <MessageCircle size={14} /> Contact Customer Care
             </button>
+            <Link
+              href={`/account/support?order_id=${order.id}`}
+              className="mt-3 flex items-center justify-between p-4 bg-[#FDFBF7] border border-[#E5E2DC] rounded-2xl hover:border-[#E68910] transition"
+            >
+              <div>
+                <p className="text-sm font-semibold text-[#1A2B4C]">Issue with this order?</p>
+                <p className="text-xs text-[#9CA3AF] mt-0.5">Raise a support request</p>
+              </div>
+              <ChevronRight size={16} className="text-[#9CA3AF]" />
+            </Link>
           </section>
         )}
 

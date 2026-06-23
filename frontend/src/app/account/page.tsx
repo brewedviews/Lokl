@@ -19,7 +19,6 @@ import type {
 } from "@/types";
 
 const BLANK_ADDR = { name: "", phone: "", label: "Home", line1: "", landmark: "", city: "Bhilai", pincode: "" };
-const AVATAR_FALLBACK = "https://images.unsplash.com/photo-1544005313-94ddf0286df2?crop=entropy&cs=srgb&fm=jpg&w=200&q=80";
 
 function statusTone(s: string) {
   const x = (s || "").toLowerCase();
@@ -129,7 +128,11 @@ export default function CustomerAccountPage() {
     <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-8 pt-8">
         <section data-testid="profile-header-card" className="bg-white border border-[#E5E2DC] rounded-3xl p-4 sm:p-6 flex items-center gap-4 shadow-sm">
-          <Image src={AVATAR_FALLBACK} alt="" width={64} height={64} className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover border border-[#E5E2DC] shrink-0" />
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#1A2B4C] flex items-center justify-center shrink-0 border border-[#E5E2DC]">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="white" opacity="0.8">
+                <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
+              </svg>
+            </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
               <h2 className="text-lg sm:text-2xl font-display font-bold text-[#0A1F5C] leading-tight">{form.name || "Welcome"}</h2>
@@ -155,6 +158,7 @@ export default function CustomerAccountPage() {
                 onClick={() => {
                   if (t.soon) { toast.message(`${t.label} — coming soon`); return; }
                   if (t.key === "wishlist") { window.location.href = "/wishlist"; return; }
+                  if (t.key === "support") { window.location.href = "/account/support"; return; }
                   setActiveTile(t.key);
                 }}
                 className={`relative bg-white rounded-2xl p-3 sm:p-4 ${t.key === "wishlist" ? "hidden sm:flex" : "flex"} flex-col items-center justify-center gap-2 transition-all

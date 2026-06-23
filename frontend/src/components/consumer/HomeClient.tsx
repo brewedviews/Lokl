@@ -180,25 +180,32 @@ export function HomeClient() {
   useEffect(() => {
     const el = offersScrollRef.current;
     if (!el || offers.length <= 1) return;
-    let scrolling = true;
-    const step = () => {
-      if (!scrolling || !el) return;
-      el.scrollLeft += 0.5;
-      if (el.scrollLeft >= el.scrollWidth - el.clientWidth - 10) {
-        el.scrollLeft = 0;
+
+    let animId: number;
+    let paused = false;
+
+    const tick = () => {
+      if (!paused && el) {
+        el.scrollLeft += 0.6;
+        if (el.scrollLeft >= el.scrollWidth - el.clientWidth - 2) {
+          el.scrollLeft = 0;
+        }
       }
-      requestAnimationFrame(step);
+      animId = requestAnimationFrame(tick);
     };
-    const frame = requestAnimationFrame(step);
-    const pause = () => { scrolling = false; };
-    const resume = () => { scrolling = true; requestAnimationFrame(step); };
+
+    animId = requestAnimationFrame(tick);
+
+    const pause = () => { paused = true; };
+    const resume = () => { paused = false; };
+
     el.addEventListener("mouseenter", pause);
     el.addEventListener("touchstart", pause, { passive: true });
     el.addEventListener("mouseleave", resume);
     el.addEventListener("touchend", resume);
+
     return () => {
-      scrolling = false;
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(animId);
       el.removeEventListener("mouseenter", pause);
       el.removeEventListener("touchstart", pause);
       el.removeEventListener("mouseleave", resume);
@@ -211,7 +218,7 @@ export function HomeClient() {
   const storesTitle = nearby.length > 0 ? "Stores near you" : "Popular stores in Bhilai";
 
   const ProductRailSkeleton = ({ testid }: { testid: string }) => (
-    <div data-testid={testid} className="pt-8 px-4 sm:px-8">
+    <div data-testid={testid} className="pt-4 px-4 sm:px-6">
       <Skeleton className="h-7 w-44 rounded-full mb-1" />
       <Skeleton className="h-4 w-56 rounded-full mb-3" />
       <div className="flex gap-3 overflow-hidden">
@@ -227,7 +234,7 @@ export function HomeClient() {
     </div>
   );
   const StoreRailSkeleton = () => (
-    <div className="pt-8 px-4 sm:px-8">
+    <div className="pt-4 px-4 sm:px-6">
       <Skeleton className="h-7 w-44 rounded-full mb-1" />
       <Skeleton className="h-4 w-56 rounded-full mb-3" />
       <div className="flex gap-3 overflow-hidden">
@@ -262,7 +269,7 @@ export function HomeClient() {
     ),
 
     under_499: (
-      <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-8 mt-3" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}>
+      <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-6 py-4" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}>
         <div className="grid grid-cols-3 gap-2">
           {[
             { href: "/products?price=under-499", price: "Under ₹499", sub: "Budget picks", filter: "under_499" as const },
@@ -284,7 +291,7 @@ export function HomeClient() {
     ),
 
     category_pills: (
-      <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-8 mt-3">
+      <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
         <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
           {categories.length === 0 ? (
             Array.from({ length: 8 }).map((_, i) => (
@@ -380,14 +387,14 @@ export function HomeClient() {
     offers: errors.has("offers") ? (
       <SectionError key="offers-error" minHeight="min-h-[120px]" />
     ) : loaded.has("offers") && offers.length > 0 ? (
-      <section key="offers" className="pt-8" data-testid="offers-strip" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("offers")); } catch {} } }}>
-        <div className="px-4 sm:px-8 mb-3 max-w-7xl mx-auto">
+      <section key="offers" className="pt-4" data-testid="offers-strip" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("offers")); } catch {} } }}>
+        <div className="px-4 sm:px-6 mb-3 max-w-7xl mx-auto">
           <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C]">Offers for you</h2>
           <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Limited-time campaigns from your nearby stores.</p>
         </div>
         <div
           ref={offersScrollRef}
-          className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-8 px-4 sm:px-8 max-w-7xl mx-auto"
+          className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 px-4 sm:px-6 max-w-7xl mx-auto"
         >
           {offers.slice(0, 6).map((offer) => {
             const href = offer.cta_link || "/categories";
@@ -428,15 +435,15 @@ export function HomeClient() {
     stores: errors.has("popularStores") && !storesRail.length ? (
       <SectionError key="stores-error" minHeight="min-h-[200px]" />
     ) : storesReady && storesRail.length > 0 ? (
-      <section key="stores" className="pt-8" data-testid="home-stores">
-        <div className="px-4 sm:px-8 flex items-end justify-between gap-3 mb-3 max-w-7xl mx-auto">
+      <section key="stores" className="pt-4" data-testid="home-stores">
+        <div className="px-4 sm:px-6 flex items-end justify-between gap-3 mb-3 max-w-7xl mx-auto">
           <div>
             <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">{storesTitle}</h2>
             <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Trusted local merchants delivering today</p>
           </div>
           <a href="/stores" className="text-xs font-bold text-[#F59E0B] shrink-0 hover:underline">See all →</a>
         </div>
-        <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 sm:px-8 max-w-7xl mx-auto pb-1">
+        <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 sm:px-6 max-w-7xl mx-auto pb-1">
           {storesRail.map((s) => (
             <Link key={s.id} href={`/store/${(s as any).slug || s.id}`}
               onClick={() => { try { trackStoreClick(s.id, s.name, "homepage_stores"); } catch {} }}
@@ -463,7 +470,7 @@ export function HomeClient() {
         target="_blank"
         rel="noopener noreferrer"
         onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
-        className="block mx-4 md:mx-8 my-3"
+        className="block mx-4 md:mx-6 mt-2 mb-4"
       >
         <div className="bg-[#1A2B4C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
           <div className="min-w-0">

@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import { Heart, ShoppingBag, Share2, Bell, CheckCircle2, Store } from "lucide-react";
 import { toast } from "sonner";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
-import { useLocationStore } from "@/stores/location.store";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import type { Product } from "@/types";
@@ -16,7 +15,6 @@ export function ProductActions({
   product,
   storeCanOrder = true,
   storeBadge,
-  storeOpensAtLabel,
   storeName,
   storeId,
 }: {
@@ -32,17 +30,7 @@ export function ProductActions({
   const customerPhone = useCustomerAuthStore((s) => s.phone);
   const customerUser = useCustomerAuthStore((s) => s.user);
   const isCustomerAuth = useCustomerAuthStore((s) => s.isAuthenticated);
-  const lat = useLocationStore((s) => s.lat);
-  const lng = useLocationStore((s) => s.lng);
   const [size, setSize] = useState<string | null>(product.sizes?.[0] || null);
-  const [outsideZone, setOutsideZone] = useState(false);
-
-  useEffect(() => {
-    if (!lat || !lng) return;
-    apiClient.get(`/api/delivery/check-serviceability?lat=${lat}&lng=${lng}`)
-      .then((r: any) => { if (!r.data.serviceable) setOutsideZone(true); })
-      .catch(() => {});
-  }, [lat, lng]);
 
   useEffect(() => {
     try {
@@ -66,7 +54,6 @@ export function ProductActions({
   const [showPickupSheet, setShowPickupSheet] = useState(false);
 
   const badge = storeBadge ?? product.store_badge ?? "LIVE";
-  const opensAt = storeOpensAtLabel ?? product.store_opens_at_label ?? null;
   const sName = storeName ?? product.store_name ?? "this store";
   const sId = storeId ?? product.store_id ?? "";
 
@@ -231,30 +218,18 @@ export function ProductActions({
         </button>
       </div>
 
-      {outsideZone && (
-        <p className="text-center text-xs text-red-500 mt-2">
-          Delivery not available at your location. Try store pickup instead.
-        </p>
-      )}
-
-      {!isOffline && (
+      {!isOffline && (canPickup || reservation) && (
         <button
           onClick={() => {
             if (reservation) { setShowPickupSheet(true); return; }
-            if (!canPickup) return;
             if (!isCustomerAuth) { router.push("/account"); return; }
             setShowPickupSheet(true);
           }}
-          disabled={!reservation && !canPickup}
           data-testid="reserve-pickup-btn"
-          className={`mt-3 w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full text-sm font-semibold transition whitespace-nowrap ${
-            !reservation && !canPickup
-              ? "border border-[#E5E2DC] text-[#9CA3AF] cursor-not-allowed"
-              : "border border-[#0A1F5C]/30 text-[#0A1F5C] hover:bg-[#0A1F5C]/5"
-          }`}
+          className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full text-sm font-semibold transition whitespace-nowrap border border-[#0A1F5C]/30 text-[#0A1F5C] hover:bg-[#0A1F5C]/5"
         >
           <Store size={15} />
-          {reservation ? "View pickup code" : !canPickup ? "Store pickup unavailable" : "Reserve for store pickup"}
+          {reservation ? "View pickup code" : "Reserve for store pickup"}
         </button>
       )}
 
@@ -358,10 +333,6 @@ export function ProductActions({
         <div className="mt-3 px-4 py-2 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold text-center">
           Store is away · Delivery may take longer
         </div>
-      )}
-
-      {isClosed && opensAt && (
-        <p className="text-[11px] text-[#64748B] mt-2">Available from {opensAt.replace(/^Opens\s+(at\s+)?/i, "")}</p>
       )}
 
       {isOffline && notifyOpen && (

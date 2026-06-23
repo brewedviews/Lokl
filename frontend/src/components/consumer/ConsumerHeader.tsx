@@ -318,12 +318,20 @@ function LocationChip({ phone }: { phone: string | null }) {
   // Silent auto-detect on mount. Cheap no-op when permission isn't granted.
   useEffect(() => { void autoDetect(); }, [autoDetect]);
 
-  // Saved-address fetch — only when popover opens for a logged-in customer.
+  // Eager fetch on mount so chip shows saved address immediately for logged-in customers.
+  useEffect(() => {
+    if (!phone) return;
+    apiClient.get<{ addresses: SavedAddress[] }>(`/api/v1/addresses/${phone}`)
+      .then((r) => setAddresses(r.data.addresses || []))
+      .catch(() => {});
+  }, [phone]);
+
+  // Refresh when popover opens to pick up any new addresses.
   useEffect(() => {
     if (!open || !phone) return;
     apiClient.get<{ addresses: SavedAddress[] }>(`/api/v1/addresses/${phone}`)
       .then((r) => setAddresses(r.data.addresses || []))
-      .catch(() => setAddresses([]));
+      .catch(() => {});
   }, [open, phone]);
 
   // Outside-click close.

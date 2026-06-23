@@ -2288,6 +2288,99 @@ async def check_serviceability(lat: float, lng: float):
     }
 
 
+@api.post("/support/ticket")
+async def create_support_ticket(payload: dict, request: Request):
+    """Create a support ticket — optionally linked to an order."""
+    customer_phone = ""
+    try:
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            import jwt as _jwt
+            data = _jwt.decode(auth[7:], options={"verify_signature": False})
+            customer_phone = data.get("sub", "")
+    except Exception:
+        pass
+
+    ticket = {
+        "id": f"ticket-{uuid.uuid4().hex[:8]}",
+        "customer_phone": customer_phone,
+        "order_id": payload.get("order_id"),
+        "subject": payload.get("subject", "Support request"),
+        "message": payload.get("message", ""),
+        "status": "open",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "messages": [
+            {
+                "sender": "customer",
+                "text": payload.get("message", ""),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+            {
+                "sender": "bot",
+                "text": "Thanks for reaching out! Our team has received your message and will respond within a few hours. You can also email us at support@shoplokl.in",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        ],
+    }
+    await db.support_tickets.insert_one({**ticket, "_id": ticket["id"]})
+    ticket.pop("_id", None)
+
+    try:
+        from notifications import send_with_fallback
+        admin_phone = os.environ.get("ADMIN_PHONE", "")
+        if admin_phone:
+            order_ref = f" (Order #{payload.get('order_id', '')[-6:].upper()})" if payload.get("order_id") else ""
+            send_with_fallback(admin_phone, f"New support ticket{order_ref}:\n{payload.get('message', '')[:200]}")
+    except Exception:
+        pass
+
+    return ticket
+
+
+@api.get("/admin/support/tickets")
+async def get_support_tickets(request: Request):
+    _check_admin(request.headers.get("authorization"))
+    tickets = await db.support_tickets.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return {"tickets": tickets}
+
+
+@api.post("/admin/support/tickets/{ticket_id}/reply")
+async def admin_reply_ticket(ticket_id: str, payload: dict, request: Request):
+    _check_admin(request.headers.get("authorization"))
+    message = {
+        "sender": "admin",
+        "text": payload.get("text", ""),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.support_tickets.update_one(
+        {"id": ticket_id},
+        {
+            "$push": {"messages": message},
+            "$set": {"status": "replied"},
+        },
+    )
+    return {"ok": True}
+
+
+@api.get("/support/my-tickets")
+async def get_my_tickets(request: Request):
+    auth = request.headers.get("authorization", "")
+    customer_phone = ""
+    try:
+        if auth.startswith("Bearer "):
+            import jwt as _jwt
+            data = _jwt.decode(auth[7:], options={"verify_signature": False})
+            customer_phone = data.get("sub", "")
+    except Exception:
+        pass
+    if not customer_phone:
+        raise HTTPException(401)
+    tickets = await db.support_tickets.find(
+        {"customer_phone": customer_phone}, {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    return {"tickets": tickets}
+
+
 @api.get("/stores/{store_id}")
 async def get_store(store_id: str):
     s = await db.stores.find_one(
