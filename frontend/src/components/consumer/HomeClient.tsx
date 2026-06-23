@@ -23,7 +23,7 @@
  *   • /api/catalog/testimonials
  *   • /api/feed/popular-stores  — for the store cards section only
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
@@ -73,6 +73,7 @@ export function HomeClient() {
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Set<string>>(new Set());
+  const offersScrollRef = useRef<HTMLDivElement>(null);
 
   const markLoaded = (key: string) =>
     setLoaded((prev) => { const next = new Set(prev); next.add(key); return next; });
@@ -84,7 +85,13 @@ export function HomeClient() {
     api.site.homepageConfig().then((cfg) => {
       const c = cfg as unknown as { hero?: HeroConfigDoc; sections?: SectionDoc[] };
       if (c.hero) setHero(c.hero);
-      if (Array.isArray(c.sections) && c.sections.length > 0) setSections(c.sections);
+      if (Array.isArray(c.sections) && c.sections.length > 0) {
+        // Merge: server config takes precedence, but preserve any DEFAULT_SECTIONS
+        // entries the server doesn't know about (e.g. newly added sections like merchant_cta).
+        const serverIds = new Set(c.sections.map((s: SectionDoc) => s.id));
+        const extra = DEFAULT_SECTIONS.filter((s) => !serverIds.has(s.id));
+        setSections([...c.sections, ...extra]);
+      }
       markLoaded("hero");
     }).catch(() => { markLoaded("hero"); });
     api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
@@ -152,6 +159,35 @@ export function HomeClient() {
       api.stores.nearby({ lat, lng, limit: 10 }).then((r) => { setNearby(r); markLoaded("nearby"); }).catch(() => { markLoaded("nearby"); });
     }
   }, [lat, lng]);
+
+  useEffect(() => {
+    const el = offersScrollRef.current;
+    if (!el || offers.length <= 1) return;
+    let scrolling = true;
+    const step = () => {
+      if (!scrolling || !el) return;
+      el.scrollLeft += 0.5;
+      if (el.scrollLeft >= el.scrollWidth - el.clientWidth - 10) {
+        el.scrollLeft = 0;
+      }
+      requestAnimationFrame(step);
+    };
+    const frame = requestAnimationFrame(step);
+    const pause = () => { scrolling = false; };
+    const resume = () => { scrolling = true; requestAnimationFrame(step); };
+    el.addEventListener("mouseenter", pause);
+    el.addEventListener("touchstart", pause, { passive: true });
+    el.addEventListener("mouseleave", resume);
+    el.addEventListener("touchend", resume);
+    return () => {
+      scrolling = false;
+      cancelAnimationFrame(frame);
+      el.removeEventListener("mouseenter", pause);
+      el.removeEventListener("touchstart", pause);
+      el.removeEventListener("mouseleave", resume);
+      el.removeEventListener("touchend", resume);
+    };
+  }, [offers]);
 
   const storesReady = loaded.has("nearby") || loaded.has("popularStores");
   const storesRail = nearby.length > 0 ? nearby : popularStores;
@@ -294,36 +330,48 @@ export function HomeClient() {
     offers: errors.has("offers") ? (
       <SectionError key="offers-error" minHeight="min-h-[120px]" />
     ) : loaded.has("offers") && offers.length > 0 ? (
-      <div key="offers" className="py-3">
-        <div className="px-4 md:px-8 mb-2 flex items-center justify-between">
-          <h3 className="font-display font-bold text-[#1A2B4C] text-base">Offers for you</h3>
+      <section key="offers" className="pt-8" data-testid="offers-strip">
+        <div className="px-4 sm:px-8 mb-3 max-w-7xl mx-auto">
+          <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C]">Offers for you</h2>
+          <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Limited-time campaigns from your nearby stores.</p>
         </div>
-        <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 md:px-8 pb-1">
-          {offers.slice(0, 6).map((offer) => (
-            <div
-              key={offer.id}
-              className="flex-shrink-0 w-64 bg-white border border-[#E5E2DC] rounded-xl overflow-hidden flex"
-            >
-              <div className="w-1 bg-[#E68910] flex-shrink-0" />
-              <div className="px-3 py-3 flex-1 min-w-0">
-                <p className="font-bold text-[#1A2B4C] text-sm truncate">
-                  {offer.title || offer.subtitle}
-                </p>
-                {(offer.description || offer.subtitle) && (
-                  <p className="text-xs text-[#595959] mt-0.5 truncate">
-                    {offer.description || offer.subtitle}
-                  </p>
+        <div
+          ref={offersScrollRef}
+          className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-8 px-4 sm:px-8 max-w-7xl mx-auto"
+        >
+          {offers.slice(0, 6).map((offer) => {
+            const href = offer.cta_link || "/categories";
+            const cardStyle = { background: offer.background || "#0A1F5C" };
+            const inner = (
+              <div className="aspect-[16/9] relative">
+                {offer.image && (
+                  <img src={offer.image} alt={offer.title} className="absolute inset-0 w-full h-full object-cover opacity-70" />
                 )}
-                {offer.code && (
-                  <span className="inline-block mt-1.5 text-[10px] font-bold font-mono bg-[#FFF4E6] text-[#E68910] px-2 py-0.5 rounded-full border border-[#E68910]/30">
-                    {offer.code}
-                  </span>
-                )}
+                <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/30 to-transparent" />
+                <div className="absolute inset-0 p-5 flex flex-col justify-center text-white">
+                  <div className="text-[10px] uppercase tracking-widest font-bold opacity-90">Limited time</div>
+                  <div className="text-xl font-display font-bold mt-1 leading-tight">{offer.title}</div>
+                  {offer.subtitle && <div className="text-sm opacity-95 mt-1">{offer.subtitle}</div>}
+                  <div className="mt-3 inline-flex items-center gap-1 text-xs font-bold">
+                    {offer.cta_label || "Shop now"} →
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+            return (
+              <Link
+                key={offer.id}
+                href={href}
+                data-testid={`offer-${offer.id}`}
+                className="snap-start shrink-0 w-[78vw] sm:w-[340px] rounded-2xl overflow-hidden relative shadow-[0_8px_24px_rgba(10,31,92,0.12)] transition active:scale-[0.98]"
+                style={cardStyle}
+              >
+                {inner}
+              </Link>
+            );
+          })}
         </div>
-      </div>
+      </section>
     ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
 
     stores: errors.has("popularStores") && !storesRail.length ? (
