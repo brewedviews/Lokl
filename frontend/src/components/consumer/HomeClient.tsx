@@ -49,12 +49,12 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "under_499",      label: "Under ₹499",                enabled: true, rank: 2  },
   { id: "category_pills", label: "Category pills",            enabled: true, rank: 3  },
   { id: "store_rail",     label: "From our stores",           enabled: true, rank: 10 },
-  { id: "new_arrivals",   label: "Trending now",              enabled: true, rank: 20 },
+  { id: "trending",       label: "Trending now",              enabled: true, rank: 20 },
   { id: "best_deals",     label: "Best deals",                enabled: true, rank: 30 },
   { id: "offers",         label: "Offers for you",            enabled: true, rank: 40 },
   { id: "stores",         label: "Popular stores",            enabled: true, rank: 50 },
-  { id: "merchant_cta",  label: "Open a store",              enabled: true, rank: 55 },
-  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: true, rank: 70 },
+  { id: "merchant_cta",   label: "Open a store",              enabled: true, rank: 55 },
+  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: true, rank: 60 },
 ];
 
 export function HomeClient() {
@@ -90,7 +90,9 @@ export function HomeClient() {
         // entries the server doesn't know about (e.g. newly added sections like merchant_cta).
         const serverIds = new Set(c.sections.map((s: SectionDoc) => s.id));
         const extra = DEFAULT_SECTIONS.filter((s) => !serverIds.has(s.id));
-        setSections([...c.sections, ...extra]);
+        const merged = [...c.sections, ...extra];
+        const seen = new Set<string>();
+        setSections(merged.filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; }));
       }
       markLoaded("hero");
     }).catch(() => { markLoaded("hero"); });
@@ -310,13 +312,13 @@ export function HomeClient() {
     ) : <ProductRailSkeleton key="store-rail-skeleton" testid="home-store-rail-skeleton" />,
 
     // Trending products
-    new_arrivals: errors.has("recent") ? null
+    trending: errors.has("recent") ? null
       : loaded.has("recent") && trending.length >= 1 ? (
-          <HCarousel key="new-arrivals" title="Trending now" subtitle="What everyone in Bhilai is buying" testid="home-new-arrivals" link="/products?sort=trending" linkLabel="See all">
+          <HCarousel key="trending" title="Trending now" subtitle="What everyone in Bhilai is buying" testid="home-new-arrivals" link="/products?sort=trending" linkLabel="See all">
             {trending.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
           </HCarousel>
         )
-      : !loaded.has("recent") ? <ProductRailSkeleton key="new-arrivals-skeleton" testid="home-new-arrivals-skeleton" /> : null,
+      : !loaded.has("recent") ? <ProductRailSkeleton key="trending-skeleton" testid="home-new-arrivals-skeleton" /> : null,
 
     // Best deals
     best_deals: errors.has("sellingFast") ? null
@@ -407,7 +409,7 @@ export function HomeClient() {
     merchant_cta: (
       <a
         key="merchant-cta"
-        href="https://lokl.shop"
+        href="https://lokl.up.railway.app/merchant/register"
         target="_blank"
         rel="noopener noreferrer"
         className="block mx-4 md:mx-8 my-3"
@@ -433,22 +435,6 @@ export function HomeClient() {
 
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
 
-    // Backward-compat aliases for CMS configs using old section IDs
-    selling_fast: errors.has("sellingFast") ? null
-      : loaded.has("sellingFast") && bestDeals.length >= 1 ? (
-          <HCarousel key="selling-fast-compat" title="Best deals" subtitle="Top discounts in Bhilai" testid="home-selling-fast" link="/products?sort=discount" linkLabel="See all">
-            {bestDeals.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
-          </HCarousel>
-        )
-      : !loaded.has("sellingFast") ? <ProductRailSkeleton key="selling-fast-skeleton" testid="home-selling-fast-skeleton" /> : null,
-    recently_viewed: errors.has("recent") ? null
-      : loaded.has("recent") && trending.length >= 1 ? (
-          <HCarousel key="recently-viewed-compat" title="Trending now" subtitle="What everyone in Bhilai is buying" testid="home-recent" link="/products?sort=trending" linkLabel="See all">
-            {trending.slice(0, 8).map((p) => <ProductCardV2 key={p.id} p={p} />)}
-          </HCarousel>
-        )
-      : !loaded.has("recent") ? <ProductRailSkeleton key="recent-skeleton" testid="home-recent-skeleton" /> : null,
-    popular_in_city: null,
   };
 
   const orderedSections = [...sections]

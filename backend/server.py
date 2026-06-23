@@ -903,8 +903,10 @@ async def feed_home_products():
         {"is_deleted": {"$ne": True}},
         {"_id": 0, "id": 1, "name": 1, "slug": 1, "storefront": 1,
          "banner": 1, "tagline": 1, "online": 1, "last_seen_at": 1,
-         "opens_at": 1, "closes_at": 1, "weekly_off": 1, "kyc_status": 1},
+         "opens_at": 1, "closes_at": 1, "weekly_off": 1, "kyc_status": 1, "plan": 1},
     ).to_list(100)
+    # Only pro stores get a dedicated rail; trending/best_deals use all stores.
+    pro_sids = {s["id"] for s in stores_raw if s.get("plan") == "pro" and s.get("id")}
     avail_map = {s["id"]: _store_availability(s) for s in stores_raw if s.get("id")}
     sids = list(avail_map.keys())
     print(f"[home-products] stores={len(stores_raw)} sids={len(sids)}")
@@ -937,6 +939,8 @@ async def feed_home_products():
 
     store_rails = []
     for sid in sids:
+        if sid not in pro_sids:
+            continue
         prods = by_store.get(sid, [])
         if not prods:
             continue
