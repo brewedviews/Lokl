@@ -14,14 +14,15 @@
  *   8. Popular stores
  *   9. Loved by Bhilai shoppers
  *
- * API calls on mount (all parallel):
- *   • /api/feed/home-products  — store rails + trending + best deals (one request)
+ * API calls on mount — critical (immediate):
+ *   • /api/feed/home-products  — store rails + trending + best deals
  *   • /api/categories
  *   • /api/site/homepage-config
  *   • /api/site/home-stats
+ * Deferred 800 ms (non-critical):
  *   • /api/catalog/offers
  *   • /api/catalog/testimonials
- *   • /api/feed/popular-stores  — for the store cards section only
+ *   • /api/feed/popular-stores
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -32,7 +33,7 @@ import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
 import { Footer } from "@/components/consumer/Footer";
-import { Skeleton, ProductCardSkeleton, StoreCardSkeleton } from "@/components/ui/Skeleton";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
 import type { ProductCard, StoreCard, CategoryNode } from "@/types";
 
@@ -86,20 +87,27 @@ export function HomeClient() {
       const c = cfg as unknown as { hero?: HeroConfigDoc; sections?: SectionDoc[] };
       if (c.hero) setHero(c.hero);
       if (Array.isArray(c.sections) && c.sections.length > 0) {
-        // Merge: server config takes precedence, but preserve any DEFAULT_SECTIONS
-        // entries the server doesn't know about (e.g. newly added sections like merchant_cta).
+        // Merge: server config toggles enabled/disabled, but LOCAL rank always wins
+        // so newly added DEFAULT_SECTIONS entries always appear in the right order.
+        const defaultMap = new Map(DEFAULT_SECTIONS.map((s) => [s.id, s]));
         const serverIds = new Set(c.sections.map((s: SectionDoc) => s.id));
         const extra = DEFAULT_SECTIONS.filter((s) => !serverIds.has(s.id));
-        const merged = [...c.sections, ...extra];
+        const merged = [
+          ...c.sections.map((s: SectionDoc) => ({ ...s, rank: defaultMap.get(s.id)?.rank ?? s.rank })),
+          ...extra,
+        ];
         const seen = new Set<string>();
         setSections(merged.filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; }));
       }
       markLoaded("hero");
     }).catch(() => { markLoaded("hero"); });
-    api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
-    api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
     api.catalog.categories().then((r) => setCategories(r)).catch(() => {});
-    api.stores.popular(10).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
+
+    const _deferTimer = setTimeout(() => {
+      api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
+      api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
+      api.stores.popular(10).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
+    }, 800);
 
     // Single request for all product content — replaces N+1 store fetches
     apiClient.get<HomeProductsResponse>("/api/feed/home-products").then((r) => {
@@ -154,6 +162,8 @@ export function HomeClient() {
       markError("sellingFast");
       markError("recent");
     });
+
+    return () => clearTimeout(_deferTimer);
   }, []);
 
   useEffect(() => {
@@ -196,20 +206,35 @@ export function HomeClient() {
   const storesTitle = nearby.length > 0 ? "Stores near you" : "Popular stores in Bhilai";
 
   const ProductRailSkeleton = ({ testid }: { testid: string }) => (
-    <div key={testid} className="px-4 md:px-8 py-4 min-h-[320px]">
-      <Skeleton className="h-5 w-36 rounded-full mb-1" />
-      <Skeleton className="h-3 w-48 rounded-full mb-4" />
+    <div data-testid={testid} className="pt-8 px-4 sm:px-8">
+      <Skeleton className="h-7 w-44 rounded-full mb-1" />
+      <Skeleton className="h-4 w-56 rounded-full mb-3" />
       <div className="flex gap-3 overflow-hidden">
-        {Array.from({ length: 5 }).map((_, i) => <ProductCardSkeleton key={i} />)}
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="shrink-0 w-[38vw] sm:w-[180px] md:w-[200px]">
+            <Skeleton className="w-full aspect-[3/4] rounded-2xl mb-2" />
+            <Skeleton className="h-3 w-3/4 rounded mb-1.5" />
+            <Skeleton className="h-3 w-1/2 rounded mb-1.5" />
+            <Skeleton className="h-6 w-full rounded-full" />
+          </div>
+        ))}
       </div>
     </div>
   );
   const StoreRailSkeleton = () => (
-    <div key="stores-skeleton" className="px-4 md:px-8 py-4 min-h-[260px]">
-      <Skeleton className="h-5 w-36 rounded-full mb-1" />
-      <Skeleton className="h-3 w-48 rounded-full mb-4" />
+    <div className="pt-8 px-4 sm:px-8">
+      <Skeleton className="h-7 w-44 rounded-full mb-1" />
+      <Skeleton className="h-4 w-56 rounded-full mb-3" />
       <div className="flex gap-3 overflow-hidden">
-        {Array.from({ length: 4 }).map((_, i) => <StoreCardSkeleton key={i} />)}
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="shrink-0 w-36 rounded-2xl overflow-hidden bg-white">
+            <Skeleton className="w-full h-20 rounded-none" />
+            <div className="p-2.5 space-y-1.5">
+              <Skeleton className="h-3.5 w-3/4 rounded" />
+              <Skeleton className="h-3 w-1/2 rounded" />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
