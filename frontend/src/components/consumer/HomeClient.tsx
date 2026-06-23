@@ -46,9 +46,9 @@ interface HomeProductsRail { store_id: string; store_name: string; store_slug: s
 interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCard[]; best_deals: ProductCard[] }
 
 const DEFAULT_SECTIONS: SectionDoc[] = [
-  { id: "hero",           label: "Hero",                      enabled: true, rank: 1  },
-  { id: "under_499",      label: "Under ₹499",                enabled: true, rank: 2  },
-  { id: "category_pills", label: "Category pills",            enabled: true, rank: 3  },
+  { id: "category_pills", label: "Category pills",            enabled: true, rank: 1  },
+  { id: "hero",           label: "Hero",                      enabled: true, rank: 2  },
+  { id: "under_499",      label: "Under ₹499",                enabled: true, rank: 3  },
   { id: "store_rail",     label: "From our stores",           enabled: true, rank: 10 },
   { id: "trending",       label: "Trending now",              enabled: true, rank: 20 },
   { id: "best_deals",     label: "Best deals",                enabled: true, rank: 30 },
