@@ -48,8 +48,7 @@ export default async function ProductDetailPage(
     : ([product.image].filter(Boolean) as string[]);
 
   return (
-    // pb-[120px] clears both bars stacked (action bar ~56px + tab nav ~60px + breathing room); md:pb-10 resets for desktop.
-    <div className="min-h-screen bg-white pb-[120px] md:pb-10">
+    <div className="min-h-screen bg-white pb-24 md:pb-10">
       <div className="max-w-[1200px] mx-auto">
 
         {/*

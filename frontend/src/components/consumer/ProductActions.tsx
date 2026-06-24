@@ -162,13 +162,10 @@ export function ProductActions({
   return (
     <>
       {/*
-        md:flex md:flex-col lets us reorder the three sections on desktop via md:order-*
-        without touching mobile layout (where the action bar is position: fixed).
+        md:flex md:flex-col lets us reorder the three sections on desktop via md:order-*.
+        On mobile (normal block flow) the DOM order already gives the right sequence.
 
-        Mobile render order (normal block flow, action bar is out-of-flow):
-          1. Size selector  2. Pickup + below-fold  3. Action bar (fixed bottom)
-
-        Desktop render order (flex-col with order):
+        Both mobile and desktop render order:
           order-1: Size selector  order-2: Action bar (inline)  order-3: Pickup + below-fold
       */}
       <div className="md:flex md:flex-col">
@@ -190,20 +187,8 @@ export function ProductActions({
           </div>
         )}
 
-        {/* ── 2. Primary action bar ──
-            Mobile: fixed to bottom of viewport (out of normal flow).
-            Desktop: inline in the buy box, between size selector and pickup button. */}
-        <div className={[
-          // Mobile — sits above the StickyBottomNav (z-50, ~56px + safe-area)
-          "fixed bottom-[calc(56px+env(safe-area-inset-bottom))] left-0 right-0 z-30",
-          "bg-white border-t border-[#E5E2DC] shadow-[0_-4px_12px_rgba(0,0,0,0.06)]",
-          "px-4 pt-3 pb-3",
-          "flex gap-2",
-          // Desktop — back to normal inline flow
-          "md:relative md:bottom-auto md:left-auto md:right-auto md:z-auto",
-          "md:border-none md:bg-transparent md:shadow-none",
-          "md:px-0 md:pt-0 md:pb-0 md:mt-4 md:order-2",
-        ].join(" ")}>
+        {/* ── 2. Primary action bar — inline on all breakpoints ── */}
+        <div className="px-4 md:px-0 mt-4 md:mt-4 flex gap-2 md:order-2">
           {isOffline ? (
             <>
               <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-slate-100 text-slate-400 text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-offline-label">
