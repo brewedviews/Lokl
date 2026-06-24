@@ -2363,6 +2363,63 @@ async def admin_reply_ticket(ticket_id: str, payload: dict, request: Request):
         },
     )
     return {"ok": True}
+    # TODO: notify customer via WhatsApp when admin replies (Twilio call goes here)
+
+
+@api.post("/support/tickets/{ticket_id}/reply")
+async def customer_reply_to_ticket(ticket_id: str, request: Request):
+    """Customer appends a message to an existing ticket thread."""
+    body = await request.json()
+    text = (body.get("message") or "").strip()
+    if not text:
+        raise HTTPException(400, "message required")
+    # Extract phone from JWT — same pattern as /support/my-tickets
+    auth = request.headers.get("authorization", "")
+    customer_phone = ""
+    try:
+        if auth.startswith("Bearer "):
+            import jwt as _jwt
+            data = _jwt.decode(auth[7:], options={"verify_signature": False})
+            customer_phone = data.get("sub", "")
+    except Exception:
+        pass
+    if not customer_phone:
+        raise HTTPException(401, "auth required")
+    ticket = await db.support_tickets.find_one({"id": ticket_id, "customer_phone": customer_phone})
+    if not ticket:
+        raise HTTPException(404, "ticket not found")
+    msg = {"sender": "customer", "text": text, "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.support_tickets.update_one(
+        {"id": ticket_id},
+        {"$push": {"messages": msg}, "$set": {"status": "open"}},
+    )
+    return {"ok": True}
+
+
+@api.get("/admin/support/tickets/{ticket_id}")
+async def get_support_ticket(ticket_id: str, request: Request):
+    """Admin: fetch a single ticket with full messages array."""
+    _check_admin(request.headers.get("authorization"))
+    ticket = await db.support_tickets.find_one({"id": ticket_id}, {"_id": 0})
+    if not ticket:
+        raise HTTPException(404, "ticket not found")
+    return ticket
+
+
+@api.patch("/admin/support/tickets/{ticket_id}/status")
+async def update_support_ticket_status(ticket_id: str, payload: dict, request: Request):
+    """Admin: change ticket status. Allowed values: open, replied, closed."""
+    _check_admin(request.headers.get("authorization"))
+    new_status = (payload.get("status") or "").strip()
+    if new_status not in ("open", "replied", "closed"):
+        raise HTTPException(400, "status must be one of: open, replied, closed")
+    result = await db.support_tickets.update_one(
+        {"id": ticket_id},
+        {"$set": {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "ticket not found")
+    return {"ok": True}
 
 
 @api.get("/support/my-tickets")

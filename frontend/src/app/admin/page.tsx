@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Shield, Users, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop, TicketPercent } from "lucide-react";
+import { Shield, Users, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop, TicketPercent, MessageSquare } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
 import { useAdminAuthStore } from "@/stores";
 import { ReturnsTab } from "@/components/admin/ReturnsTab";
@@ -27,8 +27,9 @@ import { CustomersTab } from "@/components/admin/CustomersTab";
 import { BankRequestsTab } from "@/components/admin/BankRequestsTab";
 import { LiveMetricsTab } from "@/components/admin/LiveMetricsTab";
 import { CmsTab } from "@/components/admin/CmsTab";
+import { SupportTab } from "@/components/admin/SupportTab";
 
-type Tab = "stats" | "live" | "merchants" | "bank" | "products" | "orders" | "returns" | "customers" | "cms" | "waitlist" | "coupons";
+type Tab = "stats" | "live" | "merchants" | "bank" | "products" | "orders" | "returns" | "support" | "customers" | "cms" | "waitlist" | "coupons";
 
 interface Stats {
   submitted_kyc: number;
@@ -68,6 +69,7 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ size?: n
   { id: "products", label: "Products", icon: Package },
   { id: "orders", label: "Orders", icon: ShoppingBag },
   { id: "returns", label: "Returns", icon: RotateCcw },
+  { id: "support", label: "Support", icon: MessageSquare },
   { id: "customers", label: "Customers", icon: UserSquare2 },
   { id: "cms", label: "Homepage CMS", icon: LayoutPanelTop },
   { id: "waitlist", label: "Waitlist", icon: Users },
@@ -77,6 +79,7 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ size?: n
 export default function AdminDashboardPage() {
   const clearAuth = useAdminAuthStore((s) => s.clearAuth);
   const [tab, setTab] = useState<Tab>("stats");
+  const [openSupportCount, setOpenSupportCount] = useState(0);
 
   const logout = () => { clearAuth(); toast.success("Signed out"); };
 
@@ -101,6 +104,11 @@ export default function AdminDashboardPage() {
               <button key={t.id} onClick={() => setTab(t.id)} data-testid={`admin-tab-${t.id}`}
                 className={`inline-flex items-center gap-2 px-4 py-3 text-sm font-semibold whitespace-nowrap border-b-2 ${active ? "border-[#E68910] text-[#0A1F5C]" : "border-transparent text-[#595959] hover:text-[#0A1F5C]"}`}>
                 <Icon size={14} /> {t.label}
+                {t.id === "support" && openSupportCount > 0 && (
+                  <span className="ml-0.5 bg-[#E68910] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                    {openSupportCount}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -115,6 +123,7 @@ export default function AdminDashboardPage() {
         {tab === "products" && <ProductsTab />}
         {tab === "orders" && <OrdersTab />}
         {tab === "returns" && <ReturnsTab />}
+        {tab === "support" && <SupportTab onOpenCountChange={setOpenSupportCount} />}
         {tab === "customers" && <CustomersTab />}
         {tab === "cms" && <CmsTab />}
         {tab === "waitlist" && <WaitlistTab />}
