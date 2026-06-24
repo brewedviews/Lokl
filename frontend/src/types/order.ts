@@ -27,7 +27,8 @@ export type OrderStatus =
   | "rejected"
   | "returning"
   | "returned"
-  | "reserved";
+  | "reserved"
+  | "pending_pickup";
 
 export type PaymentMethod = "COD" | "UPI" | "WALLET" | "RAZORPAY";
 
