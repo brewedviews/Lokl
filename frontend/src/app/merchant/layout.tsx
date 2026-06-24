@@ -181,6 +181,11 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
     if (!isAuthed) { router.replace("/merchant/login"); return; }
     if (userKnown && APPROVED_ONLY.includes(pathname) && !isApproved) {
       router.replace("/merchant/onboarding");
+      return;
+    }
+    // Approved merchants should never be stuck on onboarding.
+    if (userKnown && isApproved && pathname === "/merchant/onboarding") {
+      router.replace("/merchant/orders");
     }
   }, [hydrated, isAuthed, isApproved, pathname, isPublic, userKnown, router]);
 
@@ -301,12 +306,16 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
           { href: "/merchant/products", icon: Package, label: "Products" },
           { href: "/merchant/storefront", icon: Store, label: "Store" },
           { href: "/merchant/analytics", icon: BarChart3, label: "Analytics" },
-        ].map(({ href, icon: Icon, label }) => (
-          <Link key={href} href={href} className="flex-1 flex flex-col items-center py-2 gap-0.5 text-[#595959]">
-            <Icon size={20} />
-            <span className="text-[10px] font-medium">{label}</span>
-          </Link>
-        ))}
+        ].map(({ href, icon: Icon, label }) => {
+          const active = pathname.startsWith(href);
+          return (
+            <Link key={href} href={href} className={`flex-1 flex flex-col items-center py-2 gap-0.5 relative ${active ? "text-[#E68910]" : "text-[#595959]"}`}>
+              {active && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-[#E68910]" />}
+              <Icon size={20} />
+              <span className="text-[10px] font-medium">{label}</span>
+            </Link>
+          );
+        })}
         <button
           onClick={toggleOnline}
           className={`flex-1 flex flex-col items-center py-2 gap-0.5 ${isOnline ? "text-[#4CAF50]" : "text-[#9CA3AF]"}`}

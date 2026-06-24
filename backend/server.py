@@ -34,6 +34,7 @@ from notifications import (
     notify_rider_return_pickup, notify_return_status, notify_customer_otp,
     notify_merchant_otp, send_with_fallback, APP_URL,
     notify_pickup_reserved, notify_merchant_pickup_reserved,
+    notify_pickup_pending, notify_merchant_pickup_pending,
 )
 from ai_enhance import enhance_product_images
 from observability import init_sentry
@@ -1990,7 +1991,7 @@ def _store_availability(store: dict) -> dict:
       Toggle OFF                                      → rank 4, Store Offline, can_order=False
       Toggle ON + outside hours                       → rank 3, Closed,        can_order=True
       Toggle ON + in hours + last_seen < 60 min       → rank 1, LIVE,          can_order=True
-      Toggle ON + in hours + last_seen 60–180 min     → rank 2, Away,          can_order=True
+      Toggle ON + in hours + last_seen 60–180 min     → rank 2, Away,          can_order=False
       Toggle ON + in hours + last_seen > 180 min      → rank 4, Store Offline, can_order=False
       Toggle ON + in hours + no last_seen (new store) → rank 1, LIVE,          can_order=True
     """
@@ -2075,7 +2076,7 @@ def _store_availability(store: dict) -> dict:
                     "can_order": True, "eta_message": "Delivery in ~30 mins", "opens_at_label": None}
         if elapsed_min < 180:
             return {"rank": 2, "badge": "Away", "badge_color": "yellow",
-                    "can_order": True, "eta_message": "May be delayed · Store is away", "opens_at_label": None}
+                    "can_order": False, "eta_message": "Store is away · Try again later", "opens_at_label": None}
         return {"rank": 4, "badge": "Store Offline", "badge_color": "red",
                 "can_order": False, "eta_message": "Store offline · Try other stores", "opens_at_label": None}
     except Exception:
@@ -2088,9 +2089,10 @@ async def _availability_map() -> dict[str, dict]:
     Includes toggle-OFF stores so feeds can rank them at the bottom (rank=4)."""
     stores = await db.stores.find(
         _visible_store_filter(),
-        {"_id": 0, "id": 1, "online": 1, "last_seen_at": 1, "opens_at": 1, "closes_at": 1}
+        {"_id": 0, "id": 1, "online": 1, "last_seen_at": 1, "opens_at": 1, "closes_at": 1,
+         "weekly_off": 1, "plan": 1}
     ).to_list(2000)
-    return {s["id"]: _store_availability(s) for s in stores}
+    return {s["id"]: {**_store_availability(s), "plan": s.get("plan", "free")} for s in stores}
 
 
 def _attach_store_avail(products: list, avail_map: dict) -> list:
@@ -2105,9 +2107,10 @@ def _attach_store_avail(products: list, avail_map: dict) -> list:
         p["store_eta_message"] = avail["eta_message"]
         p["store_opens_at_label"] = avail["opens_at_label"]
         p["store_availability_rank"] = avail["rank"]
-        # can_pickup: True for LIVE (rank 1) and Closed-by-hours (rank 3, can_order=True).
-        # False for Away (rank 2), weekly-off (rank 3, can_order=False), and Offline (rank 4).
-        p["store_can_pickup"] = avail.get("rank", 4) in (1, 3) and avail.get("can_order", False)
+        # can_pickup: True for Pro-plan LIVE stores (rank 1) and Pro closed-by-hours (rank 3, can_order=True).
+        # Gated behind Pro plan — free/starter/growth merchants do not get the pickup feature.
+        is_pro = avail.get("plan", "free") == "pro"
+        p["store_can_pickup"] = is_pro and avail.get("rank", 4) in (1, 3) and avail.get("can_order", False)
     return products
 
 
@@ -2519,15 +2522,19 @@ BHILAI_DELIVERY_POLYGON = [
 ]
 
 def _point_in_polygon(lat: float, lng: float, polygon: list) -> bool:
-    """Ray casting algorithm — returns True if point (lat, lng) is inside polygon."""
+    """Ray casting algorithm — returns True if point (lat, lng) is inside polygon.
+    Polygon vertices are [lat, lng] pairs. Casts a vertical ray northward from the
+    test point and counts how many edges it crosses."""
     n = len(polygon)
     inside = False
     j = n - 1
     for i in range(n):
-        xi, yi = polygon[i][1], polygon[i][0]  # lng=x, lat=y
-        xj, yj = polygon[j][1], polygon[j][0]
-        if ((yi > lng) != (yj > lng)) and (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi):
-            inside = not inside
+        lat_i, lng_i = polygon[i][0], polygon[i][1]
+        lat_j, lng_j = polygon[j][0], polygon[j][1]
+        if (lng_i > lng) != (lng_j > lng):
+            intersect_lat = lat_i + (lat_j - lat_i) * (lng - lng_i) / (lng_j - lng_i)
+            if lat < intersect_lat:
+                inside = not inside
         j = i
     return inside
 
@@ -2772,6 +2779,9 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             if order_type == "pickup":
                 store_rank = avail.get("rank", 4)
                 store_name = (store_doc or {}).get("name", sid)
+                if (store_doc or {}).get("plan", "free") != "pro":
+                    unavailable_stores.append(f"{store_name}: Store pickup is not available for this store")
+                    continue
                 if store_rank >= 4:
                     unavailable_stores.append(f"{store_name}: Store is not accepting reservations right now")
                 elif store_rank == 2:
@@ -2925,7 +2935,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             doc["pickup_code"] = f"{_otp_rng.randint(1000, 9999)}"
             _exp = _pickup_expires_at or (datetime.now(timezone.utc) + timedelta(hours=4))
             doc["pickup_expires_at"] = _exp.isoformat()
-            doc["status"] = "reserved"
+            doc["status"] = "pending_pickup"
             _ps_id = (items_snap[0].get("store_id") or "") if items_snap else ""
             _ps_name = (items_snap[0].get("store_name") or "") if items_snap else ""
             if _ps_name:
@@ -2976,11 +2986,8 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
     if cust_phone:
         try:
             if order_type == "pickup":
-                notify_pickup_reserved(cust_phone, order_id,
-                                       doc.get("store_name") or "the store",
-                                       doc["pickup_code"], doc["pickup_expires_at"],
-                                       store_address=doc.get("store_address", ""),
-                                       maps_link=doc.get("maps_link", ""))
+                notify_pickup_pending(cust_phone, order_id,
+                                      doc.get("store_name") or "the store")
             else:
                 notify_order_placed(cust_phone, order_id, float(server_total))
         except Exception: pass
@@ -2992,8 +2999,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                 their_items = [it for it in items_snap if it.get("merchant_id") == mid]
                 try:
                     if order_type == "pickup":
-                        notify_merchant_pickup_reserved(m["phone"], order_id, len(their_items),
-                                                        doc["pickup_expires_at"])
+                        notify_merchant_pickup_pending(m["phone"], order_id, len(their_items))
                     else:
                         notify_merchant_new_order(m["phone"], order_id, float(server_total), len(their_items))
                 except Exception: pass
@@ -3271,6 +3277,32 @@ async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_us
     return {"ok": True, "all_handed": all_handed, "my_state": "handed_off"}
 
 
+@api.post("/merchant/orders/{oid}/accept-pickup")
+async def accept_pickup(oid: str, user: dict = Depends(merchant_user)):
+    """Accept a pending pickup request — transitions status to 'reserved' and sends the customer their pickup code."""
+    mid = user["sub"]
+    o = await db.orders.find_one({"id": oid, "order_type": "pickup", "merchant_ids": mid}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Pickup order not found")
+    if o.get("status") != "pending_pickup":
+        raise HTTPException(400, "This pickup request is no longer pending")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.orders.update_one({"id": oid}, {"$set": {"status": "reserved", "accepted_at": now}})
+    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    if cust_phone:
+        try:
+            notify_pickup_reserved(
+                cust_phone, oid,
+                o.get("store_name") or "the store",
+                o["pickup_code"], o["pickup_expires_at"],
+                store_address=o.get("store_address", ""),
+                maps_link=o.get("maps_link", ""),
+            )
+        except Exception:
+            pass
+    return {"ok": True}
+
+
 @api.post("/merchant/orders/{oid}/verify-pickup")
 async def verify_pickup(oid: str, body: dict, user: dict = Depends(merchant_user)):
     """Verify the customer's 4-digit pickup code and mark the order as delivered."""
@@ -3312,12 +3344,12 @@ async def confirm_pickup(oid: str, user: dict = Depends(merchant_user)):
 
 @api.post("/merchant/orders/{oid}/cancel-pickup")
 async def cancel_pickup_reservation(oid: str, user: dict = Depends(merchant_user)):
-    """Cancel a pickup reservation (e.g. customer no-show or item unavailable)."""
+    """Cancel a pickup reservation or pending request."""
     mid = user["sub"]
     o = await db.orders.find_one({"id": oid, "order_type": "pickup", "merchant_ids": mid}, {"_id": 0})
     if not o:
         raise HTTPException(404, "Pickup order not found")
-    if o.get("status") != "reserved":
+    if o.get("status") not in ("reserved", "pending_pickup"):
         raise HTTPException(400, "This reservation is no longer active")
     await db.orders.update_one({"id": oid}, {"$set": {"status": "cancelled"}})
     return {"ok": True}
@@ -3328,7 +3360,7 @@ async def expire_pickups(user: dict = Depends(admin_user)):
     """Mark expired pickup reservations as cancelled. Run periodically."""
     now = datetime.now(timezone.utc).isoformat()
     result = await db.orders.update_many(
-        {"order_type": "pickup", "status": "reserved", "pickup_expires_at": {"$lt": now}},
+        {"order_type": "pickup", "status": {"$in": ["reserved", "pending_pickup"]}, "pickup_expires_at": {"$lt": now}},
         {"$set": {"status": "cancelled"}},
     )
     return {"expired": result.modified_count}

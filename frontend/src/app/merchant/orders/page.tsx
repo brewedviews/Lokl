@@ -96,6 +96,11 @@ export default function MerchantOrdersPage() {
       try {
         const data = await api.merchant.listOrders() as OrderEx[];
         const news = data.filter((o) => o.order_type !== "pickup" && (o.my_state === "pending" || (o.my_state === undefined && o.status === "pending_merchant")) && !seenIds.current.has(o.id));
+        const newPendingPickups = data.filter((o) => o.order_type === "pickup" && o.status === "pending_pickup" && !seenIds.current.has(o.id));
+        if (newPendingPickups.length > 0 && initialLoadDone.current && !muted) {
+          playLoudPing(audioCtxRef);
+          newPendingPickups.forEach((o) => toast.success(`New pickup request ${o.id}!`, { duration: 6000 }));
+        }
         if (news.length > 0 && initialLoadDone.current && !muted) {
           playLoudPing(audioCtxRef);
           news.forEach((o) => {
@@ -131,6 +136,22 @@ export default function MerchantOrdersPage() {
   const accept = async (id: string) => { await api.merchant.acceptOrder(id); toast.success("Order accepted — waiting for rider"); refresh(); };
   const handToRider = async (id: string) => { await api.merchant.handToRider(id); toast.success("Handed to rider · on the way"); refresh(); };
 
+  const [accepting, setAccepting] = useState<string | null>(null);
+
+  const acceptPickup = async (oid: string) => {
+    setAccepting(oid);
+    try {
+      await apiClient.post(`/api/merchant/orders/${oid}/accept-pickup`, {});
+      toast.success("Pickup accepted — customer notified with their code");
+      refresh();
+    } catch (e) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Could not accept pickup";
+      toast.error(msg);
+    } finally {
+      setAccepting(null);
+    }
+  };
+
   const confirmPickup = async (oid: string) => {
     setConfirming(oid);
     try {
@@ -160,6 +181,7 @@ export default function MerchantOrdersPage() {
   };
 
   const myState = (o: OrderEx) => o.my_state || o.status;
+  const pendingPickups = orders.filter((o) => o.order_type === "pickup" && o.status === "pending_pickup");
   const pickupReservations = orders.filter((o) => o.order_type === "pickup" && o.status === "reserved");
   const pending = orders.filter((o) => o.order_type !== "pickup" && (myState(o) === "pending" || (o.my_state === undefined && o.status === "pending_merchant")));
   const accepted = orders.filter((o) => o.order_type !== "pickup" && (myState(o) === "accepted"));
@@ -197,6 +219,51 @@ export default function MerchantOrdersPage() {
             <div className="p-3 text-sm font-semibold text-[#1A2B4C]">{previewProduct.name}</div>
           </div>
         </div>
+      )}
+
+      {pendingPickups.length > 0 && (
+        <section className="mb-8" data-testid="pending-pickups">
+          <h2 className="font-display text-base font-bold text-[#1A2B4C] mb-1 flex items-center gap-2">
+            <Store size={15} className="text-[#E68910]" /> Pickup requests <span className="text-xs font-normal text-[#595959]">({pendingPickups.length})</span>
+          </h2>
+          <p className="text-xs text-[#595959] mb-2">Accept or decline — customer is waiting for their pickup code.</p>
+          <div className="space-y-2">
+            {pendingPickups.map((o) => (
+              <div key={o.id} data-testid={`pending-pickup-${o.id}`} className="bg-white border-2 border-[#E68910] rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[#E5E2DC]">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-semibold text-xs text-[#1A2B4C] truncate">{o.id}</span>
+                    <span className="shrink-0 text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-full bg-[#E68910]/10 text-[#E68910]">Pending</span>
+                  </div>
+                  <span className="font-bold text-xs text-[#1A2B4C] shrink-0">₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</span>
+                </div>
+                <div className="px-3 py-2 text-xs text-[#595959] space-y-0.5">
+                  {o.items.map((it, i) => (
+                    <div key={i}>{it.name} × {it.qty}{it.size ? ` (${it.size})` : ""}</div>
+                  ))}
+                </div>
+                <div className="flex gap-2 px-3 pb-3">
+                  <button
+                    onClick={() => acceptPickup(o.id)}
+                    disabled={accepting === o.id || cancelling === o.id}
+                    data-testid={`accept-pickup-${o.id}`}
+                    className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full bg-[#4F7363] text-white font-semibold text-xs hover:bg-[#3a5a4d] disabled:opacity-50"
+                  >
+                    <CheckCircle2 size={12} /> {accepting === o.id ? "Accepting…" : "Accept"}
+                  </button>
+                  <button
+                    onClick={() => cancelPickup(o.id)}
+                    disabled={accepting === o.id || cancelling === o.id}
+                    data-testid={`decline-pickup-${o.id}`}
+                    className="px-3 py-1.5 rounded-full border border-red-200 text-red-500 font-semibold text-xs hover:bg-red-50 disabled:opacity-50 inline-flex items-center gap-1"
+                  >
+                    <X size={12} /> {cancelling === o.id ? "Declining…" : "Decline"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {pickupReservations.length > 0 && (

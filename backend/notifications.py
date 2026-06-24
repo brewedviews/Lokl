@@ -479,3 +479,26 @@ def notify_merchant_pickup_reserved(merchant_phone: str, order_id: str,
         f"See orders: {APP_URL}/merchant/orders"
     )
     send_with_fallback(merchant_phone, body)
+
+
+def notify_pickup_pending(customer_phone: str, order_id: str, store_name: str) -> None:
+    """Notify the customer that their pickup request is pending merchant confirmation."""
+    short = order_id[-6:].upper()
+    body = (
+        f"Pickup request received — #{short}\n\n"
+        f"Your request to pick up from {store_name} is pending confirmation.\n"
+        f"We'll send you the pickup code as soon as the store accepts.\n\n"
+        f"Track: {APP_URL}/account/orders/{order_id}"
+    )
+    send_with_fallback(customer_phone, body)
+
+
+def notify_merchant_pickup_pending(merchant_phone: str, order_id: str, items_count: int) -> None:
+    """Notify the merchant of a new pickup request that requires their acceptance."""
+    short = order_id[-6:].upper()
+    body = (
+        f"New pickup request — #{short}\n\n"
+        f"{items_count} item(s) requested for in-store pickup.\n"
+        f"Accept or decline at {APP_URL}/merchant/orders"
+    )
+    send_with_fallback(merchant_phone, body)

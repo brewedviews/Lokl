@@ -26,8 +26,8 @@ const DELIVERY_STEPS = [
 ] as const;
 
 const PICKUP_STEPS = [
-  { key: "reserved", label: "Reserved", icon: ShoppingBag },
-  { key: "at_store", label: "At store", icon: Store },
+  { key: "pending_pickup", label: "Requested", icon: ShoppingBag },
+  { key: "reserved", label: "Confirmed", icon: CheckCircle2 },
   { key: "collected", label: "Collected", icon: ShieldCheck },
 ] as const;
 
@@ -185,6 +185,7 @@ export default function OrderTrackingPage() {
   const isCancelledLike = status === "cancelled";
 
   const title =
+    isPickup && status === "pending_pickup" ? "Awaiting store confirmation" :
     isPickup && status === "reserved" ? "Ready for pickup" :
     status === "delivered" ? "Delivered" :
     status === "on_the_way" ? "On the way" :
@@ -192,7 +193,8 @@ export default function OrderTrackingPage() {
     status === "returned" ? "Returned" :
     "Order confirmed";
   const subtitle =
-    isPickup && status === "reserved" ? "Show the code below at the store. Your reservation is held for 4 hours."
+    isPickup && status === "pending_pickup" ? "The store is reviewing your pickup request. You'll receive your code once confirmed."
+    : isPickup && status === "reserved" ? "Show the code below at the store. Your reservation is held for 4 hours."
     : status === "delivered" ? "Hope you love it. Return-eligible items can be returned within 24 hours."
     : status === "on_the_way" ? "Your order is en-route. Share the OTP with the rider on arrival."
     : status === "cancelled" ? "This order was cancelled."
@@ -230,7 +232,7 @@ export default function OrderTrackingPage() {
               {isPickup ? (
                 <ProgressStepper
                   steps={PICKUP_STEPS}
-                  activeIdx={status === "delivered" ? 2 : 0}
+                  activeIdx={status === "delivered" || status === "completed" ? 2 : status === "reserved" ? 1 : 0}
                 />
               ) : (
                 <ProgressStepper
