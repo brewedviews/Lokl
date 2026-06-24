@@ -28,6 +28,8 @@ export function ProductGallery({
     }
   };
 
+  const mainImage = images[imgIdx] ?? images[0] ?? "";
+
   if (images.length === 0) {
     return (
       <div
@@ -129,16 +131,18 @@ export function ProductGallery({
           </div>
         )}
 
-        <div className="relative flex-1 aspect-[4/5] rounded-2xl overflow-hidden bg-slate-100">
-          <Image
-            src={images[imgIdx] ?? images[0]}
-            alt={name}
-            fill
-            sizes="(min-width: 1200px) 600px, 50vw"
-            priority
-            className="object-cover"
-          />
-        </div>
+        {mainImage && (
+          <div className="relative flex-1 aspect-[4/5] rounded-2xl overflow-hidden bg-slate-100">
+            <Image
+              src={mainImage}
+              alt={name}
+              fill
+              sizes="(min-width: 1200px) 600px, 50vw"
+              priority
+              className="object-cover"
+            />
+          </div>
+        )}
       </div>
 
       {/* AI Enhanced badge — overlays both layouts */}
