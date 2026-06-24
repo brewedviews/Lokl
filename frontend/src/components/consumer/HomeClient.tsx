@@ -55,7 +55,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "hero",           label: "Hero",                      enabled: true, rank: 2  },
   { id: "under_499",      label: "Under ₹499",                enabled: true, rank: 3  },
   { id: "store_rail",     label: "From our stores",           enabled: true, rank: 10 },
-  { id: "trending",       label: "Trending now",              enabled: false, rank: 20 },
+  { id: "trending",       label: "Trending now",              enabled: true, rank: 20 },
   { id: "best_deals",     label: "Best deals",                enabled: true, rank: 30 },
   { id: "offers",         label: "Offers for you",            enabled: true, rank: 40 },
   { id: "stores",         label: "Popular stores",            enabled: true, rank: 50 },
