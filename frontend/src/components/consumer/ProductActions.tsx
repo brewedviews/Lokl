@@ -61,8 +61,9 @@ export function ProductActions({
   const isClosed = badge === "Closed";
   const isAway = badge === "Away";
 
-  // store_can_pickup is set by the backend feed; fall back to badge-based heuristic
-  const canPickup = (product as any)?.store_can_pickup ?? (!isOffline && !isAway);
+  // store_can_pickup is set explicitly by the backend; default false so the button never
+  // appears when the field is absent (non-Pro stores, or responses that predate this field).
+  const canPickup = ((product as any)?.store_can_pickup ?? false) && !isOffline;
 
   const toIST = (iso: string): string => {
     try {

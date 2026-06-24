@@ -2496,6 +2496,9 @@ async def get_product(pid: str):
         p["store_eta_message"] = avail["eta_message"]
         p["store_opens_at_label"] = avail.get("opens_at_label")
         p["store_availability_rank"] = avail["rank"]
+        plan = store_doc.get("plan", "free")
+        is_pro = plan == "pro"
+        p["store_can_pickup"] = bool(is_pro and avail["rank"] in (1, 3) and avail["can_order"])
     similar_q = {"id": {"$ne": pid}, **_visible_product_filter()}
     if p.get("l2_id"): similar_q["l2_id"] = p["l2_id"]
     elif p.get("l1_id"): similar_q["l1_id"] = p["l1_id"]
