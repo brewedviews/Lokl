@@ -161,79 +161,157 @@ export function ProductActions({
 
   return (
     <>
-      {product.sizes && product.sizes.length > 0 && (
-        <div className="mt-6">
-          <div className="flex items-center justify-between mb-2.5">
-            <h4 className="text-sm font-semibold text-[#0A1F5C]">Select size</h4>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {product.sizes.map((s) => (
-              <button key={s} onClick={() => setSize(s)} data-testid={`size-${s}`}
-                className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-slate-200 hover:border-[#0A1F5C]"}`}>
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/*
+        md:flex md:flex-col lets us reorder the three sections on desktop via md:order-*
+        without touching mobile layout (where the action bar is position: fixed).
 
-      <div className="mt-6 flex gap-2">
-        {isOffline ? (
-          <>
-            <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-slate-100 text-slate-400 text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-offline-label">
-              Store Offline
+        Mobile render order (normal block flow, action bar is out-of-flow):
+          1. Size selector  2. Pickup + below-fold  3. Action bar (fixed bottom)
+
+        Desktop render order (flex-col with order):
+          order-1: Size selector  order-2: Action bar (inline)  order-3: Pickup + below-fold
+      */}
+      <div className="md:flex md:flex-col">
+
+        {/* ── 1. Size selector ── */}
+        {product.sizes && product.sizes.length > 0 && (
+          <div className="px-4 md:px-0 mt-4 md:order-1">
+            <div className="flex items-center justify-between mb-2.5">
+              <h4 className="text-sm font-semibold text-[#0A1F5C]">Select size</h4>
             </div>
-            <button
-              onClick={() => setNotifyOpen((v) => !v)}
-              data-testid="notify-me-btn"
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#1A2B4C] text-white text-sm font-bold hover:bg-[#0F1F3D] transition whitespace-nowrap"
-            >
-              <Bell size={16} /> Notify Me
-            </button>
-          </>
-        ) : isClosed ? (
-          <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-slate-100 text-slate-400 text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-closed-label">
-            <ShoppingBag size={16} /> Store closed
-          </div>
-        ) : storeCanOrder ? (
-          <>
-            <button onClick={() => { if (handleAdd()) toast.success("Added to bag"); }} data-testid="add-to-bag"
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border-2 border-[#0A1F5C] text-[#0A1F5C] text-sm font-bold hover:bg-[#0A1F5C] hover:text-white transition whitespace-nowrap">
-              <ShoppingBag size={16} /> Add to bag
-            </button>
-            <button onClick={() => { if (handleAdd()) router.push("/checkout"); }} data-testid="buy-now"
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#F59E0B] text-white text-sm font-bold hover:bg-[#cc7a0a] transition whitespace-nowrap">
-              Buy now
-            </button>
-          </>
-        ) : (
-          <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-slate-100 text-slate-400 text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-unavailable-btn">
-            Store Unavailable
+            <div className="flex flex-wrap gap-2">
+              {product.sizes.map((s) => (
+                <button key={s} onClick={() => setSize(s)} data-testid={`size-${s}`}
+                  className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-slate-200 hover:border-[#0A1F5C]"}`}>
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
         )}
-        <button aria-label="Wishlist" data-testid="wishlist-btn" className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
-          <Heart size={16} />
-        </button>
-        <button aria-label="Share" data-testid="share-btn" onClick={handleShare} className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
-          <Share2 size={16} />
-        </button>
+
+        {/* ── 2. Primary action bar ──
+            Mobile: fixed to bottom of viewport (out of normal flow).
+            Desktop: inline in the buy box, between size selector and pickup button. */}
+        <div className={[
+          // Mobile — sits above the StickyBottomNav (z-50, ~56px + safe-area)
+          "fixed bottom-[calc(56px+env(safe-area-inset-bottom))] left-0 right-0 z-30",
+          "bg-white border-t border-[#E5E2DC] shadow-[0_-4px_12px_rgba(0,0,0,0.06)]",
+          "px-4 pt-3 pb-3",
+          "flex gap-2",
+          // Desktop — back to normal inline flow
+          "md:relative md:bottom-auto md:left-auto md:right-auto md:z-auto",
+          "md:border-none md:bg-transparent md:shadow-none",
+          "md:px-0 md:pt-0 md:pb-0 md:mt-4 md:order-2",
+        ].join(" ")}>
+          {isOffline ? (
+            <>
+              <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-slate-100 text-slate-400 text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-offline-label">
+                Store Offline
+              </div>
+              <button
+                onClick={() => setNotifyOpen((v) => !v)}
+                data-testid="notify-me-btn"
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#1A2B4C] text-white text-sm font-bold hover:bg-[#0F1F3D] transition whitespace-nowrap"
+              >
+                <Bell size={16} /> Notify Me
+              </button>
+            </>
+          ) : isClosed ? (
+            <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-slate-100 text-slate-400 text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-closed-label">
+              <ShoppingBag size={16} /> Store closed
+            </div>
+          ) : storeCanOrder ? (
+            <>
+              <button onClick={() => { if (handleAdd()) toast.success("Added to bag"); }} data-testid="add-to-bag"
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border-2 border-[#1A2B4C] text-[#1A2B4C] text-sm font-bold hover:bg-[#1A2B4C] hover:text-white transition whitespace-nowrap">
+                <ShoppingBag size={16} /> Add to bag
+              </button>
+              <button onClick={() => { if (handleAdd()) router.push("/checkout"); }} data-testid="buy-now"
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#E68910] text-white text-sm font-bold hover:bg-[#c4780f] transition whitespace-nowrap">
+                Buy now
+              </button>
+            </>
+          ) : (
+            <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-slate-100 text-slate-400 text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-unavailable-btn">
+              Store Unavailable
+            </div>
+          )}
+          <button aria-label="Wishlist" data-testid="wishlist-btn" className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#1A2B4C] transition shrink-0">
+            <Heart size={16} />
+          </button>
+          <button aria-label="Share" data-testid="share-btn" onClick={handleShare} className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#1A2B4C] transition shrink-0">
+            <Share2 size={16} />
+          </button>
+        </div>
+
+        {/* ── 3. Pickup button + below-fold banners ── */}
+        <div className="md:order-3">
+          {!isOffline && (canPickup || reservation) && (
+            <div className="mt-3 px-4 md:px-0">
+              <button
+                onClick={() => {
+                  if (reservation) { setShowPickupSheet(true); return; }
+                  if (!isCustomerAuth) { router.push("/account"); return; }
+                  setShowPickupSheet(true);
+                }}
+                data-testid="reserve-pickup-btn"
+                className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full text-sm font-semibold transition whitespace-nowrap border border-[#0A1F5C]/30 text-[#0A1F5C] hover:bg-[#0A1F5C]/5"
+              >
+                <Store size={15} />
+                {reservation ? "View pickup code" : "Reserve for store pickup"}
+              </button>
+            </div>
+          )}
+
+          {isAway && (
+            <div className="mt-3 mx-4 md:mx-0 px-4 py-2 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold text-center">
+              Store is away · Delivery may take longer
+            </div>
+          )}
+
+          {isOffline && notifyOpen && (
+            <div className="mt-3 mx-4 md:mx-0 p-4 bg-[#F0F4FF] rounded-2xl">
+              {notifySubmitted ? (
+                <div className="flex items-center gap-2 text-[#4F7363]">
+                  <CheckCircle2 size={16} />
+                  <p className="text-sm font-semibold">You&apos;ll be notified on WhatsApp!</p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-[#1A2B4C] mb-2">Get notified when store is back</p>
+                  <form onSubmit={handleNotifySubmit} className="flex gap-2">
+                    <input
+                      type="tel"
+                      value={notifyPhone}
+                      onChange={(e) => setNotifyPhone(e.target.value)}
+                      placeholder="Your WhatsApp number"
+                      className="flex-1 px-3 py-2 rounded-xl border border-[#E5E2DC] text-sm outline-none focus:border-[#1A2B4C]"
+                    />
+                    <button
+                      type="submit"
+                      disabled={notifyLoading}
+                      className="px-4 py-2 bg-[#1A2B4C] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                    >
+                      {notifyLoading ? "…" : "Notify Me"}
+                    </button>
+                  </form>
+                  <p className="text-xs text-[#595959] mt-2">We&apos;ll WhatsApp you when {sName} is back online</p>
+                </>
+              )}
+            </div>
+          )}
+
+          {isOffline && (
+            <p className="text-xs text-[#94A3B8] mt-2 px-4 md:px-0">
+              <a href="#similar-products" className="hover:text-[#1A2B4C] transition">See similar products ↓</a>
+            </p>
+          )}
+        </div>
+
       </div>
 
-      {!isOffline && (canPickup || reservation) && (
-        <button
-          onClick={() => {
-            if (reservation) { setShowPickupSheet(true); return; }
-            if (!isCustomerAuth) { router.push("/account"); return; }
-            setShowPickupSheet(true);
-          }}
-          data-testid="reserve-pickup-btn"
-          className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full text-sm font-semibold transition whitespace-nowrap border border-[#0A1F5C]/30 text-[#0A1F5C] hover:bg-[#0A1F5C]/5"
-        >
-          <Store size={15} />
-          {reservation ? "View pickup code" : "Reserve for store pickup"}
-        </button>
-      )}
-
+      {/* ── Pickup sheet (fixed, always last in DOM) ── */}
       {showPickupSheet && (
         <>
           <div className="fixed inset-0 bg-black/50 z-[55]" onClick={() => setShowPickupSheet(false)} />
@@ -328,50 +406,6 @@ export function ProductActions({
             </div>
           </div>
         </>
-      )}
-
-      {isAway && (
-        <div className="mt-3 px-4 py-2 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold text-center">
-          Store is away · Delivery may take longer
-        </div>
-      )}
-
-      {isOffline && notifyOpen && (
-        <div className="mt-3 p-4 bg-[#F0F4FF] rounded-2xl">
-          {notifySubmitted ? (
-            <div className="flex items-center gap-2 text-[#4F7363]">
-              <CheckCircle2 size={16} />
-              <p className="text-sm font-semibold">You&apos;ll be notified on WhatsApp!</p>
-            </div>
-          ) : (
-            <>
-              <p className="text-sm font-semibold text-[#1A2B4C] mb-2">Get notified when store is back</p>
-              <form onSubmit={handleNotifySubmit} className="flex gap-2">
-                <input
-                  type="tel"
-                  value={notifyPhone}
-                  onChange={(e) => setNotifyPhone(e.target.value)}
-                  placeholder="Your WhatsApp number"
-                  className="flex-1 px-3 py-2 rounded-xl border border-[#E5E2DC] text-sm outline-none focus:border-[#1A2B4C]"
-                />
-                <button
-                  type="submit"
-                  disabled={notifyLoading}
-                  className="px-4 py-2 bg-[#1A2B4C] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
-                >
-                  {notifyLoading ? "…" : "Notify Me"}
-                </button>
-              </form>
-              <p className="text-xs text-[#595959] mt-2">We&apos;ll WhatsApp you when {sName} is back online</p>
-            </>
-          )}
-        </div>
-      )}
-
-      {isOffline && (
-        <p className="text-xs text-[#94A3B8] mt-2">
-          <a href="#similar-products" className="hover:text-[#1A2B4C] transition">See similar products ↓</a>
-        </p>
       )}
     </>
   );

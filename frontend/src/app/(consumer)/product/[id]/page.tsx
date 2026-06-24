@@ -48,17 +48,25 @@ export default async function ProductDetailPage(
     : ([product.image].filter(Boolean) as string[]);
 
   return (
-    <div className="min-h-screen bg-white pb-32">
-      <div className="max-w-5xl mx-auto">
-        <div className="md:grid md:grid-cols-2 md:gap-8 md:pt-8 md:px-8">
+    // pb-[120px] clears both bars stacked (action bar ~56px + tab nav ~60px + breathing room); md:pb-10 resets for desktop.
+    <div className="min-h-screen bg-white pb-[120px] md:pb-10">
+      <div className="max-w-[1200px] mx-auto">
 
-          {/* Left column — gallery (sticky on desktop) */}
-          <div className="md:sticky md:top-4 md:self-start">
+        {/*
+          Mobile: single column, gallery full-bleed, content padded inside ProductActions.
+          Desktop: two columns — flexible gallery left, 440px sticky buy box right.
+        */}
+        <div className="md:grid md:grid-cols-[minmax(0,1fr)_440px] md:gap-10 md:pt-10 md:px-8 md:items-start">
+
+          {/* Left — gallery scrolls normally; buy box (right) is the sticky one */}
+          <div>
             <ProductGallery name={product.name} images={images} aiEnhanced={product.ai_enhanced} />
           </div>
 
-          {/* Right column — product info */}
-          <div>
+          {/* Right — sticky buy box */}
+          <div className="md:sticky md:top-24 md:self-start">
+
+            {/* Store name, badges, title, price, ratings */}
             <div className="px-4 pt-4 pb-2 md:px-0 md:pt-0">
               {product.store_id ? (
                 <Link href={`/store/${product.store_id}`} data-testid="store-name-link"
@@ -110,9 +118,9 @@ export default async function ProductDetailPage(
               )}
             </div>
 
-            <div className="h-px bg-[#F5F5F5] mx-4 my-3 md:mx-0" />
+            <div className="h-px bg-[#F5F5F5] mx-4 my-2 md:mx-0" />
 
-            {/* Size picker + CTAs */}
+            {/* Size picker, action bar, pickup button */}
             <ProductActions
               product={product}
               storeCanOrder={product.store_can_order !== false}
@@ -129,7 +137,7 @@ export default async function ProductDetailPage(
               </div>
             )}
 
-            {/* Store info strip — only when real data is available */}
+            {/* Store info strip */}
             {((product.store_eta_min ?? 0) > 0 || (product.store_distance_km ?? 0) > 0) && (
               <div className="mx-4 my-3 p-3 bg-[#FDFBF7] border border-[#E5E2DC] rounded-xl flex items-center gap-3 md:mx-0">
                 <div className="flex-1">
@@ -151,7 +159,7 @@ export default async function ProductDetailPage(
           </div>
         </div>
 
-        {/* Below-fold — full width within max-w-5xl */}
+        {/* Below-fold rails — full width within max-w-[1200px] */}
         {fromStore.length > 0 && (
           <section className="px-4 mt-8 md:px-8" data-testid="from-store-rail">
             <h2 className="font-bold text-lg text-[#1A2B4C] mb-4">More from {product.store_name}</h2>
