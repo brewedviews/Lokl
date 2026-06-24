@@ -41,6 +41,7 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   returning:        "Returning",
   returned:         "Returned",
   reserved:         "Reserved for Pickup",
+  pending_pickup:   "Awaiting store confirmation",
 };
 
 export function formatOrderStatus(status: OrderStatus | string): string {
