@@ -55,7 +55,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "hero",           label: "Hero",                      enabled: true, rank: 2  },
   { id: "under_499",      label: "Under ₹499",                enabled: true, rank: 3  },
   { id: "store_rail",     label: "From our stores",           enabled: true, rank: 10 },
-  { id: "trending",       label: "Trending now",              enabled: true, rank: 20 },
+  { id: "trending",       label: "Trending now",              enabled: false, rank: 20 },
   { id: "best_deals",     label: "Best deals",                enabled: true, rank: 30 },
   { id: "offers",         label: "Offers for you",            enabled: true, rank: 40 },
   { id: "stores",         label: "Popular stores",            enabled: true, rank: 50 },
@@ -470,7 +470,7 @@ export function HomeClient() {
         target="_blank"
         rel="noopener noreferrer"
         onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
-        className="block mx-4 md:mx-6 mt-2 mb-4"
+        className="block mx-4 md:mx-6 mt-2 mb-6"
       >
         <div className="bg-[#1A2B4C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
           <div className="min-w-0">
@@ -506,7 +506,7 @@ export function HomeClient() {
       <main className="flex-1">
         {orderedSections}
       </main>
-      <Footer />
+      <Footer topGap={testimonials.length > 0} />
     </div>
   );
 }
