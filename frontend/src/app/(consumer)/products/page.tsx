@@ -2,8 +2,8 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
-import type { ProductCard } from "@/types";
-import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
+import type { ProductCard as ProductCardType } from "@/types";
+import { ProductCard } from "@/components/consumer/ProductCard";
 
 interface L1Cat { id: string; name: string; slug: string; image?: string; }
 
@@ -22,7 +22,7 @@ function pageTitle(cat: L1Cat | undefined) {
 function ProductsInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [products, setProducts] = useState<ProductCard[]>([]);
+  const [products, setProducts] = useState<ProductCardType[]>([]);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<L1Cat[]>([]);
 
@@ -44,7 +44,7 @@ function ProductsInner() {
     if (priceFilter) params.set("price", priceFilter);
     if (sortFilter && sortFilter !== "newest") params.set("sort", sortFilter);
     apiClient
-      .get<{ products: ProductCard[] }>(`/api/products/all?${params.toString()}`)
+      .get<{ products: ProductCardType[] }>(`/api/products/all?${params.toString()}`)
       .then((r) => setProducts(r.data.products || []))
       .catch(() => setProducts([]))
       .finally(() => setLoading(false));
@@ -136,7 +136,7 @@ function ProductsInner() {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {products.map((p) => (
-            <ProductCardV2 key={p.id} p={p} />
+            <ProductCard key={p.id} p={p} size="default" />
           ))}
         </div>
       )}

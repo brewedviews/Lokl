@@ -3,7 +3,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiClient } from "@/lib/api-client";
-import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
+import { ProductCard } from "@/components/consumer/ProductCard";
 
 interface L1Cat { id: string; name: string; slug: string; image?: string; }
 interface L2Cat { id: string; name: string; slug: string; }
@@ -181,7 +181,7 @@ function CategoriesInner() {
 
           {!loadingProducts && products.length > 0 && (
             <div className="grid grid-cols-2 gap-2">
-              {products.map(p => <ProductCardV2 key={p.id} p={p} />)}
+              {products.map(p => <ProductCard key={p.id} p={p} size="compact" />)}
             </div>
           )}
 

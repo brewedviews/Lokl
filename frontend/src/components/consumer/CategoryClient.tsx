@@ -4,16 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
-import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
+import { ProductCard } from "@/components/consumer/ProductCard";
 import { Footer } from "@/components/consumer/Footer";
-import type { ProductCard, CategoryNode } from "@/types";
+import type { ProductCard as ProductCardType, CategoryNode } from "@/types";
 
 type L2 = { id: string; name: string; slug: string; image?: string };
 type Cat = Omit<CategoryNode, "l2"> & { l2?: L2[] };
 
 type SortKey = "nearest" | "price_asc" | "price_desc";
 
-function sortProducts(products: ProductCard[], sort: SortKey): ProductCard[] {
+function sortProducts(products: ProductCardType[], sort: SortKey): ProductCardType[] {
   const copy = [...products];
   if (sort === "price_asc") return copy.sort((a, b) => a.price - b.price);
   if (sort === "price_desc") return copy.sort((a, b) => b.price - a.price);
@@ -49,7 +49,7 @@ export function CategoryClient() {
 
   const [cats, setCats] = useState<Cat[]>([]);
   const [subcategories, setSubcategories] = useState<L2[]>([]);
-  const [allProducts, setAllProducts] = useState<ProductCard[]>([]);
+  const [allProducts, setAllProducts] = useState<ProductCardType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [sort, setSort] = useState<SortKey>("nearest");
   const [l2Filter, setL2Filter] = useState(""); // slug
@@ -88,7 +88,7 @@ export function CategoryClient() {
     if (sort === "price_asc") p.set("sort", "price_asc");
     if (sort === "price_desc") p.set("sort", "price_desc");
     apiClient
-      .get<ProductCard[]>(`/api/products?${p.toString()}`)
+      .get<ProductCardType[]>(`/api/products?${p.toString()}`)
       .then((r) => { setAllProducts(Array.isArray(r.data) ? r.data : []); })
       .catch(() => setAllProducts([]))
       .finally(() => setIsLoading(false));
@@ -169,7 +169,7 @@ export function CategoryClient() {
             </div>
           ) : (
             <div data-testid="cat-product-grid" className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
-              {products.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+              {products.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
             </div>
           )}
         </div>

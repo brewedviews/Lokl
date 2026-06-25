@@ -3,15 +3,15 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Bike, MapPin, ShieldCheck } from "lucide-react";
 import { serverFetch } from "@/lib/server-fetch";
-import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
+import { ProductCard } from "@/components/consumer/ProductCard";
 import { StoreInfoChips } from "@/components/consumer/StoreInfoChips";
 import { StoreNotifyBanner } from "@/components/consumer/StoreNotifyBanner";
 import { Footer } from "@/components/consumer/Footer";
-import type { Store, ProductCard } from "@/types";
+import type { Store, ProductCard as ProductCardType } from "@/types";
 
 interface StoreDetailResponse {
   store: Store;
-  products: ProductCard[];
+  products: ProductCardType[];
 }
 
 function etaFromDistance(km?: number | null) {
@@ -141,7 +141,7 @@ export default async function StorePage(
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
               {products.map((p) => (
-                <ProductCardV2 key={p.id} p={{ ...p, store_name: store.name }} compact />
+                <ProductCard key={p.id} p={{ ...p, store_name: store.name }} size="default" />
               ))}
             </div>
           )}

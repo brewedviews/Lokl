@@ -4,13 +4,13 @@ import { notFound } from "next/navigation";
 import { serverFetch } from "@/lib/server-fetch";
 import { ProductGallery } from "@/components/consumer/ProductGallery";
 import { ProductActions } from "@/components/consumer/ProductActions";
-import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
+import { ProductCard } from "@/components/consumer/ProductCard";
 import { Footer } from "@/components/consumer/Footer";
-import type { Product, ProductCard } from "@/types";
+import type { Product, ProductCard as ProductCardType } from "@/types";
 
 interface ProductDetailResponse {
   product: Product;
-  similar?: ProductCard[];
+  similar?: ProductCardType[];
 }
 
 export async function generateMetadata(
@@ -35,7 +35,7 @@ export default async function ProductDetailPage(
   const { id } = await params;
   const [data, relatedRaw] = await Promise.all([
     serverFetch<ProductDetailResponse>(`/api/products/${id}`),
-    serverFetch<{ from_store: ProductCard[]; similar: ProductCard[] }>(`/api/products/${id}/related`),
+    serverFetch<{ from_store: ProductCardType[]; similar: ProductCardType[] }>(`/api/products/${id}/related`),
   ]);
   if (!data?.product) notFound();
 
@@ -164,7 +164,7 @@ export default async function ProductDetailPage(
             <h2 className="font-bold text-lg text-[#1A2B4C] mb-4">More from {product.store_name}</h2>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
               {fromStore.slice(0, 8).map((p) => (
-                <div key={p.id} className="shrink-0 w-[38vw] sm:w-[180px]"><ProductCardV2 p={p} /></div>
+                <div key={p.id} className="shrink-0 w-[38vw] sm:w-[180px]"><ProductCard p={p} size="default" /></div>
               ))}
             </div>
           </section>
@@ -175,7 +175,7 @@ export default async function ProductDetailPage(
             <h2 className="font-bold text-lg text-[#1A2B4C] mb-4">You might also like</h2>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
               {similar.slice(0, 8).map((p) => (
-                <div key={p.id} className="shrink-0 w-[38vw] sm:w-[180px]"><ProductCardV2 p={p} /></div>
+                <div key={p.id} className="shrink-0 w-[38vw] sm:w-[180px]"><ProductCard p={p} size="default" /></div>
               ))}
             </div>
           </section>

@@ -6,16 +6,16 @@ import Link from "next/link";
 import Image from "next/image";
 import { Search as SearchIcon } from "lucide-react";
 import { api } from "@/lib/api";
-import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
+import { ProductCard } from "@/components/consumer/ProductCard";
 import { Footer } from "@/components/consumer/Footer";
-import type { ProductCard, StoreCard, CategoryNode } from "@/types";
+import type { ProductCard as ProductCardType, StoreCard, CategoryNode } from "@/types";
 
 type CategoryWithImage = CategoryNode & { image?: string };
 
 export default function SearchPage() {
   const sp = useSearchParams();
   const q = sp.get("q") || "";
-  const [data, setData] = useState<{ products: ProductCard[]; stores: StoreCard[] }>({ products: [], stores: [] });
+  const [data, setData] = useState<{ products: ProductCardType[]; stores: StoreCard[] }>({ products: [], stores: [] });
   const [cats, setCats] = useState<CategoryWithImage[]>([]);
   const [busy, setBusy] = useState(true);
 
@@ -66,7 +66,7 @@ export default function SearchPage() {
           <section className="mb-10">
             <h2 className="text-[11px] uppercase tracking-widest text-[#595959] mb-3">Products ({data.products.length})</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5">
-              {data.products.map((p) => <ProductCardV2 key={p.id} p={p} />)}
+              {data.products.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
             </div>
           </section>
         )}
