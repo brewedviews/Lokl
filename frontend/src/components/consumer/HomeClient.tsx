@@ -32,7 +32,7 @@ import { HeroV2 } from "@/components/consumer/v2/HeroV2";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
-import { DoubleRowRail } from "@/components/consumer/DoubleRowRail";
+import { GenderFashionBand } from "@/components/consumer/GenderFashionBand";
 import { Footer } from "@/components/consumer/Footer";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
@@ -443,17 +443,15 @@ export function HomeClient() {
       </section>
     ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
 
-    women_rail: !loaded.has("women_rail")
-      ? <ProductRailSkeleton key="women-rail-skeleton" testid="home-women-rail-skeleton" />
-      : womenProducts.length > 0
-        ? <DoubleRowRail key="women-rail" title="Women's Fashion" products={womenProducts} viewAllHref="/c/women" />
+    // Both gender rails rendered as one banded zone from women_rail slot (rank 42).
+    // men_rail (rank 44) is null — it's consumed inside the band.
+    women_rail: (!loaded.has("women_rail") || !loaded.has("men_rail"))
+      ? <ProductRailSkeleton key="gender-band-skeleton" testid="home-gender-band-skeleton" />
+      : (womenProducts.length > 0 || menProducts.length > 0)
+        ? <GenderFashionBand key="gender-band" women={womenProducts} men={menProducts} />
         : null,
 
-    men_rail: !loaded.has("men_rail")
-      ? <ProductRailSkeleton key="men-rail-skeleton" testid="home-men-rail-skeleton" />
-      : menProducts.length > 0
-        ? <DoubleRowRail key="men-rail" title="Men's Fashion" products={menProducts} viewAllHref="/c/men" />
-        : null,
+    men_rail: null,
 
     stores: errors.has("popularStores") && !storesRail.length ? (
       <SectionError key="stores-error" minHeight="min-h-[200px]" />
