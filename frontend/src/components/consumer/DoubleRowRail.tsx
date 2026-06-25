@@ -1,19 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
-import type { ProductCard } from "@/types";
+import { ProductCard } from "@/components/consumer/ProductCard";
+import type { ProductCard as ProductCardType } from "@/types";
 
 interface Props {
   title: string;
-  products: ProductCard[];
+  products: ProductCardType[];
   viewAllHref?: string;
 }
 
 export function DoubleRowRail({ title, products, viewAllHref }: Props) {
   if (products.length === 0) return null;
 
-  const useDoubleRow = products.length >= 6;
+  // 7 cards needed to fill both rows without a single orphaned top card.
+  const useDoubleRow = products.length >= 7;
 
   return (
     <section className="pt-4 max-w-7xl mx-auto px-4 sm:px-6">
@@ -33,56 +34,13 @@ export function DoubleRowRail({ title, products, viewAllHref }: Props) {
       <div className="overflow-x-auto no-scrollbar pb-1">
         <div
           className={useDoubleRow ? "grid grid-rows-2 gap-2" : "grid grid-rows-1 gap-2"}
-          style={{ gridAutoFlow: "column", gridAutoColumns: "140px" }}
+          style={{ gridAutoFlow: "column", gridAutoColumns: "160px" }}
         >
-          {products.map((p) => {
-            const discount =
-              p.mrp && p.price && p.mrp > p.price
-                ? Math.round((1 - p.price / p.mrp) * 100)
-                : 0;
-            return (
-              <Link
-                key={p.id}
-                href={`/product/${p.id}`}
-                className="block w-[140px] bg-white border border-[#E5E2DC] rounded-xl overflow-hidden hover:border-[#1A2B4C]/30 hover:shadow-sm transition active:scale-95"
-              >
-                <div className="relative w-full aspect-[3/4] bg-[#E5E2DC]">
-                  {p.image ? (
-                    <Image
-                      src={p.image}
-                      alt={p.name}
-                      fill
-                      sizes="140px"
-                      loading="lazy"
-                      className="object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-[#E5E2DC]" />
-                  )}
-                  {discount > 0 && (
-                    <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-white/90 text-[#E68910] text-[9px] font-bold uppercase leading-none">
-                      {discount}% off
-                    </span>
-                  )}
-                </div>
-                <div className="p-1.5">
-                  <p className="text-[11px] font-semibold text-[#1A2B4C] leading-tight truncate">
-                    {p.name}
-                  </p>
-                  <div className="flex items-baseline gap-1 mt-0.5 flex-wrap">
-                    <span className="text-[12px] font-bold text-[#1A2B4C]">
-                      ₹{Number(p.price).toLocaleString()}
-                    </span>
-                    {p.mrp && p.mrp > p.price && (
-                      <span className="text-[10px] text-[#9CA3AF] line-through">
-                        ₹{Number(p.mrp).toLocaleString()}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+          {products.map((p) => (
+            <div key={p.id} className="w-[160px]">
+              <ProductCard p={p} size="compact" />
+            </div>
+          ))}
         </div>
       </div>
     </section>

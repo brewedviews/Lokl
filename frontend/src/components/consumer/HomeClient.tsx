@@ -30,13 +30,13 @@ import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { HeroV2 } from "@/components/consumer/v2/HeroV2";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
-import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
+import { ProductCard } from "@/components/consumer/ProductCard";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
 import { DoubleRowRail } from "@/components/consumer/DoubleRowRail";
 import { Footer } from "@/components/consumer/Footer";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
-import type { ProductCard, StoreCard, CategoryNode } from "@/types";
+import type { ProductCard as ProductCardType, StoreCard, CategoryNode } from "@/types";
 import {
   trackSectionImpression, trackCategoryTileClick, trackCategoryTileImpression,
   trackPriceFilterClick, trackProductClick, trackStoreClick,
@@ -48,8 +48,8 @@ interface TestimonialDoc { id: string; name: string; city: string; quote?: strin
 interface HomeStatsDoc { fastest_eta_min?: number }
 interface HeroConfigDoc { image?: string; eyebrow?: string; title_line1?: string; title_line2?: string; subtitle?: string }
 interface SectionDoc { id: string; label: string; enabled: boolean; rank: number }
-interface HomeProductsRail { store_id: string; store_name: string; store_slug: string; store_banner?: string; store_tagline?: string; products: ProductCard[] }
-interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCard[]; best_deals: ProductCard[] }
+interface HomeProductsRail { store_id: string; store_name: string; store_slug: string; store_banner?: string; store_tagline?: string; products: ProductCardType[] }
+interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCardType[]; best_deals: ProductCardType[] }
 
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills", label: "Category pills",            enabled: true, rank: 1  },
@@ -73,15 +73,15 @@ export function HomeClient() {
   const [hero, setHero] = useState<HeroConfigDoc | null>(null);
   const [sections, setSections] = useState<SectionDoc[]>(DEFAULT_SECTIONS);
   const [offers, setOffers] = useState<OfferDoc[]>([]);
-  const [trending, setTrending] = useState<ProductCard[]>([]);
-  const [bestDeals, setBestDeals] = useState<ProductCard[]>([]);
+  const [trending, setTrending] = useState<ProductCardType[]>([]);
+  const [bestDeals, setBestDeals] = useState<ProductCardType[]>([]);
   const [storeRails, setStoreRails] = useState<HomeProductsRail[]>([]);
   const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [nearby, setNearby] = useState<StoreCard[]>([]);
   const [popularStores, setPopularStores] = useState<StoreCard[]>([]);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
-  const [womenProducts, setWomenProducts] = useState<ProductCard[]>([]);
-  const [menProducts, setMenProducts] = useState<ProductCard[]>([]);
+  const [womenProducts, setWomenProducts] = useState<ProductCardType[]>([]);
+  const [menProducts, setMenProducts] = useState<ProductCardType[]>([]);
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Set<string>>(new Set());
   const offersScrollRef = useRef<HTMLDivElement>(null);
@@ -117,10 +117,10 @@ export function HomeClient() {
       api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
       api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
       api.stores.popular(10).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
-      apiClient.get<{ products: ProductCard[] }>("/api/feed/gender-rail?l1=l1-women&limit=20")
+      apiClient.get<{ products: ProductCardType[] }>("/api/feed/gender-rail?l1=l1-women&limit=20")
         .then((r) => { setWomenProducts(r.data?.products ?? []); markLoaded("women_rail"); })
         .catch(() => { markLoaded("women_rail"); });
-      apiClient.get<{ products: ProductCard[] }>("/api/feed/gender-rail?l1=l1-men&limit=20")
+      apiClient.get<{ products: ProductCardType[] }>("/api/feed/gender-rail?l1=l1-men&limit=20")
         .then((r) => { setMenProducts(r.data?.products ?? []); markLoaded("men_rail"); })
         .catch(() => { markLoaded("men_rail"); });
     }, 800);
@@ -137,11 +137,11 @@ export function HomeClient() {
       } else {
         // Direct fallback — fetch products without feed filtering
         apiClient.get("/api/products?limit=24&sort=newest").then((r2: any) => {
-          const products: ProductCard[] = r2.data?.products || r2.data || [];
+          const products: ProductCardType[] = r2.data?.products || r2.data || [];
           if (products.length > 0) {
             setTrending(products.slice(0, 8));
             setBestDeals(products.slice(8, 16));
-            const byStore: Record<string, ProductCard[]> = {};
+            const byStore: Record<string, ProductCardType[]> = {};
             products.forEach((p: any) => {
               if (!p.store_id) return;
               const bucket = byStore[p.store_id] ?? (byStore[p.store_id] = []);
@@ -166,7 +166,7 @@ export function HomeClient() {
     }).catch(() => {
       // On total failure still try direct products
       apiClient.get("/api/products?limit=16").then((r2: any) => {
-        const products: ProductCard[] = r2.data?.products || [];
+        const products: ProductCardType[] = r2.data?.products || [];
         if (products.length > 0) {
           setTrending(products.slice(0, 8));
           setBestDeals(products.slice(8));
@@ -361,7 +361,7 @@ export function HomeClient() {
             >
               {r.products.map((p, pIdx) => (
                 <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: r.store_name, position: pIdx }); } catch {} }}>
-                  <ProductCardV2 p={p} />
+                  <ProductCard p={p} size="default" />
                 </div>
               ))}
             </HCarousel>
@@ -375,7 +375,7 @@ export function HomeClient() {
           <HCarousel key="trending" title="Trending now" subtitle="What everyone in Bhilai is buying" testid="home-new-arrivals" link="/products?sort=trending" linkLabel="See all">
             {trending.slice(0, 8).map((p, pIdx) => (
               <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "trending", position: pIdx }); } catch {} }}>
-                <ProductCardV2 p={p} />
+                <ProductCard p={p} size="default" />
               </div>
             ))}
           </HCarousel>
@@ -388,7 +388,7 @@ export function HomeClient() {
           <HCarousel key="best-deals" title="Best deals" subtitle="Top discounts in Bhilai" testid="home-best-deals" link="/products?sort=discount" linkLabel="See all">
             {bestDeals.slice(0, 8).map((p, pIdx) => (
               <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "best_deals", position: pIdx }); } catch {} }}>
-                <ProductCardV2 p={p} />
+                <ProductCard p={p} size="default" />
               </div>
             ))}
           </HCarousel>
