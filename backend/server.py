@@ -1018,6 +1018,24 @@ async def feed_above_1099(limit: int = 12):
     return items[:limit]
 
 
+@api.get("/feed/gender-rail")
+async def feed_gender_rail(l1: str, limit: int = 20):
+    """Random sample of up to `limit` visible products from a given L1 category.
+    Uses $sample so each visit serves a fresh lineup."""
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
+    if not sids:
+        return {"products": []}
+    pipeline = [
+        {"$match": {"l1_id": l1, "store_id": {"$in": sids}, **_visible_product_filter()}},
+        {"$sample": {"size": min(limit, 100)}},
+        {"$project": {"_id": 0, "images": 0}},
+    ]
+    items = await db.products.aggregate(pipeline).to_list(limit)
+    items = _attach_store_avail(items, avail_map)
+    return {"products": items}
+
+
 @api.post("/track/view")
 async def track_view(payload: dict):
     pid = (payload or {}).get("product_id")

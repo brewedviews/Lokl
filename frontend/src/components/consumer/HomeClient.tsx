@@ -32,6 +32,7 @@ import { HeroV2 } from "@/components/consumer/v2/HeroV2";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCardV2 } from "@/components/consumer/v2/ProductCardV2";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
+import { DoubleRowRail } from "@/components/consumer/DoubleRowRail";
 import { Footer } from "@/components/consumer/Footer";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
@@ -58,6 +59,8 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "trending",       label: "Trending now",              enabled: true, rank: 40 },
   { id: "best_deals",     label: "Best deals",                enabled: true, rank: 20 },
   { id: "offers",         label: "Offers for you",            enabled: true, rank: 30 },
+  { id: "women_rail",     label: "Women's Fashion",           enabled: true, rank: 42 },
+  { id: "men_rail",       label: "Men's Fashion",             enabled: true, rank: 44 },
   { id: "stores",         label: "Popular stores",            enabled: true, rank: 50 },
   { id: "merchant_cta",   label: "Open a store",              enabled: true, rank: 55 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: true, rank: 60 },
@@ -77,6 +80,8 @@ export function HomeClient() {
   const [nearby, setNearby] = useState<StoreCard[]>([]);
   const [popularStores, setPopularStores] = useState<StoreCard[]>([]);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
+  const [womenProducts, setWomenProducts] = useState<ProductCard[]>([]);
+  const [menProducts, setMenProducts] = useState<ProductCard[]>([]);
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Set<string>>(new Set());
   const offersScrollRef = useRef<HTMLDivElement>(null);
@@ -112,6 +117,12 @@ export function HomeClient() {
       api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
       api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
       api.stores.popular(10).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
+      apiClient.get<{ products: ProductCard[] }>("/api/feed/gender-rail?l1=l1-women&limit=20")
+        .then((r) => { setWomenProducts(r.data?.products ?? []); markLoaded("women_rail"); })
+        .catch(() => { markLoaded("women_rail"); });
+      apiClient.get<{ products: ProductCard[] }>("/api/feed/gender-rail?l1=l1-men&limit=20")
+        .then((r) => { setMenProducts(r.data?.products ?? []); markLoaded("men_rail"); })
+        .catch(() => { markLoaded("men_rail"); });
     }, 800);
 
     // Single request for all product content — replaces N+1 store fetches
@@ -431,6 +442,18 @@ export function HomeClient() {
         </div>
       </section>
     ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
+
+    women_rail: !loaded.has("women_rail")
+      ? <ProductRailSkeleton key="women-rail-skeleton" testid="home-women-rail-skeleton" />
+      : womenProducts.length > 0
+        ? <DoubleRowRail key="women-rail" title="Women's Fashion" products={womenProducts} viewAllHref="/c/women" />
+        : null,
+
+    men_rail: !loaded.has("men_rail")
+      ? <ProductRailSkeleton key="men-rail-skeleton" testid="home-men-rail-skeleton" />
+      : menProducts.length > 0
+        ? <DoubleRowRail key="men-rail" title="Men's Fashion" products={menProducts} viewAllHref="/c/men" />
+        : null,
 
     stores: errors.has("popularStores") && !storesRail.length ? (
       <SectionError key="stores-error" minHeight="min-h-[200px]" />
