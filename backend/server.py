@@ -2338,7 +2338,7 @@ async def create_support_ticket(payload: dict, request: Request):
             },
             {
                 "sender": "bot",
-                "text": "Thanks for reaching out! Our team has received your message and will respond within a few hours. You can also email us at support@shoplokl.in",
+                "text": "Thanks for reaching out! Our team has received your message and will respond within a few hours. You can also email us at hello@shoplokl.in",
                 "created_at": datetime.now(timezone.utc).isoformat(),
             },
         ],

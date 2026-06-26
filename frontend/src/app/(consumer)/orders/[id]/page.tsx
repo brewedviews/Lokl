@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import {
-  CheckCircle2, Bike, Package, MessageCircle, AlertCircle,
+  CheckCircle2, Bike, Package, AlertCircle,
   ShieldCheck, MapPin, Receipt, Clock, ShoppingBag, Phone, Store, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -13,7 +13,7 @@ import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { Footer } from "@/components/consumer/Footer";
-import { ReturnModal, ComplaintModal } from "@/components/consumer/ReturnComplaintModals";
+import { ReturnModal } from "@/components/consumer/ReturnComplaintModals";
 import type { Order, OrderTimelineEntry } from "@/types";
 
 const RETURN_WINDOW_HOURS = 24;
@@ -92,7 +92,6 @@ export default function OrderTrackingPage() {
   const [order, setOrder] = useState<Order | null>(null);
   const [notFoundState, setNotFoundState] = useState(false);
   const [showReturn, setShowReturn] = useState(false);
-  const [showComplaint, setShowComplaint] = useState(false);
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [rated, setRated] = useState<Record<string, boolean>>({});
 
@@ -292,19 +291,11 @@ export default function OrderTrackingPage() {
 
         {(status === "delivered" || status === "returned") && (
           <section className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm" data-testid="post-delivery-actions">
-            <h2 className="font-display text-base sm:text-lg font-bold text-[#0A1F5C] mb-3">Need help with this order?</h2>
-            <p className="text-xs text-[#595959]">For issues with your order, contact us at <a href="mailto:hello@shoplokl.in" className="text-[#E68910] font-semibold">hello@shoplokl.in</a> or <a href="tel:+917719052107" className="text-[#E68910] font-semibold">+91 77190 52107</a></p>
-            <p className="text-xs text-[#9CA3AF] mt-1">We&apos;re a small team — we&apos;ll respond as soon as we can. Thank you for your patience.</p>
-            <button
-              onClick={() => setShowComplaint(true)}
-              data-testid="contact-care-btn"
-              className="mt-3 w-full md:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full border border-[#0A1F5C] text-[#0A1F5C] font-semibold hover:bg-[#0A1F5C]/5 transition"
-            >
-              <MessageCircle size={14} /> Contact Customer Care
-            </button>
+            <h2 className="font-display text-base sm:text-lg font-bold text-[#0A1F5C] mb-2">Need help with this order?</h2>
+            <p className="text-xs text-[#9CA3AF] mb-3">We&apos;re a small team — we&apos;ll respond as soon as we can.</p>
             <Link
               href={`/account/support?order_id=${order.id}`}
-              className="mt-3 flex items-center justify-between p-4 bg-[#FDFBF7] border border-[#E5E2DC] rounded-2xl hover:border-[#E68910] transition"
+              className="flex items-center justify-between p-4 bg-[#FDFBF7] border border-[#E5E2DC] rounded-2xl hover:border-[#E68910] transition"
             >
               <div>
                 <p className="text-sm font-semibold text-[#1A2B4C]">Issue with this order?</p>
@@ -418,7 +409,6 @@ export default function OrderTrackingPage() {
       <Footer />
 
       {showReturn && <ReturnModal order={order} onClose={() => setShowReturn(false)} onCreated={load} />}
-      {showComplaint && <ComplaintModal order={order} onClose={() => setShowComplaint(false)} onCreated={load} />}
     </div>
   );
 }

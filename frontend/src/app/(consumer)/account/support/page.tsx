@@ -5,7 +5,17 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiClient } from "@/lib/api-client";
 import { toast } from "sonner";
-import { Send, ChevronLeft } from "lucide-react";
+import { Send, ChevronLeft, ChevronRight } from "lucide-react";
+
+const REASONS = [
+  "Item damaged",
+  "Wrong item received",
+  "Item not as described",
+  "Missing item",
+  "Other",
+] as const;
+
+type View = "list" | "topic" | "order_picker" | "reason" | "general" | "chat";
 
 interface Message { sender: string; text: string; created_at: string; }
 interface Ticket {
@@ -53,9 +63,8 @@ export default function SupportPage() {
   const [selectedOrder, setSelectedOrder] = useState(prefillOrderId);
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<"list" | "new" | "chat">(prefillOrderId ? "new" : "list");
+  const [view, setView] = useState<View>(prefillOrderId ? "reason" : "list");
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  // Stable ref so loadTickets can sync activeTicket without being re-created on every state change
   const activeTicketIdRef = useRef<string | null>(null);
   useEffect(() => { activeTicketIdRef.current = activeTicket?.id ?? null; }, [activeTicket]);
 
@@ -64,7 +73,6 @@ export default function SupportPage() {
       const r = await apiClient.get<{ tickets: Ticket[] }>("/api/support/my-tickets");
       const list: Ticket[] = (r as { data: { tickets: Ticket[] } }).data?.tickets || [];
       setTickets(list);
-      // Keep active thread in sync so admin replies appear on poll
       const id = activeTicketIdRef.current;
       if (id) {
         const fresh = list.find((t) => t.id === id);
@@ -75,7 +83,7 @@ export default function SupportPage() {
     } finally {
       setLoading(false);
     }
-  }, []); // stable: uses ref for activeTicket.id, setters are stable
+  }, []);
 
   const loadOrders = () => {
     apiClient
@@ -91,33 +99,52 @@ export default function SupportPage() {
       .catch(() => {});
   };
 
-  // Initial load
   useEffect(() => {
     void loadTickets();
     loadOrders();
   }, [loadTickets]);
 
-  // Poll every 12 s while in chat view so admin replies appear without hard reload
+  // Poll every 12s while in chat view so admin replies appear without a hard reload
   useEffect(() => {
     if (view !== "chat" || !activeTicket) return;
     const timerId = setInterval(() => { void loadTickets(); }, 12000);
     return () => clearInterval(timerId);
   }, [view, activeTicket?.id, loadTickets]);
 
-  // Auto-scroll only when message count changes (not on every poll)
+  // Auto-scroll only when message count changes
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeTicket?.messages?.length]);
 
-  const submitTicket = async () => {
+  // Create ticket immediately from the reason picker (order path)
+  const createTicketFromReason = async (reason: string) => {
+    if (!selectedOrder) return;
+    setSending(true);
+    try {
+      const shortId = selectedOrder.slice(-6).toUpperCase();
+      const r = await apiClient.post<Ticket>("/api/support/ticket", {
+        order_id: selectedOrder,
+        subject: `${reason} — order #${shortId}`,
+        message: reason,
+      });
+      const ticket = (r as { data: Ticket }).data;
+      setTickets((prev) => [ticket, ...prev]);
+      setActiveTicket(ticket);
+      setView("chat");
+    } catch {
+      toast.error("Could not create request. Try emailing hello@shoplokl.in");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Create ticket from the general free-text form (no order)
+  const submitGeneralTicket = async () => {
     if (!newMessage.trim()) return;
     setSending(true);
     try {
       const r = await apiClient.post<Ticket>("/api/support/ticket", {
-        order_id: selectedOrder || undefined,
-        subject: selectedOrder
-          ? `Issue with order #${selectedOrder.slice(-6).toUpperCase()}`
-          : "General query",
+        subject: "General enquiry",
         message: newMessage.trim(),
       });
       const ticket = (r as { data: Ticket }).data;
@@ -126,7 +153,7 @@ export default function SupportPage() {
       setView("chat");
       setNewMessage("");
     } catch {
-      toast.error("Could not send message. Try emailing support@shoplokl.in");
+      toast.error("Could not send message. Try emailing hello@shoplokl.in");
     } finally {
       setSending(false);
     }
@@ -160,18 +187,21 @@ export default function SupportPage() {
     }
   };
 
-  const handleSend = () => {
-    if (view === "chat" && activeTicket) {
-      void addReplyToActive();
-    } else {
-      void submitTicket();
-    }
-  };
+  function goBack() {
+    if (view === "chat") return setView("list");
+    if (view === "reason") return prefillOrderId ? setView("list") : setView("order_picker");
+    if (view === "order_picker") return setView("topic");
+    if (view === "general") return setView("topic");
+    if (view === "topic") return setView("list");
+    return setView("list");
+  }
 
-  const openChat = (t: Ticket) => {
-    setActiveTicket(t);
-    setView("chat");
-  };
+  const headerTitle =
+    view === "chat" ? (activeTicket?.subject || "Support chat")
+    : view === "reason" ? "What went wrong?"
+    : view === "order_picker" ? "Select an order"
+    : view === "topic" || view === "general" ? "New request"
+    : "Help & Support";
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
@@ -179,21 +209,19 @@ export default function SupportPage() {
 
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-[#E5E2DC] px-4 py-3 flex items-center gap-3 z-10">
-          {view !== "list" ? (
-            <button onClick={() => setView("list")} className="text-[#1A2B4C] flex-shrink-0">
-              <ChevronLeft size={20} />
-            </button>
-          ) : (
+          {view === "list" ? (
             <Link href="/account" className="text-[#1A2B4C] flex-shrink-0">
               <ChevronLeft size={20} />
             </Link>
+          ) : (
+            <button onClick={goBack} className="text-[#1A2B4C] flex-shrink-0">
+              <ChevronLeft size={20} />
+            </button>
           )}
-          <h1 className="font-bold text-[#1A2B4C] flex-1 min-w-0 truncate">
-            {view === "chat" ? (activeTicket?.subject || "Support chat") : "Help & Support"}
-          </h1>
+          <h1 className="font-bold text-[#1A2B4C] flex-1 min-w-0 truncate">{headerTitle}</h1>
           {view === "chat" && activeTicket && <StatusPill status={activeTicket.status} />}
           {view === "list" && (
-            <button onClick={() => setView("new")} className="text-sm font-semibold text-[#E68910] flex-shrink-0">
+            <button onClick={() => setView("topic")} className="text-sm font-semibold text-[#E68910] flex-shrink-0">
               New request
             </button>
           )}
@@ -216,14 +244,14 @@ export default function SupportPage() {
               <div className="text-center py-12">
                 <p className="font-semibold text-[#1A2B4C] mb-1">No support requests yet</p>
                 <p className="text-sm text-[#9CA3AF] mb-4">We are here to help</p>
-                <button onClick={() => setView("new")}
+                <button onClick={() => setView("topic")}
                   className="px-6 py-2.5 bg-[#1A2B4C] text-white rounded-xl text-sm font-semibold">
                   Raise a request
                 </button>
               </div>
             ) : (
               tickets.map((t) => (
-                <button key={t.id} onClick={() => openChat(t)}
+                <button key={t.id} onClick={() => { setActiveTicket(t); setView("chat"); }}
                   className="w-full text-left bg-white border border-[#E5E2DC] rounded-2xl p-4 hover:border-[#1A2B4C]/30 transition-colors">
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-semibold text-[#1A2B4C] text-sm leading-snug">{t.subject}</p>
@@ -236,31 +264,102 @@ export default function SupportPage() {
 
             <div className="mt-4 p-4 bg-white border border-[#E5E2DC] rounded-2xl">
               <p className="font-semibold text-[#1A2B4C] text-sm mb-3">Other ways to reach us</p>
-              <a href="mailto:support@shoplokl.in" className="flex items-center gap-2 text-sm text-[#595959]">
+              <a href="mailto:hello@shoplokl.in" className="flex items-center gap-2 text-sm text-[#595959]">
                 <span className="w-8 h-8 bg-[#FDFBF7] rounded-full flex items-center justify-center text-xs font-bold text-[#1A2B4C]">@</span>
-                support@shoplokl.in
+                hello@shoplokl.in
               </a>
             </div>
           </div>
         )}
 
-        {/* NEW TICKET VIEW */}
-        {view === "new" && (
+        {/* TOPIC VIEW — "What's this about?" */}
+        {view === "topic" && (
+          <div className="px-4 py-6 space-y-3">
+            <p className="text-sm text-[#595959] mb-1">What&apos;s this about?</p>
+            <button
+              onClick={() => setView("order_picker")}
+              className="w-full flex items-center justify-between p-4 bg-white border border-[#E5E2DC] rounded-2xl hover:border-[#1A2B4C] transition text-left"
+            >
+              <div>
+                <p className="font-semibold text-[#1A2B4C] text-sm">An order</p>
+                <p className="text-xs text-[#9CA3AF] mt-0.5">Issue with a delivered item</p>
+              </div>
+              <ChevronRight size={16} className="text-[#9CA3AF] flex-shrink-0" />
+            </button>
+            <button
+              onClick={() => setView("general")}
+              className="w-full flex items-center justify-between p-4 bg-white border border-[#E5E2DC] rounded-2xl hover:border-[#1A2B4C] transition text-left"
+            >
+              <div>
+                <p className="font-semibold text-[#1A2B4C] text-sm">Something else</p>
+                <p className="text-xs text-[#9CA3AF] mt-0.5">Account, payments, or anything else</p>
+              </div>
+              <ChevronRight size={16} className="text-[#9CA3AF] flex-shrink-0" />
+            </button>
+          </div>
+        )}
+
+        {/* ORDER PICKER VIEW */}
+        {view === "order_picker" && (
+          <div className="px-4 py-4 space-y-2">
+            {orders.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="font-semibold text-[#1A2B4C] mb-1">No recent orders found</p>
+                <p className="text-sm text-[#9CA3AF]">We couldn&apos;t find any orders on this account.</p>
+              </div>
+            ) : (
+              orders.map((o) => (
+                <button
+                  key={o.id}
+                  onClick={() => { setSelectedOrder(o.id); setView("reason"); }}
+                  className="w-full flex items-center justify-between p-4 bg-white border border-[#E5E2DC] rounded-2xl hover:border-[#1A2B4C] transition text-left"
+                >
+                  <div>
+                    <p className="font-semibold text-[#1A2B4C] text-sm">
+                      Order #{(o.id || "").slice(-6).toUpperCase()}
+                    </p>
+                    {o.items?.[0]?.name && (
+                      <p className="text-xs text-[#9CA3AF] mt-0.5 truncate max-w-[240px]">
+                        {o.items[0].name}
+                      </p>
+                    )}
+                  </div>
+                  <ChevronRight size={16} className="text-[#9CA3AF] flex-shrink-0" />
+                </button>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* REASON PICKER VIEW */}
+        {view === "reason" && (
+          <div className="px-4 py-6 space-y-3">
+            {selectedOrder && (
+              <p className="text-xs text-[#9CA3AF] -mb-1">
+                Order #{selectedOrder.slice(-6).toUpperCase()}
+              </p>
+            )}
+            <p className="text-sm text-[#595959] mb-1">What&apos;s the issue?</p>
+            {REASONS.map((reason) => (
+              <button
+                key={reason}
+                onClick={() => void createTicketFromReason(reason)}
+                disabled={sending}
+                className="w-full flex items-center justify-between p-4 bg-white border border-[#E5E2DC] rounded-2xl hover:border-[#1A2B4C] active:bg-[#1A2B4C]/5 transition text-left disabled:opacity-50"
+              >
+                <p className="font-semibold text-[#1A2B4C] text-sm">{reason}</p>
+                <ChevronRight size={16} className="text-[#9CA3AF] flex-shrink-0" />
+              </button>
+            ))}
+            {sending && (
+              <p className="text-xs text-center text-[#9CA3AF] pt-1">Creating your request…</p>
+            )}
+          </div>
+        )}
+
+        {/* GENERAL FREE-TEXT VIEW — "Something else" path */}
+        {view === "general" && (
           <div className="px-4 py-4 space-y-4">
-            <div>
-              <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-2">
-                Related order (optional)
-              </label>
-              <select value={selectedOrder} onChange={(e) => setSelectedOrder(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] bg-white text-sm outline-none focus:border-[#1A2B4C]">
-                <option value="">Not related to an order</option>
-                {orders.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    Order #{(o.id || "").slice(-6).toUpperCase()} — {(o.items?.[0]?.name || "").slice(0, 30)}
-                  </option>
-                ))}
-              </select>
-            </div>
             <div>
               <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-2">
                 How can we help?
@@ -268,13 +367,13 @@ export default function SupportPage() {
               <textarea
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submitTicket(); } }}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submitGeneralTicket(); } }}
                 placeholder="Describe your issue..."
                 rows={4}
                 className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] text-sm outline-none focus:border-[#1A2B4C] resize-none"
               />
             </div>
-            <button onClick={() => void submitTicket()} disabled={!newMessage.trim() || sending}
+            <button onClick={() => void submitGeneralTicket()} disabled={!newMessage.trim() || sending}
               className="w-full py-3.5 bg-[#1A2B4C] text-white rounded-xl font-bold disabled:opacity-50">
               {sending ? "Sending..." : "Send message"}
             </button>
@@ -319,11 +418,11 @@ export default function SupportPage() {
                 <input
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void addReplyToActive(); } }}
                   placeholder="Type a message..."
                   className="flex-1 px-4 py-2.5 rounded-xl border border-[#E5E2DC] text-sm outline-none focus:border-[#1A2B4C]"
                 />
-                <button onClick={handleSend} disabled={!newMessage.trim() || sending}
+                <button onClick={() => void addReplyToActive()} disabled={!newMessage.trim() || sending}
                   className="w-10 h-10 bg-[#1A2B4C] text-white rounded-xl flex items-center justify-center disabled:opacity-50">
                   <Send size={16} />
                 </button>
