@@ -64,6 +64,7 @@ export default function SupportPage() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View>(prefillOrderId ? "reason" : "list");
+  const [bypassDuplicateGuard, setBypassDuplicateGuard] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const activeTicketIdRef = useRef<string | null>(null);
   useEffect(() => { activeTicketIdRef.current = activeTicket?.id ?? null; }, [activeTicket]);
@@ -311,7 +312,7 @@ export default function SupportPage() {
               orders.map((o) => (
                 <button
                   key={o.id}
-                  onClick={() => { setSelectedOrder(o.id); setView("reason"); }}
+                  onClick={() => { setSelectedOrder(o.id); setBypassDuplicateGuard(false); setView("reason"); }}
                   className="w-full flex items-center justify-between p-4 bg-white border border-[#E5E2DC] rounded-2xl hover:border-[#1A2B4C] transition text-left"
                 >
                   <div>
@@ -332,30 +333,62 @@ export default function SupportPage() {
         )}
 
         {/* REASON PICKER VIEW */}
-        {view === "reason" && (
-          <div className="px-4 py-6 space-y-3">
-            {selectedOrder && (
-              <p className="text-xs text-[#9CA3AF] -mb-1">
-                Order #{selectedOrder.slice(-6).toUpperCase()}
-              </p>
-            )}
-            <p className="text-sm text-[#595959] mb-1">What&apos;s the issue?</p>
-            {REASONS.map((reason) => (
-              <button
-                key={reason}
-                onClick={() => void createTicketFromReason(reason)}
-                disabled={sending}
-                className="w-full flex items-center justify-between p-4 bg-white border border-[#E5E2DC] rounded-2xl hover:border-[#1A2B4C] active:bg-[#1A2B4C]/5 transition text-left disabled:opacity-50"
-              >
-                <p className="font-semibold text-[#1A2B4C] text-sm">{reason}</p>
-                <ChevronRight size={16} className="text-[#9CA3AF] flex-shrink-0" />
-              </button>
-            ))}
-            {sending && (
-              <p className="text-xs text-center text-[#9CA3AF] pt-1">Creating your request…</p>
-            )}
-          </div>
-        )}
+        {view === "reason" && (() => {
+          const existingOpenTicket = !bypassDuplicateGuard && tickets.find(
+            (t) => t.order_id === selectedOrder && t.status !== "closed"
+          );
+          return (
+            <div className="px-4 py-6 space-y-3">
+              {selectedOrder && (
+                <p className="text-xs text-[#9CA3AF] -mb-1">
+                  Order #{selectedOrder.slice(-6).toUpperCase()}
+                </p>
+              )}
+              {existingOpenTicket ? (
+                <>
+                  <div className="p-4 bg-[#E68910]/10 border border-[#E68910]/30 rounded-2xl">
+                    <p className="font-semibold text-[#1A2B4C] text-sm mb-1">
+                      You already have an open request for this order
+                    </p>
+                    <p className="text-xs text-[#595959]">{existingOpenTicket.subject}</p>
+                  </div>
+                  <button
+                    onClick={() => { setActiveTicket(existingOpenTicket); setView("chat"); }}
+                    className="w-full py-3.5 bg-[#1A2B4C] text-white rounded-2xl font-bold text-sm"
+                  >
+                    Open existing chat
+                  </button>
+                  <p className="text-center pt-1">
+                    <button
+                      onClick={() => setBypassDuplicateGuard(true)}
+                      className="text-xs text-[#9CA3AF] underline underline-offset-2"
+                    >
+                      Start a new request anyway
+                    </button>
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-[#595959] mb-1">What&apos;s the issue?</p>
+                  {REASONS.map((reason) => (
+                    <button
+                      key={reason}
+                      onClick={() => void createTicketFromReason(reason)}
+                      disabled={sending}
+                      className="w-full flex items-center justify-between p-4 bg-white border border-[#E5E2DC] rounded-2xl hover:border-[#1A2B4C] active:bg-[#1A2B4C]/5 transition text-left disabled:opacity-50"
+                    >
+                      <p className="font-semibold text-[#1A2B4C] text-sm">{reason}</p>
+                      <ChevronRight size={16} className="text-[#9CA3AF] flex-shrink-0" />
+                    </button>
+                  ))}
+                  {sending && (
+                    <p className="text-xs text-center text-[#9CA3AF] pt-1">Creating your request…</p>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })()}
 
         {/* GENERAL FREE-TEXT VIEW — "Something else" path */}
         {view === "general" && (
@@ -382,8 +415,8 @@ export default function SupportPage() {
 
         {/* CHAT VIEW */}
         {view === "chat" && activeTicket && (
-          <div className="flex flex-col" style={{ height: "calc(100vh - 57px)" }}>
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+          <div className="flex flex-col" style={{ height: "calc(100vh - 57px - 56px - env(safe-area-inset-bottom, 0px))" }}>
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-2">
               {activeTicket.messages.map((msg, i) => (
                 <div key={i} className={`flex flex-col ${msg.sender === "customer" ? "items-end" : "items-start"}`}>
                   <div className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm ${

@@ -2403,9 +2403,11 @@ async def customer_reply_to_ticket(ticket_id: str, request: Request):
         pass
     if not customer_phone:
         raise HTTPException(401, "auth required")
-    ticket = await db.support_tickets.find_one({"id": ticket_id, "customer_phone": customer_phone})
+    ticket = await db.support_tickets.find_one({"id": ticket_id})
     if not ticket:
         raise HTTPException(404, "ticket not found")
+    if ticket.get("customer_phone") and ticket["customer_phone"] != customer_phone:
+        raise HTTPException(403, "not authorized")
     msg = {"sender": "customer", "text": text, "created_at": datetime.now(timezone.utc).isoformat()}
     await db.support_tickets.update_one(
         {"id": ticket_id},

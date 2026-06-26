@@ -67,6 +67,7 @@ const CUSTOMER_ROUTE_PATTERNS: RegExp[] = [
   /^\/api\/orders\/[^/]+\/returns$/,
   /^\/api\/orders\/[^/]+\/complaints$/,
   /^\/api\/customer\/upsert$/,
+  /^\/api\/support\//,
 ];
 
 const MERCHANT_ROUTE_PATTERNS: RegExp[] = [
