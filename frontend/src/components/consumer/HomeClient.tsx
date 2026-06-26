@@ -61,6 +61,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "offers",         label: "Offers for you",            enabled: true, rank: 40 },
   { id: "women_rail",     label: "Women's Fashion",           enabled: true, rank: 42 },
   { id: "men_rail",       label: "Men's Fashion",             enabled: true, rank: 44 },
+  { id: "footwear_rail",  label: "Footwear",                  enabled: true, rank: 46 },
   { id: "stores",         label: "Popular stores",            enabled: true, rank: 50 },
   { id: "merchant_cta",   label: "Open a store",              enabled: true, rank: 55 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: true, rank: 60 },
@@ -82,6 +83,7 @@ export function HomeClient() {
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
   const [womenProducts, setWomenProducts] = useState<ProductCardType[]>([]);
   const [menProducts, setMenProducts] = useState<ProductCardType[]>([]);
+  const [footwearProducts, setFootwearProducts] = useState<ProductCardType[]>([]);
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Set<string>>(new Set());
   const offersScrollRef = useRef<HTMLDivElement>(null);
@@ -123,6 +125,9 @@ export function HomeClient() {
       apiClient.get<{ products: ProductCardType[] }>("/api/feed/gender-rail?l1=l1-men&limit=20")
         .then((r) => { setMenProducts(r.data?.products ?? []); markLoaded("men_rail"); })
         .catch(() => { markLoaded("men_rail"); });
+      apiClient.get<{ products: ProductCardType[] }>("/api/feed/gender-rail?l1=l1-footwear&limit=20")
+        .then((r) => { setFootwearProducts(r.data?.products ?? []); markLoaded("footwear_rail"); })
+        .catch(() => { markLoaded("footwear_rail"); });
     }, 800);
 
     // Single request for all product content — replaces N+1 store fetches
@@ -443,15 +448,17 @@ export function HomeClient() {
       </section>
     ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
 
-    // Both gender rails rendered as one banded zone from women_rail slot (rank 42).
-    // men_rail (rank 44) is null — it's consumed inside the band.
-    women_rail: (!loaded.has("women_rail") || !loaded.has("men_rail"))
+    // All three fashion rails rendered as one banded zone from women_rail slot (rank 42).
+    // men_rail (rank 44) and footwear_rail (rank 46) are null — consumed inside the band.
+    women_rail: (!loaded.has("women_rail") || !loaded.has("men_rail") || !loaded.has("footwear_rail"))
       ? <ProductRailSkeleton key="gender-band-skeleton" testid="home-gender-band-skeleton" />
-      : (womenProducts.length > 0 || menProducts.length > 0)
-        ? <GenderFashionBand key="gender-band" women={womenProducts} men={menProducts} />
+      : (womenProducts.length > 0 || menProducts.length > 0 || footwearProducts.length > 0)
+        ? <GenderFashionBand key="gender-band" women={womenProducts} men={menProducts} footwear={footwearProducts} />
         : null,
 
     men_rail: null,
+
+    footwear_rail: null,
 
     stores: errors.has("popularStores") && !storesRail.length ? (
       <SectionError key="stores-error" minHeight="min-h-[200px]" />

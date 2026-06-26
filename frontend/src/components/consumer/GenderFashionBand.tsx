@@ -7,10 +7,11 @@ import type { ProductCard as ProductCardType } from "@/types";
 interface Props {
   women: ProductCardType[];
   men: ProductCardType[];
+  footwear: ProductCardType[];
 }
 
-export function GenderFashionBand({ women, men }: Props) {
-  if (women.length === 0 && men.length === 0) return null;
+export function GenderFashionBand({ women, men, footwear }: Props) {
+  if (women.length === 0 && men.length === 0 && footwear.length === 0) return null;
 
   return (
     <section
@@ -57,7 +58,7 @@ export function GenderFashionBand({ women, men }: Props) {
       {/* Men's sub-rail */}
       {men.length > 0 && (
         <div
-          className={`pb-5 ${women.length > 0 ? "pt-4 border-t border-[#0A1F5C]/[0.06]" : "pt-4"}`}
+          className={`${footwear.length > 0 ? "pb-2" : "pb-5"} ${women.length > 0 ? "pt-4 border-t border-[#0A1F5C]/[0.06]" : "pt-4"}`}
         >
           <div className="px-4 sm:px-6 flex items-center justify-between gap-3 mb-3">
             <h3 className="text-base sm:text-lg font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">
@@ -72,6 +73,32 @@ export function GenderFashionBand({ women, men }: Props) {
           </div>
           <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 px-4 sm:px-6 pb-1">
             {men.map((p) => (
+              <div key={p.id} className="snap-start shrink-0 w-[38vw] sm:w-[180px] md:w-[200px]">
+                <ProductCard p={p} size="default" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Footwear sub-rail */}
+      {footwear.length > 0 && (
+        <div
+          className={`pb-5 ${women.length > 0 || men.length > 0 ? "pt-4 border-t border-[#0A1F5C]/[0.06]" : "pt-4"}`}
+        >
+          <div className="px-4 sm:px-6 flex items-center justify-between gap-3 mb-3">
+            <h3 className="text-base sm:text-lg font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">
+              Footwear
+            </h3>
+            <Link
+              href="/c/footwear"
+              className="text-xs font-bold text-[#F59E0B] shrink-0 underline-offset-4 hover:underline"
+            >
+              See all →
+            </Link>
+          </div>
+          <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 px-4 sm:px-6 pb-1">
+            {footwear.map((p) => (
               <div key={p.id} className="snap-start shrink-0 w-[38vw] sm:w-[180px] md:w-[200px]">
                 <ProductCard p={p} size="default" />
               </div>
