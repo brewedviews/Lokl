@@ -11,7 +11,7 @@ export default function PrivacyPage() {
     <div className="min-h-screen bg-[#FDFBF7]">
       <div className="max-w-3xl mx-auto px-4 sm:px-8 py-10">
         <p className="text-xs uppercase tracking-widest text-[#E68910] font-bold mb-2">Legal</p>
-        <h1 className="font-display text-3xl md:text-4xl font-bold text-[#0A1F5C] mb-2">Privacy Policy</h1>
+        <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight mb-2">Privacy Policy</h1>
         <p className="text-sm text-[#64748B] mb-10">Last updated: June 2026</p>
 
         <div className="space-y-8 text-[15px] leading-relaxed text-[#1C1C1C]">

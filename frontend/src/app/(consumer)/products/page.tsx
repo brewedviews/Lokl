@@ -61,7 +61,7 @@ function ProductsInner() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-4 pb-24">
-      <h1 className="font-display text-lg font-bold text-[#0A1F5C] mb-2">
+      <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight mb-2">
         {pageTitle(activeL1)}
         {!loading && (
           <span className="text-sm font-normal text-[#9CA3AF] ml-2">

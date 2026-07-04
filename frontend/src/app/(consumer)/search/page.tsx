@@ -36,7 +36,7 @@ export default function SearchPage() {
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-8">
         <div className="flex items-center gap-3 mb-6">
           <SearchIcon size={20} className="text-[#E68910]" />
-          <h1 className="font-display text-2xl md:text-3xl font-bold text-[#0A1F5C]">
+          <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">
             {q ? <>Results for <span className="text-[#E68910]">&ldquo;{q}&rdquo;</span></> : "Search"}
           </h1>
         </div>

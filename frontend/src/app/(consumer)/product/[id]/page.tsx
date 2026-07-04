@@ -161,7 +161,7 @@ export default async function ProductDetailPage(
         {/* Below-fold rails — full width within max-w-[1200px] */}
         {fromStore.length > 0 && (
           <section className="px-4 mt-8 md:px-8" data-testid="from-store-rail">
-            <h2 className="font-bold text-lg text-[#0A1F5C] mb-4">More from {product.store_name}</h2>
+            <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-4">More from {product.store_name}</h2>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
               {fromStore.slice(0, 8).map((p) => (
                 <div key={p.id} className="shrink-0 w-[38vw] sm:w-[180px]"><ProductCard p={p} size="default" /></div>
@@ -172,7 +172,7 @@ export default async function ProductDetailPage(
 
         {similar.length > 0 && (
           <section id="similar-products" className="px-4 mt-8 md:px-8" data-testid="similar-products">
-            <h2 className="font-bold text-lg text-[#0A1F5C] mb-4">You might also like</h2>
+            <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-4">You might also like</h2>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
               {similar.slice(0, 8).map((p) => (
                 <div key={p.id} className="shrink-0 w-[38vw] sm:w-[180px]"><ProductCard p={p} size="default" /></div>

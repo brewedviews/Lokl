@@ -14,10 +14,9 @@ interface Testimonial {
 export function CustomerLove({ items }: { items: Testimonial[] }) {
   if (!items || items.length === 0) return null;
   return (
-    <section className="mt-8 pt-8 pb-10 bg-[#0A1F5C] text-white" data-testid="customer-love">
+    <section className="pt-8 pb-10 bg-[#0A1F5C] text-white" data-testid="customer-love">
       <div className="px-4 sm:px-8 mb-4 max-w-7xl mx-auto">
         <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight">Loved by Bhilai shoppers</h2>
-        <p className="text-xs sm:text-sm opacity-80 mt-0.5">Real reviews from real customers.</p>
       </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-8 px-4 sm:px-8 max-w-7xl mx-auto">
         {items.map((t) => (

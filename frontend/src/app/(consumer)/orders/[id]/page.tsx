@@ -152,7 +152,7 @@ export default function OrderTrackingPage() {
             <div className="w-12 h-12 rounded-full bg-red-100 grid place-items-center mx-auto mb-3">
               <AlertCircle size={22} className="text-red-500" />
             </div>
-            <h1 className="font-display text-2xl font-bold text-[#0A1F5C]">Something went wrong</h1>
+            <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">Something went wrong</h1>
             <p className="text-sm text-[#64748B] mt-2">We couldn&apos;t find this order. It may have been cancelled or the link is broken.</p>
             <Link href="/account" className="inline-block mt-5 px-5 py-2.5 rounded-full bg-[#E68910] text-white text-sm font-semibold">Back to my account</Link>
           </div>

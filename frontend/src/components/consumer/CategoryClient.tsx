@@ -105,7 +105,7 @@ export function CategoryClient() {
       <main className="flex-1">
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
           {/* Header */}
-          <h1 data-testid="cat-title" className="font-display text-lg font-bold text-[#0A1F5C]">
+          <h1 data-testid="cat-title" className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">
             {l1.name}
             {!isLoading && (
               <span className="text-sm font-normal text-[#595959] ml-2">({products.length})</span>
