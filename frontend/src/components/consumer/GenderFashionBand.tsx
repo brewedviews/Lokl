@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ProductCard } from "@/components/consumer/ProductCard";
+import { FashionTile } from "@/components/consumer/FashionTile";
 import type { ProductCard as ProductCardType } from "@/types";
 
 interface Props {
@@ -47,8 +47,8 @@ export function GenderFashionBand({ women, men, footwear }: Props) {
           </div>
           <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 px-4 sm:px-6 pb-1">
             {women.map((p) => (
-              <div key={p.id} className="snap-start shrink-0 w-[38vw] sm:w-[180px] md:w-[200px]">
-                <ProductCard p={p} size="default" />
+              <div key={p.id} className="snap-start shrink-0 w-[30vw] sm:w-[150px]">
+                <FashionTile p={p} />
               </div>
             ))}
           </div>
@@ -73,8 +73,8 @@ export function GenderFashionBand({ women, men, footwear }: Props) {
           </div>
           <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 px-4 sm:px-6 pb-1">
             {men.map((p) => (
-              <div key={p.id} className="snap-start shrink-0 w-[38vw] sm:w-[180px] md:w-[200px]">
-                <ProductCard p={p} size="default" />
+              <div key={p.id} className="snap-start shrink-0 w-[30vw] sm:w-[150px]">
+                <FashionTile p={p} />
               </div>
             ))}
           </div>
@@ -99,8 +99,8 @@ export function GenderFashionBand({ women, men, footwear }: Props) {
           </div>
           <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 px-4 sm:px-6 pb-1">
             {footwear.map((p) => (
-              <div key={p.id} className="snap-start shrink-0 w-[38vw] sm:w-[180px] md:w-[200px]">
-                <ProductCard p={p} size="default" />
+              <div key={p.id} className="snap-start shrink-0 w-[30vw] sm:w-[150px]">
+                <FashionTile p={p} />
               </div>
             ))}
           </div>
