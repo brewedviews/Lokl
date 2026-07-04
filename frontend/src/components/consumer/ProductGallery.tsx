@@ -95,7 +95,7 @@ export function ProductGallery({
                 key={i}
                 onClick={() => setImgIdx(i)}
                 className={`h-2 rounded-full transition-all ${
-                  i === imgIdx ? "bg-[#1A2B4C] w-5" : "bg-white/80 border border-[#1A2B4C]/30 w-2"
+                  i === imgIdx ? "bg-[#0A1F5C] w-5" : "bg-white/80 border border-[#0A1F5C]/30 w-2"
                 }`}
                 aria-label={`Go to image ${i + 1}`}
               />
@@ -114,7 +114,7 @@ export function ProductGallery({
                 onClick={() => setImgIdx(i)}
                 className={`relative w-[72px] h-[90px] rounded-xl overflow-hidden border-2 transition-all ${
                   i === imgIdx
-                    ? "border-[#1A2B4C] opacity-100"
+                    ? "border-[#0A1F5C] opacity-100"
                     : "border-transparent opacity-50 hover:opacity-80"
                 }`}
                 aria-label={`View image ${i + 1}`}
@@ -147,7 +147,7 @@ export function ProductGallery({
 
       {/* AI Enhanced badge — overlays both layouts */}
       {aiEnhanced && (
-        <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full bg-[#1A2B4C] text-white text-[11px] font-semibold flex items-center gap-1.5 pointer-events-none">
+        <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full bg-[#0A1F5C] text-white text-[11px] font-semibold flex items-center gap-1.5 pointer-events-none">
           <Sparkles size={11} className="text-[#E68910]" /> AI Enhanced
         </div>
       )}

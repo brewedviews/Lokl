@@ -20,7 +20,7 @@ export function StoreNotifyBanner({ badge, storeId, storeName, nextOpenLabel }: 
     return (
       <div className="mb-6 bg-[#F8F6F1] rounded-2xl p-4 border border-[#E5E2DC]">
         <p className="text-sm text-[#595959]">
-          <span className="font-semibold text-[#1A2B4C]">{nextOpenLabel || "Closed"}</span>
+          <span className="font-semibold text-[#0A1F5C]">{nextOpenLabel || "Closed"}</span>
         </p>
       </div>
     );
@@ -54,7 +54,7 @@ export function StoreNotifyBanner({ badge, storeId, storeName, nextOpenLabel }: 
 
   return (
     <div className="mb-6 bg-[#F0F4FF] rounded-2xl p-4 border border-indigo-100">
-      <p className="text-sm font-semibold text-[#1A2B4C] mb-1">This store is currently offline</p>
+      <p className="text-sm font-semibold text-[#0A1F5C] mb-1">This store is currently offline</p>
       <p className="text-xs text-[#595959] mb-3">Get notified when {storeName} is back:</p>
       <form onSubmit={handleSubmit} className="flex gap-2">
         <input
@@ -62,12 +62,12 @@ export function StoreNotifyBanner({ badge, storeId, storeName, nextOpenLabel }: 
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
           placeholder="Your WhatsApp number"
-          className="flex-1 px-3 py-2 rounded-xl border border-[#E5E2DC] text-sm outline-none focus:border-[#1A2B4C]"
+          className="flex-1 px-3 py-2 rounded-xl border border-[#E5E2DC] text-sm outline-none focus:border-[#0A1F5C]"
         />
         <button
           type="submit"
           disabled={loading}
-          className="px-4 py-2 bg-[#1A2B4C] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+          className="px-4 py-2 bg-[#0A1F5C] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
         >
           {loading ? "…" : "Notify Me"}
         </button>

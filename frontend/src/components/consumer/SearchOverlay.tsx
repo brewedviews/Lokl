@@ -257,7 +257,7 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
                 <div className="flex flex-wrap gap-2">
                   {["Kurta", "Jeans", "Sneakers", "Saree", "Kids wear", "Ethnic"].map((term) => (
                     <button key={term} onClick={() => submit(term)}
-                      className="px-3 py-1.5 bg-[#FDFBF7] border border-[#E5E2DC] rounded-full text-sm text-[#1A2B4C] font-medium">
+                      className="px-3 py-1.5 bg-[#FDFBF7] border border-[#E5E2DC] rounded-full text-sm text-[#0A1F5C] font-medium">
                       🔍 {term}
                     </button>
                   ))}

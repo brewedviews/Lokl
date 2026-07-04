@@ -36,7 +36,7 @@ export default function SearchPage() {
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-8">
         <div className="flex items-center gap-3 mb-6">
           <SearchIcon size={20} className="text-[#E68910]" />
-          <h1 className="font-display text-2xl md:text-3xl font-bold text-[#1A2B4C]">
+          <h1 className="font-display text-2xl md:text-3xl font-bold text-[#0A1F5C]">
             {q ? <>Results for <span className="text-[#E68910]">&ldquo;{q}&rdquo;</span></> : "Search"}
           </h1>
         </div>
@@ -48,12 +48,12 @@ export default function SearchPage() {
             <h2 className="text-[11px] uppercase tracking-widest text-[#595959] mb-3">Stores</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {data.stores.map((s) => (
-                <Link key={s.id} href={`/store/${s.id}`} data-testid={`search-store-${s.id}`} className="bg-white rounded-2xl overflow-hidden border border-[#E5E2DC] hover:border-[#1A2B4C] transition">
+                <Link key={s.id} href={`/store/${s.id}`} data-testid={`search-store-${s.id}`} className="bg-white rounded-2xl overflow-hidden border border-[#E5E2DC] hover:border-[#0A1F5C] transition">
                   <div className="relative aspect-[4/3] bg-[#FDFBF7]">
                     {s.image && <Image src={s.image} alt={s.name} fill sizes="(max-width: 768px) 50vw, 25vw" className="object-cover" />}
                   </div>
                   <div className="p-3">
-                    <div className="font-semibold text-[#1A2B4C] truncate">{s.name}</div>
+                    <div className="font-semibold text-[#0A1F5C] truncate">{s.name}</div>
                     {s.tagline && <div className="text-[11px] text-[#595959] truncate">{s.tagline}</div>}
                   </div>
                 </Link>
@@ -78,7 +78,7 @@ export default function SearchPage() {
         )}
 
         <section className="border-t border-[#E5E2DC] pt-8">
-          <h3 className="font-display text-xl md:text-2xl font-bold text-[#1A2B4C]">Didn&apos;t get what you searched for?</h3>
+          <h3 className="font-display text-xl md:text-2xl font-bold text-[#0A1F5C]">Didn&apos;t get what you searched for?</h3>
           <p className="text-sm text-[#595959] mt-1 mb-5">Shop by category instead.</p>
           <div className="grid grid-cols-3 md:grid-cols-7 gap-3 md:gap-4">
             {cats.map((c) => (

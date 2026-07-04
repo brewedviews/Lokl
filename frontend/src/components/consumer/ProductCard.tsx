@@ -141,7 +141,7 @@ export function ProductCard({ p, size = "default" }: Props) {
             aria-label="Wishlist"
             onClick={handleHeart}
             className={`absolute top-1.5 right-1.5 rounded-full grid place-items-center backdrop-blur-md transition active:scale-90 ${
-              wished ? "bg-[#E68910] text-white" : "bg-white/85 text-[#1A2B4C]"
+              wished ? "bg-[#E68910] text-white" : "bg-white/85 text-[#0A1F5C]"
             } ${isCompact ? "w-7 h-7" : "w-9 h-9"}`}
           >
             <Heart
@@ -163,7 +163,7 @@ export function ProductCard({ p, size = "default" }: Props) {
 
           {/* Product name */}
           <div
-            className={`font-semibold text-[#1A2B4C] leading-tight ${
+            className={`font-semibold text-[#0A1F5C] leading-tight ${
               isCompact ? "text-[11px] truncate" : "text-[12px] line-clamp-2"
             }`}
           >
@@ -172,7 +172,7 @@ export function ProductCard({ p, size = "default" }: Props) {
 
           {/* Price row */}
           <div className="flex items-baseline gap-1 flex-wrap">
-            <span className={`font-bold text-[#1A2B4C] ${isCompact ? "text-[12px]" : "text-sm"}`}>
+            <span className={`font-bold text-[#0A1F5C] ${isCompact ? "text-[12px]" : "text-sm"}`}>
               ₹{Number(p.price).toLocaleString()}
             </span>
             {p.mrp && p.mrp > p.price && (
@@ -224,7 +224,7 @@ export function ProductCard({ p, size = "default" }: Props) {
                 key={s}
                 onClick={(e) => handlePickSize(e, s)}
                 data-testid={`p-card-size-${p.id}-${s}`}
-                className={`min-w-[26px] px-1.5 rounded-full bg-white border border-[#1A2B4C]/30 font-bold text-[#1A2B4C] hover:bg-[#1A2B4C] hover:text-white transition active:scale-95 ${
+                className={`min-w-[26px] px-1.5 rounded-full bg-white border border-[#0A1F5C]/30 font-bold text-[#0A1F5C] hover:bg-[#0A1F5C] hover:text-white transition active:scale-95 ${
                   isCompact ? "py-0.5 text-[9px]" : "py-1 text-[11px]"
                 }`}
               >

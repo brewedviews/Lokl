@@ -68,10 +68,10 @@ function OrderAuthGate({ orderId }: { orderId: string }) {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <div className="text-4xl mb-3">📦</div>
-          <h2 className="font-bold text-[#1A2B4C] text-xl">View your order</h2>
+          <h2 className="font-bold text-[#0A1F5C] text-xl">View your order</h2>
           <p className="text-[#595959] text-sm mt-1">
             Sign in with the mobile number used to place order{" "}
-            <span className="font-mono font-semibold text-[#1A2B4C]">{orderId}</span>
+            <span className="font-mono font-semibold text-[#0A1F5C]">{orderId}</span>
           </p>
         </div>
 
@@ -82,7 +82,7 @@ function OrderAuthGate({ orderId }: { orderId: string }) {
               value={phone}
               onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
               placeholder="Your WhatsApp number"
-              className="w-full px-4 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-[#1A2B4C] text-base"
+              className="w-full px-4 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C] text-[#0A1F5C] text-base"
             />
             {error && <p className="text-red-500 text-xs">{error}</p>}
             <button
@@ -101,13 +101,13 @@ function OrderAuthGate({ orderId }: { orderId: string }) {
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
               placeholder="6-digit OTP"
-              className="w-full px-4 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-center text-2xl font-mono tracking-widest text-[#1A2B4C]"
+              className="w-full px-4 py-3.5 rounded-2xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C] text-center text-2xl font-mono tracking-widest text-[#0A1F5C]"
             />
             {error && <p className="text-red-500 text-xs text-center">{error}</p>}
             <button
               onClick={verifyOtp}
               disabled={busy}
-              className="w-full py-3.5 bg-[#1A2B4C] text-white rounded-2xl font-bold text-base disabled:opacity-50"
+              className="w-full py-3.5 bg-[#0A1F5C] text-white rounded-2xl font-bold text-base disabled:opacity-50"
             >
               {busy ? "Verifying…" : "Verify & View Order"}
             </button>

@@ -68,7 +68,7 @@ export function FashionTile({ p }: Props) {
           aria-label="Wishlist"
           onClick={handleHeart}
           className={`absolute top-1.5 right-1.5 w-7 h-7 rounded-full grid place-items-center backdrop-blur-md transition active:scale-90 ${
-            wished ? "bg-[#E68910] text-white" : "bg-white/85 text-[#1A2B4C]"
+            wished ? "bg-[#E68910] text-white" : "bg-white/85 text-[#0A1F5C]"
           }`}
         >
           <Heart size={12} fill={wished ? "currentColor" : "none"} strokeWidth={2.2} />
@@ -77,11 +77,11 @@ export function FashionTile({ p }: Props) {
 
       {/* Caption — name + price only, no store/ETA/cart */}
       <div className="pt-1.5 space-y-0.5">
-        <div className="text-[11px] font-semibold text-[#1A2B4C] leading-tight truncate">
+        <div className="text-[11px] font-semibold text-[#0A1F5C] leading-tight truncate">
           {p.name}
         </div>
         <div className="flex items-baseline gap-1 flex-wrap">
-          <span className="text-[12px] font-bold text-[#1A2B4C]">
+          <span className="text-[12px] font-bold text-[#0A1F5C]">
             ₹{Number(p.price).toLocaleString()}
           </span>
           {p.mrp && p.mrp > p.price && (

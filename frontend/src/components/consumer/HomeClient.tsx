@@ -295,7 +295,7 @@ export function HomeClient() {
             <Link key={href} href={href} onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
               className="flex flex-col bg-white border border-[#E5E2DC] rounded-xl overflow-hidden hover:border-[#E68910] hover:shadow-sm transition-all active:scale-95">
               <div className="flex-1 flex items-center justify-center px-2 pt-3 pb-2">
-                <span className="font-bold text-[#1A2B4C] text-[13px] text-center leading-tight">{price}</span>
+                <span className="font-bold text-[#0A1F5C] text-[13px] text-center leading-tight">{price}</span>
               </div>
               <div className="bg-[#F5F4F0] px-2 py-1.5 text-center">
                 <span className="text-[10px] text-[#595959] font-medium">{sub}</span>
@@ -319,13 +319,13 @@ export function HomeClient() {
           ) : (
             <>
               <Link href="/products" className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition">
-                <div className="w-16 h-16 rounded-2xl bg-[#1A2B4C] flex items-center justify-center">
+                <div className="w-16 h-16 rounded-2xl bg-[#0A1F5C] flex items-center justify-center">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
                     <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
                   </svg>
                 </div>
-                <span className="text-[11px] font-semibold text-[#1A2B4C] text-center">All</span>
+                <span className="text-[11px] font-semibold text-[#0A1F5C] text-center">All</span>
               </Link>
               {(categories as any[]).slice(0, 9).map((cat, catIdx) => (
                 <Link key={cat.id} href={`/c/${cat.slug}`}
@@ -341,7 +341,7 @@ export function HomeClient() {
                       </div>
                     )}
                   </div>
-                  <span className="text-[11px] font-semibold text-[#1A2B4C] text-center w-16 leading-tight line-clamp-2">
+                  <span className="text-[11px] font-semibold text-[#0A1F5C] text-center w-16 leading-tight line-clamp-2">
                     {cat.name === "Lingerie & Innerwear" ? "Lingerie" : cat.name}
                   </span>
                 </Link>
@@ -482,7 +482,7 @@ export function HomeClient() {
                 ) : null}
               </div>
               <div className="p-2.5">
-                <div className="font-bold text-[#1A2B4C] text-[12px] truncate">{s.name}</div>
+                <div className="font-bold text-[#0A1F5C] text-[12px] truncate">{s.name}</div>
                 <div className="text-[10px] text-[#9CA3AF] mt-0.5">⚡ {s.eta_min ?? 30} min</div>
               </div>
             </Link>
@@ -500,7 +500,7 @@ export function HomeClient() {
         onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
         className="block mx-4 md:mx-6 mt-2 mb-6"
       >
-        <div className="bg-[#1A2B4C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
+        <div className="bg-[#0A1F5C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
           <div className="min-w-0">
             <p className="text-white font-bold text-sm leading-tight">
               Own a store in Bhilai?

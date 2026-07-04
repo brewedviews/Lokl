@@ -67,7 +67,7 @@ export default function CartPage() {
               <p className="text-xs sm:text-sm text-[#64748B] mt-1 max-w-md mx-auto">
                 Add items from your nearby Bhilai stores below — or jump straight to discovery.
               </p>
-              <Link href="/" data-testid="empty-cart-cta" className="inline-block mt-4 px-6 py-2.5 rounded-full bg-[#1A2B4C] text-white text-sm font-semibold hover:bg-[#0F1D38] transition">
+              <Link href="/" data-testid="empty-cart-cta" className="inline-block mt-4 px-6 py-2.5 rounded-full bg-[#0A1F5C] text-white text-sm font-semibold hover:bg-[#0F1D38] transition">
                 Start shopping
               </Link>
             </div>
@@ -88,7 +88,7 @@ export default function CartPage() {
   return (
     <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
       <div className="flex-1 max-w-5xl w-full mx-auto px-4 md:px-8 py-10">
-        <h1 className="font-display text-4xl font-bold text-[#1A2B4C]">Your bag</h1>
+        <h1 className="font-display text-4xl font-bold text-[#0A1F5C]">Your bag</h1>
         <div className="grid md:grid-cols-3 gap-8 mt-8">
           <div className="md:col-span-2 space-y-4">
             {items.map((it) => {
@@ -101,7 +101,7 @@ export default function CartPage() {
                 ) : <div className="w-24 h-32 rounded-xl bg-slate-100" />}
                 <div className="flex-1">
                   <div className="text-xs uppercase tracking-wider text-[#595959]">{it.store_name}</div>
-                  <h3 className="font-semibold text-[#1A2B4C]">{it.name}</h3>
+                  <h3 className="font-semibold text-[#0A1F5C]">{it.name}</h3>
                   {it.size && <div className="text-xs text-[#595959] mt-1">Size: {it.size}</div>}
                   <div className="flex items-center gap-1 text-xs text-[#E68910] mt-1"><Bike size={11} /> Fast delivery</div>
                   {storeStatus?.badge === "Away" && (
@@ -119,7 +119,7 @@ export default function CartPage() {
                       <span className="font-semibold w-6 text-center">{it.qty}</span>
                       <button onClick={() => updateQty(it.id, it.size ?? "", it.qty + 1)} className="w-7 h-7 rounded-full border border-[#E5E2DC]">+</button>
                     </div>
-                    <div className="font-bold text-[#1A2B4C]">₹{(it.price * it.qty).toLocaleString()}</div>
+                    <div className="font-bold text-[#0A1F5C]">₹{(it.price * it.qty).toLocaleString()}</div>
                   </div>
                 </div>
                 <button onClick={() => removeItem(it.id, it.size ?? "")} data-testid={`cart-remove-${it.id}`} className="text-[#595959] hover:text-red-500"><Trash2 size={16} /></button>
@@ -128,11 +128,11 @@ export default function CartPage() {
             })}
           </div>
           <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC] h-fit sticky top-24">
-            <h3 className="font-display text-xl font-bold text-[#1A2B4C] mb-4">Order Summary</h3>
+            <h3 className="font-display text-xl font-bold text-[#0A1F5C] mb-4">Order Summary</h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between"><span className="text-[#595959]">Subtotal</span><span>₹{total.toLocaleString()}</span></div>
               <div className="border-t border-[#E5E2DC] my-3"></div>
-              <div className="flex justify-between font-bold text-lg"><span>Total</span><span className="text-[#1A2B4C]">₹{total.toLocaleString()}</span></div>
+              <div className="flex justify-between font-bold text-lg"><span>Total</span><span className="text-[#0A1F5C]">₹{total.toLocaleString()}</span></div>
             </div>
             {anyUnavailable && (
               <div className="mt-4 flex items-center gap-2 text-xs text-red-600 font-semibold">

@@ -311,10 +311,10 @@ export default function CheckoutPage() {
               <div className="space-y-2">
                 {savedAddresses.map((a) => (
                   <button key={a.id} type="button" data-testid={`pick-addr-${a.id}`} onClick={() => pickSaved(a.id)}
-                    className={`w-full text-left p-3 rounded-xl border-2 transition ${selectedId === a.id ? "border-[#1A2B4C] bg-[#1A2B4C]/5" : "border-[#E5E2DC] hover:border-[#1A2B4C]/40"}`}>
+                    className={`w-full text-left p-3 rounded-xl border-2 transition ${selectedId === a.id ? "border-[#0A1F5C] bg-[#0A1F5C]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 text-sm">
-                        <div className="font-semibold text-[#1A2B4C] flex items-center gap-2"><MapPin size={13} className="text-[#E68910]" />{a.label || "Home"} · {a.name || phone}</div>
+                        <div className="font-semibold text-[#0A1F5C] flex items-center gap-2"><MapPin size={13} className="text-[#E68910]" />{a.label || "Home"} · {a.name || phone}</div>
                         <div className="text-[#595959] mt-0.5">{a.line1}</div>
                         {a.landmark && <div className="text-[11px] text-[#595959]">Landmark: {a.landmark}</div>}
                         <div className="text-[11px] text-[#595959]">{a.city || "Bhilai"} · {a.pincode}</div>
@@ -324,7 +324,7 @@ export default function CheckoutPage() {
                   </button>
                 ))}
                 <button type="button" data-testid="pick-new-addr" onClick={() => pickSaved("__new__")}
-                  className={`w-full text-left p-3 rounded-xl border-2 border-dashed flex items-center gap-2 transition ${selectedId === "__new__" ? "border-[#E68910] bg-[#E68910]/5 text-[#E68910]" : "border-[#E5E2DC] text-[#595959] hover:border-[#1A2B4C]/40"}`}>
+                  className={`w-full text-left p-3 rounded-xl border-2 border-dashed flex items-center gap-2 transition ${selectedId === "__new__" ? "border-[#E68910] bg-[#E68910]/5 text-[#E68910]" : "border-[#E5E2DC] text-[#595959] hover:border-[#0A1F5C]/40"}`}>
                   <Plus size={14} /> <span className="text-sm font-semibold">Use a new address</span>
                 </button>
               </div>
@@ -333,22 +333,22 @@ export default function CheckoutPage() {
 
           {selectedId === "__new__" && (
             <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC]">
-              <h2 className="font-display text-2xl font-bold text-[#1A2B4C] mb-4">New delivery address</h2>
+              <h2 className="font-display text-2xl font-bold text-[#0A1F5C] mb-4">New delivery address</h2>
               <p className="text-xs text-[#595959] mb-4">Saved addresses appear in your account for one-tap checkout next time.</p>
               <div className="grid md:grid-cols-2 gap-3">
-                <input data-testid="addr-name" value={addr.name} onChange={(e) => setAddr({ ...addr, name: e.target.value })} placeholder="Full name" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-                <input data-testid="addr-phone" value={addr.phone} onChange={(e) => setAddr({ ...addr, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="Phone" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-                <textarea data-testid="addr-line1" value={addr.line1} onChange={(e) => setAddr({ ...addr, line1: e.target.value })} placeholder="House no, street, locality" rows={2} className="md:col-span-2 px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] resize-none" />
-                <input data-testid="addr-landmark" value={addr.landmark} onChange={(e) => setAddr({ ...addr, landmark: e.target.value })} placeholder="Landmark (e.g. opposite SBI / near Globe Chowk)" className="md:col-span-2 px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-                <input data-testid="addr-city" value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} placeholder="City (Bhilai only)" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
-                <input data-testid="addr-pin" value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="Pincode" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" />
+                <input data-testid="addr-name" value={addr.name} onChange={(e) => setAddr({ ...addr, name: e.target.value })} placeholder="Full name" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                <input data-testid="addr-phone" value={addr.phone} onChange={(e) => setAddr({ ...addr, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="Phone" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                <textarea data-testid="addr-line1" value={addr.line1} onChange={(e) => setAddr({ ...addr, line1: e.target.value })} placeholder="House no, street, locality" rows={2} className="md:col-span-2 px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C] resize-none" />
+                <input data-testid="addr-landmark" value={addr.landmark} onChange={(e) => setAddr({ ...addr, landmark: e.target.value })} placeholder="Landmark (e.g. opposite SBI / near Globe Chowk)" className="md:col-span-2 px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                <input data-testid="addr-city" value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} placeholder="City (Bhilai only)" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                <input data-testid="addr-pin" value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="Pincode" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
               </div>
             </div>
           )}
 
           <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC]">
-            <h2 className="font-display text-2xl font-bold text-[#1A2B4C] mb-4">Payment</h2>
-            <div className="flex items-center gap-3 p-4 rounded-2xl border-2 border-[#1A2B4C] bg-[#1A2B4C]/5" data-testid="pay-cod">
+            <h2 className="font-display text-2xl font-bold text-[#0A1F5C] mb-4">Payment</h2>
+            <div className="flex items-center gap-3 p-4 rounded-2xl border-2 border-[#0A1F5C] bg-[#0A1F5C]/5" data-testid="pay-cod">
               <Banknote size={20} className="text-[#E68910]" />
               <span className="font-semibold text-sm">Pay at Delivery</span>
             </div>
@@ -356,7 +356,7 @@ export default function CheckoutPage() {
         </div>
 
         <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC] h-fit">
-          <h3 className="font-display text-xl font-bold text-[#1A2B4C] mb-3">Bag ({items.length})</h3>
+          <h3 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">Bag ({items.length})</h3>
           {uniqueStoreNames.length > 1 && (
             <div data-testid="multi-store-notice" className="mb-3 rounded-xl border border-[#E68910]/30 bg-[#E68910]/10 px-3 py-2 text-[12px] text-[#0A1F5C]">
               Your bag has items from <strong>{uniqueStoreNames.length} stores</strong>. You&apos;ll pay once now and may receive
@@ -384,7 +384,7 @@ export default function CheckoutPage() {
                   <Image src={it.image} alt={it.name} width={56} height={64} className="w-14 h-16 rounded-lg object-cover" />
                 ) : <div className="w-14 h-16 rounded-lg bg-slate-100" />}
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-[#1A2B4C] truncate">{it.name}</div>
+                  <div className="font-semibold text-[#0A1F5C] truncate">{it.name}</div>
                   <div className="text-xs text-[#595959]">{it.store_name ? `${it.store_name} · ` : ""}Qty {it.qty}{it.size ? ` · ${it.size}` : ""}</div>
                 </div>
                 <div className="font-semibold">₹{(it.price * it.qty).toLocaleString()}</div>
@@ -407,10 +407,10 @@ export default function CheckoutPage() {
                   onChange={(e) => { setCouponCode(e.target.value.toUpperCase()); setCouponError(""); }}
                   onKeyDown={(e) => e.key === "Enter" && applyCoupon()}
                   placeholder="Coupon code"
-                  className="flex-1 px-3 py-2 text-sm rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase"
+                  className="flex-1 px-3 py-2 text-sm rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C] uppercase"
                 />
                 <button onClick={applyCoupon} disabled={couponLoading || !couponCode.trim()} data-testid="apply-coupon-btn"
-                  className="px-4 py-2 text-sm font-semibold rounded-xl bg-[#1A2B4C] text-white disabled:opacity-40">
+                  className="px-4 py-2 text-sm font-semibold rounded-xl bg-[#0A1F5C] text-white disabled:opacity-40">
                   {couponLoading ? "…" : "Apply"}
                 </button>
               </div>
@@ -496,7 +496,7 @@ export default function CheckoutPage() {
           )}
           <div className="border-t border-[#E5E2DC] mt-3 pt-3 flex justify-between font-bold">
             <span>Total</span>
-            <span className="text-[#1A2B4C]" data-testid="grand-total">₹{grandTotal.toLocaleString()}</span>
+            <span className="text-[#0A1F5C]" data-testid="grand-total">₹{grandTotal.toLocaleString()}</span>
           </div>
           <button onClick={place} disabled={placing || !canPay || unserviceable} data-testid="place-order-btn"
             className="w-full mt-5 px-6 py-3.5 rounded-full bg-[#E68910] text-white font-semibold hover:bg-[#C9770E] disabled:opacity-50 transition inline-flex items-center justify-center gap-2">

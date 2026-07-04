@@ -95,7 +95,7 @@ function CategoriesInner() {
                   onClick={() => setL1(cat.slug)}
                   className={`flex-shrink-0 flex flex-col items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all min-w-[56px] ${
                     isActive
-                      ? "bg-[#1A2B4C]"
+                      ? "bg-[#0A1F5C]"
                       : "bg-[#FDFBF7] border border-[#E5E2DC]"
                   }`}
                 >
@@ -106,7 +106,7 @@ function CategoriesInner() {
                     </div>
                   )}
                   <span className={`text-[10px] font-bold whitespace-nowrap leading-tight ${
-                    isActive ? "text-white" : "text-[#1A2B4C]"
+                    isActive ? "text-white" : "text-[#0A1F5C]"
                   }`}>
                     {cat.name.replace("Lingerie & Innerwear", "Lingerie").replace("Ethnic Wear", "Ethnic")}
                   </span>
@@ -163,7 +163,7 @@ function CategoriesInner() {
         {/* RIGHT — products */}
         <div className="flex-1 p-2 pb-24">
           <div className="flex items-center gap-1 mb-2 px-1">
-            <span className="text-[12px] font-semibold text-[#1A2B4C]">
+            <span className="text-[12px] font-semibold text-[#0A1F5C]">
               {activeL1Cat?.name}{activeL2 ? ` › ${l2Cats.find(c => c.slug === activeL2)?.name}` : ""}
             </span>
             {!loadingProducts && (
@@ -188,9 +188,9 @@ function CategoriesInner() {
           {!loadingProducts && products.length === 0 && (
             <div className="text-center py-12">
               <p className="text-3xl mb-2">🛍️</p>
-              <p className="font-semibold text-[#1A2B4C] text-sm">No products yet</p>
+              <p className="font-semibold text-[#0A1F5C] text-sm">No products yet</p>
               <p className="text-xs text-[#9CA3AF] mt-1">Coming soon</p>
-              <Link href="/products" className="mt-3 inline-block px-5 py-2 bg-[#1A2B4C] text-white rounded-full text-sm font-semibold">
+              <Link href="/products" className="mt-3 inline-block px-5 py-2 bg-[#0A1F5C] text-white rounded-full text-sm font-semibold">
                 Browse all →
               </Link>
             </div>

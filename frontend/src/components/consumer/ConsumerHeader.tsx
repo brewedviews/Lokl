@@ -161,7 +161,7 @@ export function ConsumerHeader() {
           className="lg:hidden w-9 h-9 flex items-center justify-center rounded-full hover:bg-[#E5E2DC] transition"
           aria-label="Search"
         >
-          <Search size={20} className="text-[#1A2B4C]" />
+          <Search size={20} className="text-[#0A1F5C]" />
         </button>
         <Link
           href="/cart"

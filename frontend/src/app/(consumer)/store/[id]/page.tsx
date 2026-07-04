@@ -56,7 +56,7 @@ export default async function StorePage(
 
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
-      <div className="relative h-[28vh] sm:h-[45vh] md:h-[55vh] overflow-hidden bg-[#1A2B4C]">
+      <div className="relative h-[28vh] sm:h-[45vh] md:h-[55vh] overflow-hidden bg-[#0A1F5C]">
         {banners.length > 1 ? (
           <div className="flex h-full overflow-x-auto snap-x snap-mandatory no-scrollbar">
             {banners.map((b, i) => (
@@ -71,7 +71,7 @@ export default async function StorePage(
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
         <div className="absolute bottom-0 left-0 right-0 max-w-7xl mx-auto px-4 md:px-8 pb-4 sm:pb-8 text-white">
           {store.trusted && (
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-white/90 text-[#1A2B4C] text-[10px] sm:text-xs font-semibold mb-2 sm:mb-3">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-white/90 text-[#0A1F5C] text-[10px] sm:text-xs font-semibold mb-2 sm:mb-3">
               <ShieldCheck size={11} className="text-[#4F7363]" /> Trusted Store
             </div>
           )}
@@ -91,12 +91,12 @@ export default async function StorePage(
         <aside className="hidden md:block space-y-5">
           {store.story && (
             <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC]">
-              <h3 className="font-display text-xl font-bold text-[#1A2B4C] mb-2">The Story</h3>
+              <h3 className="font-display text-xl font-bold text-[#0A1F5C] mb-2">The Story</h3>
               <p className="text-sm text-[#595959] leading-relaxed">{store.story}</p>
             </div>
           )}
           <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC] text-sm">
-            <h3 className="font-display text-xl font-bold text-[#1A2B4C] mb-3">Delivery</h3>
+            <h3 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">Delivery</h3>
             <div className="space-y-2 text-[#595959]">
               <div className="flex items-center gap-2">
                 <Bike size={14} className={store.badge === "Away" ? "text-amber-500" : store.badge === "Store Offline" ? "text-slate-400" : "text-[#E68910]"} />
@@ -117,7 +117,7 @@ export default async function StorePage(
         </aside>
 
         <div className="md:col-span-2">
-          <h2 className="font-display text-xl sm:text-3xl font-bold text-[#1A2B4C] mb-3 sm:mb-6">From this store ({products.length})</h2>
+          <h2 className="font-display text-xl sm:text-3xl font-bold text-[#0A1F5C] mb-3 sm:mb-6">From this store ({products.length})</h2>
           <StoreNotifyBanner
             badge={store.badge ?? ""}
             storeId={store.id}

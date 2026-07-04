@@ -59,7 +59,7 @@ export function ReturnModal({
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-4" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto" data-testid="return-modal">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-display text-2xl font-bold text-[#1A2B4C] flex items-center gap-2"><RotateCcw size={20} /> Return product</h3>
+          <h3 className="font-display text-2xl font-bold text-[#0A1F5C] flex items-center gap-2"><RotateCcw size={20} /> Return product</h3>
           <button onClick={onClose} className="w-9 h-9 rounded-full border border-[#E5E2DC] flex items-center justify-center" aria-label="Close"><X size={16} /></button>
         </div>
 
@@ -72,7 +72,7 @@ export function ReturnModal({
                 <Image src={it.image} alt={it.name} width={40} height={48} className="w-10 h-12 rounded-md object-cover" />
               ) : <div className="w-10 h-12 rounded-md bg-slate-100" />}
               <div className="flex-1 min-w-0">
-                <div className="font-semibold text-sm text-[#1A2B4C] truncate">{it.name}</div>
+                <div className="font-semibold text-sm text-[#0A1F5C] truncate">{it.name}</div>
                 <div className="text-[11px] text-[#595959]">Qty {it.qty}{it.size ? ` · ${it.size}` : ""}</div>
               </div>
             </label>
@@ -87,7 +87,7 @@ export function ReturnModal({
               type="button"
               onClick={() => setReason(r)}
               data-testid={`ret-reason-${(r.split(" ")[0] ?? "other").toLowerCase()}`}
-              className={`text-left px-4 py-2.5 rounded-xl border transition ${reason === r ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white border-[#E5E2DC] hover:border-[#1A2B4C]"}`}
+              className={`text-left px-4 py-2.5 rounded-xl border transition ${reason === r ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-[#E5E2DC] hover:border-[#0A1F5C]"}`}
             >
               {r}
             </button>
@@ -144,7 +144,7 @@ export function ComplaintModal({
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-4" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto" data-testid="complaint-modal">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-display text-2xl font-bold text-[#1A2B4C] flex items-center gap-2"><MessageCircle size={20} /> Customer care</h3>
+          <h3 className="font-display text-2xl font-bold text-[#0A1F5C] flex items-center gap-2"><MessageCircle size={20} /> Customer care</h3>
           <button onClick={onClose} className="w-9 h-9 rounded-full border border-[#E5E2DC] flex items-center justify-center" aria-label="Close"><X size={16} /></button>
         </div>
 
@@ -156,7 +156,7 @@ export function ComplaintModal({
               type="button"
               onClick={() => setType(t.value as ComplaintType)}
               data-testid={`cmp-type-${t.value}`}
-              className={`text-left px-4 py-2.5 rounded-xl border transition ${type === t.value ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white border-[#E5E2DC] hover:border-[#1A2B4C]"}`}
+              className={`text-left px-4 py-2.5 rounded-xl border transition ${type === t.value ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-[#E5E2DC] hover:border-[#0A1F5C]"}`}
             >
               {t.label}
             </button>
@@ -170,7 +170,7 @@ export function ComplaintModal({
           onChange={(e) => setMessage(e.target.value)}
           rows={4}
           placeholder="Describe what happened so our team can help…"
-          className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] mb-5"
+          className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C] mb-5"
         />
 
         <div className="flex gap-2">

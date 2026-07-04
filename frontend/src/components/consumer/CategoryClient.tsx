@@ -105,7 +105,7 @@ export function CategoryClient() {
       <main className="flex-1">
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
           {/* Header */}
-          <h1 data-testid="cat-title" className="font-display text-lg font-bold text-[#1A2B4C]">
+          <h1 data-testid="cat-title" className="font-display text-lg font-bold text-[#0A1F5C]">
             {l1.name}
             {!isLoading && (
               <span className="text-sm font-normal text-[#595959] ml-2">({products.length})</span>
@@ -124,7 +124,7 @@ export function CategoryClient() {
                 data-testid={`sort-${opt.key}`}
                 className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
                   sort === opt.key
-                    ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
+                    ? "bg-[#0A1F5C] text-white border-[#0A1F5C]"
                     : "bg-white text-[#595959] border-[#E5E2DC]"
                 }`}>
                 {opt.label}
@@ -164,7 +164,7 @@ export function CategoryClient() {
           ) : products.length === 0 ? (
             <div className="mt-6 bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#E68910]/10 text-[#E68910] text-[11px] font-bold uppercase tracking-widest mb-3">Building it</div>
-              <h3 className="font-display text-xl md:text-2xl font-bold text-[#1A2B4C]">Coming soon to {l1.name} in Bhilai</h3>
+              <h3 className="font-display text-xl md:text-2xl font-bold text-[#0A1F5C]">Coming soon to {l1.name} in Bhilai</h3>
               <p className="text-sm text-[#595959] mt-2 max-w-md mx-auto">We&apos;re onboarding local sellers right now — fresh drops will land here shortly.</p>
             </div>
           ) : (

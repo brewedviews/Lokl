@@ -61,7 +61,7 @@ function ProductsInner() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-4 pb-24">
-      <h1 className="font-display text-lg font-bold text-[#1A2B4C] mb-2">
+      <h1 className="font-display text-lg font-bold text-[#0A1F5C] mb-2">
         {pageTitle(activeL1)}
         {!loading && (
           <span className="text-sm font-normal text-[#9CA3AF] ml-2">
@@ -82,7 +82,7 @@ function ProductsInner() {
               onClick={() => setFilter("l1", "")}
               className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
                 !categoryFilter
-                  ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
+                  ? "bg-[#0A1F5C] text-white border-[#0A1F5C]"
                   : "bg-white text-[#595959] border-[#E5E2DC]"
               }`}
             >
@@ -94,7 +94,7 @@ function ProductsInner() {
                 onClick={() => setFilter("l1", cat.id)}
                 className={`flex-shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
                   categoryFilter === cat.id
-                    ? "bg-[#1A2B4C] text-white border-[#1A2B4C]"
+                    ? "bg-[#0A1F5C] text-white border-[#0A1F5C]"
                     : "bg-white text-[#595959] border-[#E5E2DC]"
                 }`}
               >

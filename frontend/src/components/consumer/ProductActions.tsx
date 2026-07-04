@@ -197,7 +197,7 @@ export function ProductActions({
               <button
                 onClick={() => setNotifyOpen((v) => !v)}
                 data-testid="notify-me-btn"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#1A2B4C] text-white text-sm font-bold hover:bg-[#0F1F3D] transition whitespace-nowrap"
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#0A1F5C] text-white text-sm font-bold hover:bg-[#0F1F3D] transition whitespace-nowrap"
               >
                 <Bell size={16} /> Notify Me
               </button>
@@ -209,7 +209,7 @@ export function ProductActions({
           ) : storeCanOrder ? (
             <>
               <button onClick={() => { if (handleAdd()) toast.success("Added to bag"); }} data-testid="add-to-bag"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border-2 border-[#1A2B4C] text-[#1A2B4C] text-sm font-bold hover:bg-[#1A2B4C] hover:text-white transition whitespace-nowrap">
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border-2 border-[#0A1F5C] text-[#0A1F5C] text-sm font-bold hover:bg-[#0A1F5C] hover:text-white transition whitespace-nowrap">
                 <ShoppingBag size={16} /> Add to bag
               </button>
               <button onClick={() => { if (handleAdd()) router.push("/checkout"); }} data-testid="buy-now"
@@ -222,10 +222,10 @@ export function ProductActions({
               Store Unavailable
             </div>
           )}
-          <button aria-label="Wishlist" data-testid="wishlist-btn" className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#1A2B4C] transition shrink-0">
+          <button aria-label="Wishlist" data-testid="wishlist-btn" className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
             <Heart size={16} />
           </button>
-          <button aria-label="Share" data-testid="share-btn" onClick={handleShare} className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#1A2B4C] transition shrink-0">
+          <button aria-label="Share" data-testid="share-btn" onClick={handleShare} className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
             <Share2 size={16} />
           </button>
         </div>
@@ -264,19 +264,19 @@ export function ProductActions({
                 </div>
               ) : (
                 <>
-                  <p className="text-sm font-semibold text-[#1A2B4C] mb-2">Get notified when store is back</p>
+                  <p className="text-sm font-semibold text-[#0A1F5C] mb-2">Get notified when store is back</p>
                   <form onSubmit={handleNotifySubmit} className="flex gap-2">
                     <input
                       type="tel"
                       value={notifyPhone}
                       onChange={(e) => setNotifyPhone(e.target.value)}
                       placeholder="Your WhatsApp number"
-                      className="flex-1 px-3 py-2 rounded-xl border border-[#E5E2DC] text-sm outline-none focus:border-[#1A2B4C]"
+                      className="flex-1 px-3 py-2 rounded-xl border border-[#E5E2DC] text-sm outline-none focus:border-[#0A1F5C]"
                     />
                     <button
                       type="submit"
                       disabled={notifyLoading}
-                      className="px-4 py-2 bg-[#1A2B4C] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                      className="px-4 py-2 bg-[#0A1F5C] text-white rounded-xl text-sm font-semibold disabled:opacity-50"
                     >
                       {notifyLoading ? "…" : "Notify Me"}
                     </button>
@@ -289,7 +289,7 @@ export function ProductActions({
 
           {isOffline && (
             <p className="text-xs text-[#94A3B8] mt-2 px-4 md:px-0">
-              <a href="#similar-products" className="hover:text-[#1A2B4C] transition">See similar products ↓</a>
+              <a href="#similar-products" className="hover:text-[#0A1F5C] transition">See similar products ↓</a>
             </p>
           )}
         </div>

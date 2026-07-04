@@ -93,10 +93,10 @@ export default async function ProductDetailPage(
                 )
               )}
 
-              <h1 className="text-xl font-bold text-[#1A2B4C] mt-2 leading-snug">{product.name}</h1>
+              <h1 className="text-xl font-bold text-[#0A1F5C] mt-2 leading-snug">{product.name}</h1>
 
               <div className="flex items-baseline gap-2 mt-2">
-                <span className="text-2xl font-bold text-[#1A2B4C]">₹{Number(product.price).toLocaleString("en-IN")}</span>
+                <span className="text-2xl font-bold text-[#0A1F5C]">₹{Number(product.price).toLocaleString("en-IN")}</span>
                 {product.mrp && product.mrp > product.price && (
                   <>
                     <span className="text-sm text-[#9CA3AF] line-through">₹{Number(product.mrp).toLocaleString("en-IN")}</span>
@@ -131,7 +131,7 @@ export default async function ProductDetailPage(
 
             {product.description && (
               <div className="px-4 py-4 border-t border-[#F5F5F5] mt-4 md:px-0">
-                <h3 className="text-sm font-bold text-[#1A2B4C] mb-2">Product details</h3>
+                <h3 className="text-sm font-bold text-[#0A1F5C] mb-2">Product details</h3>
                 <p className="text-sm text-[#595959] leading-relaxed">{product.description}</p>
               </div>
             )}
@@ -140,7 +140,7 @@ export default async function ProductDetailPage(
             {((product.store_eta_min ?? 0) > 0 || (product.store_distance_km ?? 0) > 0) && (
               <div className="mx-4 my-3 p-3 bg-[#FDFBF7] border border-[#E5E2DC] rounded-xl flex items-center gap-3 md:mx-0">
                 <div className="flex-1">
-                  <p className="text-xs font-bold text-[#1A2B4C]">{product.store_name}</p>
+                  <p className="text-xs font-bold text-[#0A1F5C]">{product.store_name}</p>
                   {(product.store_eta_min ?? 0) > 0 && (
                     <p className="text-xs text-[#9CA3AF] mt-0.5">
                       Delivers in ~{product.store_eta_min} min
@@ -161,7 +161,7 @@ export default async function ProductDetailPage(
         {/* Below-fold rails — full width within max-w-[1200px] */}
         {fromStore.length > 0 && (
           <section className="px-4 mt-8 md:px-8" data-testid="from-store-rail">
-            <h2 className="font-bold text-lg text-[#1A2B4C] mb-4">More from {product.store_name}</h2>
+            <h2 className="font-bold text-lg text-[#0A1F5C] mb-4">More from {product.store_name}</h2>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
               {fromStore.slice(0, 8).map((p) => (
                 <div key={p.id} className="shrink-0 w-[38vw] sm:w-[180px]"><ProductCard p={p} size="default" /></div>
@@ -172,7 +172,7 @@ export default async function ProductDetailPage(
 
         {similar.length > 0 && (
           <section id="similar-products" className="px-4 mt-8 md:px-8" data-testid="similar-products">
-            <h2 className="font-bold text-lg text-[#1A2B4C] mb-4">You might also like</h2>
+            <h2 className="font-bold text-lg text-[#0A1F5C] mb-4">You might also like</h2>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
               {similar.slice(0, 8).map((p) => (
                 <div key={p.id} className="shrink-0 w-[38vw] sm:w-[180px]"><ProductCard p={p} size="default" /></div>

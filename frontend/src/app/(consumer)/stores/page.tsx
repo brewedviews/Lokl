@@ -20,7 +20,7 @@ export default function StoresPage() {
   return (
     <div className="min-h-screen bg-[#FDFBF7]">
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-10">
-        <h1 data-testid="stores-title" className="font-display text-4xl md:text-5xl font-bold text-[#1A2B4C]">Stores near you</h1>
+        <h1 data-testid="stores-title" className="font-display text-4xl md:text-5xl font-bold text-[#0A1F5C]">Stores near you</h1>
         <p className="text-[#595959] mt-2">
           {loading ? "Loading…" : `${list.length} trusted local store${list.length !== 1 ? "s" : ""} · sorted by distance`}
         </p>
@@ -30,7 +30,7 @@ export default function StoresPage() {
           </div>
         ) : list.length === 0 ? (
           <div className="mt-8 bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center">
-            <h3 className="font-display text-2xl font-bold text-[#1A2B4C]">No stores live yet</h3>
+            <h3 className="font-display text-2xl font-bold text-[#0A1F5C]">No stores live yet</h3>
             <p className="text-sm text-[#595959] mt-2 max-w-md mx-auto">
               We&apos;re piloting in <strong>Bhilai</strong> and <strong>Raipur</strong>. Stores will appear here as our partner stores complete KYC and publish their first products.
             </p>

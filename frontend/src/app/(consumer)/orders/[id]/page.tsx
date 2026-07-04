@@ -298,7 +298,7 @@ export default function OrderTrackingPage() {
               className="flex items-center justify-between p-4 bg-[#FDFBF7] border border-[#E5E2DC] rounded-2xl hover:border-[#E68910] transition"
             >
               <div>
-                <p className="text-sm font-semibold text-[#1A2B4C]">Issue with this order?</p>
+                <p className="text-sm font-semibold text-[#0A1F5C]">Issue with this order?</p>
                 <p className="text-xs text-[#9CA3AF] mt-0.5">Raise a support request</p>
               </div>
               <ChevronRight size={16} className="text-[#9CA3AF]" />
