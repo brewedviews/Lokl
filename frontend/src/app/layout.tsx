@@ -1,26 +1,7 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { Archivo_Black, DM_Sans } from "next/font/google";
 import { Providers } from "./providers";
 import "./globals.css";
-
-// Brand fonts — Archivo Black (headings) + DM Sans (body), served via
-// next/font/google so they're self-hosted and preloaded, not fetched from a
-// third-party CDN at request time. Maps to --font-display / --font-sans in
-// globals.css.
-const archivoBlack = Archivo_Black({
-  weight: "400",
-  subsets: ["latin"],
-  variable: "--font-archivo-black",
-  display: "swap",
-});
-
-const dmSans = DM_Sans({
-  weight: ["400", "500", "600", "700"],
-  subsets: ["latin"],
-  variable: "--font-dm-sans",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: {
@@ -64,7 +45,16 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${archivoBlack.variable} ${dmSans.variable}`}>
+    <html lang="en">
+      <head>
+        {/* Fontshare — Clash Display (h1-h4) + Satoshi (body). Loaded via
+            <link> not @import because the Tailwind v4 entry expands inline
+            and CSS spec forbids @import after any rule. */}
+        <link
+          rel="stylesheet"
+          href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700,500&f[]=satoshi@400,500,700&display=swap"
+        />
+      </head>
       <body className="antialiased">
         <Providers>{children}</Providers>
         {process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID && (

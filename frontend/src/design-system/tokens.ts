@@ -24,8 +24,8 @@ export const tokens = {
     full:   "9999px",
   },
   fonts: {
-    display: '"Archivo Black", system-ui, sans-serif',
-    sans:    '"DM Sans", system-ui, sans-serif',
+    display: '"Clash Display", "Satoshi", system-ui, sans-serif',
+    sans:    '"Satoshi", system-ui, sans-serif',
   },
 } as const;
 
