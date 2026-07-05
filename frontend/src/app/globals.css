@@ -1,9 +1,10 @@
 /* Lokl — Tailwind v4 entry. Sourced from /app/design_guidelines.json.
  * Visual parity with the legacy CRA app is mandatory.
  *
- * Brand fonts (Clash Display + Satoshi from Fontshare) are pulled via a
- * `<link rel="stylesheet">` in `app/layout.tsx` instead of @import — the
- * v4 tailwindcss import expands inline and CSS spec forbids late @imports. */
+ * Brand fonts (Archivo Black + DM Sans) are loaded via next/font/google in
+ * `app/layout.tsx`, which sets --font-archivo-black / --font-dm-sans as CSS
+ * variables on <html>. Those are mapped to --font-display / --font-sans
+ * below so every existing font-display / font-sans class keeps working. */
 @import "tailwindcss";
 
 @theme {
@@ -27,8 +28,8 @@
   --spacing-bottom-nav: 6rem;
 
   /* === Type stacks === */
-  --font-display: "Clash Display", "Satoshi", system-ui, sans-serif;
-  --font-sans:    "Satoshi", system-ui, sans-serif;
+  --font-display: var(--font-archivo-black), system-ui, sans-serif;
+  --font-sans:    var(--font-dm-sans), system-ui, sans-serif;
 }
 
 /* === Base layer — body bg + font binding === */
