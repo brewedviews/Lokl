@@ -15,15 +15,15 @@ export function GenderFashionBand({ women, men, footwear }: Props) {
 
   return (
     <section
-      className="mt-8 mx-4 rounded-3xl bg-[#0A1F5C] shadow-[0_4px_20px_rgba(10,31,92,0.18)] overflow-hidden"
+      className="mt-8 mx-4 rounded-3xl bg-[#EEF1F7] shadow-[0_4px_20px_rgba(10,31,92,0.10)] overflow-hidden"
       data-testid="gender-fashion-band"
     >
       {/* Zone header */}
       <div className="px-4 sm:px-6 pt-5 pb-1">
-        <div className="text-[10px] uppercase tracking-widest font-bold text-white/50 mb-0.5">
+        <div className="text-[10px] uppercase tracking-widest font-bold text-[#0A1F5C]/40 mb-0.5">
           Fashion
         </div>
-        <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-white leading-tight">
+        <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">
           Find your fit
         </h2>
       </div>
@@ -32,7 +32,7 @@ export function GenderFashionBand({ women, men, footwear }: Props) {
       {women.length > 0 && (
         <div className="pt-4 pb-2">
           <div className="px-4 sm:px-6 flex items-center justify-between gap-3 mb-3">
-            <h3 className="text-base sm:text-lg font-display font-bold tracking-tight text-white leading-tight">
+            <h3 className="text-base sm:text-lg font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">
               Women&apos;s Fashion
             </h3>
             <Link
@@ -55,10 +55,10 @@ export function GenderFashionBand({ women, men, footwear }: Props) {
       {/* Men's sub-rail */}
       {men.length > 0 && (
         <div
-          className={`${footwear.length > 0 ? "pb-2" : "pb-5"} ${women.length > 0 ? "pt-4 border-t border-white/10" : "pt-4"}`}
+          className={`${footwear.length > 0 ? "pb-2" : "pb-5"} ${women.length > 0 ? "pt-4 border-t border-[#0A1F5C]/[0.08]" : "pt-4"}`}
         >
           <div className="px-4 sm:px-6 flex items-center justify-between gap-3 mb-3">
-            <h3 className="text-base sm:text-lg font-display font-bold tracking-tight text-white leading-tight">
+            <h3 className="text-base sm:text-lg font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">
               Men&apos;s Fashion
             </h3>
             <Link
@@ -81,10 +81,10 @@ export function GenderFashionBand({ women, men, footwear }: Props) {
       {/* Footwear sub-rail */}
       {footwear.length > 0 && (
         <div
-          className={`pb-5 ${women.length > 0 || men.length > 0 ? "pt-4 border-t border-white/10" : "pt-4"}`}
+          className={`pb-5 ${women.length > 0 || men.length > 0 ? "pt-4 border-t border-[#0A1F5C]/[0.08]" : "pt-4"}`}
         >
           <div className="px-4 sm:px-6 flex items-center justify-between gap-3 mb-3">
-            <h3 className="text-base sm:text-lg font-display font-bold tracking-tight text-white leading-tight">
+            <h3 className="text-base sm:text-lg font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">
               Footwear
             </h3>
             <Link

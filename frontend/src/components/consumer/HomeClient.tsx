@@ -493,7 +493,7 @@ export function HomeClient() {
         target="_blank"
         rel="noopener noreferrer"
         onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
-        className="block mx-4 md:mx-6 mt-8"
+        className="block mx-4 md:mx-6 mt-8 mb-10"
       >
         <div className="bg-[#0A1F5C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
           <div className="min-w-0">
