@@ -1,337 +1,361 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Lokl — Fashion from stores next door · Bhilai</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231A2B4C'/><text x='5' y='24' font-family='system-ui' font-weight='900' font-size='22' fill='white'>l</text><circle cx='22' cy='22' r='3' fill='%23E68910'/></svg>">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap" rel="stylesheet">
-  <style>
-    /* RESET */
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Inter', system-ui, sans-serif; background: #FDFBF7; color: #1A2B4C; font-size: 15px; line-height: 1.65; -webkit-font-smoothing: antialiased; }
-    h1, h2, h3, h4 { font-family: 'Clash Display', 'Inter', system-ui, sans-serif; }
-    h1 { font-family: 'Clash Display', 'Inter', system-ui, sans-serif !important; }
-    a { text-decoration: none; color: inherit; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lokl. — Bhilai's local fashion app</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',system-ui,sans-serif;background:#FDFBF7;color:#1A2B4C}
+a{text-decoration:none;color:inherit}
 
-    /* NAV */
-    .nav { background: rgba(253,251,247,0.96); backdrop-filter: blur(12px); border-bottom: 1px solid #E5E2DC; padding: 0 32px; height: 64px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 99; }
-    .logo { font-size: 28px; font-weight: 900; letter-spacing: -0.5px; color: #1A2B4C; }
-    .logo em { color: #E68910; font-style: normal; }
-    .nav-right { display: flex; align-items: center; gap: 20px; }
-    .nav-link { font-size: 14px; font-weight: 500; color: #595959; }
-    .btn-nav { background: #1A2B4C; color: #fff; padding: 9px 22px; border-radius: 50px; font-size: 14px; font-weight: 700; border: none; cursor: pointer; }
+/* Nav */
+.nav{background:rgba(253,251,247,0.96);backdrop-filter:blur(12px);border-bottom:1px solid #E5E2DC;padding:0 32px;height:64px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:99}
+.logo{font-size:24px;font-weight:900;letter-spacing:-1px;color:#1A2B4C}
+.logo em{color:#E68910;font-style:normal}
+.nav-badge{background:#1A2B4C;color:#fff;padding:7px 18px;border-radius:50px;font-size:13px;font-weight:700}
 
-    /* HERO */
-    .hero-outer { max-width:1100px; margin:0 auto; padding:16px 32px 0; }
-    .hero-gradient-mobile { position:absolute;inset:0;background:linear-gradient(to bottom, rgba(253,251,247,0.95) 0%, rgba(253,251,247,0.80) 40%, rgba(253,251,247,0.30) 70%, rgba(253,251,247,0) 100%); }
-    .hero-mobile-bottom { position:relative;z-index:2;padding:0 20px 24px;display:flex;flex-direction:column;gap:0; }
-    .hero-desktop-cta { display:none; }
+/* Ticker */
+.ticker{background:#1A2B4C;color:rgba(255,255,255,0.85);text-align:center;padding:11px 20px;font-size:13px;font-weight:500;letter-spacing:0.01em}
+.ticker strong{color:#E68910;font-weight:900;font-size:15px;margin:0 3px}
 
-    @media(min-width:769px) {
-      .hero-gradient-mobile { background: linear-gradient(to right, rgba(253,251,247,0.97) 0%, rgba(253,251,247,0.90) 25%, rgba(253,251,247,0.55) 45%, rgba(253,251,247,0.0) 65%); }
-      .hero-mobile-bottom { display:none; }
-      .hero-outer > div { min-height:320px; }
-      .hero-outer h1 { font-size: clamp(36px, 4vw, 48px); }
-      .hero-outer p { font-size: 16px; color: #475569; }
-      .hero-outer > div > div[style*="position:relative;z-index:2"] { padding: 40px 40px; }
-      .hero-desktop-cta { display:inline-block;margin-top:24px;background:#E68910;color:#fff;border:none;padding:14px 32px;border-radius:50px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;letter-spacing:-0.2px; }
-    }
+/* Hero */
+.hero{position:relative;overflow:hidden;background:#1A2B4C;padding:80px 32px}
+.hero-inner{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center}
+.live-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.18);color:rgba(255,255,255,0.9);font-size:13px;font-weight:600;padding:6px 16px;border-radius:50px;margin-bottom:24px}
+.live-dot{width:7px;height:7px;background:#4CAF50;border-radius:50%;animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+.hero h1{font-size:clamp(34px,4.5vw,58px);font-weight:900;line-height:1.07;color:#fff;margin-bottom:18px;letter-spacing:-1.5px}
+.hero h1 em{color:#E68910;font-style:normal}
+.hero-sub{font-size:16px;color:rgba(255,255,255,0.6);line-height:1.7;margin-bottom:36px;max-width:400px}
+.hero-stats{display:flex;gap:36px;margin-top:44px;padding-top:36px;border-top:1px solid rgba(255,255,255,0.1)}
+.h-stat strong{display:block;font-size:26px;font-weight:900;color:#E68910;letter-spacing:-0.5px}
+.h-stat span{font-size:11px;color:rgba(255,255,255,0.45);font-weight:600;text-transform:uppercase;letter-spacing:0.8px;margin-top:2px;display:block}
 
+/* Form card */
+.form-card{background:#fff;border-radius:24px;padding:32px;box-shadow:0 24px 64px rgba(0,0,0,0.2)}
+.form-title{font-size:18px;font-weight:800;color:#1A2B4C;margin-bottom:4px;letter-spacing:-0.3px}
+.form-sub{font-size:13px;color:#888;margin-bottom:24px;line-height:1.5}
+.toggle-row{display:flex;gap:6px;background:#F5F0E8;border-radius:50px;padding:4px;margin-bottom:20px}
+.tab-btn{flex:1;padding:8px 12px;border:none;border-radius:50px;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;color:#888;background:transparent;cursor:pointer;transition:all 0.18s}
+.tab-btn.on{background:#1A2B4C;color:#fff;box-shadow:0 2px 8px rgba(10,31,92,0.25)}
+.field-group{margin-bottom:14px}
+.field-group label{display:block;font-size:12px;font-weight:700;color:#1A2B4C;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.6px}
+.field-group input,
+.field-group select{width:100%;padding:12px 16px;border:1.5px solid #E5E2DC;border-radius:12px;font-family:'Inter',sans-serif;font-size:14px;color:#1A2B4C;background:#FDFBF7;outline:none;-webkit-appearance:none;transition:border-color 0.15s}
+.field-group input:focus,
+.field-group select:focus{border-color:#E68910;background:#fff}
+.merchant-field{display:none}
+.merchant-field.show{display:block}
+.submit-btn{width:100%;padding:14px;background:#E68910;color:#fff;border:none;border-radius:50px;font-family:'Inter',sans-serif;font-size:15px;font-weight:800;cursor:pointer;margin-top:6px;letter-spacing:-0.2px;transition:background 0.15s,transform 0.1s}
+.submit-btn:hover{background:#d17c0a}
+.submit-btn:active{transform:scale(0.985)}
+.form-note{font-size:12px;color:#aaa;text-align:center;margin-top:12px;line-height:1.5}
+.success-state{display:none;text-align:center;padding:12px 0}
+.success-state.show{display:block}
+.success-check{width:48px;height:48px;background:#E8F5E9;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
+.success-title{font-size:17px;font-weight:800;color:#1A2B4C;margin-bottom:6px}
+.success-sub{font-size:13px;color:#888;line-height:1.6}
 
-    /* SECTIONS */
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 0 32px; }
-    .section-gap { height: 20px; }
-    .label { font-size: 11px; font-weight: 700; color: #E68910; text-transform: uppercase; letter-spacing: 2.5px; margin-bottom: 6px; }
-    .title { font-size: clamp(24px, 3vw, 36px); font-weight: 900; color: #1A2B4C; line-height: 1.12; letter-spacing: -0.5px; margin-bottom: 8px; }
-    .sub { font-size: 15px; color: #595959; line-height: 1.7; margin-bottom: 28px; }
+/* Sections */
+.section{max-width:1080px;margin:0 auto;padding:80px 32px}
+.section-label{font-size:12px;font-weight:700;color:#E68910;text-transform:uppercase;letter-spacing:2px;margin-bottom:10px}
+.section-title{font-size:clamp(24px,3.5vw,38px);font-weight:900;color:#1A2B4C;line-height:1.15;letter-spacing:-0.5px;margin-bottom:10px}
+.section-sub{font-size:15px;color:#595959;line-height:1.7;max-width:480px;margin-bottom:48px}
 
-    /* CUSTOMER */
-    .customer-box { background: #fff; border: 1px solid #E5E2DC; border-radius: 20px; padding: 36px; }
-    .customer-box .label { color: #E68910; }
-    .customer-box .m-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 0; }
-    .c-card { background: #FDFBF7; border: 1px solid #E5E2DC; border-radius: 16px; padding: 20px; }
-    .c-big { font-size: 24px; margin-bottom: 8px; }
-    .c-card h4 { font-size: 13px; font-weight: 700; color: #1A2B4C; margin-bottom: 4px; }
-    .c-card p { font-size: 12px; color: #595959; line-height: 1.5; }
+/* Cards grid */
+.cards-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+.card{background:#fff;border:1px solid #E5E2DC;border-radius:20px;padding:28px}
+.card-step{font-size:11px;font-weight:700;color:#E68910;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px}
+.card-title{font-size:16px;font-weight:800;color:#1A2B4C;margin-bottom:8px;letter-spacing:-0.2px}
+.card-desc{font-size:13px;color:#595959;line-height:1.65}
+.step-num{width:36px;height:36px;background:#1A2B4C;color:#fff;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;margin-bottom:16px}
 
-    /* MERCHANT */
-    .merchant-box { background: #1A2B4C; border-radius: 20px; padding: 36px; }
-    .merchant-box .label { color: #E68910; }
-    .merchant-box .title { color: #fff; }
-    .merchant-box .sub { color: rgba(255,255,255,0.6); }
-    .m-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 36px; }
-    .m-card { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px; }
-    .m-big { font-size: 24px; font-weight: 900; color: #E68910; margin-bottom: 6px; }
-    .m-card h4 { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-    .m-card p { font-size: 12px; color: rgba(255,255,255,0.5); line-height: 1.5; }
-    .btn-orange-outline { background: #E68910; color: #fff; padding: 13px 28px; border-radius: 12px; font-size: 15px; font-weight: 700; border: none; cursor: pointer; font-family: inherit; }
+/* Merchant section */
+.merchant-section{background:#1A2B4C;border-radius:28px;padding:56px 48px;margin:0 32px}
+.merchant-section .section-label{color:#E68910}
+.merchant-section .section-title{color:#fff}
+.merchant-section .section-sub{color:rgba(255,255,255,0.55)}
+.m-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:40px}
+.m-card{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:22px}
+.m-big{font-size:30px;font-weight:900;color:#E68910;letter-spacing:-0.5px;margin-bottom:6px}
+.m-card h4{font-size:14px;font-weight:700;color:#fff;margin-bottom:4px}
+.m-card p{font-size:12px;color:rgba(255,255,255,0.45);line-height:1.6}
+.merchant-cta{background:#E68910;color:#fff;border:none;padding:14px 32px;border-radius:50px;font-family:'Inter',sans-serif;font-size:15px;font-weight:800;cursor:pointer}
 
-    /* WAITLIST */
-    .waitlist-box { background: #fff; border: 1px solid #E5E2DC; border-radius: 20px; padding: 36px; text-align: center; }
-    .waitlist-box .title { text-align: center; margin-bottom: 6px; }
-    .waitlist-box .sub { text-align: center; max-width: 440px; margin: 0 auto 24px; font-size: 14px; color: #595959; }
-    .toggle-row { display: flex; gap: 8px; justify-content: center; margin-bottom: 24px; }
-    .toggle-btn { padding: 8px 18px; border-radius: 50px; font-size: 13px; font-weight: 600; border: 1.5px solid #E5E2DC; background: transparent; color: #595959; cursor: pointer; font-family: inherit; transition: all 0.15s; }
-    .toggle-btn.on { background: #1A2B4C; color: #fff; border-color: #1A2B4C; }
-    .phone-row { display: flex; gap: 10px; max-width: 400px; margin: 0 auto; }
-    .phone-prefix { padding: 13px 16px; border: 1.5px solid #E5E2DC; border-radius: 12px; font-size: 15px; color: #595959; background: #FDFBF7; font-family: inherit; }
-    .phone-row input { flex: 1; padding: 13px 20px; border: 1.5px solid #E5E2DC; border-radius: 12px; font-size: 15px; font-family: inherit; color: #1A2B4C; background: #FDFBF7; outline: none; }
-    .phone-row input:focus { border-color: #E68910; }
-    .submit-btn { background: #E68910; color: #fff; border: none; padding: 13px 24px; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; }
-    .submit-btn.dark { background: #1A2B4C; }
-    .form-note { font-size: 12px; color: #9CA3AF; margin-top: 12px; }
-    .success-msg { display: none; background: #F0FDF4; border: 1px solid #86EFAC; color: #166534; padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 600; margin-top: 16px; max-width: 400px; margin-left: auto; margin-right: auto; }
+/* Why section */
+.why-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+.why-card{border-radius:18px;padding:26px}
+.why-card:nth-child(1){background:#1A2B4C;color:#fff}
+.why-card:nth-child(2){background:#E68910;color:#fff}
+.why-card:nth-child(3){background:#fff;border:1px solid #E5E2DC}
+.why-card:nth-child(3) .why-title,.why-card:nth-child(3) .why-desc{color:#1A2B4C}
+.why-card:nth-child(3) .why-desc{color:#595959}
+.why-num{font-size:28px;font-weight:900;letter-spacing:-0.5px;margin-bottom:10px;opacity:0.9}
+.why-title{font-size:15px;font-weight:800;color:#fff;margin-bottom:6px;letter-spacing:-0.2px}
+.why-desc{font-size:13px;color:rgba(255,255,255,0.65);line-height:1.6}
 
-    .merchant-fields { max-width: 400px; margin: 0 auto; text-align: left; }
-    .merchant-fields input:focus, .merchant-fields select:focus { border-color: #E68910; }
+/* Footer */
+.footer{background:#1A2B4C;padding:44px 32px;text-align:center;margin-top:80px}
+.footer .logo{color:#fff;display:block;margin-bottom:10px}
+.footer-links{display:flex;justify-content:center;gap:24px;margin:14px 0;font-size:13px}
+.footer-links a{color:rgba(255,255,255,0.45)}
+.footer-copy{font-size:12px;color:rgba(255,255,255,0.3);margin-top:6px}
 
-    /* FOOTER */
-    .footer { background: #1A2B4C; padding: 16px 32px; margin-top: 48px; }
-    .footer-inner { max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-    .footer .logo { color: #fff; font-size: 20px; }
-    .footer-links { display: flex; gap: 16px; }
-    .footer-links a { font-size: 12px; color: rgba(255,255,255,0.45); }
-    .footer-copy { font-size: 11px; color: rgba(255,255,255,0.3); }
+/* Divider */
+hr{border:none;border-top:1px solid #E5E2DC;margin:0}
 
-    /* MOBILE */
-    @media (max-width: 768px) {
-      .nav { padding: 0 20px; height: 56px; }
-      .logo { font-size: 22px; }
-      .nav-link { display: none; }
-      .btn-nav { padding: 8px 16px; font-size: 13px; }
-      .hero-outer { padding: 16px 16px 0; }
-      .wrap { padding: 0 12px; }
-      .section-gap { height: 12px; }
-      .title { font-size: 20px; }
-      .sub { font-size: 13px; margin-bottom: 20px; }
-      .customer-box { padding: 24px 16px; border-radius: 16px; }
-      .customer-box .m-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
-      .c-card { padding: 16px; }
-      .c-big { font-size: 24px; }
-      .merchant-box { padding: 24px 16px; border-radius: 16px; }
-      .m-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 24px; }
-      .m-card { padding: 16px; }
-      .m-big { font-size: 24px; }
-      .waitlist-box { padding: 24px 16px; border-radius: 16px; }
-      .phone-row { flex-direction: column; gap: 8px; }
-      .phone-row input, .submit-btn, .phone-prefix { width: 100%; }
-      .footer { padding: 14px 20px; margin-top: 32px; }
-      .footer-inner { flex-direction: column; align-items: flex-start; gap: 8px; }
-      .footer-links { flex-wrap: wrap; gap: 16px; }
-    }
-    @media (max-width: 480px) {
-      .m-grid { grid-template-columns: 1fr 1fr; }
-    }
-  </style>
+@media(max-width:720px){
+  .hero-inner{grid-template-columns:1fr;gap:36px}
+  .hero{padding:52px 20px}
+  .hero-stats{gap:20px}
+  .section{padding:56px 20px}
+  .merchant-section{margin:0 16px;padding:36px 24px}
+  .nav{padding:0 20px}
+  .form-card{padding:24px}
+}
+</style>
 </head>
 <body>
 
 <nav class="nav">
   <div class="logo">lokl<em>.</em></div>
-  <div class="nav-right">
-    <a href="#how" class="nav-link">How it works</a>
-    <a href="#merchants" class="nav-link">For merchants</a>
-    <button class="btn-nav" onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})">Join waitlist</button>
-  </div>
+  <span class="nav-badge">Bhilai — Coming soon</span>
 </nav>
 
-<div class="hero-outer">
-  <div style="position:relative;border-radius:16px;overflow:hidden;background:#1A2B4C;min-height:300px;display:flex;flex-direction:column;justify-content:space-between">
-    <div style="position:absolute;inset:0;background-image:url('https://res.cloudinary.com/doojqkyff/image/upload/q_auto/f_auto/v1781682248/n1elwepz_ChatGPT_Image_May_16_2026_06_29_23_PM_qmzld0.png');background-size:cover;background-position:60% 45%"></div>
-    <div class="hero-gradient-mobile"></div>
-    <div style="position:relative;z-index:2;padding:24px 20px;max-width:640px">
-      <h1 style="font-size:28px;font-weight:700;line-height:1.1;color:#0A1F5C;letter-spacing:-0.025em;margin-bottom:10px;font-family:'Clash Display','Inter',system-ui,sans-serif">Made for Bhilai. <span style="color:#F59E0B">By people who live here.</span></h1>
-      <p style="font-size:13px;color:rgba(10,31,92,0.75);line-height:1.6;max-width:400px;margin-top:10px">We know Bhilai's stores, its streets, and its shoppers. Lokl is built from the ground up for this city.</p>
-      <button onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})" class="hero-desktop-cta">Get early access</button>
+<div class="ticker">
+  <strong id="store-count">0</strong> stores joining before launch &nbsp;·&nbsp; Be the first to shop from them
+</div>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div>
+      <div class="live-badge">
+        <div class="live-dot"></div>
+        Launching in Bhilai
+      </div>
+      <h1>Your favourite<br>stores. <em>Delivered<br>in 30 min.</em></h1>
+      <p class="hero-sub">Browse kurtas, jeans, sneakers and more from real stores near you in Bhilai. Order online, pay at the door.</p>
+      <div class="hero-stats">
+        <div class="h-stat">
+          <strong>₹0</strong>
+          <span>Delivery fee</span>
+        </div>
+        <div class="h-stat">
+          <strong>30 min</strong>
+          <span>Avg delivery</span>
+        </div>
+        <div class="h-stat">
+          <strong>0%</strong>
+          <span>Commission</span>
+        </div>
+      </div>
     </div>
-    <div class="hero-mobile-bottom">
-      <button onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})" style="width:100%;background:#E68910;color:#fff;border:none;padding:16px;border-radius:14px;font-size:16px;font-weight:800;cursor:pointer;font-family:inherit;letter-spacing:-0.2px">Get early access</button>
+
+    <div class="form-card">
+      <div class="form-title">Get early access</div>
+      <div class="form-sub">Join the waitlist and be first to shop when Lokl goes live.</div>
+
+      <div class="toggle-row">
+        <button class="tab-btn on" onclick="switchTab('customer')">I want to shop</button>
+        <button class="tab-btn" onclick="switchTab('merchant')">I have a store</button>
+      </div>
+
+      <div id="form-body">
+        <div class="field-group">
+          <label>WhatsApp number</label>
+          <input type="tel" id="phone" placeholder="98765 43210" inputmode="numeric" maxlength="10">
+        </div>
+        <div class="field-group merchant-field" id="store-name-wrap">
+          <label>Store name</label>
+          <input type="text" id="store-name" placeholder="Priya Fashion, Sector 6">
+        </div>
+        <div class="field-group merchant-field" id="category-wrap">
+          <label>What do you sell?</label>
+          <select id="category">
+            <option value="">Select a category</option>
+            <option>Women's Fashion</option>
+            <option>Men's Fashion</option>
+            <option>Ethnic Wear</option>
+            <option>Footwear</option>
+            <option>Kids Clothing</option>
+            <option>Accessories</option>
+            <option>Beauty and Personal Care</option>
+            <option>Sports and Fitness</option>
+            <option>Multiple categories</option>
+          </select>
+        </div>
+        <button class="submit-btn" id="submit-btn" onclick="submit()">Join the waitlist</button>
+        <p class="form-note">We'll WhatsApp you when Lokl goes live in your area. No spam.</p>
+      </div>
+
+      <div class="success-state" id="success-state">
+        <div class="success-check">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path d="M5 13l4 4L19 7" stroke="#2E7D32" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="success-title" id="success-title">You're on the list</div>
+        <p class="success-sub" id="success-sub">We'll WhatsApp you the moment Lokl goes live in Bhilai.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr>
+
+<div class="section">
+  <div class="section-label">How it works</div>
+  <div class="section-title">Shopping local, made effortless</div>
+  <p class="section-sub">No more driving around. Browse from home, get it at your door in 30 minutes.</p>
+
+  <div class="cards-grid">
+    <div class="card">
+      <div class="step-num">1</div>
+      <div class="card-title">Browse real stores</div>
+      <div class="card-desc">See actual products from shops in Bhilai — real prices, real stock, updated daily.</div>
+    </div>
+    <div class="card">
+      <div class="step-num">2</div>
+      <div class="card-title">Order in seconds</div>
+      <div class="card-desc">Pick your size, tap order. No advance payment. Pay cash when it arrives.</div>
+    </div>
+    <div class="card">
+      <div class="step-num">3</div>
+      <div class="card-title">Delivered in 30 min</div>
+      <div class="card-desc">A local rider picks it up from the store and brings it straight to your door.</div>
+    </div>
+    <div class="card">
+      <div class="step-num">4</div>
+      <div class="card-title">Or reserve and visit</div>
+      <div class="card-desc">Rather see it first? Reserve your item, visit the store, try it, pay only if you like it.</div>
     </div>
   </div>
 </div>
 
-<div class="section-gap"></div>
+<hr>
 
-<div class="wrap">
-  <div class="customer-box">
-    <div class="label">For customers</div>
-    <div class="title" style="color:#1A2B4C">Your city's stores.<br>In your pocket.</div>
-    <p class="sub" style="color:#595959">Fashion from Bhilai's best stores &mdash; delivered to your door in 30 minutes.</p>
+<div class="section">
+  <div class="section-label">Why Lokl</div>
+  <div class="section-title">Built for Bhilai.<br>Not borrowed from Delhi.</div>
+  <p class="section-sub">Other apps ship from warehouses hours away. We bring it from the store down the road.</p>
+
+  <div class="why-grid">
+    <div class="why-card">
+      <div class="why-num">🏪</div>
+      <div class="why-title">Real local stores</div>
+      <div class="why-desc">Every product comes from a store physically in Bhilai. You're supporting shops you already know.</div>
+    </div>
+    <div class="why-card">
+      <div class="why-num">⚡</div>
+      <div class="why-title">30 minute delivery</div>
+      <div class="why-desc">When the store is nearby, delivery is fast. No waiting days for something already in your city.</div>
+    </div>
+    <div class="why-card">
+      <div class="why-num" style="color:#E68910">💸</div>
+      <div class="why-title">Pay at the door</div>
+      <div class="why-desc">No advance payment, no card details needed. Order online, pay cash when it arrives.</div>
+    </div>
+  </div>
+</div>
+
+<hr>
+
+<div style="padding:0 0 80px">
+  <div class="merchant-section" id="merchants">
+    <div class="section-label">For store owners</div>
+    <div class="section-title">Your store. All of Bhilai.</div>
+    <p class="section-sub">List your products for free. No commission. Every Lokl order can bring a new regular customer to your door.</p>
+
     <div class="m-grid">
-      <div class="c-card">
-        <div class="c-big">&#x1F3EA;</div>
-        <h4>Discover stores near you</h4>
-        <p>Browse fashion from stores in Supela, Sector 6, Powerhouse and across Bhilai.</p>
+      <div class="m-card">
+        <div class="m-big">₹0</div>
+        <h4>Free to start</h4>
+        <p>List up to 10 products at no cost. No subscription needed to begin.</p>
       </div>
-      <div class="c-card">
-        <div class="c-big">&#x26A1;</div>
-        <h4>Delivered in 30 minutes</h4>
-        <p>Order from a store 2 km away. Get it at your door faster than you'd expect.</p>
+      <div class="m-card">
+        <div class="m-big">0%</div>
+        <h4>Zero commission</h4>
+        <p>We don't take a cut. What the customer pays is what you receive.</p>
       </div>
-      <div class="c-card">
-        <div class="c-big">&#x1F4B0;</div>
-        <h4>Walk-in price, zero markup</h4>
-        <p>Pay exactly what you'd pay at the store. No hidden charges. No inflation.</p>
+      <div class="m-card">
+        <div class="m-big">+</div>
+        <h4>More footfall</h4>
+        <p>Customers who reserve online come to your store. Every order is a potential regular.</p>
       </div>
-      <div class="c-card">
-        <div class="c-big">&#x1F91D;</div>
-        <h4>Support local businesses</h4>
-        <p>Every order goes directly to a real Bhilai store owner. Shop local, give back.</p>
+      <div class="m-card">
+        <div class="m-big">30</div>
+        <h4>Min setup</h4>
+        <p>Our team sets up your store for you. WhatsApp us your products and we handle the rest.</p>
       </div>
     </div>
+
+    <button class="merchant-cta" onclick="document.getElementById('phone').focus();window.scrollTo({top:0,behavior:'smooth'});switchTab('merchant')">
+      List my store for free
+    </button>
   </div>
 </div>
 
-<div class="section-gap"></div>
-
-<div id="merchants" class="wrap">
-  <div class="merchant-box">
-    <div class="label">For merchants</div>
-    <div class="title" style="color:#fff">Your store.<br>All of Bhilai.</div>
-    <div class="sub">Reach every customer in Bhilai who's looking for what you sell &mdash; without expensive ads or complicated setup.</div>
-    <div class="m-grid">
-      <div class="m-card"><div class="m-big">&#8377;0</div><h4>Free forever to list</h4><p>We only earn when you do. No setup fee, no monthly charge &mdash; ever.</p></div>
-      <div class="m-card"><div class="m-big">3 min</div><h4>Live in minutes</h4><p>Upload your products, set your store hours, and go live. No tech skills needed.</p></div>
-      <div class="m-card"><div class="m-big">10&times;</div><h4>City-wide reach</h4><p>Every Lokl customer in Bhilai can discover your store &mdash; not just people walking past.</p></div>
-      <div class="m-card"><div class="m-big">24/7</div><h4>Always open</h4><p>Your catalogue is visible 24/7. Customers browse and schedule even when you're closed.</p></div>
-    </div>
-    <button class="btn-orange-outline" onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'});switchType('merchant')" style="width:100%;padding:16px;border-radius:14px;font-size:15px;font-weight:800;text-align:center">List my store &mdash; it's free</button>
+<div class="footer">
+  <div class="logo">lokl<em>.</em></div>
+  <div class="footer-links">
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+    <a href="mailto:hello@shoplokl.in">hello@shoplokl.in</a>
   </div>
+  <div class="footer-copy">Bhilai, Chhattisgarh · Lokl Technologies</div>
 </div>
-
-<div class="section-gap"></div>
-
-<div id="waitlist" class="wrap">
-  <div class="waitlist-box">
-    <div class="label">Join the waitlist</div>
-    <div class="title">Be first in Bhilai.</div>
-    <div class="sub">We're launching shortly across Bhilai. Get notified on WhatsApp the moment we go live in your area.</div>
-    <div class="toggle-row">
-      <button class="toggle-btn on" id="t-customer" onclick="switchType('customer')">I'm a customer</button>
-      <button class="toggle-btn" id="t-merchant" onclick="switchType('merchant')">I'm a merchant</button>
-    </div>
-
-    <!-- Customer form -->
-    <div id="customer-form">
-      <div class="phone-row">
-        <input type="tel" id="customer-phone" placeholder="Your WhatsApp number" maxlength="15">
-        <button class="submit-btn" id="submit-btn-customer" onclick="submitCustomer()">Notify me</button>
-      </div>
-      <p class="form-note">We'll send you a WhatsApp message as soon as Lokl goes live near you. No spam, ever.</p>
-    </div>
-
-    <!-- Merchant form -->
-    <div id="merchant-form" style="display:none">
-      <div class="merchant-fields">
-        <input type="tel" id="merchant-phone" placeholder="Your WhatsApp number" maxlength="15" style="width:100%;padding:13px 20px;border:1.5px solid #E5E2DC;border-radius:12px;font-size:15px;font-family:inherit;color:#1A2B4C;background:#FDFBF7;outline:none;margin-bottom:10px">
-        <input type="text" id="merchant-store" placeholder="Store name" style="width:100%;padding:13px 20px;border:1.5px solid #E5E2DC;border-radius:12px;font-size:15px;font-family:inherit;color:#1A2B4C;background:#FDFBF7;outline:none;margin-bottom:10px">
-        <select id="merchant-category" style="width:100%;padding:13px 20px;border:1.5px solid #E5E2DC;border-radius:12px;font-size:15px;font-family:inherit;color:#1A2B4C;background:#FDFBF7;outline:none;margin-bottom:16px;appearance:none">
-          <option value="">Select your category</option>
-          <option>Women’s Fashion</option>
-          <option>Men’s Fashion</option>
-          <option>Kids Wear</option>
-          <option>Footwear</option>
-          <option>Accessories</option>
-          <option>Streetwear</option>
-          <option>Beauty &amp; Personal Care</option>
-          <option>Multi-category</option>
-        </select>
-        <button class="submit-btn dark" id="submit-btn-merchant" style="width:100%" onclick="submitMerchant()">Register my store</button>
-      </div>
-      <p class="form-note">Our team will reach out within 24 hours to help you set up your store. It's completely free to get started.</p>
-    </div>
-
-    <div class="success-msg" id="success-box"></div>
-  </div>
-</div>
-
-
-<footer class="footer">
-  <div class="footer-inner">
-    <span class="logo">lokl<em style="color:#E68910">.</em></span>
-    <div class="footer-links">
-      <a href="mailto:hello@shoplokl.in">hello@shoplokl.in</a>
-      <a href="tel:+917719052107">+91 77190 52107</a>
-    </div>
-    <span class="footer-copy">&#169; 2026 Lokl &middot; Bhilai</span>
-  </div>
-</footer>
 
 <script>
-var currentType = 'customer';
-var BACKEND = 'https://lokl-production-ad24.up.railway.app';
+var currentTab = 'customer';
 
-function switchType(t) {
-  currentType = t;
-  document.getElementById('t-customer').className = 'toggle-btn' + (t === 'customer' ? ' on' : '');
-  document.getElementById('t-merchant').className = 'toggle-btn' + (t === 'merchant' ? ' on' : '');
-  document.getElementById('customer-form').style.display = t === 'customer' ? 'block' : 'none';
-  document.getElementById('merchant-form').style.display = t === 'merchant' ? 'block' : 'none';
-  document.getElementById('success-box').style.display = 'none';
+function switchTab(t) {
+  currentTab = t;
+  var btns = document.querySelectorAll('.tab-btn');
+  btns[0].classList.toggle('on', t === 'customer');
+  btns[1].classList.toggle('on', t === 'merchant');
+  var fields = document.querySelectorAll('.merchant-field');
+  fields.forEach(function(f){ f.classList.toggle('show', t === 'merchant'); });
+  document.getElementById('submit-btn').textContent =
+    t === 'merchant' ? 'List my store for free' : 'Join the waitlist';
 }
 
-function submitCustomer() {
-  var phone = document.getElementById('customer-phone').value.trim().replace(/\D/g, '');
-  if (phone.length < 10) {
-    alert('Please enter a valid 10-digit WhatsApp number');
-    return;
+function submit() {
+  var phone = document.getElementById('phone').value.replace(/\D/g,'');
+  if (phone.length < 10) { document.getElementById('phone').focus(); return; }
+  var btn = document.getElementById('submit-btn');
+  btn.textContent = 'Joining...'; btn.disabled = true;
+  var payload = { phone: phone, type: currentTab };
+  if (currentTab === 'merchant') {
+    payload.store_name = document.getElementById('store-name').value.trim();
+    payload.category = document.getElementById('category').value;
   }
-  var btn = document.getElementById('submit-btn-customer');
-  btn.disabled = true;
-  btn.textContent = 'Submitting...';
-  fetch(BACKEND + '/api/waitlist', {
+  fetch('/api/waitlist', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phone: phone, type: 'customer' })
-  }).then(function(res) { return res.json(); })
-  .then(function(data) {
-    document.getElementById('customer-form').style.display = 'none';
-    var s = document.getElementById('success-box');
-    s.style.display = 'block';
-    s.textContent = "You're on the list. We'll WhatsApp you the moment Lokl launches in your area.";
-  }).catch(function(e) {
+    body: JSON.stringify(payload)
+  }).then(function() {
+    document.getElementById('form-body').style.display = 'none';
+    var s = document.getElementById('success-state');
+    s.classList.add('show');
+    if (currentTab === 'merchant') {
+      document.getElementById('success-title').textContent = "We'll be in touch";
+      document.getElementById('success-sub').textContent =
+        "Our team will WhatsApp you within 24 hours to set up your store on Lokl.";
+    }
+  }).catch(function() {
+    btn.textContent = currentTab === 'merchant' ? 'List my store for free' : 'Join the waitlist';
     btn.disabled = false;
-    btn.textContent = 'Notify me';
-    alert('Something went wrong. Please try again.');
   });
 }
 
-function submitMerchant() {
-  var phone = document.getElementById('merchant-phone').value.trim().replace(/\D/g, '');
-  var store = document.getElementById('merchant-store').value.trim();
-  var cat = document.getElementById('merchant-category').value;
-  if (phone.length < 10) {
-    alert('Please enter a valid 10-digit WhatsApp number');
-    return;
-  }
-  if (!store) { alert('Please enter your store name'); return; }
-  if (!cat) { alert('Please select your category'); return; }
-  var btn = document.getElementById('submit-btn-merchant');
-  btn.disabled = true;
-  btn.textContent = 'Submitting...';
-  fetch(BACKEND + '/api/waitlist', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phone: phone, type: 'merchant', store_name: store, category: cat })
-  }).then(function(res) { return res.json(); })
-  .then(function(data) {
-    document.getElementById('merchant-form').style.display = 'none';
-    var s = document.getElementById('success-box');
-    s.style.display = 'block';
-    s.textContent = 'You\'re registered. Our team will WhatsApp you within 24 hours to get ' + store + ' live on Lokl.';
-  }).catch(function(e) {
-    btn.disabled = false;
-    btn.textContent = 'Register my store';
-    alert('Something went wrong. Please try again.');
-  });
-}
-
-(function() {
-  fetch(BACKEND + '/api/page-view?page=coming-soon', { method: 'POST' }).catch(function() {});
-})();
+// Store count ticker
+var n = 0, target = 12, el = document.getElementById('store-count');
+var t = setInterval(function(){
+  n++; el.textContent = n;
+  if (n >= target) clearInterval(t);
+}, 70);
 </script>
-
 </body>
 </html>
