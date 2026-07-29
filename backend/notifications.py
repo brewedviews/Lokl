@@ -502,3 +502,27 @@ def notify_merchant_pickup_pending(merchant_phone: str, order_id: str, items_cou
         f"Accept or decline at {APP_URL}/merchant/orders"
     )
     send_with_fallback(merchant_phone, body)
+
+
+def notify_merchant_approved(merchant_phone: str, store_name: str) -> None:
+    body = (
+        f"Your Lokl store has been approved!\n\n"
+        f"Store: {store_name}\n\n"
+        f"Next steps:\n"
+        f"1. Complete your store profile: {APP_URL}/merchant/storefront\n"
+        f"2. Add your products: {APP_URL}/merchant/products\n"
+        f"3. Toggle your store live when ready\n\n"
+        f"Need help? Email hello@shoplokl.in"
+    )
+    send_with_fallback(merchant_phone, body)
+
+
+def notify_merchant_first_order(merchant_phone: str, store_name: str, order_id: str) -> None:
+    short = order_id[-6:].upper()
+    body = (
+        f"Your first order on Lokl is here!\n\n"
+        f"Order #{short} at {store_name}\n\n"
+        f"Accept it quickly at {APP_URL}/merchant/orders\n"
+        f"First impressions matter — fast response builds your rating."
+    )
+    send_with_fallback(merchant_phone, body)

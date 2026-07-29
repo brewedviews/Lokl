@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /account/
+Disallow: /cart/
+Disallow: /checkout/
+Disallow: /orders/
+Disallow: /admin/
+Disallow: /merchant/
+
+Sitemap: https://www.shoplokl.in/sitemap.xml

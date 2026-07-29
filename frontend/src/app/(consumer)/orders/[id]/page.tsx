@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState, type ComponentType } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   CheckCircle2, Bike, Package, AlertCircle,
@@ -89,11 +89,28 @@ function PickupTimer({ expiresAt, className }: { expiresAt: string; className?: 
 
 export default function OrderTrackingPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [order, setOrder] = useState<Order | null>(null);
   const [notFoundState, setNotFoundState] = useState(false);
   const [showReturn, setShowReturn] = useState(false);
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [rated, setRated] = useState<Record<string, boolean>>({});
+  const [cancelling, setCancelling] = useState(false);
+
+  const handleCancel = async () => {
+    if (!order) return;
+    if (!window.confirm("Cancel this order?")) return;
+    setCancelling(true);
+    try {
+      await apiClient.post(`/api/orders/${order.id}/customer-cancel`);
+      toast.success("Order cancelled");
+      router.refresh();
+    } catch (e) {
+      toast.error(getErrorMessage(e));
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   const rateProduct = async (productId: string, star: number) => {
     try {
@@ -403,6 +420,22 @@ export default function OrderTrackingPage() {
         >
           <Phone size={14} className="text-[#E68910]" /> Need help? hello@shoplokl.in · +91 77190 52107
         </a>
+
+        {(status === "pending_merchant" || status === "accepted") && (
+          <div className="mx-4 my-4">
+            <button
+              onClick={handleCancel}
+              disabled={cancelling}
+              className="w-full py-3 border border-red-200 text-red-500 rounded-2xl text-sm font-semibold disabled:opacity-50 transition-colors hover:bg-red-50"
+            >
+              {cancelling ? "Cancelling..." : "Cancel order"}
+            </button>
+            <p className="text-center text-xs text-[#9CA3AF] mt-1.5">
+              You can cancel before the order is picked up by a rider
+            </p>
+          </div>
+        )}
+
         <div className="pb-2" />
       </main>
 

@@ -35,6 +35,7 @@ from notifications import (
     notify_merchant_otp, send_with_fallback, APP_URL,
     notify_pickup_reserved, notify_merchant_pickup_reserved,
     notify_pickup_pending, notify_merchant_pickup_pending,
+    notify_merchant_approved, notify_merchant_first_order,
 )
 from ai_enhance import enhance_product_images
 from observability import init_sentry
@@ -2941,6 +2942,21 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                                          + (f" (size {size})" if size else ""))
             reservations.append((pid, size or "default", qty))
 
+            # Auto-pause once every size is sold out. The atomic $inc above only
+            # touches this one size's field, so re-fetch the full stock map to
+            # check the true cross-size total before deciding to pause.
+            fresh_stock = await db.products.find_one({"id": pid}, {"_id": 0, "stock": 1})
+            new_total_stock = sum(
+                int(v) for v in (fresh_stock or {}).get("stock", {}).values()
+                if isinstance(v, (int, float))
+            )
+            if new_total_stock <= 0:
+                await db.products.update_one(
+                    {"id": pid},
+                    {"$set": {"paused": True, "status": "paused"}}
+                )
+                print(f"[stock] product {pid} auto-paused — out of stock", flush=True)
+
             if updated.get("merchant_id"):
                 merchant_ids.append(updated["merchant_id"])
             new_it = dict(it)
@@ -3070,11 +3086,12 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                                       doc.get("store_name") or "the store")
             else:
                 notify_order_placed(cust_phone, order_id, float(server_total))
-        except Exception: pass
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
     # Notify merchants for COD and Razorpay (payment verified at order creation time).
     if doc.get("payment_method") in ("COD", "razorpay"):
         for mid in unique_mids:
-            m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1})
+            m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1, "store_name": 1})
             if m and m.get("phone"):
                 their_items = [it for it in items_snap if it.get("merchant_id") == mid]
                 try:
@@ -3082,7 +3099,18 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                         notify_merchant_pickup_pending(m["phone"], order_id, len(their_items))
                     else:
                         notify_merchant_new_order(m["phone"], order_id, float(server_total), len(their_items))
-                except Exception: pass
+                except Exception as _ne:
+                    print(f"[notify_error] {_ne}", flush=True)
+                first_order_count = await db.orders.count_documents(
+                    {"merchant_ids": mid, "status": {"$nin": ["cancelled", "rejected"]}}
+                )
+                if first_order_count == 1:
+                    try:
+                        notify_merchant_first_order(m.get("phone", ""),
+                                                     m.get("store_name", "your store"),
+                                                     order_id)
+                    except Exception as _ne:
+                        print(f"[notify_error] first order: {_ne}", flush=True)
     await audit_service.log("order_initiated", order_id=order_id,
                             razorpay_order_id=doc.get("razorpay_order_id"),
                             amount=float(server_total),
@@ -3285,7 +3313,8 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
         log.warning("[rider-pickup] no OTP found for order=%s mid=%s — generated fallback %s", oid, mid, my_otp)
     if cust_phone:
         try: notify_order_accepted(cust_phone, oid, (m or {}).get("store_name", "your store"), otp=my_otp)
-        except Exception: pass
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
     rider_phone = os.environ.get("RIDER_PHONE", "").strip()
     if not rider_phone:
         log.warning("[rider-pickup] RIDER_PHONE not set — skipping rider notification for order %s", oid)
@@ -3353,7 +3382,8 @@ async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_us
         # Notify customer THIS store is on the way (with that store's unique OTP)
         my_otp = (o.get("merchant_otps") or {}).get(mid) or o.get("otp", "")
         try: notify_order_on_the_way(cust_phone, oid, my_otp)
-        except Exception: pass
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
     return {"ok": True, "all_handed": all_handed, "my_state": "handed_off"}
 
 
@@ -3378,8 +3408,8 @@ async def accept_pickup(oid: str, user: dict = Depends(merchant_user)):
                 store_address=o.get("store_address", ""),
                 maps_link=o.get("maps_link", ""),
             )
-        except Exception:
-            pass
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
     return {"ok": True}
 
 
@@ -3499,7 +3529,8 @@ async def admin_mark_delivered(oid: str, request: Request, payload: Optional[dic
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     if cust_phone and new_global == "delivered":
         try: notify_order_delivered(cust_phone, oid)
-        except Exception: pass
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
     return {"ok": True, "all_delivered": new_global == "delivered", "merchant_states": states}
 
 @api.post("/admin/orders/{oid}/cancel")
@@ -3558,7 +3589,8 @@ async def admin_cancel_order(oid: str, request: Request, payload: Optional[dict]
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     if cust_phone:
         try: notify_order_cancelled(cust_phone, oid, reason)
-        except Exception: pass
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
     return {"ok": True}
 
 
@@ -4469,6 +4501,12 @@ async def admin_approve(mid: str, request: Request):
     await db.merchants.update_one({"id": mid}, {"$set": {"kyc_status": "approved", "approved_at": now},
         "$push": {"notifications": {"type": "kyc-approved", "title": "Your KYC is approved",
             "body": "Welcome aboard! Set up your storefront and start adding products.", "time": now}}})
+    m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1, "store_name": 1})
+    if m and m.get("phone"):
+        try:
+            notify_merchant_approved(m["phone"], m.get("store_name", "your store"))
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
     return {"ok": True}
 
 @api.post("/admin/merchants/{mid}/reject")
@@ -4895,7 +4933,8 @@ async def twilio_inbound(request: Request):
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     if cust_phone and new_global == "delivered":
         try: notify_order_delivered(cust_phone, o["id"])
-        except Exception: pass
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
     log.info("[Twilio inbound] marked %s as delivered via rider WhatsApp (merchant=%s, global=%s)",
              o["id"], target_mid, new_global)
     reply = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>✅ Lokl: Order {o["id"]} marked delivered. Thank you!</Message></Response>'
