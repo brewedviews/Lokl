@@ -4,18 +4,19 @@
  * Home page client tree.
  *
  * Section order (desktop & mobile):
- *   1. Hero
- *   2. Price bentos (under_499)
- *   3. Category pills
- *   4. Store rails — one per active store (from /api/feed/home-products)
+ *   1. Category pills
+ *   2. Hero
+ *   3. Price bentos (under_499)
+ *   4. Best deals (from home-products)
  *   5. Trending now (from home-products)
- *   6. Best deals (from home-products)
- *   7. Offers for you
+ *   6. Offers for you
+ *   7. Find your fit (GenderFashionBand — self-fetches its own L1 rails)
  *   8. Popular stores
- *   9. Loved by Bhilai shoppers
+ *   9. Open a store (merchant CTA)
+ *   10. Loved by Bhilai shoppers
  *
  * API calls on mount — critical (immediate):
- *   • /api/feed/home-products  — store rails + trending + best deals
+ *   • /api/feed/home-products  — trending + best deals
  *   • /api/categories
  *   • /api/site/homepage-config
  *   • /api/site/home-stats
@@ -55,14 +56,10 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills", label: "Category pills",            enabled: true, rank: 1  },
   { id: "hero",           label: "Hero",                      enabled: true, rank: 2  },
   { id: "under_499",      label: "Under ₹499",                enabled: true, rank: 3  },
-  { id: "quick_shop",     label: "",                          enabled: true, rank: 4  },
-  { id: "store_rail",     label: "From our stores",           enabled: true, rank: 10 },
-  { id: "trending",       label: "Trending now",              enabled: true, rank: 30 },
   { id: "best_deals",     label: "Best deals",                enabled: true, rank: 20 },
+  { id: "trending",       label: "Trending now",              enabled: true, rank: 30 },
   { id: "offers",         label: "Offers for you",            enabled: true, rank: 40 },
-  { id: "women_rail",     label: "Women's Fashion",           enabled: true, rank: 42 },
-  { id: "men_rail",       label: "Men's Fashion",             enabled: true, rank: 44 },
-  { id: "footwear_rail",  label: "Footwear",                  enabled: true, rank: 46 },
+  { id: "find_your_fit",  label: "Find your fit",             enabled: true, rank: 45 },
   { id: "stores",         label: "Popular stores",            enabled: true, rank: 50 },
   { id: "merchant_cta",   label: "Open a store",              enabled: true, rank: 55 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: true, rank: 60 },
@@ -77,14 +74,11 @@ export function HomeClient() {
   const [offers, setOffers] = useState<OfferDoc[]>([]);
   const [trending, setTrending] = useState<ProductCardType[]>([]);
   const [bestDeals, setBestDeals] = useState<ProductCardType[]>([]);
-  const [storeRails, setStoreRails] = useState<HomeProductsRail[]>([]);
+  const [_storeRails, setStoreRails] = useState<HomeProductsRail[]>([]);
   const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [nearby, setNearby] = useState<StoreCard[]>([]);
   const [popularStores, setPopularStores] = useState<StoreCard[]>([]);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
-  const [womenProducts, setWomenProducts] = useState<ProductCardType[]>([]);
-  const [menProducts, setMenProducts] = useState<ProductCardType[]>([]);
-  const [footwearProducts, setFootwearProducts] = useState<ProductCardType[]>([]);
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Set<string>>(new Set());
   const offersScrollRef = useRef<HTMLDivElement>(null);
@@ -120,15 +114,6 @@ export function HomeClient() {
       api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
       api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
       api.stores.popular(10).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
-      apiClient.get<{ products: ProductCardType[] }>("/api/feed/gender-rail?l1=l1-women&limit=20")
-        .then((r) => { setWomenProducts(r.data?.products ?? []); markLoaded("women_rail"); })
-        .catch(() => { markLoaded("women_rail"); });
-      apiClient.get<{ products: ProductCardType[] }>("/api/feed/gender-rail?l1=l1-men&limit=20")
-        .then((r) => { setMenProducts(r.data?.products ?? []); markLoaded("men_rail"); })
-        .catch(() => { markLoaded("men_rail"); });
-      apiClient.get<{ products: ProductCardType[] }>("/api/feed/gender-rail?l1=l1-footwear&limit=20")
-        .then((r) => { setFootwearProducts(r.data?.products ?? []); markLoaded("footwear_rail"); })
-        .catch(() => { markLoaded("footwear_rail"); });
     }, 800);
 
     // Single request for all product content — replaces N+1 store fetches
@@ -307,20 +292,8 @@ export function HomeClient() {
       </div>
     ),
 
-    quick_shop: loaded.has("storeRails") && trending.length > 0 ? (
-      <div key="quick-shop" className="overflow-x-auto no-scrollbar px-4 sm:px-6 py-2">
-        <div className="flex gap-3">
-          {trending.slice(0, 8).map((p: ProductCardType) => (
-            <div key={p.id} className="flex-shrink-0 w-[38vw] sm:w-[180px]">
-              <ProductCard p={p} size="default" />
-            </div>
-          ))}
-        </div>
-      </div>
-    ) : null,
-
     category_pills: (
-      <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 pt-8">
+      <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 pt-3">
         <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
           {categories.length === 0 ? (
             Array.from({ length: 8 }).map((_, i) => (
@@ -364,27 +337,6 @@ export function HomeClient() {
         </div>
       </div>
     ),
-
-    // Store rails — one per active store, all from a single API call
-    store_rail: loaded.has("storeRails") ? (
-      storeRails.length > 0
-        ? storeRails.map((r) => (
-            <HCarousel
-              key={`store-${r.store_id}`}
-              title={`From ${r.store_name}`}
-              testid={`store-rail-${r.store_id}`}
-              link={`/store/${r.store_slug}`}
-              linkLabel="See all"
-            >
-              {r.products.map((p, pIdx) => (
-                <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: r.store_name, position: pIdx }); } catch {} }}>
-                  <ProductCard p={p} size="default" />
-                </div>
-              ))}
-            </HCarousel>
-          ))
-        : null
-    ) : <ProductRailSkeleton key="store-rail-skeleton" testid="home-store-rail-skeleton" />,
 
     // Trending products
     trending: errors.has("recent") ? null
@@ -459,17 +411,8 @@ export function HomeClient() {
       </section>
     ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
 
-    // All three fashion rails rendered as one banded zone from women_rail slot (rank 42).
-    // men_rail (rank 44) and footwear_rail (rank 46) are null — consumed inside the band.
-    women_rail: (!loaded.has("women_rail") || !loaded.has("men_rail") || !loaded.has("footwear_rail"))
-      ? <ProductRailSkeleton key="gender-band-skeleton" testid="home-gender-band-skeleton" />
-      : (womenProducts.length > 0 || menProducts.length > 0 || footwearProducts.length > 0)
-        ? <GenderFashionBand key="gender-band" women={womenProducts} men={menProducts} footwear={footwearProducts} />
-        : null,
-
-    men_rail: null,
-
-    footwear_rail: null,
+    // GenderFashionBand self-fetches all three L1 rails and collapses to null if empty.
+    find_your_fit: <GenderFashionBand key="find-your-fit" />,
 
     stores: errors.has("popularStores") && !storesRail.length ? (
       <SectionError key="stores-error" minHeight="min-h-[200px]" />

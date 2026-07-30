@@ -1,98 +1,98 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
-import { Heart } from "lucide-react";
+import { Heart, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useWishlistStore } from "@/stores";
 import type { ProductCard as ProductCardType } from "@/types";
 
 interface Props {
-  p: ProductCardType;
+  product: ProductCardType;
+  onAddToCart: (product: ProductCardType) => void;
 }
 
 /**
- * Compact image-led discovery tile for the "Find your fit" fashion band.
- * Deliberately drops store name / ETA / Add-to-Cart — it's a doorway to the
- * PDP, not a mini checkout. Keeps discount badge + wishlist heart only.
+ * Discount-forward discovery tile for the "Find your fit" band — Blinkit
+ * steal-deals visual language. Navigates to the PDP; the heart and "+"
+ * buttons stop propagation so they act without leaving the rail.
  */
-export function FashionTile({ p }: Props) {
+export function FashionTile({ product: p, onAddToCart }: Props) {
   const isWishlisted = useWishlistStore((s) => s.isWishlisted(p.id));
   const toggleWishlist = useWishlistStore((s) => s.toggle);
-  const [wished, setWished] = useState(false);
-  useEffect(() => { setWished(isWishlisted); }, [isWishlisted]);
-
-  const discount =
-    p.mrp && p.price && p.mrp > p.price
-      ? Math.round((1 - p.price / p.mrp) * 100)
-      : 0;
 
   const handleHeart = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const next = toggleWishlist(p);
     const justAdded = next.some((x) => x.id === p.id);
-    setWished(justAdded);
     toast.success(justAdded ? "Saved to wishlist" : "Removed from wishlist");
+  };
+
+  const handleAdd = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onAddToCart(p);
   };
 
   return (
     <Link
       href={`/product/${p.id}`}
       data-testid={`fashion-tile-${p.id}`}
-      className="group block active:scale-[0.97] transition"
+      className="block active:scale-[0.98] transition"
     >
-      {/* Light card surface — keeps captions readable regardless of the
-          section background (e.g. the navy Find your fit band). */}
-      <div className="rounded-xl overflow-hidden bg-white">
-        <div className="relative aspect-[3/4] bg-slate-100">
+      <div className="relative w-40 flex-shrink-0 bg-white rounded-2xl overflow-hidden border border-[#E5E2DC]">
+        {/* Product image */}
+        <div className="relative w-full aspect-[4/5] bg-slate-100">
           {p.image ? (
-            <Image
-              src={p.image}
-              alt={p.name}
-              fill
-              sizes="150px"
-              loading="lazy"
-              className="object-cover object-top group-hover:scale-105 transition duration-500"
-            />
+            <img src={p.image} alt={p.name} className="w-full h-full object-cover object-top" />
           ) : (
             <div className="w-full h-full v2-shimmer" />
           )}
 
-          {discount > 0 && (
-            <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-white/90 text-[#E68910] text-[9px] font-bold uppercase leading-none">
-              {discount}% off
-            </span>
-          )}
-
+          {/* Wishlist heart top-right */}
           <button
             type="button"
             aria-label="Wishlist"
             onClick={handleHeart}
-            className={`absolute top-1.5 right-1.5 w-7 h-7 rounded-full grid place-items-center backdrop-blur-md transition active:scale-90 ${
-              wished ? "bg-[#E68910] text-white" : "bg-white/85 text-[#0A1F5C]"
+            className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition active:scale-90 ${
+              isWishlisted ? "bg-[#E68910] text-white" : "bg-white/80 text-[#595959]"
             }`}
           >
-            <Heart size={12} fill={wished ? "currentColor" : "none"} strokeWidth={2.2} />
+            <Heart size={14} fill={isWishlisted ? "currentColor" : "none"} />
+          </button>
+
+          {/* Add to cart "+" bottom-right overlapping */}
+          <button
+            type="button"
+            aria-label="Add to cart"
+            onClick={handleAdd}
+            data-testid={`fashion-tile-add-${p.id}`}
+            className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-[#0A1F5C] text-white flex items-center justify-center shadow-md hover:bg-[#E68910] transition-colors"
+          >
+            <Plus size={16} />
           </button>
         </div>
 
-        {/* Caption — name + price only, no store/ETA/cart */}
-        <div className="px-1.5 pt-1.5 pb-2 space-y-0.5">
-          <div className="text-[11px] font-semibold text-[#0A1F5C] leading-tight truncate">
-            {p.name}
-          </div>
-          <div className="flex items-baseline gap-1 flex-wrap">
-            <span className="text-[12px] font-bold text-[#0A1F5C]">
-              ₹{Number(p.price).toLocaleString()}
-            </span>
+        {/* Info below image */}
+        <div className="p-2.5">
+          <p className="text-[11px] text-[#595959] truncate mb-1">{p.name}</p>
+
+          {/* Price row */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-bold text-[#0A1F5C] text-sm">₹{Number(p.price).toLocaleString("en-IN")}</span>
             {p.mrp && p.mrp > p.price && (
-              <span className="text-[10px] text-[#9CA3AF] line-through">
-                ₹{Number(p.mrp).toLocaleString()}
-              </span>
+              <span className="text-[10px] text-[#9CA3AF] line-through">₹{Number(p.mrp).toLocaleString("en-IN")}</span>
             )}
           </div>
+
+          {/* Discount badge — only when genuine discount exists */}
+          {p.mrp && p.mrp > p.price && (
+            <div className="mt-1 inline-flex items-center bg-[#0D6832] rounded-full px-2 py-0.5">
+              <span className="text-[9px] font-bold text-white">
+                ₹{Number(p.mrp - p.price).toLocaleString("en-IN")} off
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </Link>
