@@ -55,6 +55,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills", label: "Category pills",            enabled: true, rank: 1  },
   { id: "hero",           label: "Hero",                      enabled: true, rank: 2  },
   { id: "under_499",      label: "Under ₹499",                enabled: true, rank: 3  },
+  { id: "quick_shop",     label: "",                          enabled: true, rank: 4  },
   { id: "store_rail",     label: "From our stores",           enabled: true, rank: 10 },
   { id: "trending",       label: "Trending now",              enabled: true, rank: 30 },
   { id: "best_deals",     label: "Best deals",                enabled: true, rank: 20 },
@@ -305,6 +306,18 @@ export function HomeClient() {
         </div>
       </div>
     ),
+
+    quick_shop: loaded.has("storeRails") && trending.length > 0 ? (
+      <div key="quick-shop" className="overflow-x-auto no-scrollbar px-4 sm:px-6 py-2">
+        <div className="flex gap-3">
+          {trending.slice(0, 8).map((p: ProductCardType) => (
+            <div key={p.id} className="flex-shrink-0 w-[38vw] sm:w-[180px]">
+              <ProductCard p={p} size="default" />
+            </div>
+          ))}
+        </div>
+      </div>
+    ) : null,
 
     category_pills: (
       <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 pt-8">
