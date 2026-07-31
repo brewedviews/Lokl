@@ -14,6 +14,15 @@ const SORT_OPTIONS = [
   { key: "discount", label: "Best Discount" },
 ];
 
+// Matches the exact `price=` values the homepage bentos send and the
+// backend's /api/products/all if/elif chain checks — see HomeClient.tsx
+// price-bento hrefs and server.py's all_products().
+const PRICE_LABELS: Record<string, string> = {
+  "under-499": "Under ₹499",
+  "499-1099": "₹499–₹1,099",
+  "above-1099": "₹1,099+",
+};
+
 function pageTitle(cat: L1Cat | undefined) {
   if (cat) return cat.name;
   return "All Products in Bhilai";
@@ -106,6 +115,16 @@ function ProductsInner() {
       </div>
 
       <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-2 mt-1.5">
+        {priceFilter && PRICE_LABELS[priceFilter] && (
+          <button
+            onClick={() => setFilter("price", "")}
+            aria-label={`Remove ${PRICE_LABELS[priceFilter]} filter`}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold border transition-colors bg-[#0A1F5C] text-white border-[#0A1F5C]"
+          >
+            {PRICE_LABELS[priceFilter]}
+            <span aria-hidden="true">✕</span>
+          </button>
+        )}
         {SORT_OPTIONS.map((s) => (
           <button
             key={s.key}
