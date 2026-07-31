@@ -10,7 +10,7 @@
  *   4. Best deals (from home-products)
  *   5. Trending now (from home-products)
  *   6. Offers for you
- *   7. Find your fit (GenderFashionBand — self-fetches its own L1 rails)
+ *   7. Just In (JustInSection — self-fetches newest arrivals + store chips)
  *   8. Popular stores
  *   9. Open a store (merchant CTA)
  *   10. Loved by Bhilai shoppers
@@ -33,7 +33,7 @@ import { HeroV2 } from "@/components/consumer/v2/HeroV2";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
-import { GenderFashionBand } from "@/components/consumer/GenderFashionBand";
+import { JustInSection } from "@/components/consumer/JustInSection";
 import { Footer } from "@/components/consumer/Footer";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
@@ -59,7 +59,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "best_deals",     label: "Best deals",                enabled: true, rank: 20 },
   { id: "trending",       label: "Trending now",              enabled: true, rank: 30 },
   { id: "offers",         label: "Offers for you",            enabled: true, rank: 40 },
-  { id: "find_your_fit",  label: "Find your fit",             enabled: true, rank: 42 },
+  { id: "just_in",        label: "Just In",                   enabled: true, rank: 42 },
   { id: "stores",         label: "Popular stores",            enabled: true, rank: 50 },
   { id: "merchant_cta",   label: "Open a store",              enabled: true, rank: 55 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: true, rank: 60 },
@@ -411,10 +411,9 @@ export function HomeClient() {
       </section>
     ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
 
-    // GenderFashionBand self-fetches product rails per L1, sources banner
-    // images from the already-fetched categories list, and collapses to
-    // null if no gender has products.
-    find_your_fit: <GenderFashionBand key="find-your-fit" categories={categories} />,
+    // JustInSection self-fetches newest arrivals + the store-chip list and
+    // collapses to null if no store has any visible products.
+    just_in: <JustInSection key="just-in" />,
 
     stores: errors.has("popularStores") && !storesRail.length ? (
       <SectionError key="stores-error" minHeight="min-h-[200px]" />

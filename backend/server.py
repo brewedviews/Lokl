@@ -1037,6 +1037,41 @@ async def feed_gender_rail(l1: str, limit: int = 20):
     return {"products": items}
 
 
+@api.get("/feed/just-in")
+async def feed_just_in(store_id: Optional[str] = None, limit: int = 20):
+    """New arrivals across Bhilai stores, newest first. No date cutoff —
+    always returns products if any exist. `store_id` narrows to a single
+    store; the `stores` list is always computed unfiltered so the frontend
+    can render a stable set of filter chips regardless of the active one."""
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
+    if not sids:
+        return {"products": [], "stores": []}
+
+    product_match = {"store_id": {"$in": sids}, **_visible_product_filter()}
+    if store_id:
+        product_match["store_id"] = store_id if store_id in sids else "__none__"
+
+    items = await db.products.find(
+        product_match,
+        {"_id": 0, "id": 1, "name": 1, "image": 1, "price": 1, "mrp": 1,
+         "store_id": 1, "store_name": 1, "created_at": 1},
+    ).sort("created_at", -1).to_list(limit)
+
+    all_visible = await db.products.find(
+        {"store_id": {"$in": sids}, **_visible_product_filter()},
+        {"_id": 0, "store_id": 1, "store_name": 1},
+    ).to_list(2000)
+    seen: dict[str, str] = {}
+    for p in all_visible:
+        sid = p.get("store_id")
+        if sid and sid not in seen:
+            seen[sid] = p.get("store_name") or "Store"
+    stores = [{"id": sid, "name": name} for sid, name in seen.items()]
+
+    return {"products": items, "stores": stores}
+
+
 @api.post("/track/view")
 async def track_view(payload: dict):
     pid = (payload or {}).get("product_id")
