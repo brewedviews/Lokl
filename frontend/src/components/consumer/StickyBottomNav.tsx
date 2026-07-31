@@ -7,7 +7,11 @@
  * trigger. Wallet was removed (was inactive/coming-soon). Cart already
  * lives top-right in the consumer header so we don't double up.
  *
- *   [ Home ] [ Categories ] [ Search ] [ Wishlist ] [ Profile ]
+ *   [ Home ] [ Categories ] [ Search ] [ Stores ] [ Profile ]
+ *
+ * Wishlist moved into the account page (its own boxed section, matching
+ * the address box) — the standalone /wishlist route still works, it's
+ * just no longer the primary entry point.
  *
  * Tapping Search opens the SearchOverlay via a tiny Zustand store rather
  * than prop-drilling, so any other component (banner CTA, empty-state, ...)
@@ -15,16 +19,12 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Grid3x3, Heart, ShoppingBag, User } from "lucide-react";
-import { useWishlistStore } from "@/stores";
-import { useMounted } from "@/hooks/useMounted";
+import { Home, Grid3x3, Store, ShoppingBag, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { trackNavClick } from "@/lib/analytics";
 
 export function StickyBottomNav() {
   const pathname = usePathname();
-  const mounted = useMounted();
-  const wishlistCount = useWishlistStore((s) => s.products.length);
 
   if (pathname.startsWith("/merchant") || pathname.startsWith("/admin")) return null;
 
@@ -56,16 +56,9 @@ export function StickyBottomNav() {
           </Link>
         </li>
         <li className="flex items-center justify-center">
-          <Link href="/wishlist" data-testid="nav-wishlist" onClick={() => { try { trackNavClick("wishlist"); } catch {} }} className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/wishlist") ? "text-brand-accent-alt" : "text-slate-600")}>
-            <span className="relative">
-              <Heart size={20} />
-              {mounted && wishlistCount > 0 && (
-                <span className="absolute -top-1 -right-2 bg-brand-accent text-white text-[9px] font-bold px-1.5 rounded-full" data-testid="wishlist-badge">
-                  {wishlistCount}
-                </span>
-              )}
-            </span>
-            <span className="text-[10px] font-medium">Wishlist</span>
+          <Link href="/stores" data-testid="nav-stores" onClick={() => { try { trackNavClick("stores"); } catch {} }} className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/stores") ? "text-brand-accent-alt" : "text-slate-600")}>
+            <Store size={20} />
+            <span className="text-[10px] font-medium">Stores</span>
           </Link>
         </li>
         <li className="flex items-center justify-center">
