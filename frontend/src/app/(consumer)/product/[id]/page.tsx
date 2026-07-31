@@ -48,8 +48,8 @@ export default async function ProductDetailPage(
     : ([product.image].filter(Boolean) as string[]);
 
   return (
-    <div className="min-h-screen bg-white pb-24 md:pb-10">
-      <div className="max-w-[1200px] mx-auto">
+    <div className="h-full flex flex-col bg-white pb-24 md:pb-10">
+      <div className="flex-1 w-full max-w-[1200px] mx-auto">
 
         {/*
           Mobile: single column, gallery full-bleed, content padded inside ProductActions.

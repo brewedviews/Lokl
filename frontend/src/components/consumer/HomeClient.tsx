@@ -484,7 +484,7 @@ export function HomeClient() {
     .filter(Boolean);
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
+    <div className="h-full flex flex-col bg-[#FDFBF7]">
       <main className="flex-1">
         {orderedSections}
       </main>

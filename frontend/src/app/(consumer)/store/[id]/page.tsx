@@ -55,8 +55,9 @@ export default async function StorePage(
   const area = areaFromAddress(store);
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7]">
-      <div className="relative h-[28vh] sm:h-[45vh] md:h-[55vh] overflow-hidden bg-[#0A1F5C]">
+    <div className="h-full flex flex-col bg-[#FDFBF7]">
+      <div className="flex-1">
+        <div className="relative h-[28vh] sm:h-[45vh] md:h-[55vh] overflow-hidden bg-[#0A1F5C]">
         {banners.length > 1 ? (
           <div className="flex h-full overflow-x-auto snap-x snap-mandatory no-scrollbar">
             {banners.map((b, i) => (
@@ -146,6 +147,7 @@ export default async function StorePage(
             </div>
           )}
         </div>
+      </div>
       </div>
       <Footer />
     </div>

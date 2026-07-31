@@ -15,7 +15,7 @@ export default function WishlistPage() {
   const items = hydrated ? products : [];
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
+    <div className="h-full flex flex-col bg-[#FDFBF7]">
       <main className="flex-1">
         <section className="max-w-7xl mx-auto px-4 sm:px-8 pt-8" data-testid="wishlist-header">
           <div className="flex items-center gap-3">

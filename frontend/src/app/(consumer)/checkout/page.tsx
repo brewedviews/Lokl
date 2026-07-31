@@ -281,7 +281,7 @@ export default function CheckoutPage() {
 
   if (!hasAuth) {
     return (
-      <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
+      <div className="h-full flex flex-col bg-[#FDFBF7]">
         <div className="flex-1 max-w-md w-full mx-auto px-4 sm:px-8 pt-10 pb-16">
           <CustomerOtpLogin
             title="Sign in to checkout"
@@ -296,8 +296,8 @@ export default function CheckoutPage() {
   const uniqueStoreNames = Array.from(new Set(items.map((it) => it.store_name).filter(Boolean)));
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7]">
-      <div className="max-w-5xl mx-auto px-4 md:px-8 py-10 grid md:grid-cols-3 gap-8">
+    <div className="h-full flex flex-col bg-[#FDFBF7]">
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 py-10 grid md:grid-cols-3 gap-8">
         <div className="md:col-span-2 space-y-6">
           {unserviceable && (
             <div className="mx-4 mb-4 p-4 bg-red-50 border border-red-200 rounded-2xl">

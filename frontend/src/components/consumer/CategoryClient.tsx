@@ -101,7 +101,7 @@ export function CategoryClient() {
   const l2List = subcategories.length > 0 ? subcategories : (l1.l2 ?? []);
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
+    <div className="h-full flex flex-col bg-[#FDFBF7]">
       <main className="flex-1">
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
           {/* Header */}
