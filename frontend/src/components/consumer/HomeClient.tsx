@@ -6,14 +6,16 @@
  * Section order (desktop & mobile):
  *   1. Category pills
  *   2. Hero
- *   3. Price bentos (under_499)
- *   4. Best deals (from home-products)
- *   5. Trending now (from home-products)
- *   6. Offers for you
- *   7. Just In (JustInSection — self-fetches newest arrivals + store chips)
- *   8. Popular stores
- *   9. Open a store (merchant CTA)
- *   10. Loved by Bhilai shoppers
+ *   3. Just In (JustInSection — self-fetches newest arrivals + store chips)
+ *   4. Popular stores
+ *   5. Best deals (from home-products)
+ *   6. Price bentos (under_499)
+ *   7. Offers for you
+ *   8. Open a store (merchant CTA)
+ *   9. Loved by Bhilai shoppers
+ *
+ * Trending now is disabled pre-launch — with no order history yet it shows
+ * duplicate/fake data. Code kept in place, just `enabled: false`.
  *
  * API calls on mount — critical (immediate):
  *   • /api/feed/home-products  — trending + best deals
@@ -53,16 +55,18 @@ interface HomeProductsRail { store_id: string; store_name: string; store_slug: s
 interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCardType[]; best_deals: ProductCardType[] }
 
 const DEFAULT_SECTIONS: SectionDoc[] = [
-  { id: "category_pills", label: "Category pills",            enabled: true, rank: 1  },
-  { id: "hero",           label: "Hero",                      enabled: true, rank: 2  },
-  { id: "under_499",      label: "Under ₹499",                enabled: true, rank: 3  },
-  { id: "best_deals",     label: "Best deals",                enabled: true, rank: 20 },
-  { id: "trending",       label: "Trending now",              enabled: true, rank: 30 },
-  { id: "offers",         label: "Offers for you",            enabled: true, rank: 40 },
-  { id: "just_in",        label: "Just In",                   enabled: true, rank: 42 },
-  { id: "stores",         label: "Popular stores",            enabled: true, rank: 50 },
-  { id: "merchant_cta",   label: "Open a store",              enabled: true, rank: 55 },
-  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: true, rank: 60 },
+  { id: "category_pills", label: "Category pills",            enabled: true,  rank: 10 },
+  { id: "hero",           label: "Hero",                      enabled: true,  rank: 20 },
+  { id: "just_in",        label: "Just In",                   enabled: true,  rank: 30 },
+  { id: "stores",         label: "Popular stores",            enabled: true,  rank: 40 },
+  { id: "best_deals",     label: "Best deals",                enabled: true,  rank: 50 },
+  { id: "under_499",      label: "Under ₹499",                enabled: true,  rank: 60 },
+  { id: "offers",         label: "Offers for you",            enabled: true,  rank: 70 },
+  { id: "merchant_cta",   label: "Open a store",              enabled: true,  rank: 80 },
+  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: true,  rank: 90 },
+  // Disabled pre-launch — no order history yet, so this shows duplicate/fake
+  // data. Code kept in place; rank is irrelevant while disabled.
+  { id: "trending",       label: "Trending now",              enabled: false, rank: 100 },
 ];
 
 export function HomeClient() {
