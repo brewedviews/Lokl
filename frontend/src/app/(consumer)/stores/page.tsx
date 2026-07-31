@@ -29,11 +29,15 @@ export default function StoresPage() {
   const list = stores ?? [];
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7]">
-      {/* pt-only — Footer supplies the single gap below via its own topGap
-          margin. A trailing pb here would stack with that margin and leave
-          the dead cream gap this page used to have. */}
-      <div className="max-w-7xl mx-auto px-4 md:px-8 pt-10">
+    // h-full (not min-h-screen) — the shared (consumer) layout already
+    // stretches its `flex-1` wrapper to fill exactly the remaining
+    // viewport height below the header/banner. Re-asserting min-h-screen
+    // here would add a REDUNDANT, independent 100vh minimum on top of
+    // that, overflowing past the true viewport and leaving dead cream
+    // space below the footer before the fixed bottom nav. h-full inherits
+    // the already-correct height instead of fighting it.
+    <div className="h-full flex flex-col bg-[#FDFBF7]">
+      <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 pt-10">
         <h1 data-testid="stores-title" className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">Stores near you</h1>
         <p className="text-[#595959] mt-2">
           {loading
