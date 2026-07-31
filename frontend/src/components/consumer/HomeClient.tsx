@@ -59,7 +59,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "best_deals",     label: "Best deals",                enabled: true, rank: 20 },
   { id: "trending",       label: "Trending now",              enabled: true, rank: 30 },
   { id: "offers",         label: "Offers for you",            enabled: true, rank: 40 },
-  { id: "find_your_fit",  label: "Find your fit",             enabled: true, rank: 45 },
+  { id: "find_your_fit",  label: "Find your fit",             enabled: true, rank: 42 },
   { id: "stores",         label: "Popular stores",            enabled: true, rank: 50 },
   { id: "merchant_cta",   label: "Open a store",              enabled: true, rank: 55 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: true, rank: 60 },
@@ -411,8 +411,10 @@ export function HomeClient() {
       </section>
     ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
 
-    // GenderFashionBand self-fetches all three L1 rails and collapses to null if empty.
-    find_your_fit: <GenderFashionBand key="find-your-fit" />,
+    // GenderFashionBand self-fetches product rails per L1, sources banner
+    // images from the already-fetched categories list, and collapses to
+    // null if no gender has products.
+    find_your_fit: <GenderFashionBand key="find-your-fit" categories={categories} />,
 
     stores: errors.has("popularStores") && !storesRail.length ? (
       <SectionError key="stores-error" minHeight="min-h-[200px]" />

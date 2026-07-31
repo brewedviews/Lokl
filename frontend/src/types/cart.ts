@@ -57,6 +57,7 @@ export interface CategoryNode {
   id: string;          // l1_id
   name: string;
   slug: string;
+  image?: string;
   l2: Array<{ id: string; name: string; slug: string }>;
 }
 
