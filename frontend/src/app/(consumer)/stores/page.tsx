@@ -29,14 +29,15 @@ export default function StoresPage() {
   const list = stores ?? [];
 
   return (
-    // h-full (not min-h-screen) — the shared (consumer) layout already
-    // stretches its `flex-1` wrapper to fill exactly the remaining
-    // viewport height below the header/banner. Re-asserting min-h-screen
-    // here would add a REDUNDANT, independent 100vh minimum on top of
-    // that, overflowing past the true viewport and leaving dead cream
-    // space below the footer before the fixed bottom nav. h-full inherits
-    // the already-correct height instead of fighting it.
-    <div className="h-full flex flex-col bg-[#FDFBF7]">
+    // flex-1 (not h-full) — html/body have no explicit height (globals.css
+    // only sets bg/color/font), so a percentage-based h-full has no basis
+    // to resolve against and silently falls back to `auto`. The shared
+    // (consumer) layout's wrapper is now `flex flex-col` (see its comment),
+    // so this root can flex-grow into it instead — no percentage involved,
+    // always resolvable. This div is ALSO `flex flex-col` so its own
+    // content area (flex-1 below) can grow and push Footer to the true
+    // bottom on short pages.
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 pt-10">
         <h1 data-testid="stores-title" className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">Stores near you</h1>
         <p className="text-[#595959] mt-2">
@@ -45,7 +46,7 @@ export default function StoresPage() {
             : `${list.length} trusted local store${list.length !== 1 ? "s" : ""}${hasLocation ? " · sorted by distance" : ""}`}
         </p>
         {loading ? (
-          <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5">
+          <div className="mt-8 flex flex-col gap-3">
             {Array.from({ length: 8 }).map((_, i) => <StoreListCardSkeleton key={`sk-${i}`} />)}
           </div>
         ) : list.length === 0 ? (
@@ -56,7 +57,7 @@ export default function StoresPage() {
             </p>
           </div>
         ) : (
-          <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5">
+          <div className="mt-8 flex flex-col gap-3">
             {list.map((s) => <StoreListCard key={s.id} s={s} />)}
           </div>
         )}

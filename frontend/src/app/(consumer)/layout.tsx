@@ -13,6 +13,15 @@ import { SearchOverlayHost } from "@/components/consumer/SearchOverlayHost";
  *
  * Iter-45 — `LocationBanner` mounts directly under the header; it's a no-op
  * for shoppers in the Bhilai footprint and surfaces a soft warning otherwise.
+ *
+ * The `flex-1 flex flex-col` wrapper around `{children}` matters: html/body
+ * have no explicit height (see globals.css), so a page root using `h-full`
+ * has no percentage basis to resolve against and silently falls back to
+ * `auto`. Making this wrapper an actual flex column lets each page's root
+ * use `flex-1` (flex-grow) instead — that's resolvable with no percentage
+ * involved, so its content can grow to push its own Footer to the true
+ * bottom on short pages. Pages must pair this with their own `flex-1 flex
+ * flex-col` root — see stores/page.tsx.
  */
 export default function ConsumerLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -20,7 +29,7 @@ export default function ConsumerLayout({ children }: { children: React.ReactNode
       <Toaster position="top-center" richColors />
       <ConsumerHeader />
       <LocationBanner />
-      <div className="flex-1">{children}</div>
+      <div className="flex-1 flex flex-col">{children}</div>
       <StickyBottomNav />
       <SearchOverlayHost />
     </div>
