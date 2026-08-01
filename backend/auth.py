@@ -35,7 +35,8 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 
-def create_token(user_id: str, role: str = "merchant", token_type: str = "access") -> str:
+def create_token(user_id: str, role: str = "merchant", token_type: str = "access",
+                  extra: Optional[dict] = None) -> str:
     """Issue an access (short-lived) or refresh (long-lived) JWT.
 
     `token_type` is embedded in the payload so the /refresh endpoint can reject
@@ -45,7 +46,11 @@ def create_token(user_id: str, role: str = "merchant", token_type: str = "access
 
     Admin access tokens get an 8h TTL — admins work in the dashboard for hours
     and the short JWT_ACCESS_MIN we use for customers/merchants made the panel
-    silently 401 mid-task (the visible 'Signature has expired' bug in iter-26)."""
+    silently 401 mid-task (the visible 'Signature has expired' bug in iter-26).
+
+    `extra` merges additional claims onto the payload (e.g. `is_admin: True`
+    so `require_admin` can distinguish real admin-account tokens from any
+    other role="admin" token shape)."""
     if token_type == "refresh":
         delta = timedelta(days=JWT_REFRESH_DAYS)
     elif role == "admin":
@@ -62,6 +67,8 @@ def create_token(user_id: str, role: str = "merchant", token_type: str = "access
     }
     if token_type == "refresh":
         payload["jti"] = secrets.token_urlsafe(16)
+    if extra:
+        payload.update(extra)
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
 

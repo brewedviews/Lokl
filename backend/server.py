@@ -1,12 +1,11 @@
 """Lokl — FastAPI backend (full feature set)."""
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Request, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, Request, Response, Header
 from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os, logging, uuid, base64, io, csv, json, random, secrets, hmac, hashlib, asyncio
-import bcrypt
 from pathlib import Path
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
@@ -23,7 +22,6 @@ import jwt
 # Role-guard dependencies — shorthand for the most-used auth tiers in this app.
 # Returns the JWT payload on success, raises 401 (no token) or 403 (wrong role).
 merchant_user = require_role("merchant", "admin")
-admin_user = require_role("admin")
 customer_user = require_role("customer", "admin")
 from ai_service import generate_product_copy, enhance_product_image, ai_model_tryon
 from seed_data import build_seed_docs, L1_CATEGORIES, L2_BY_L1, GENDERS
@@ -1225,9 +1223,26 @@ async def validate_coupon(request: Request, payload: dict):
             "description": c.get("description", "")}
 
 
-def _admin_only(user: dict):
-    if user.get("role") != "admin":
+async def require_admin(authorization: Optional[str] = Header(None)) -> dict:
+    """Single admin-auth dependency for every /admin/* route.
+
+    Verifies the JWT signature (via decode_token), requires the is_admin
+    claim minted only by /admin/login, then re-checks the admin_users
+    collection so a deactivated account is locked out immediately even
+    though its still-valid JWT hasn't expired (JWTs can't be revoked
+    in-flight otherwise). Returns the admin doc (password_hash stripped).
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Admin token required")
+    payload = decode_token(authorization.split(" ", 1)[1])
+    if payload.get("type") == "refresh":
+        raise HTTPException(401, "Refresh token cannot be used for API access")
+    if payload.get("role") != "admin" or not payload.get("is_admin"):
         raise HTTPException(403, "Admin only")
+    admin = await db.admin_users.find_one({"id": payload.get("sub")}, {"_id": 0, "password_hash": 0})
+    if not admin or not admin.get("active", True):
+        raise HTTPException(403, "Admin account inactive or not found")
+    return admin
 
 
 @api.post("/webhooks/payment")
@@ -1431,8 +1446,7 @@ async def customer_cancel_order(oid: str, request: Request, payload: Optional[di
 
 
 @api.get("/admin/orders/{oid}/audit-log")
-async def admin_order_audit_log(oid: str, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_order_audit_log(oid: str, admin: dict = Depends(require_admin)):
     entries = await db.payment_audit_log.find(
         {"order_id": oid}, {"_id": 0}).sort("created_at", 1).to_list(500)
     return {"order_id": oid, "events": entries}
@@ -1494,12 +1508,11 @@ async def merchant_delete_image(public_id: str, user: dict = Depends(get_current
 
 
 @api.get("/admin/kyc/{merchant_id}/signed-url")
-async def admin_kyc_signed_url(merchant_id: str, doc: str, request: Request):
+async def admin_kyc_signed_url(merchant_id: str, doc: str, admin: dict = Depends(require_admin)):
     """Generate a 1-hour signed URL for a private KYC document on Cloudinary.
 
     `doc` must be one of: pan_doc, gst_doc, cancelled_cheque.
     """
-    _check_admin(request.headers.get("authorization"))
     if doc not in {"pan_doc", "gst_doc", "cancelled_cheque"}:
         raise HTTPException(400, "Invalid doc kind")
     m = await db.merchants.find_one(
@@ -1534,8 +1547,7 @@ async def _validate_bulk_upload(file: UploadFile) -> bytes:
 
 
 @api.post("/admin/offers")
-async def admin_create_offer(payload: dict, user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_create_offer(payload: dict, admin: dict = Depends(require_admin)):
     doc = {
         "id": f"off-{uuid.uuid4().hex[:8]}",
         "title": payload.get("title", "").strip(),
@@ -1554,8 +1566,7 @@ async def admin_create_offer(payload: dict, user: dict = Depends(get_current_use
 
 
 @api.delete("/admin/offers/{oid}")
-async def admin_delete_offer(oid: str, user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_delete_offer(oid: str, admin: dict = Depends(require_admin)):
     await db.offers.delete_one({"id": oid})
     return {"ok": True}
 
@@ -1575,8 +1586,7 @@ ALLOWED_OFFER_FIELDS = {
 
 
 @api.put("/admin/offers/{oid}")
-async def admin_update_offer(oid: str, payload: dict, user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_update_offer(oid: str, payload: dict, admin: dict = Depends(require_admin)):
     update = {k: v for k, v in payload.items() if k in ALLOWED_OFFER_FIELDS}
     if "rank" in update:
         update["rank"] = int(update["rank"])
@@ -1595,16 +1605,14 @@ async def admin_update_offer(oid: str, payload: dict, user: dict = Depends(get_c
 
 
 @api.get("/admin/offers")
-async def admin_list_offers(user: dict = Depends(get_current_user)):
+async def admin_list_offers(admin: dict = Depends(require_admin)):
     """Includes unpublished offers, sorted by rank — public /offers does not."""
-    _admin_only(user)
     rows = await db.offers.find({}, {"_id": 0}).sort("rank", 1).to_list(100)
     return rows
 
 
 @api.post("/admin/coupons")
-async def admin_create_coupon(payload: CouponCreate, user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_create_coupon(payload: CouponCreate, admin: dict = Depends(require_admin)):
     code = payload.code.strip().upper()
     if not code:
         raise HTTPException(400, "code is required")
@@ -1629,15 +1637,13 @@ async def admin_create_coupon(payload: CouponCreate, user: dict = Depends(get_cu
 
 
 @api.get("/admin/coupons")
-async def admin_list_coupons(user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_list_coupons(admin: dict = Depends(require_admin)):
     rows = await db.coupons.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return rows
 
 
 @api.delete("/admin/coupons/{cid}")
-async def admin_delete_coupon(cid: str, user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_delete_coupon(cid: str, admin: dict = Depends(require_admin)):
     r = await db.coupons.delete_one({"id": cid})
     if r.deleted_count == 0:
         raise HTTPException(404, "Coupon not found")
@@ -1645,14 +1651,13 @@ async def admin_delete_coupon(cid: str, user: dict = Depends(get_current_user)):
 
 
 @api.post("/admin/offers/migrate-types")
-async def admin_migrate_offer_types(user: dict = Depends(get_current_user)):
+async def admin_migrate_offer_types(admin: dict = Depends(require_admin)):
     """One-shot migration: infer offer_type on legacy offers that lack it.
 
     Heuristic: if offer has a `cta_link` pointing to /c/<slug>, set offer_type=category
     and l1_slug from the slug. If cta_link points to /store/<id>, set offer_type=store.
     All others remain untyped (fallback to random products in /offers/{id}/products).
     """
-    _admin_only(user)
     rows = await db.offers.find({"offer_type": {"$exists": False}}, {"_id": 0}).to_list(200)
     migrated = 0
     for r in rows:
@@ -1675,8 +1680,7 @@ async def admin_migrate_offer_types(user: dict = Depends(get_current_user)):
 
 
 @api.get("/admin/categories")
-async def admin_list_categories(user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_list_categories(admin: dict = Depends(require_admin)):
     rows = await db.categories.find({}, {"_id": 0}).sort("order", 1).to_list(100)
     return rows
 
@@ -1685,8 +1689,7 @@ ALLOWED_CATEGORY_FIELDS = {"name", "image", "redirect_url", "order", "paused", "
 
 
 @api.put("/admin/categories/{cid}")
-async def admin_update_category(cid: str, payload: dict, user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_update_category(cid: str, payload: dict, admin: dict = Depends(require_admin)):
     update = {k: v for k, v in payload.items() if k in ALLOWED_CATEGORY_FIELDS}
     if "order" in update:
         update["order"] = int(update["order"])
@@ -1703,16 +1706,14 @@ async def admin_update_category(cid: str, payload: dict, user: dict = Depends(ge
 
 
 @api.get("/admin/subcategories")
-async def admin_list_subcategories(user: dict = Depends(get_current_user), l1_id: Optional[str] = None):
-    _admin_only(user)
+async def admin_list_subcategories(admin: dict = Depends(require_admin), l1_id: Optional[str] = None):
     q = {"l1_id": l1_id} if l1_id else {}
     rows = await db.subcategories.find(q, {"_id": 0}).to_list(500)
     return rows
 
 
 @api.put("/admin/subcategories/{sid}")
-async def admin_update_subcategory(sid: str, payload: dict, user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_update_subcategory(sid: str, payload: dict, admin: dict = Depends(require_admin)):
     update = {k: v for k, v in payload.items() if k in ALLOWED_CATEGORY_FIELDS}
     if "paused" in update:
         update["paused"] = bool(update["paused"])
@@ -1727,18 +1728,16 @@ async def admin_update_subcategory(sid: str, payload: dict, user: dict = Depends
 
 
 @api.post("/admin/cms/upload")
-async def admin_cms_upload(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+async def admin_cms_upload(file: UploadFile = File(...), admin: dict = Depends(require_admin)):
     """Cloudinary upload for any CMS image asset. Returns the secure_url
     that admins can copy/paste into hero/category/offer image fields."""
-    _admin_only(user)
-    return await cloudinary_service.upload_image(file, "cms", user.get("sub", "admin"))
+    return await cloudinary_service.upload_image(file, "cms", admin.get("id", "admin"))
 
 
 @api.get("/admin/cms/search-destinations")
-async def admin_search_destinations(q: str = "", user: dict = Depends(get_current_user)):
+async def admin_search_destinations(q: str = "", admin: dict = Depends(require_admin)):
     """Unified destination picker — searches Stores, Products, L1, L2 and Offers.
     Returns up to 8 of each kind. `q` is case-insensitive substring match."""
-    _admin_only(user)
     needle = (q or "").strip()
     rx = {"$regex": _re.escape(needle), "$options": "i"} if needle else None
 
@@ -1784,12 +1783,11 @@ async def log_asset_click(payload: dict, request: Request):
 
 @api.get("/admin/analytics/top-clicks")
 async def admin_top_clicks(
-    user: dict = Depends(get_current_user),
+    admin: dict = Depends(require_admin),
     asset_type: str = "hero",
     days: int = 7,
     limit: int = 10,
 ):
-    _admin_only(user)
     if asset_type not in {"hero", "category", "subcategory", "offer"}:
         raise HTTPException(400, "Bad asset_type")
     days = max(1, min(days, 90))
@@ -1822,8 +1820,7 @@ async def list_testimonials(limit: int = 12):
 
 
 @api.post("/admin/testimonials")
-async def admin_create_testimonial(payload: dict, user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_create_testimonial(payload: dict, admin: dict = Depends(require_admin)):
     doc = {
         "id": f"tes-{uuid.uuid4().hex[:8]}",
         "name": payload.get("name", "").strip(),
@@ -1840,8 +1837,7 @@ async def admin_create_testimonial(payload: dict, user: dict = Depends(get_curre
 
 
 @api.delete("/admin/testimonials/{tid}")
-async def admin_delete_testimonial(tid: str, user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_delete_testimonial(tid: str, admin: dict = Depends(require_admin)):
     await db.testimonials.delete_one({"id": tid})
     return {"ok": True}
 
@@ -1943,14 +1939,12 @@ async def public_homepage_config():
 
 
 @api.get("/admin/site/homepage-config")
-async def admin_get_homepage_config(user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_get_homepage_config(admin: dict = Depends(require_admin)):
     return await _get_site_config()
 
 
 @api.put("/admin/site/homepage-config")
-async def admin_put_homepage_config(payload: dict, user: dict = Depends(get_current_user)):
-    _admin_only(user)
+async def admin_put_homepage_config(payload: dict, admin: dict = Depends(require_admin)):
     update = {}
     if isinstance(payload.get("sections"), list):
         clean = []
@@ -2393,15 +2387,13 @@ async def create_support_ticket(payload: dict, request: Request):
 
 
 @api.get("/admin/support/tickets")
-async def get_support_tickets(request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def get_support_tickets(admin: dict = Depends(require_admin)):
     tickets = await db.support_tickets.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
     return {"tickets": tickets}
 
 
 @api.post("/admin/support/tickets/{ticket_id}/reply")
-async def admin_reply_ticket(ticket_id: str, payload: dict, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_reply_ticket(ticket_id: str, payload: dict, admin: dict = Depends(require_admin)):
     message = {
         "sender": "admin",
         "text": payload.get("text", ""),
@@ -2451,9 +2443,8 @@ async def customer_reply_to_ticket(ticket_id: str, request: Request):
 
 
 @api.get("/admin/support/tickets/{ticket_id}")
-async def get_support_ticket(ticket_id: str, request: Request):
+async def get_support_ticket(ticket_id: str, admin: dict = Depends(require_admin)):
     """Admin: fetch a single ticket with full messages array."""
-    _check_admin(request.headers.get("authorization"))
     ticket = await db.support_tickets.find_one({"id": ticket_id}, {"_id": 0})
     if not ticket:
         raise HTTPException(404, "ticket not found")
@@ -2461,9 +2452,8 @@ async def get_support_ticket(ticket_id: str, request: Request):
 
 
 @api.patch("/admin/support/tickets/{ticket_id}/status")
-async def update_support_ticket_status(ticket_id: str, payload: dict, request: Request):
+async def update_support_ticket_status(ticket_id: str, payload: dict, admin: dict = Depends(require_admin)):
     """Admin: change ticket status. Allowed values: open, replied, closed."""
-    _check_admin(request.headers.get("authorization"))
     new_status = (payload.get("status") or "").strip()
     if new_status not in ("open", "replied", "closed"):
         raise HTTPException(400, "status must be one of: open, replied, closed")
@@ -3499,7 +3489,7 @@ async def cancel_pickup_reservation(oid: str, user: dict = Depends(merchant_user
 
 
 @api.get("/admin/expire-pickups")
-async def expire_pickups(user: dict = Depends(admin_user)):
+async def expire_pickups(admin: dict = Depends(require_admin)):
     """Mark expired pickup reservations as cancelled. Run periodically."""
     now = datetime.now(timezone.utc).isoformat()
     result = await db.orders.update_many(
@@ -3511,13 +3501,12 @@ async def expire_pickups(user: dict = Depends(admin_user)):
 
 # ===== Admin order management =====
 @api.post("/admin/orders/{oid}/mark-delivered")
-async def admin_mark_delivered(oid: str, request: Request, payload: Optional[dict] = None):
+async def admin_mark_delivered(oid: str, payload: Optional[dict] = None, admin: dict = Depends(require_admin)):
     """Mark an order (or one merchant's slice of a multi-store order) as delivered.
 
     Payload (optional): `{"merchant_id": "..."}` — when present on a multi-store
     order, marks only that merchant's slice. Global order flips to `delivered`
     only after every merchant has delivered."""
-    _check_admin(request.headers.get("authorization"))
     o = await db.orders.find_one({"id": oid}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
     if o.get("status") in ("delivered", "cancelled"):
@@ -3567,7 +3556,7 @@ async def admin_mark_delivered(oid: str, request: Request, payload: Optional[dic
     return {"ok": True, "all_delivered": new_global == "delivered", "merchant_states": states}
 
 @api.post("/admin/orders/{oid}/cancel")
-async def admin_cancel_order(oid: str, request: Request, payload: Optional[dict] = None):
+async def admin_cancel_order(oid: str, payload: Optional[dict] = None, admin: dict = Depends(require_admin)):
     """Cancel an order or one merchant's slice of a multi-store order.
 
     Payload (optional): `{"reason": "...", "merchant_id": "..."}` — when
@@ -3577,7 +3566,6 @@ async def admin_cancel_order(oid: str, request: Request, payload: Optional[dict]
 
     Stock for the cancelled slice's items is atomically restored to the
     product catalog so the unsold inventory becomes immediately available again."""
-    _check_admin(request.headers.get("authorization"))
     o = await db.orders.find_one({"id": oid}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
     if o.get("status") == "delivered":
@@ -4459,28 +4447,21 @@ async def record_page_view(request: Request):
 
 
 # ===== Admin =====
-def _admin_token(): return create_token("admin", "admin")
-def _check_admin(authorization: Optional[str]):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Admin token required")
-    payload = decode_token(authorization.split(" ", 1)[1])
-    if payload.get("role") != "admin": raise HTTPException(403, "Not an admin")
-    return payload
-
 @api.post("/admin/login")
 @_limit(_LIMIT_ADMIN_LOGIN)
 async def admin_login(request: Request, payload: AdminLogin):
-    # Constant-time comparison for email + bcrypt for password. Plain-text
-    # ADMIN_PASSWORD support has been removed — ADMIN_PASSWORD_HASH is required.
-    email_ok = hmac.compare_digest(payload.email, ADMIN_EMAIL)
-    password_ok = bcrypt.checkpw(payload.password.encode(), ADMIN_PASSWORD_HASH.encode())
-    if not (email_ok and password_ok):
+    email = payload.email.strip().lower()
+    admin = await db.admin_users.find_one({"email": email})
+    if not admin or not admin.get("active", True) or not verify_password(payload.password, admin["password_hash"]):
         raise HTTPException(401, "Invalid admin credentials")
-    return {"token": _admin_token(), "admin": {"email": ADMIN_EMAIL, "role": "admin"}}
+    token = create_token(admin["id"], "admin", extra={"is_admin": True})
+    return {"token": token, "admin": {
+        "id": admin["id"], "email": admin["email"],
+        "name": admin.get("name", ""), "role": admin.get("role", "admin"),
+    }}
 
 @api.get("/admin/stats")
-async def admin_stats(request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_stats(admin: dict = Depends(require_admin)):
     return {
         "submitted_kyc": await db.merchants.count_documents({"kyc_status": "submitted"}),
         "approved": await db.merchants.count_documents({"kyc_status": "approved"}),
@@ -4491,8 +4472,7 @@ async def admin_stats(request: Request):
     }
 
 @api.get("/admin/waitlist")
-async def admin_waitlist(request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_waitlist(admin: dict = Depends(require_admin)):
     customers = await db.waitlist.find({"type": "customer"}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     merchants = await db.waitlist.find({"type": "merchant"}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return {
@@ -4504,8 +4484,7 @@ async def admin_waitlist(request: Request):
 
 
 @api.get("/admin/page-views")
-async def admin_page_views(request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_page_views(admin: dict = Depends(require_admin)):
     rows = await db.page_views.find({"page": "coming-soon"}, {"_id": 0}).sort("date", -1).to_list(100)
     total = next((r["count"] for r in rows if r["date"] == "total"), 0)
     daily = [r for r in rows if r["date"] != "total"]
@@ -4513,23 +4492,20 @@ async def admin_page_views(request: Request):
 
 
 @api.get("/admin/merchants")
-async def admin_merchants(request: Request, status: Optional[str] = None):
-    _check_admin(request.headers.get("authorization"))
+async def admin_merchants(status: Optional[str] = None, admin: dict = Depends(require_admin)):
     q = {}
     if status: q["kyc_status"] = status
     return await db.merchants.find(q, {"_id": 0, "password_hash": 0}) \
         .sort("kyc_submitted_at", -1).to_list(500)
 
 @api.get("/admin/merchants/{mid}")
-async def admin_merchant_detail(mid: str, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_merchant_detail(mid: str, admin: dict = Depends(require_admin)):
     m = await db.merchants.find_one({"id": mid}, {"_id": 0, "password_hash": 0})
     if not m: raise HTTPException(404, "Not found")
     return m
 
 @api.post("/admin/merchants/{mid}/approve")
-async def admin_approve(mid: str, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_approve(mid: str, admin: dict = Depends(require_admin)):
     now = datetime.now(timezone.utc).isoformat()
     await db.merchants.update_one({"id": mid}, {"$set": {"kyc_status": "approved", "approved_at": now},
         "$push": {"notifications": {"type": "kyc-approved", "title": "Your KYC is approved",
@@ -4543,8 +4519,7 @@ async def admin_approve(mid: str, request: Request):
     return {"ok": True}
 
 @api.post("/admin/merchants/{mid}/reject")
-async def admin_reject(mid: str, request: Request, body: dict = None):
-    _check_admin(request.headers.get("authorization"))
+async def admin_reject(mid: str, body: dict = None, admin: dict = Depends(require_admin)):
     reason = (body or {}).get("reason", "Documents need re-verification.")
     now = datetime.now(timezone.utc).isoformat()
     await db.merchants.update_one({"id": mid}, {"$set": {"kyc_status": "rejected"},
@@ -4553,10 +4528,9 @@ async def admin_reject(mid: str, request: Request, body: dict = None):
     return {"ok": True}
 
 @api.post("/admin/merchants/{mid}/hold")
-async def admin_hold(mid: str, request: Request, body: dict = None):
+async def admin_hold(mid: str, body: dict = None, admin: dict = Depends(require_admin)):
     """Admin puts a KYC submission on hold with a remediation comment. The merchant
     sees the comment in their dashboard and can fix the issue and resubmit."""
-    _check_admin(request.headers.get("authorization"))
     _body = body or {}
     comment = (_body.get("reason") or _body.get("comment") or "").strip()
     if not comment:
@@ -4569,8 +4543,7 @@ async def admin_hold(mid: str, request: Request, body: dict = None):
     return {"ok": True}
 
 @api.post("/admin/merchant/{mid}/activate-plan")
-async def admin_activate_plan(mid: str, payload: dict, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_activate_plan(mid: str, payload: dict, admin: dict = Depends(require_admin)):
     plan = payload.get("plan", "starter")
     if plan not in ["free", "starter", "growth", "pro"]:
         raise HTTPException(400, "Invalid plan")
@@ -4603,9 +4576,9 @@ async def merchant_kyc_resubmit(user: dict = Depends(get_current_user)):
 
 
 @api.get("/admin/change-requests")
-async def admin_change_requests(request: Request, status: Optional[str] = None,
-                                period: Optional[str] = None):
-    _check_admin(request.headers.get("authorization"))
+async def admin_change_requests(status: Optional[str] = None,
+                                period: Optional[str] = None,
+                                admin: dict = Depends(require_admin)):
     q = {}
     if status: q["status"] = status
     if period:
@@ -4620,8 +4593,7 @@ async def admin_change_requests(request: Request, status: Optional[str] = None,
     return docs
 
 @api.post("/admin/change-requests/{cid}/approve")
-async def admin_cr_approve(cid: str, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_cr_approve(cid: str, admin: dict = Depends(require_admin)):
     cr = await db.change_requests.find_one({"id": cid}, {"_id": 0})
     if not cr: raise HTTPException(404, "Not found")
     now = datetime.now(timezone.utc).isoformat()
@@ -4642,8 +4614,7 @@ async def admin_cr_approve(cid: str, request: Request):
     return {"ok": True}
 
 @api.post("/admin/change-requests/{cid}/reject")
-async def admin_cr_reject(cid: str, request: Request, body: dict = None):
-    _check_admin(request.headers.get("authorization"))
+async def admin_cr_reject(cid: str, body: dict = None, admin: dict = Depends(require_admin)):
     reason = (body or {}).get("reason", "Please re-submit with clearer documents.")
     cr = await db.change_requests.find_one({"id": cid}, {"_id": 0})
     if not cr: raise HTTPException(404, "Not found")
@@ -4655,8 +4626,7 @@ async def admin_cr_reject(cid: str, request: Request, body: dict = None):
     return {"ok": True}
 
 @api.get("/admin/export/approvals.csv")
-async def admin_export(request: Request, period: Optional[str] = "30d"):
-    _check_admin(request.headers.get("authorization"))
+async def admin_export(period: Optional[str] = "30d", admin: dict = Depends(require_admin)):
     start, end = _period_window(period or "30d")
     merchants = await db.merchants.find(
         {"kyc_submitted_at": {"$gte": start.isoformat(), "$lte": end.isoformat()}},
@@ -4679,8 +4649,7 @@ async def admin_export(request: Request, period: Optional[str] = "30d"):
         headers={"Content-Disposition": f'attachment; filename="approvals-{period}.csv"'})
 
 @api.get("/admin/stores")
-async def admin_stores(request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_stores(admin: dict = Depends(require_admin)):
     stores = await db.stores.find({}, {"_id": 0}).to_list(500)
     for s in stores:
         s["products"] = await db.products.find({"store_id": s["id"]}, {"_id": 0}).to_list(500)
@@ -4715,13 +4684,13 @@ async def admin_stores(request: Request):
     return stores
 
 @api.get("/admin/orders")
-async def admin_orders(request: Request, status: Optional[str] = None, limit: int = 200):
+async def admin_orders(status: Optional[str] = None, limit: int = 200,
+                        admin: dict = Depends(require_admin)):
     """Returns orders grouped by lifecycle for admin tracking.
 
     Query `status` accepts: `live` (anything not delivered/rejected/cancelled),
     `delivered`, `rejected`, or any specific status. Omit for all orders.
     """
-    _check_admin(request.headers.get("authorization"))
     LIVE = ["pending_merchant", "accepted", "preparing", "on_the_way"]
     q = {}
     if status == "live":
@@ -4766,8 +4735,7 @@ async def admin_orders(request: Request, status: Optional[str] = None, limit: in
     return orders
 
 @api.post("/admin/products/{pid}/pause")
-async def admin_pause_product(pid: str, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_pause_product(pid: str, admin: dict = Depends(require_admin)):
     await db.products.update_one({"id": pid}, {"$set": {"paused": True}})
     p = await db.products.find_one({"id": pid}, {"_id": 0})
     if p:
@@ -4776,8 +4744,7 @@ async def admin_pause_product(pid: str, request: Request):
     return {"ok": True}
 
 @api.post("/admin/products/{pid}/unpause")
-async def admin_unpause_product(pid: str, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_unpause_product(pid: str, admin: dict = Depends(require_admin)):
     await db.products.update_one({"id": pid}, {"$set": {"paused": False}})
     p = await db.products.find_one({"id": pid}, {"_id": 0})
     if p:
@@ -4786,8 +4753,7 @@ async def admin_unpause_product(pid: str, request: Request):
     return {"ok": True}
 
 @api.delete("/admin/products/{pid}")
-async def admin_delete_product(pid: str, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_delete_product(pid: str, admin: dict = Depends(require_admin)):
     p = await db.products.find_one({"id": pid}, {"_id": 0})
     if not p: raise HTTPException(404, "Not found")
     await db.products.delete_one({"id": pid})
@@ -4796,21 +4762,18 @@ async def admin_delete_product(pid: str, request: Request):
     return {"ok": True}
 
 @api.post("/admin/stores/{sid}/pause")
-async def admin_pause_store(sid: str, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_pause_store(sid: str, admin: dict = Depends(require_admin)):
     await db.stores.update_one({"id": sid}, {"$set": {"paused": True}})
     return {"ok": True}
 
 @api.post("/admin/stores/{sid}/unpause")
-async def admin_unpause_store(sid: str, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_unpause_store(sid: str, admin: dict = Depends(require_admin)):
     await db.stores.update_one({"id": sid}, {"$set": {"paused": False}})
     return {"ok": True}
 
 # ===== OTP-protected delete (mocked email) =====
 @api.post("/admin/stores/{sid}/request-delete-otp")
-async def request_delete_otp(sid: str, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def request_delete_otp(sid: str, admin: dict = Depends(require_admin)):
     s = await db.stores.find_one({"id": sid}, {"_id": 0})
     if not s: raise HTTPException(404, "Store not found")
     otp = "".join(str(secrets.randbelow(10)) for _ in range(6))
@@ -4822,8 +4785,7 @@ async def request_delete_otp(sid: str, request: Request):
     return {"ok": True, "otp_demo": otp, "message": f"OTP sent to {ADMIN_EMAIL} (mocked — shown here for demo)"}
 
 @api.delete("/admin/stores/{sid}")
-async def admin_delete_store(sid: str, request: Request, body: OtpVerifyDelete):
-    _check_admin(request.headers.get("authorization"))
+async def admin_delete_store(sid: str, body: OtpVerifyDelete, admin: dict = Depends(require_admin)):
     rec = await db.admin_otps.find_one({"sid": sid}, {"_id": 0})
     if not rec or rec.get("otp") != body.otp:
         raise HTTPException(401, "Invalid OTP")
@@ -5202,9 +5164,8 @@ def _advance_return(r: dict, target_status: str):
 
 
 @api.post("/admin/returns/{rid}/{action}")
-async def admin_return_action(rid: str, action: str, request: Request):
+async def admin_return_action(rid: str, action: str, admin: dict = Depends(require_admin)):
     """action ∈ {assign, arriving, picked_up, complete}"""
-    _check_admin(request.headers.get("authorization"))
     r = await db.returns.find_one({"id": rid}, {"_id": 0})
     if not r: raise HTTPException(404, "Return not found")
     action_to_status = {
@@ -5254,8 +5215,7 @@ async def admin_return_action(rid: str, action: str, request: Request):
 
 
 @api.get("/admin/returns")
-async def admin_returns_list(request: Request, status: Optional[str] = None):
-    _check_admin(request.headers.get("authorization"))
+async def admin_returns_list(status: Optional[str] = None, admin: dict = Depends(require_admin)):
     q = {}
     if status: q["status"] = status
     rs = await db.returns.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
@@ -5291,9 +5251,8 @@ async def merchant_returns_analytics(user: dict = Depends(get_current_user)):
 
 
 @api.get("/admin/returns/analytics")
-async def admin_returns_analytics(request: Request):
+async def admin_returns_analytics(admin: dict = Depends(require_admin)):
     """Merchant-wise + reason-wise returns aggregation for admin Returns tab."""
-    _check_admin(request.headers.get("authorization"))
     returns = await db.returns.find({}, {"_id": 0}).to_list(5000)
     by_reason, by_merchant = {}, {}
     for r in returns:
@@ -5354,8 +5313,7 @@ async def create_complaint(oid: str, payload: dict, user: dict = Depends(custome
 
 
 @api.get("/admin/complaints")
-async def admin_complaints(request: Request, status: Optional[str] = None):
-    _check_admin(request.headers.get("authorization"))
+async def admin_complaints(status: Optional[str] = None, admin: dict = Depends(require_admin)):
     q = {}
     if status: q["status"] = status
     docs = await db.complaints.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
@@ -5363,8 +5321,7 @@ async def admin_complaints(request: Request, status: Optional[str] = None):
 
 
 @api.post("/admin/complaints/{cid}/resolve")
-async def admin_resolve_complaint(cid: str, request: Request, payload: Optional[dict] = None):
-    _check_admin(request.headers.get("authorization"))
+async def admin_resolve_complaint(cid: str, payload: Optional[dict] = None, admin: dict = Depends(require_admin)):
     note = (payload or {}).get("note", "")
     res = await db.complaints.update_one({"id": cid}, {"$set": {"status": "resolved", "resolved_at": _now_iso(), "resolution_note": note}})
     if res.matched_count == 0:
@@ -5438,23 +5395,21 @@ async def heartbeat(payload: dict):
 
 
 @api.get("/_debug/sentry")
-async def debug_sentry(request: Request):
+async def debug_sentry(admin: dict = Depends(require_admin)):
     """Admin-only smoke test for Sentry wiring.
 
     Intentionally raises so the error reaches Sentry. Use this once after
     pasting a real SENTRY_DSN to confirm the dashboard receives events.
     Returns 503 when Sentry is disabled (graceful no-op mode).
     """
-    _check_admin(request.headers.get("authorization"))
     if not os.environ.get("SENTRY_DSN", "").strip():
         raise HTTPException(503, "Sentry is disabled (SENTRY_DSN not set).")
     raise RuntimeError("Sentry debug — intentional test exception from /api/_debug/sentry")
 
 
 @api.get("/admin/live-users")
-async def admin_live_users(request: Request):
+async def admin_live_users(admin: dict = Depends(require_admin)):
     """Sessions seen in the last 2 minutes."""
-    _check_admin(request.headers.get("authorization"))
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
     sessions = await db.live_sessions.find({"last_seen": {"$gte": cutoff}}, {"_id": 0}).sort("last_seen", -1).to_list(500)
     by_role = {}
@@ -5464,8 +5419,7 @@ async def admin_live_users(request: Request):
     return {"sessions": sessions, "count": len(sessions), "by_role": by_role}
 
 @api.get("/admin/customers")
-async def admin_customers(request: Request, q: Optional[str] = None, limit: int = 200):
-    _check_admin(request.headers.get("authorization"))
+async def admin_customers(q: Optional[str] = None, limit: int = 200, admin: dict = Depends(require_admin)):
     query = {}
     if q:
         # Escape user input — never pass raw to $regex (ReDoS + injection risk)
@@ -5486,8 +5440,7 @@ async def admin_customers(request: Request, q: Optional[str] = None, limit: int 
     return customers
 
 @api.get("/admin/customers/{phone}")
-async def admin_customer_detail(phone: str, request: Request):
-    _check_admin(request.headers.get("authorization"))
+async def admin_customer_detail(phone: str, admin: dict = Depends(require_admin)):
     c = await db.customers.find_one({"phone": phone}, {"_id": 0})
     if not c: raise HTTPException(404, "Not found")
     orders = await db.orders.find({"customer.phone": phone}, {"_id": 0}).sort("created_at", -1).to_list(200)
@@ -5657,6 +5610,28 @@ async def startup_seed():
         log.info("[GEO] MongoDB %s — geospatial support %s", ver, "OK" if major >= 6 else "DEGRADED (<6.0)")
     except Exception as e:
         log.warning("Mongo version check failed: %s", e)
+
+    # ----- Seed the initial admin account -----
+    # Idempotent: only fires when admin_users is empty, so a restart never
+    # re-seeds or clobbers accounts created later via the (future) admin-user
+    # management UI. ADMIN_PASSWORD_HASH is already a bcrypt hash (see the
+    # ValueError check above enforcing it's set) — stored as-is, not re-hashed.
+    try:
+        await db.admin_users.create_index("email", unique=True)
+        if await db.admin_users.count_documents({}) == 0:
+            await db.admin_users.insert_one({
+                "id": f"adm-{uuid.uuid4().hex[:8]}",
+                "email": ADMIN_EMAIL.strip().lower(),
+                "password_hash": ADMIN_PASSWORD_HASH,
+                "name": "Admin",
+                "role": "admin",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_by": "startup-seed",
+                "active": True,
+            })
+            log.info("[startup] Seeded initial admin account for %s", ADMIN_EMAIL)
+    except Exception as e:
+        log.warning("admin_users seed skipped: %s", e)
 
     # ----- Redis cache (optional; degrades gracefully) -----
     try:
