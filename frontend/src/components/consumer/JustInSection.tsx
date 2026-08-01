@@ -49,7 +49,7 @@ export function JustInSection() {
   const showChips = stores.length >= 2;
 
   return (
-    <div className="pt-8 px-4">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
       <section className="bg-[#0A1F5C] rounded-2xl px-4 sm:px-5 py-6" data-testid="just-in-section">
         <div className="flex items-start justify-between gap-3">
           <div>

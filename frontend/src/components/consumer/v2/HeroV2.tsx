@@ -117,7 +117,7 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
 
   return (
     <section data-testid="hero-v2" className="relative">
-      <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-4 md:pt-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 md:pt-6">
         {clickable ? (
           <Link href={redirect} onClick={onClick} data-testid="hero-redirect-link"
                 className="block relative rounded-2xl overflow-hidden bg-[#0A1F5C] min-h-[300px] md:min-h-[320px]">

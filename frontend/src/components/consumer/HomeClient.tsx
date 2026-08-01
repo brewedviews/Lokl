@@ -273,7 +273,7 @@ export function HomeClient() {
     ),
 
     under_499: (
-      <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-6 pt-8" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}>
+      <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}>
         <div className="grid grid-cols-3 gap-2">
           {[
             { href: "/products?price=under-499", price: "Under ₹499", sub: "Budget picks", filter: "under_499" as const },
@@ -295,7 +295,7 @@ export function HomeClient() {
     ),
 
     category_pills: (
-      <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 pt-3">
+      <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
         <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
           {categories.length === 0 ? (
             Array.from({ length: 8 }).map((_, i) => (
@@ -370,12 +370,12 @@ export function HomeClient() {
       <SectionError key="offers-error" minHeight="min-h-[120px]" />
     ) : loaded.has("offers") && offers.length > 0 ? (
       <section key="offers" className="pt-8" data-testid="offers-strip" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("offers")); } catch {} } }}>
-        <div className="px-4 sm:px-6 mb-3 max-w-7xl mx-auto">
+        <div className="px-4 sm:px-6 lg:px-8 mb-3 max-w-7xl mx-auto">
           <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">Offers for you</h2>
         </div>
         <div
           ref={offersScrollRef}
-          className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 px-4 sm:px-6 max-w-7xl mx-auto"
+          className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 lg:scroll-pl-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto"
         >
           {offers.slice(0, 6).map((offer) => {
             const href = offer.cta_link || "/categories";
@@ -421,11 +421,11 @@ export function HomeClient() {
       <SectionError key="stores-error" minHeight="min-h-[200px]" />
     ) : storesReady && storesRail.length > 0 ? (
       <section key="stores" className="pt-8" data-testid="home-stores">
-        <div className="px-4 sm:px-6 flex items-end justify-between gap-3 mb-3 max-w-7xl mx-auto">
+        <div className="px-4 sm:px-6 lg:px-8 flex items-end justify-between gap-3 mb-3 max-w-7xl mx-auto">
           <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">{storesTitle}</h2>
           <a href="/stores" className="text-xs font-bold text-[#F59E0B] shrink-0 hover:underline">See all →</a>
         </div>
-        <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 sm:px-6 max-w-7xl mx-auto pb-1">
+        <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto pb-1">
           {storesRail.map((s) => (
             <Link key={s.id} href={`/store/${(s as any).slug || s.id}`}
               onClick={() => { try { trackStoreClick(s.id, s.name, "homepage_stores"); } catch {} }}
@@ -446,31 +446,32 @@ export function HomeClient() {
     ) : !storesReady ? <StoreRailSkeleton key="stores-skeleton" /> : null,
 
     merchant_cta: (
-      <a
-        key="merchant-cta"
-        href="https://lokl.up.railway.app/merchant/register"
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
-        className="block mx-4 md:mx-6 mt-8 mb-10"
-      >
-        <div className="bg-[#0A1F5C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-white font-bold text-sm leading-tight">
-              Own a store in Bhilai?
-            </p>
-            <p className="text-white/60 text-xs mt-0.5">
-              Join Lokl — list your products for free
-            </p>
+      <div key="merchant-cta" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 mb-10">
+        <a
+          href="https://lokl.up.railway.app/merchant/register"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
+          className="block"
+        >
+          <div className="bg-[#0A1F5C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-white font-bold text-sm leading-tight">
+                Own a store in Bhilai?
+              </p>
+              <p className="text-white/60 text-xs mt-0.5">
+                Join Lokl — list your products for free
+              </p>
+            </div>
+            <div className="flex-shrink-0 flex items-center gap-2 bg-[#E68910] text-white text-xs font-bold px-3 py-2 rounded-xl">
+              <span>Join free</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+              </svg>
+            </div>
           </div>
-          <div className="flex-shrink-0 flex items-center gap-2 bg-[#E68910] text-white text-xs font-bold px-3 py-2 rounded-xl">
-            <span>Join free</span>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M5 12h14M12 5l7 7-7 7"/>
-            </svg>
-          </div>
-        </div>
-      </a>
+        </a>
+      </div>
     ),
 
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
