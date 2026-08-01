@@ -67,6 +67,18 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "trending",       label: "Trending now",              enabled: true, rank: 40 },
 ];
 
+/**
+ * Injects a size/quality/format transform into a Cloudinary delivery URL
+ * (e.g. `.../upload/w_300,q_auto,f_auto/...`) so category art doesn't ship
+ * as a full-resolution original. No-op for any other host — we don't
+ * control those images' transform syntax, so we never risk corrupting them.
+ */
+function cloudinaryOptimize(url: string | undefined | null, transform = "w_300,q_auto,f_auto"): string {
+  if (!url) return "";
+  if (!url.includes("res.cloudinary.com") || !url.includes("/upload/")) return url;
+  return url.replace("/upload/", `/upload/${transform}/`);
+}
+
 export function HomeClient() {
   const lat = useLocationStore((s) => s.lat);
   const lng = useLocationStore((s) => s.lng);
@@ -83,6 +95,16 @@ export function HomeClient() {
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Set<string>>(new Set());
+  // Gates the popular-stores / nearby-stores fetches — no point fetching
+  // data for a section that's disabled and will never render. Seeded from
+  // the local default and updated once the server config (which can
+  // override enabled/disabled without a deploy) resolves. Mirrored into a
+  // ref too since the deferred-fetch timer lives inside a mount-only
+  // effect and can't reactively read updated state from its own closure.
+  const [storesEnabled, setStoresEnabled] = useState(
+    () => DEFAULT_SECTIONS.find((s) => s.id === "stores")?.enabled ?? false
+  );
+  const storesEnabledRef = useRef(storesEnabled);
   const offersScrollRef = useRef<HTMLDivElement>(null);
 
   const markLoaded = (key: string) =>
@@ -106,7 +128,11 @@ export function HomeClient() {
           ...extra,
         ];
         const seen = new Set<string>();
-        setSections(merged.filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; }));
+        const deduped = merged.filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
+        setSections(deduped);
+        const resolvedStoresEnabled = deduped.find((s) => s.id === "stores")?.enabled ?? false;
+        setStoresEnabled(resolvedStoresEnabled);
+        storesEnabledRef.current = resolvedStoresEnabled;
       }
       markLoaded("hero");
     }).catch(() => { markLoaded("hero"); });
@@ -115,7 +141,11 @@ export function HomeClient() {
     const _deferTimer = setTimeout(() => {
       api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
       api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
-      api.stores.popular(10).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
+      if (storesEnabledRef.current) {
+        api.stores.popular(10).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
+      } else {
+        markLoaded("popularStores");
+      }
     }, 800);
 
     // Single request for all product content — replaces N+1 store fetches
@@ -176,10 +206,11 @@ export function HomeClient() {
   }, []);
 
   useEffect(() => {
+    if (!storesEnabled) return;
     if (lat != null && lng != null) {
       api.stores.nearby({ lat, lng, limit: 10 }).then((r) => { setNearby(r); markLoaded("nearby"); }).catch(() => { markLoaded("nearby"); });
     }
-  }, [lat, lng]);
+  }, [lat, lng, storesEnabled]);
 
   useEffect(() => {
     const el = offersScrollRef.current;
@@ -323,7 +354,7 @@ export function HomeClient() {
                   className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition">
                   <div className="w-16 h-16 rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC]">
                     {cat.image ? (
-                      <img src={cat.image} alt={cat.name} className="w-full h-full object-cover object-top" />
+                      <img src={cloudinaryOptimize(cat.image, "w_128,q_auto,f_auto")} alt={cat.name} loading="lazy" className="w-full h-full object-cover object-top" />
                     ) : (
                       <div className="w-full h-full bg-[#E5E2DC] flex items-center justify-center">
                         <span className="text-2xl">👗</span>
@@ -367,7 +398,7 @@ export function HomeClient() {
                   className="group relative aspect-[3/4] rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC] transition hover:border-[#0A1F5C]"
                 >
                   {cat.image ? (
-                    <img src={cat.image} alt={cat.name} className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
+                    <img src={cloudinaryOptimize(cat.image, "w_400,q_auto,f_auto")} alt={cat.name} loading="lazy" className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
                   ) : (
                     <div className="w-full h-full bg-[#E5E2DC]" />
                   )}

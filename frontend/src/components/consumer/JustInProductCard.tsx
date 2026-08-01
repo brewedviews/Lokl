@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 
 export interface JustInProduct {
   id: string;
@@ -36,7 +37,14 @@ export function JustInProductCard({ product: p, showStore }: Props) {
     >
       <div className="relative aspect-[3/4] bg-slate-100">
         {p.image ? (
-          <img src={p.image} alt={p.name} className="w-full h-full object-cover object-top" />
+          <Image
+            src={p.image}
+            alt={p.name}
+            fill
+            sizes="(max-width: 640px) 120px, 132px"
+            loading="lazy"
+            className="object-cover object-top"
+          />
         ) : (
           <div className="w-full h-full v2-shimmer" />
         )}

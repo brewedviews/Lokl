@@ -1058,16 +1058,14 @@ async def feed_just_in(store_id: Optional[str] = None, limit: int = 20):
          "store_id": 1, "store_name": 1, "created_at": 1},
     ).sort("created_at", -1).to_list(limit)
 
-    all_visible = await db.products.find(
-        {"store_id": {"$in": sids}, **_visible_product_filter()},
-        {"_id": 0, "store_id": 1, "store_name": 1},
-    ).to_list(2000)
-    seen: dict[str, str] = {}
-    for p in all_visible:
-        sid = p.get("store_id")
-        if sid and sid not in seen:
-            seen[sid] = p.get("store_name") or "Store"
-    stores = [{"id": sid, "name": name} for sid, name in seen.items()]
+    # Distinct stores with visible products — let Mongo dedupe server-side
+    # instead of pulling up to 2000 raw product docs over the wire just to
+    # loop-and-dedupe in Python.
+    store_agg = await db.products.aggregate([
+        {"$match": {"store_id": {"$in": sids}, **_visible_product_filter()}},
+        {"$group": {"_id": "$store_id", "name": {"$first": "$store_name"}}},
+    ]).to_list(200)
+    stores = [{"id": s["_id"], "name": s.get("name") or "Store"} for s in store_agg]
 
     return {"products": items, "stores": stores}
 
