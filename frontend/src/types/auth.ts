@@ -32,7 +32,7 @@ export interface AdminLoginPayload { email: string; password: string }
 
 export interface AdminAuthResponse {
   token: string;
-  admin: { email: string; role: "admin" };
+  admin: { id: string; email: string; name: string; role: "admin" };
 }
 
 // ============================================================================
