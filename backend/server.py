@@ -1881,7 +1881,7 @@ DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "under_499",       "label": "Under ₹499",                 "enabled": True, "rank": 2},
     {"id": "category_pills",  "label": "Category pills",             "enabled": True, "rank": 3},
     {"id": "popular_in_city", "label": "Trending now",               "enabled": True, "rank": 10},
-    {"id": "stores",          "label": "Popular stores in Bhilai",   "enabled": True, "rank": 20},
+    {"id": "stores",          "label": "Popular stores in Bhilai",   "enabled": False, "rank": 20},
     {"id": "offers",          "label": "Offers for you",             "enabled": True, "rank": 30},
     {"id": "selling_fast",    "label": "Selling fast",               "enabled": True, "rank": 40},
     {"id": "recently_viewed", "label": "Recently added",             "enabled": True, "rank": 50},
