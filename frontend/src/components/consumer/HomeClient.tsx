@@ -296,7 +296,8 @@ export function HomeClient() {
 
     category_pills: (
       <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
-        <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
+        {/* Mobile — horizontal-scroll tile strip, unchanged */}
+        <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2 md:hidden">
           {categories.length === 0 ? (
             Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1.5">
@@ -330,6 +331,48 @@ export function HomeClient() {
                     )}
                   </div>
                   <span className="text-[11px] font-semibold text-[#0A1F5C] text-center w-16 leading-tight line-clamp-2">
+                    {cat.name === "Lingerie & Innerwear" ? "Lingerie" : cat.name}
+                  </span>
+                </Link>
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Desktop — image-led portrait card grid, one column per category */}
+        <div
+          className="hidden md:grid gap-4 pb-2"
+          style={{ gridTemplateColumns: `repeat(${categories.length === 0 ? 8 : Math.min(categories.length, 9) + 1}, minmax(0, 1fr))` }}
+        >
+          {categories.length === 0 ? (
+            Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="aspect-[3/4] rounded-2xl bg-[#E5E2DC] animate-pulse" />
+            ))
+          ) : (
+            <>
+              <Link
+                href="/products"
+                className="group relative aspect-[3/4] rounded-2xl overflow-hidden bg-[#0A1F5C] flex flex-col items-center justify-center gap-2 transition hover:scale-[1.02]"
+              >
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                  <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+                </svg>
+                <span className="font-display font-bold text-white text-sm">All</span>
+              </Link>
+              {(categories as any[]).slice(0, 9).map((cat, catIdx) => (
+                <Link key={cat.id} href={`/c/${cat.slug}`}
+                  onClick={() => { try { trackCategoryTileClick(cat.name, catIdx); } catch {} }}
+                  ref={(el) => { if (el) { try { observeImpression(el, () => trackCategoryTileImpression(cat.name, catIdx)); } catch {} } }}
+                  className="group relative aspect-[3/4] rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC] transition hover:border-[#0A1F5C]"
+                >
+                  {cat.image ? (
+                    <img src={cat.image} alt={cat.name} className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
+                  ) : (
+                    <div className="w-full h-full bg-[#E5E2DC]" />
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/75 via-black/15 to-transparent pointer-events-none" />
+                  <span className="absolute bottom-3 left-3 right-3 font-display font-bold text-white text-sm leading-tight line-clamp-2 break-words">
                     {cat.name === "Lingerie & Innerwear" ? "Lingerie" : cat.name}
                   </span>
                 </Link>
