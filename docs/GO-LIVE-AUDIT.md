@@ -149,14 +149,18 @@ check in the entire audit and is outside what a code read can settle.
   `NEXT_PUBLIC_SENTRY_DSN` are not set in production, the net effect is
   exactly what was assumed going in: no error monitoring, full stop**,
   regardless of how solid the integration code looks.
-- **Independent of the Sentry question:** found **41 instances** of
-  `except Exception: pass` (or bare `except: pass`) in `server.py` — mostly
-  wrapping outbound notification sends (WhatsApp/SMS). These silently
-  swallow failures *before* Sentry's automatic uncaught-exception capture
-  would ever see them (deliberately caught exceptions need an explicit
-  `capture_exception()` call, which none of these have). So even with
-  Sentry fully wired and DSN set, these 41 sites would stay invisible. This
-  is very likely a Pass 1 blocker candidate on its own.
+- **Independent of the Sentry question:** a structural scan (not just grep —
+  walked every `except` block's actual body) found **46 exception-swallowing
+  sites** in `server.py` — both bare `except Exception: pass` and blocks
+  whose only action is a local `print()`/`log.warning()` call (which stays
+  on Railway's stdout/log stream but is never forwarded to Sentry unless the
+  logging integration is explicitly configured to bridge WARNING+ records).
+  These silently swallow failures *before* Sentry's automatic
+  uncaught-exception capture would ever see them (deliberately caught
+  exceptions need an explicit `capture_exception()` call, which none of
+  these have). So even with Sentry fully wired and DSN set, these 46 sites
+  would stay invisible. **Full location-by-location breakdown and
+  HIGH/LOW risk classification: see Pass 2.**
 
 ### 5. Order state map
 
@@ -226,10 +230,204 @@ exceptions in `server.py` bypass it regardless._
 
 ## Pass 2 — Order Lifecycle & Failure Modes (COD + pickup)
 
-_Not started. Seed findings from Pass 0: duplicate pickup-confirmation
-endpoints with different integrity guarantees; dead `completed` state;
-Twilio-driven delivery confirmation as an unusual side-channel state
-transition._
+**Read-only pass.** Full read of `create_order`, the order FSM, every
+merchant/admin/rider order-transition endpoint, and both pickup-confirmation
+endpoints. No code changed.
+
+### 2.1 — The silent excepts (46 total; HIGH-risk subset below)
+
+Structural scan of every `except Exception:` / bare `except:` block in
+`server.py` whose entire body is a no-op or a local print/log call (i.e.
+nothing re-raises, nothing pages anyone, nothing calls
+`sentry_sdk.capture_exception`). **19 of the 46 sit directly in the
+order / merchant-transition / notification / stock path** and are classed
+HIGH; the other 27 are peripheral (login OTP delivery, feed/analytics
+endpoints, support tickets, live-session tracking, merchant subscription
+lookups, startup migrations — all logged and/or not order-critical) and are
+classed LOW.
+
+**HIGH — order/merchant-transition/notification/stock path (19 sites, 11 functions):**
+
+| # | Line(s) | Function | What it hides | User-visible consequence | Severity |
+|---|---|---|---|---|---|
+| 1 | 2870 | `create_order()` | Any exception in the Bhilai delivery-geofence check (`_is_in_bhilai_delivery_zone`) | **Not a notification — a validation check.** A bug here doesn't block the order, it silently *lets it through*. Fails open instead of closed on a business rule (only deliver within Bhilai). | **BLOCKER** |
+| 2 | 3106 (customer) | `create_order()` | `notify_order_placed` / `notify_pickup_pending` failure | Customer gets no WhatsApp confirmation their order was placed. Order itself is fine (see 2.2). | WARNING |
+| 3 | 3120 (merchant) | `create_order()` | `notify_merchant_new_order` / `notify_merchant_pickup_pending` failure | Merchant is never pinged that a new order exists. Nothing else pings them — see 2.4. | **BLOCKER** (compounds with 2.3's finding on `accepted`/`pending_merchant` having no safety net for non-COD) |
+| 4 | 3131 | `create_order()` | `notify_merchant_first_order` failure | Cosmetic — a "congrats on your first order" message is lost. Order + #3's notification are separate calls. | NOTE |
+| 5 | 1351 | `_handle_payment_captured()` (Razorpay webhook handler) | `notify_merchant_new_order` failure, *after* a paid order is released to the merchant queue | Same as #3 but on the (currently dormant) Razorpay path, with no COD-style auto-cancel safety net at all (see 2.3). | **BLOCKER** (dormant today, live risk if Razorpay is ever enabled) |
+| 6 | 3339 | `merchant_accept_order()` | `notify_order_accepted` failure — this message carries the delivery OTP | Customer never receives the OTP the rider/merchant needs to confirm delivery. Downstream OTP-matching (incl. the Twilio-inbound rider-reply flow) has nothing to match against. | **BLOCKER** |
+| 7 | 3371 | `merchant_accept_order()` | `notify_rider_pickup` failure (logged via `log.error`, not fully silent, but still no alerting) | Rider is never dispatched/informed for this leg. Order can sit in `accepted` indefinitely — see 2.3, this state has no timeout. | **BLOCKER** |
+| 8 | 3408 | `merchant_handed_to_rider()` | `notify_order_on_the_way` failure — also carries the OTP | Same OTP-loss risk as #6, at the next stage. | **BLOCKER** |
+| 9 | 3434 | `accept_pickup()` | `notify_pickup_reserved` failure — carries the pickup code, store address, maps link | Customer never learns their reservation was accepted or their pickup code. Moot in practice today since the live UI uses `confirm_pickup`, which never checks the code anyway — see 2.5. | WARNING |
+| 10 | 3554 | `admin_mark_delivered()` | `notify_order_delivered` failure | Order state is correctly updated; only the "delivered" message is lost. | NOTE |
+| 11 | 3613 | `admin_cancel_order()` | `notify_order_cancelled` failure | Order correctly cancelled + stock restocked; customer isn't told why a COD order they expected never shows up. | WARNING |
+| 12 | 4517 | `admin_approve()` (merchant KYC approval) | `notify_merchant_approved` failure | Merchant-transition, not order — approved in DB, but never told via WhatsApp. Lower severity since logging into their dashboard shows it directly. | NOTE |
+| 13 | 4931 | `twilio_inbound()` (rider WhatsApp delivery confirmation) | `notify_order_delivered` failure | Order state already correctly flipped to `delivered`; only the customer's confirmation message is lost. | NOTE |
+| 14 | 5556 | `_auto_cancel_stale_orders()` (background job) | `send_with_fallback` failure — the auto-cancellation notice | Order is correctly auto-cancelled + restocked; customer isn't told why it vanished. Looks like a silently lost order from their side even though the system behaved correctly. | WARNING |
+
+(Line numbers above are the `except` line itself for single-line sites, or
+the first notification call inside the block for multi-line sites; see
+`create_order()` full read in 2.2 for exact call sites.)
+
+**Also worth a look, borderline HIGH (order-adjacent, not core FSM):**
+`admin_return_action()` (lines 5203, 5213) has two `except Exception: pass`
+blocks around outbound rider/customer notifications in the returns flow —
+same silent-notification pattern as the delivery path, one step removed.
+
+### 2.2 — `create_order()` deep read (`server.py:2828-3136`)
+
+**(a) DB write partially fails.** The stock-reservation loop and the final
+`db.orders.insert_one(doc)` are **both inside the same `try` block**
+(`server.py:2933-3100`). A `reservations: list[tuple[str, str, int]]` tracks
+every successful atomic stock decrement (`find_one_and_update` with a
+`$gte` filter — genuinely atomic per item, safe against concurrent
+last-unit checkouts). On **any** exception in that block — a later item
+being out of stock, a Mongo error, the insert itself failing — the `except`
+clause rolls back every reservation made so far via `$inc` and re-raises.
+**Verdict: for the stock-vs-order-document relationship, order creation is
+correctly atomic.** No state is reachable where stock is decremented but no
+order exists, or where a partially-built order document is persisted. NOTE
+(no fix needed here).
+
+**(b) Merchant WhatsApp/Twilio notification fails.** All notification calls
+(`server.py:3106` onward) are **strictly after** the `insert_one` at line
+3092, in their own separate block with per-call `try/except`. A failure here
+can never roll back or corrupt the already-committed order. **Can a customer
+get a confirmed order the merchant never sees? Not via the database/API** —
+the order exists and is queryable through the merchant's normal order-list
+endpoint regardless of notification success. **Via the WhatsApp ping —
+yes**, functionally: if #3 in 2.1 fires, the merchant is never proactively
+told, and must happen to check their dashboard. Combined with 2.3's finding
+that `accepted` has no timeout, this is a real (not theoretical) way for an
+order to sit unnoticed.
+
+**(c) Stock/plan validation throws mid-way.** Covered by (a) — the rollback
+covers this case exactly the same way. GOOD.
+
+**(d) The one genuine "customer charged, no order" path — Razorpay only,
+currently dormant.** `create_order` requires the Razorpay payment to already
+be captured and signature-verified *before* this endpoint runs (frontend
+calls `/payments/razorpay/create-order`, completes payment client-side,
+*then* calls `POST /orders`). If anything in the try block fails **after**
+that payment is already captured by Razorpay (stock sold out in the gap,
+a DB error, anything) — the customer has been charged and **no Lokl order
+is ever created**, and nothing in this failure path issues a refund
+(`_restock_order_items`/refund logic only exists inside
+`customer_cancel_order`, which requires an order to exist first). The
+independent webhook path confirms this is a real gap, not a one-off: if the
+`POST /orders` call never completes (app crash, network drop after payment
+succeeds), the `payment.captured` webhook later fires
+`_handle_payment_captured`, which does `db.orders.find_one({razorpay_order_id...})`,
+finds nothing, and raises `ValueError("No Lokl order for razorpay_order_id=...")`
+— caught by the webhook's outer handler (`server.py:1299-1303`), **logged
+and stored with an `error` field in `webhook_events`, but the webhook still
+returns `{"status": "ok"}` (200) so Razorpay stops retrying.** Money taken,
+order permanently missing, nobody paged, no retry. **BLOCKER — scoped to
+"if/when Razorpay is turned on."** Confirmed via Pass 0's dormancy finding
+that this cannot happen today (COD-only, no live UI path to Razorpay), but
+this needs to be fixed *before* Razorpay is ever flipped on, not discovered
+after the first real charge.
+
+**Is order creation atomic overall?** COD: yes, effectively — either a
+fully-formed order with correct stock exists, or nothing does. Razorpay
+(dormant): no — payment capture and order creation are two separate,
+non-transactional steps with no compensating refund wired into either
+failure path.
+
+### 2.3 — Stuck-order analysis (dead-end states)
+
+| State | Automatic recovery? | Manual escape hatch | Verdict |
+|---|---|---|---|
+| `pending_merchant` (COD) | Yes — `_auto_cancel_stale_orders()` cancels + restocks after 2h, checked every 5 min | `POST /admin/orders/{oid}/cancel` | Self-healing |
+| `pending_merchant` (Razorpay, paid) | **No** — the auto-cancel job filters `payment_method == "COD"` only (`server.py:5536`), so a paid online order a merchant never accepts has **no timeout at all** | Admin cancel only | **BLOCKER** (dormant today, live gap if Razorpay activates) |
+| `accepted` | **None** | Admin `mark-delivered` or `cancel` only. Customer **cannot** self-cancel past `pending_merchant` (`customer_cancel_order` only allows `awaiting_payment`/`pending_merchant`, `server.py:1409`). Merchant has **no reject/cancel endpoint at all** once accepted. | **Dead-end** — relies entirely on an admin noticing |
+| `on_the_way` | None | Rider's WhatsApp OTP reply (`twilio_inbound`), or admin mark-delivered/cancel | **Dead-end**, same caveats as `accepted` |
+| `pending_pickup` | **Designed but never wired up** — `GET /admin/expire-pickups` force-cancels past `pickup_expires_at`, but it is **not** in the `asyncio.create_task()` startup list (only `_auto_cancel_stale_orders` and `_send_notify_me_messages` are scheduled) — confirmed via grep, this endpoint only runs if a human manually hits the URL | Merchant/customer `cancel-pickup` | **BLOCKER-adjacent** — the fix exists in code, it's just never called |
+| `reserved` (pickup accepted) | Same never-scheduled `expire-pickups` gap | Customer or merchant can self-cancel via `cancel-pickup` | Not fully dead-ended — self-service exists, but relies on someone remembering |
+| `cancelled` / `delivered` / `returned` | — | — | Correctly terminal by FSM design (`ORDER_STATUS_TRANSITIONS` gives all three an empty transition set) |
+| `completed` | — | — | **Dead FSM state** — no endpoint anywhere ever sets it (confirmed again this pass). Cosmetic, not a launch risk. |
+
+**Bottom line:** `accepted` and `on_the_way` are the two live, reachable
+dead-ends today — no timeout, no customer self-service, no merchant
+self-service, admin-only recovery with no automated nudge that anything
+needs attention. `pending_pickup`/`reserved` have a *designed* safety net
+that is simply switched off (never scheduled).
+
+### 2.4 — Notification failure = silent order?
+
+**No — the order is never silently lost, only the notification is.**
+Confirmed directly from the `create_order` read: the DB write
+(`insert_one`) always happens before any notification is attempted, in a
+separate code block with independent error handling. A merchant or customer
+can always find the order by querying/listing normally, regardless of
+whether any WhatsApp message went out.
+
+What *does* silently degrade is the human-facing signal. The real,
+compounding risk is 2.1 + 2.3 stacked together: a notification fails (item
+#3/#5/#6/#7/#8 above) **and** the resulting state has no timeout (`accepted`,
+`on_the_way`, or non-COD `pending_merchant`) **and** the merchant isn't
+proactively checking their dashboard — the order can sit invisible-in-
+practice for an unbounded time even though a direct DB query would find it
+instantly. Functionally indistinguishable from "lost" to the actual people
+involved, even though it isn't lost in the strict data sense.
+
+### 2.5 — `verify_pickup` vs `confirm_pickup` (`server.py:3439-3475`)
+
+Both flip `reserved → delivered`. That's where the similarity ends:
+
+- **`verify_pickup`** (`server.py:3439`) requires the customer's 4-digit
+  `pickup_code` in the request body and returns `400 "Incorrect pickup
+  code"` on mismatch. This is the integrity-checked path.
+- **`confirm_pickup`** (`server.py:3460`) performs **zero** code
+  verification — it only checks `status == "reserved"` and immediately
+  writes `delivered`. Its docstring ("after visual code verification")
+  implies the check is supposed to happen out-of-band, entirely on trust.
+
+**Confirmed via frontend grep: `verify_pickup` is never called anywhere in
+the frontend.** Only `confirm_pickup` is wired to the merchant UI's
+"Confirm pickup" button (`frontend/src/app/merchant/orders/page.tsx:158`).
+They are **not** used interchangeably — the safer endpoint is dead code, and
+the weaker one is the only one actually reachable from the product.
+
+**Practical consequence:** the `pickup_code` the system generates and sends
+to the customer (`notify_pickup_reserved`) is **decorative in the current
+production flow** — nothing ever checks it before an order is marked
+delivered. Any authenticated merchant can mark *any* of their `reserved`
+pickup orders as delivered with a single click, with no proof the customer
+was ever present. Exploitable two ways: (a) a merchant fraudulently marks a
+pickup complete without the customer ever collecting the item, or (b) plain
+human error — the wrong reservation gets marked complete with nothing to
+catch it. Given the audit brief names COD/pickup fraud as the specific
+concern, and the whole point of generating a pickup code is defeated if
+nothing checks it: **BLOCKER.**
+
+### Pass 2 summary — BLOCKER / WARNING / NOTE tally
+
+- **BLOCKERs (6):** geofence-check swallow (2.1 #1) · merchant-new-order
+  notification swallow with no downstream safety net (2.1 #3, #5) ·
+  OTP-carrying notification swallows on accept/handoff (2.1 #6, #8) ·
+  rider-dispatch notification swallow feeding a state with no timeout
+  (2.1 #7) · Razorpay charge-with-no-order gap, both direct and webhook
+  paths (2.2d) · non-COD `pending_merchant` has no auto-cancel (2.3) ·
+  `pending_pickup`/`reserved` expiry sweep never scheduled (2.3) ·
+  `confirm_pickup` bypasses the pickup-code check entirely (2.5). *(Several
+  of these share one root fix — see cross-cutting note below.)*
+- **WARNINGs (5):** customer order-placed notification swallow (2.1 #2) ·
+  pickup-reserved notification swallow (2.1 #9) · cancellation notification
+  swallow (2.1 #11) · auto-cancel notice swallow (2.1 #14) · `accepted`/
+  `on_the_way` dead-ends relying solely on admin attentiveness (2.3).
+- **NOTEs (5):** first-order-congrats swallow (2.1 #4) · delivered-
+  confirmation swallows (2.1 #10, #13) · KYC-approval notification swallow
+  (2.1 #12) · dead `completed` FSM state (2.3, restated from Pass 0).
+
+**Cross-cutting observation, not a separate finding:** most of the BLOCKER
+and WARNING notification swallows share the same shape (`except Exception:`
+→ `print`/`pass`, no retry, no alert, no `capture_exception`) and the same
+root cause as Pass 1's 46-site count. A single shared "attempt notification,
+log AND alert on failure, optionally retry once" helper — instead of 19
+independent inline `try/except` blocks — would collapse most of 2.1's HIGH
+list into one fix rather than nineteen. Noted for whoever designs the fix;
+not acted on here per the read-only scope of this pass.
 
 ## Pass 3 — Auth, Authorization & Data Integrity
 
