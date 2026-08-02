@@ -1395,9 +1395,12 @@ async def _handle_refund_created(event: dict) -> None:
 async def customer_cancel_order(oid: str, request: Request, payload: Optional[dict] = None,
                                 user: dict = Depends(customer_user)):
     """Customer-initiated cancel — caller must be authenticated AND own the
-    order (JWT phone === order's customer phone). Allowed only while the order
-    is still pre-acceptance. Triggers auto-refund when the order was paid via
-    Razorpay."""
+    order (JWT phone === order's customer phone). Allowed pre-acceptance
+    (awaiting_payment/pending_merchant — cancels the whole order) AND while
+    accepted but not yet handed to a rider (cancels only the merchant
+    slice(s) still at pending/accepted; a slice already handed off is
+    physically with a rider and needs admin/support, not self-serve).
+    Triggers auto-refund when the order was paid via Razorpay."""
     body = payload or {}
     reason = (body.get("reason") or "Customer cancelled").strip()[:200]
     o = await db.orders.find_one({"id": oid}, {"_id": 0})
@@ -1406,14 +1409,36 @@ async def customer_cancel_order(oid: str, request: Request, payload: Optional[di
     if user.get("role") != "admin" and cust_phone != user.get("sub"):
         raise HTTPException(403, "Not your order")
     phone = cust_phone  # downstream code still uses `phone` for notifications
-    if o.get("status") not in ("awaiting_payment", "pending_merchant"):
-        raise HTTPException(400, f"Cannot cancel from status: {o.get('status')}")
-    await db.orders.update_one({"id": oid}, {"$set": {
-        "status": "cancelled", "cancel_reason": reason,
-        "cancelled_by": "customer",
-        "cancelled_at": datetime.now(timezone.utc).isoformat(),
-    }})
-    await _restock_order_items(o)
+    status = o.get("status")
+    if status not in ("awaiting_payment", "pending_merchant", "accepted"):
+        raise HTTPException(400, f"Cannot cancel from status: {status}")
+
+    final_status = "cancelled"
+    if status == "accepted":
+        mids = o.get("merchant_ids") or []
+        states = dict(o.get("merchant_states") or {})
+        cancellable = [m for m in mids if states.get(m) in ("pending", "accepted")]
+        if not cancellable:
+            raise HTTPException(400, "This order is already on its way — contact support to cancel")
+        for m in cancellable:
+            final_status = await _merchant_cancel_own_slice(oid, m, reason)
+        for m in cancellable:
+            merch = await db.merchants.find_one({"id": m}, {"_id": 0, "phone": 1})
+            if merch and merch.get("phone"):
+                try: send_with_fallback(merch["phone"], f"Order {oid} was cancelled by the customer.")
+                except Exception: pass
+    else:
+        await db.orders.update_one({"id": oid}, {"$set": {
+            "status": "cancelled", "cancel_reason": reason,
+            "cancelled_by": "customer",
+            "cancelled_at": datetime.now(timezone.utc).isoformat(),
+        }})
+        await _restock_order_items(o)
+        for m in (o.get("merchant_ids") or []):
+            merch = await db.merchants.find_one({"id": m}, {"_id": 0, "phone": 1})
+            if merch and merch.get("phone"):
+                try: send_with_fallback(merch["phone"], f"Order {oid} was cancelled by the customer before you accepted it.")
+                except Exception: pass
     refund_initiated = False
     if o.get("payment_status") == "paid" and o.get("razorpay_payment_id"):
         try:
@@ -1441,8 +1466,8 @@ async def customer_cancel_order(oid: str, request: Request, payload: Optional[di
     await audit_service.log("order_cancelled", order_id=oid,
                             amount=float(o.get("total", 0)),
                             actor=phone, ip_address=request.client.host if request.client else None,
-                            metadata={"reason": reason, "refund_initiated": refund_initiated})
-    return {"ok": True, "status": "cancelled", "refund_initiated": refund_initiated}
+                            metadata={"reason": reason, "refund_initiated": refund_initiated, "resulting_status": final_status})
+    return {"ok": True, "status": final_status, "refund_initiated": refund_initiated}
 
 
 @api.get("/admin/orders/{oid}/audit-log")
@@ -2685,6 +2710,47 @@ def _stamp_merchant_step(timelines: dict, mid: str, label: str, when: str) -> di
     return timelines
 
 
+async def _merchant_cancel_own_slice(oid: str, mid: str, reason: str) -> str:
+    """Cancel one merchant's slice of an order — restocks exactly that
+    merchant's items, marks their per-merchant state 'cancelled', and
+    recomputes the global status. Shared by merchant reject/cancel and the
+    customer's accepted-order cancel path so there's one place that knows how
+    to do this safely.
+
+    Re-reads the order fresh (rather than trusting a caller-supplied doc) so
+    repeated calls in a loop (multi-store cancel) never race on stale
+    merchant_states/merchant_cancelled — this codebase doesn't use Mongo
+    transactions anywhere, so read-fresh-then-write is the established
+    pattern (matches admin_cancel_order).
+
+    Caller MUST have already verified this merchant's slice is in a
+    cancellable state (`pending` or `accepted`, not `cancelled` already —
+    otherwise stock gets restored twice for the same slice) before calling.
+    Returns the new global status.
+    """
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Order not found")
+    for it in (o.get("items") or []):
+        if it.get("merchant_id") != mid:
+            continue
+        pid = it.get("id"); qty = int(it.get("qty", 1) or 1)
+        size = (it.get("size") or "").strip() or "default"
+        if pid and qty > 0:
+            await db.products.update_one({"id": pid}, {"$inc": {f"stock.{size}": qty}})
+    states = dict(o.get("merchant_states") or {m: "pending" for m in (o.get("merchant_ids") or [])})
+    states[mid] = "cancelled"
+    cancelled = dict(o.get("merchant_cancelled") or {})
+    cancelled[mid] = reason
+    new_global = _derive_global_status(states)
+    update_doc = {"merchant_states": states, "merchant_cancelled": cancelled, "status": new_global}
+    if new_global == "cancelled":
+        update_doc["cancel_reason"] = reason
+        update_doc["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+    await db.orders.update_one({"id": oid}, {"$set": update_doc})
+    return new_global
+
+
 # ===== Order status FSM =====
 # Valid global-status transitions. Enforced by `_assert_status_transition`
 # wherever the order's top-level `status` is updated directly. The
@@ -3177,6 +3243,10 @@ async def get_order(order_id: str, request: Request):
         merchant_ids = list((o.get("merchant_states") or {}).keys())
         if caller not in merchant_ids:
             raise HTTPException(403, "This order is not from your store")
+        # Same redaction as /merchant/orders — the pickup code must only ever
+        # reach the customer (via notify_pickup_reserved), never the merchant,
+        # or verify-pickup's code check becomes trivially bypassable.
+        o.pop("pickup_code", None)
     else:
         # Customer must own this order — compare last 10 digits of phone
         def _norm(p: str) -> str:
@@ -3292,6 +3362,12 @@ async def merchant_orders(user: dict = Depends(get_current_user)):
         # Hide other merchants' OTPs from this merchant's view
         if o.get("merchant_otps"):
             o["merchant_otps"] = {mid: o["my_otp"]}
+        # The pickup code is only ever meant to be known by the customer —
+        # only they receive it via WhatsApp (notify_pickup_reserved). It must
+        # NOT be visible to the merchant here, otherwise verify-pickup's code
+        # check is worthless (merchant could just read it off their own screen
+        # instead of asking the customer to show it).
+        o.pop("pickup_code", None)
         cleaned.append(o)
     return cleaned
 
@@ -3410,6 +3486,63 @@ async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_us
     return {"ok": True, "all_handed": all_handed, "my_state": "handed_off"}
 
 
+@api.post("/merchant/orders/{oid}/reject")
+@_limit("20/minute")
+async def merchant_reject_order(oid: str, request: Request, payload: Optional[dict] = None,
+                                user: dict = Depends(get_current_user)):
+    """Merchant rejects their slice of an order they have NOT yet accepted.
+    Restocks this merchant's items and notifies the customer (COD — no charge
+    was ever taken, so no refund logic needed here). On a multi-store cart,
+    only this merchant's slice is affected; other stores' items are untouched."""
+    mid = user["sub"]
+    if user.get("role") not in ("merchant", "admin"):
+        raise HTTPException(403, "Merchant only")
+    o = await db.orders.find_one({"id": oid, "merchant_ids": mid}, {"_id": 0})
+    if not o: raise HTTPException(404, "Order not found")
+    if o.get("order_type") == "pickup":
+        raise HTTPException(400, "Use cancel-pickup for pickup orders")
+    states = dict(o.get("merchant_states") or {m: "pending" for m in (o.get("merchant_ids") or [])})
+    if states.get(mid) != "pending":
+        raise HTTPException(400, "Already accepted — use cancel instead of reject")
+    reason = ((payload or {}).get("reason") or "Rejected by merchant").strip()[:200]
+    new_global = await _merchant_cancel_own_slice(oid, mid, reason)
+    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    if cust_phone:
+        try: notify_order_rejected(cust_phone, oid)
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
+    return {"ok": True, "status": new_global}
+
+
+@api.post("/merchant/orders/{oid}/cancel")
+@_limit("20/minute")
+async def merchant_cancel_order(oid: str, request: Request, payload: Optional[dict] = None,
+                                user: dict = Depends(get_current_user)):
+    """Merchant cancels their slice AFTER accepting but BEFORE handing to the
+    rider. Restocks this merchant's items and notifies the customer. Once a
+    merchant has marked 'handed to rider', this endpoint refuses — that leg is
+    already physically with a rider and needs admin/support, not a self-serve
+    cancel."""
+    mid = user["sub"]
+    if user.get("role") not in ("merchant", "admin"):
+        raise HTTPException(403, "Merchant only")
+    o = await db.orders.find_one({"id": oid, "merchant_ids": mid}, {"_id": 0})
+    if not o: raise HTTPException(404, "Order not found")
+    if o.get("order_type") == "pickup":
+        raise HTTPException(400, "Use cancel-pickup for pickup orders")
+    states = dict(o.get("merchant_states") or {})
+    if states.get(mid) != "accepted":
+        raise HTTPException(400, "Can only cancel an order you've accepted but not yet handed to the rider")
+    reason = ((payload or {}).get("reason") or "Cancelled by merchant").strip()[:200]
+    new_global = await _merchant_cancel_own_slice(oid, mid, reason)
+    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    if cust_phone:
+        try: notify_order_cancelled(cust_phone, oid, reason)
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
+    return {"ok": True, "status": new_global}
+
+
 @api.post("/merchant/orders/{oid}/accept-pickup")
 async def accept_pickup(oid: str, user: dict = Depends(merchant_user)):
     """Accept a pending pickup request — transitions status to 'reserved' and sends the customer their pickup code."""
@@ -3438,7 +3571,14 @@ async def accept_pickup(oid: str, user: dict = Depends(merchant_user)):
 
 @api.post("/merchant/orders/{oid}/verify-pickup")
 async def verify_pickup(oid: str, body: dict, user: dict = Depends(merchant_user)):
-    """Verify the customer's 4-digit pickup code and mark the order as delivered."""
+    """Verify the customer's 4-digit pickup code and mark the order as delivered.
+
+    This is the ONLY path that closes a pickup reservation — `confirm-pickup`
+    (which did no code check at all, letting anyone mark any reservation
+    collected) was removed as part of the go-live audit Pass 2 fix. The code
+    is never exposed to the merchant (stripped in /merchant/orders and
+    GET /orders/{id}) — it must come from the customer showing it, not from
+    the merchant's own screen."""
     mid = user["sub"]
     o = await db.orders.find_one({"id": oid, "order_type": "pickup", "merchant_ids": mid}, {"_id": 0})
     if not o:
@@ -3449,27 +3589,11 @@ async def verify_pickup(oid: str, body: dict, user: dict = Depends(merchant_user
     if expires_at and datetime.now(timezone.utc).isoformat() > expires_at:
         await db.orders.update_one({"id": oid}, {"$set": {"status": "cancelled"}})
         raise HTTPException(400, "This pickup reservation has expired")
-    submitted = str(body.get("code", "")).strip()
+    submitted = str((body or {}).get("code", "")).strip()
+    if not submitted:
+        raise HTTPException(400, "Enter the 4-digit code the customer shows you")
     if submitted != str(o.get("pickup_code", "")):
-        raise HTTPException(400, "Incorrect pickup code")
-    now = datetime.now(timezone.utc).isoformat()
-    await db.orders.update_one({"id": oid}, {"$set": {"status": "delivered", "delivered_at": now}})
-    return {"ok": True}
-
-
-@api.post("/merchant/orders/{oid}/confirm-pickup")
-async def confirm_pickup(oid: str, user: dict = Depends(merchant_user)):
-    """Mark a pickup reservation as delivered after visual code verification."""
-    mid = user["sub"]
-    o = await db.orders.find_one({"id": oid, "order_type": "pickup", "merchant_ids": mid}, {"_id": 0})
-    if not o:
-        raise HTTPException(404, "Pickup order not found")
-    if o.get("status") != "reserved":
-        raise HTTPException(400, "This reservation is no longer active")
-    expires_at = o.get("pickup_expires_at", "")
-    if expires_at and datetime.now(timezone.utc).isoformat() > expires_at:
-        await db.orders.update_one({"id": oid}, {"$set": {"status": "cancelled"}})
-        raise HTTPException(400, "This pickup reservation has expired")
+        raise HTTPException(403, "Incorrect pickup code")
     now = datetime.now(timezone.utc).isoformat()
     await db.orders.update_one({"id": oid}, {"$set": {"status": "delivered", "delivered_at": now}})
     return {"ok": True}
@@ -3573,10 +3697,19 @@ async def admin_cancel_order(oid: str, payload: Optional[dict] = None, admin: di
     reason = (payload or {}).get("reason") or "Cancelled by admin"
     target_mid = (payload or {}).get("merchant_id")
     mids = o.get("merchant_ids") or []
+    states_now = dict(o.get("merchant_states") or {})
 
-    # Restock the cancelled-slice items
+    if target_mid and states_now.get(target_mid) == "cancelled":
+        raise HTTPException(400, "This merchant's slice is already cancelled")
+
+    # Restock the cancelled-slice items. Skip any merchant whose slice is
+    # already 'cancelled' (a merchant self-reject/cancel, or an earlier admin
+    # per-merchant cancel already restored their stock) — restocking twice
+    # would inflate inventory that was never actually double-sold.
+    already_cancelled_mids = {m for m, s in states_now.items() if s == "cancelled"}
     items_to_restock = [it for it in (o.get("items") or [])
-                       if (not target_mid) or it.get("merchant_id") == target_mid]
+                       if ((not target_mid) or it.get("merchant_id") == target_mid)
+                       and it.get("merchant_id") not in already_cancelled_mids]
     for it in items_to_restock:
         pid = it.get("id"); qty = int(it.get("qty", 1) or 1)
         size = (it.get("size") or "").strip() or "default"

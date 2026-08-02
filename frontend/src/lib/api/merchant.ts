@@ -224,6 +224,22 @@ export const merchantApi = {
     return r.data;
   },
 
+  rejectOrder: async (id: string, reason?: string): Promise<{ ok: boolean; status: string }> => {
+    const r = await apiClient.post<{ ok: boolean; status: string }>(
+      `/api/merchant/orders/${id}/reject`,
+      { reason },
+    );
+    return r.data;
+  },
+
+  cancelOrder: async (id: string, reason?: string): Promise<{ ok: boolean; status: string }> => {
+    const r = await apiClient.post<{ ok: boolean; status: string }>(
+      `/api/merchant/orders/${id}/cancel`,
+      { reason },
+    );
+    return r.data;
+  },
+
   listReturns: async (): Promise<Return[]> => {
     const r = await apiClient.get<Return[]>("/api/merchant/returns");
     return r.data;

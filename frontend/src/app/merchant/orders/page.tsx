@@ -82,6 +82,9 @@ export default function MerchantOrdersPage() {
   const [muted, setMuted] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const [pickupCodes, setPickupCodes] = useState<Record<string, string>>({});
+  const [rejecting, setRejecting] = useState<string | null>(null);
+  const [cancellingOrder, setCancellingOrder] = useState<string | null>(null);
   const [previewProduct, setPreviewProduct] = useState<{ name: string; image: string } | null>(null);
   const seenIds = useRef<Set<string>>(new Set());
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -136,6 +139,34 @@ export default function MerchantOrdersPage() {
   const accept = async (id: string) => { await api.merchant.acceptOrder(id); toast.success("Order accepted — waiting for rider"); refresh(); };
   const handToRider = async (id: string) => { await api.merchant.handToRider(id); toast.success("Handed to rider · on the way"); refresh(); };
 
+  const reject = async (id: string) => {
+    setRejecting(id);
+    try {
+      await api.merchant.rejectOrder(id);
+      toast.success("Order rejected — customer notified, no charge was taken");
+      refresh();
+    } catch (e) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Could not reject order";
+      toast.error(msg);
+    } finally {
+      setRejecting(null);
+    }
+  };
+
+  const cancelAccepted = async (id: string) => {
+    setCancellingOrder(id);
+    try {
+      await api.merchant.cancelOrder(id);
+      toast.success("Order cancelled — customer notified");
+      refresh();
+    } catch (e) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Could not cancel order";
+      toast.error(msg);
+    } finally {
+      setCancellingOrder(null);
+    }
+  };
+
   const [accepting, setAccepting] = useState<string | null>(null);
 
   const acceptPickup = async (oid: string) => {
@@ -152,14 +183,20 @@ export default function MerchantOrdersPage() {
     }
   };
 
-  const confirmPickup = async (oid: string) => {
+  const verifyPickup = async (oid: string) => {
+    const code = (pickupCodes[oid] || "").trim();
+    if (code.length !== 4) {
+      toast.error("Ask the customer for their 4-digit pickup code");
+      return;
+    }
     setConfirming(oid);
     try {
-      await apiClient.post(`/api/merchant/orders/${oid}/confirm-pickup`, {});
-      toast.success("Pickup confirmed — order marked as delivered");
+      await apiClient.post(`/api/merchant/orders/${oid}/verify-pickup`, { code });
+      toast.success("Code verified — order marked as delivered");
+      setPickupCodes((prev) => { const next = { ...prev }; delete next[oid]; return next; });
       refresh();
     } catch (e) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Could not confirm pickup";
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Could not verify pickup";
       toast.error(msg);
     } finally {
       setConfirming(null);
@@ -271,7 +308,7 @@ export default function MerchantOrdersPage() {
           <h2 className="font-display text-base font-bold text-[#1A2B4C] mb-1 flex items-center gap-2">
             <Store size={15} className="text-[#4F7363]" /> Store pickups <span className="text-xs font-normal text-[#595959]">({pickupReservations.length})</span>
           </h2>
-          <p className="text-xs text-[#595959] mb-2">Check the customer&apos;s code matches, then confirm.</p>
+          <p className="text-xs text-[#595959] mb-2">Ask the customer for their 4-digit code — you can&apos;t see it here, it&apos;s only sent to them.</p>
           <div className="space-y-2">
             {pickupReservations.map((o) => {
               return (
@@ -311,22 +348,29 @@ export default function MerchantOrdersPage() {
                         );
                       })}
                     </div>
-                    {o.pickup_code && (
-                      <div className="shrink-0 bg-[#0A1F5C] rounded-lg px-3 py-1.5 text-center">
-                        <div className="text-[8px] uppercase tracking-wider text-white/50 leading-none mb-0.5">Code</div>
-                        <div data-testid={`pickup-code-${o.id}`} className="font-display text-xl font-bold tracking-[0.3em] tabular-nums text-[#4F7363] leading-none">{o.pickup_code}</div>
-                      </div>
-                    )}
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      placeholder="Code"
+                      value={pickupCodes[o.id] || ""}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+                        setPickupCodes((prev) => ({ ...prev, [o.id]: digits }));
+                      }}
+                      data-testid={`pickup-code-input-${o.id}`}
+                      className="shrink-0 w-20 rounded-lg border border-[#4F7363]/40 px-2 py-1.5 text-center font-display text-lg font-bold tracking-[0.2em] tabular-nums text-[#1A2B4C] focus:outline-none focus:border-[#4F7363]"
+                    />
                   </div>
                   {/* Row 3: actions */}
                   <div className="flex gap-2 px-3 pb-3">
                     <button
-                      onClick={() => confirmPickup(o.id)}
+                      onClick={() => verifyPickup(o.id)}
                       disabled={confirming === o.id || cancelling === o.id}
                       data-testid={`confirm-pickup-${o.id}`}
                       className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full bg-[#4F7363] text-white font-semibold text-xs hover:bg-[#3a5a4d] disabled:opacity-50"
                     >
-                      <CheckCircle2 size={12} /> {confirming === o.id ? "Confirming…" : "Mark as picked up"}
+                      <CheckCircle2 size={12} /> {confirming === o.id ? "Verifying…" : "Verify & mark picked up"}
                     </button>
                     <button
                       onClick={() => cancelPickup(o.id)}
@@ -376,9 +420,19 @@ export default function MerchantOrdersPage() {
                 <div key={i} className="flex justify-between"><span>{it.name} × {it.qty}{it.size ? ` (${it.size})` : ""}</span><span>₹{(it.price * it.qty).toLocaleString()}</span></div>
               ))}
             </div>
-            <button onClick={() => accept(o.id)} data-testid={`accept-${o.id}`} className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#4F7363] text-white font-semibold hover:bg-[#3a5a4d]">
-              <CheckCircle2 size={14} /> Accept order
-            </button>
+            <div className="flex gap-2">
+              <button onClick={() => accept(o.id)} data-testid={`accept-${o.id}`} className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#4F7363] text-white font-semibold hover:bg-[#3a5a4d]">
+                <CheckCircle2 size={14} /> Accept order
+              </button>
+              <button
+                onClick={() => reject(o.id)}
+                disabled={rejecting === o.id}
+                data-testid={`reject-${o.id}`}
+                className="px-4 py-3 rounded-full border border-red-200 text-red-500 font-semibold text-sm hover:bg-red-50 disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                <X size={14} /> {rejecting === o.id ? "Rejecting…" : "Reject"}
+              </button>
+            </div>
           </div>
         ))}
       </section>
@@ -400,9 +454,19 @@ export default function MerchantOrdersPage() {
                     <div data-testid={`otp-${o.id}`} className="font-display text-3xl font-bold text-[#E68910] tracking-[0.2em] tabular-nums">{o.my_otp || o.otp || "----"}</div>
                   </div>
                 </div>
-                <button onClick={() => handToRider(o.id)} data-testid={`hand-rider-${o.id}`} className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#1A2B4C] text-white text-sm font-semibold hover:bg-[#101D36]">
-                  <Bike size={14} /> Handed to rider
-                </button>
+                <div className="flex gap-2">
+                  <button onClick={() => handToRider(o.id)} data-testid={`hand-rider-${o.id}`} className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#1A2B4C] text-white text-sm font-semibold hover:bg-[#101D36]">
+                    <Bike size={14} /> Handed to rider
+                  </button>
+                  <button
+                    onClick={() => cancelAccepted(o.id)}
+                    disabled={cancellingOrder === o.id}
+                    data-testid={`cancel-accepted-${o.id}`}
+                    className="px-4 py-3 rounded-full border border-red-200 text-red-500 font-semibold text-sm hover:bg-red-50 disabled:opacity-50 inline-flex items-center gap-1.5"
+                  >
+                    <X size={14} /> {cancellingOrder === o.id ? "Cancelling…" : "Cancel"}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
