@@ -5719,21 +5719,22 @@ async def _auto_cancel_stale_orders():
             async for order in db.orders.find(
                 {"status": "pending_merchant", "payment_method": "COD",
                  "created_at": {"$lt": cutoff}, "is_deleted": {"$ne": True}},
-                {"_id": 0, "id": 1, "merchant_ids": 1, "customer": 1}
+                {"_id": 0, "id": 1, "merchant_ids": 1, "merchant_states": 1, "customer": 1}
             ):
                 oid = order["id"]
-                now_iso = datetime.now(timezone.utc).isoformat()
-                cancel_states = {mid: "cancelled" for mid in (order.get("merchant_ids") or [])}
-                await db.orders.update_one({"id": oid}, {"$set": {
-                    "status": "cancelled",
-                    "cancelled_at": now_iso,
-                    "cancel_reason": "Auto-cancelled: no merchant response within 2 hours",
-                    "merchant_states": cancel_states,
-                }})
+                # Restock via the same guarded helper the pickup-expiry sweep and
+                # merchant/customer cancel paths use — one call per merchant slice,
+                # each re-reading fresh and skipping any slice already 'cancelled'
+                # (idempotent: a re-run of this sweep can't double-restock).
+                states = order.get("merchant_states") or {}
+                reason = "Auto-cancelled: no merchant response within 2 hours"
+                for mid in (order.get("merchant_ids") or []):
+                    if states.get(mid) == "cancelled":
+                        continue
+                    await _merchant_cancel_own_slice(oid, mid, reason)
                 cust_phone = (order.get("customer") or {}).get("phone")
                 if cust_phone:
                     try:
-                        from notifications import send_with_fallback
                         send_with_fallback(cust_phone,
                             f"Your Lokl order {oid} was auto-cancelled as no merchant accepted it within 2 hours. "
                             "You have not been charged.")
