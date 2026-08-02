@@ -15,12 +15,31 @@
  * rewritten to /coming-soon.html without a redirect. next.config.ts host-based
  * rewrites are unreliable in standalone mode; middleware runs at the edge and
  * is guaranteed to fire first.
+ *
+ * merchant.shoplokl.in is the merchant portal subdomain — bare root rewrites
+ * to /merchant/register (same onboarding-with-login-option page as
+ * lokl.up.railway.app/merchant/register), everything else under it passes
+ * through untouched so /merchant/* and its assets work normally. Checked
+ * BEFORE the shoplokl.in coming-soon check so the subdomain can never fall
+ * into that branch (host equality below is exact, so this ordering is
+ * belt-and-braces, not strictly load-bearing).
  */
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
   const host = request.headers.get('host') || ''
+  const { pathname } = request.nextUrl
+
+  if (host === 'merchant.shoplokl.in') {
+    if (pathname === '/') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/merchant/register'
+      return NextResponse.rewrite(url)
+    }
+    return NextResponse.next()
+  }
+
   const isShopLokl = host === 'shoplokl.in' || host === 'www.shoplokl.in'
 
   if (isShopLokl) {
@@ -30,7 +49,6 @@ export function middleware(request: NextRequest) {
   }
 
   // Redirect bare /orders/{id} links (e.g. from WhatsApp) to the auth-gated page.
-  const { pathname } = request.nextUrl
   if (/^\/orders\/LOKL-[A-Z0-9]+$/.test(pathname)) {
     const url = request.nextUrl.clone()
     url.pathname = `/account/orders/${pathname.split('/').pop()}`
