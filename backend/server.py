@@ -3614,13 +3614,12 @@ async def cancel_pickup_reservation(oid: str, user: dict = Depends(merchant_user
 
 @api.get("/admin/expire-pickups")
 async def expire_pickups(admin: dict = Depends(require_admin)):
-    """Mark expired pickup reservations as cancelled. Run periodically."""
-    now = datetime.now(timezone.utc).isoformat()
-    result = await db.orders.update_many(
-        {"order_type": "pickup", "status": {"$in": ["reserved", "pending_pickup"]}, "pickup_expires_at": {"$lt": now}},
-        {"$set": {"status": "cancelled"}},
-    )
-    return {"expired": result.modified_count}
+    """Manual trigger for the same sweep that now also runs automatically
+    every 5 min from _auto_cancel_stale_orders() — restocks the expired
+    reservation's stock and notifies the customer (the old version of this
+    endpoint only flipped `status`, it never released the reserved stock)."""
+    count = await _expire_pickup_reservations()
+    return {"expired": count}
 
 
 # ===== Admin order management =====
@@ -5652,10 +5651,62 @@ app.add_middleware(
 )
 
 
+async def _expire_pickup_reservations() -> int:
+    """Cancel pickup reservations/requests past their pickup_expires_at
+    window — restocks exactly once per merchant slice via the same guarded
+    _merchant_cancel_own_slice() helper the manual/merchant/customer cancel
+    paths use, then notifies the customer.
+
+    Idempotent by construction: once an order's status flips away from
+    reserved/pending_pickup it no longer matches this query, so re-running
+    this on every sweep pass (or via the manual /admin/expire-pickups
+    trigger, concurrently or right after an automatic pass) can't reprocess
+    or double-restock the same order. The per-mid `states.get(mid) ==
+    "cancelled"` check below is a second, belt-and-braces guard against the
+    same failure mode `_merchant_cancel_own_slice`'s own docstring warns
+    about (it only protects against a caller that skips checking first).
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    expired = 0
+    async for order in db.orders.find(
+        {"order_type": "pickup", "status": {"$in": ["reserved", "pending_pickup"]},
+         "pickup_expires_at": {"$lt": now}},
+        {"_id": 0, "id": 1, "merchant_ids": 1, "merchant_states": 1, "customer": 1,
+         "address": 1, "store_name": 1},
+    ):
+        oid = order["id"]
+        states = order.get("merchant_states") or {}
+        for mid in (order.get("merchant_ids") or []):
+            if states.get(mid) == "cancelled":
+                continue
+            await _merchant_cancel_own_slice(oid, mid, "Pickup reservation expired")
+        cust_phone = (order.get("customer") or {}).get("phone") or (order.get("address") or {}).get("phone")
+        if cust_phone:
+            try:
+                send_with_fallback(cust_phone,
+                    f"Your Lokl pickup reservation for order {oid} at "
+                    f"{order.get('store_name') or 'the store'} has expired and been cancelled. "
+                    "You have not been charged.")
+            except Exception:
+                pass
+        log.info("Expired pickup reservation %s", oid)
+        expired += 1
+    return expired
+
+
 async def _auto_cancel_stale_orders():
-    """Background loop: cancel COD orders stuck in pending_merchant > 2 hours."""
+    """Background loop: expire stale pickup reservations, and cancel COD
+    orders stuck in pending_merchant > 2 hours. Each sweep gets its own
+    try/except so a failure in one doesn't skip the other within the same
+    pass."""
     import asyncio as _asyncio
     while True:
+        try:
+            expired_pickups = await _expire_pickup_reservations()
+            if expired_pickups:
+                log.info("Expired %d stale pickup reservations", expired_pickups)
+        except Exception as e:
+            log.warning("_expire_pickup_reservations error: %s", e)
         try:
             rp_cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
             del_result = await db.orders.delete_many({
