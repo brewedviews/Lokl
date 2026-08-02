@@ -29,8 +29,8 @@ export function MerchantAuthForm({ mode }: { mode: "login" | "register" }) {
       setAuth(r.token, r.merchant);
       toast.success("Store account created — let's get you verified");
       try {
-        const { path } = await api.merchant.nextRoute();
-        router.replace(path || "/merchant/onboarding");
+        const { route } = await api.merchant.nextRoute();
+        router.replace(route || "/merchant/onboarding");
       } catch {
         router.replace("/merchant/onboarding");
       }

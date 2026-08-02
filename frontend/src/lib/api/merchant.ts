@@ -20,7 +20,7 @@ import type {
 // Onboarding / KYC / routing
 // ============================================================================
 
-export interface NextRouteResponse { path: string; reason?: string }
+export interface NextRouteResponse { route: string; reason?: string }
 
 export interface KycStatusResponse {
   status: KycStatus;

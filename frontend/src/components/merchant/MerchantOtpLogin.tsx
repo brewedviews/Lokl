@@ -78,8 +78,8 @@ export function MerchantOtpLogin() {
       toast.success("Welcome back!");
       // Route by KYC state, identical to the email-login flow.
       try {
-        const { path } = await api.merchant.nextRoute();
-        router.replace(path || "/merchant/onboarding");
+        const { route } = await api.merchant.nextRoute();
+        router.replace(route || "/merchant/onboarding");
       } catch {
         router.replace("/merchant/onboarding");
       }

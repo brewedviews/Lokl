@@ -52,7 +52,15 @@ function playOrderAlert(ctxRef: { current: AudioContext | null }) {
   } catch { /* noop */ }
 }
 
-const PUBLIC = ["/merchant/login", "/merchant/register"];
+// '/' is included because merchant.shoplokl.in's bare root is rewritten by
+// middleware.ts to /merchant/register — but rewrites are invisible to the
+// client, so usePathname() below still reports '/' after hydration. Safe to
+// treat as public here specifically: this layout only ever wraps pages
+// physically under app/merchant/*, so pathname === '/' inside THIS file can
+// only mean the subdomain-rewritten register page is rendering, never a real
+// consumer route (the actual '/' consumer homepage lives under the sibling
+// app/(consumer)/ tree and is never wrapped by this layout at all).
+const PUBLIC = ["/merchant/login", "/merchant/register", "/"];
 const APPROVED_ONLY = [
   "/merchant/orders", "/merchant/storefront", "/merchant/bank",
   "/merchant/products", "/merchant/analytics", "/merchant/subscription",
