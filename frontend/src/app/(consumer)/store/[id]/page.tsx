@@ -6,7 +6,6 @@ import { serverFetch } from "@/lib/server-fetch";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { StoreInfoChips } from "@/components/consumer/StoreInfoChips";
 import { StoreNotifyBanner } from "@/components/consumer/StoreNotifyBanner";
-import { Footer } from "@/components/consumer/Footer";
 import type { Store, ProductCard as ProductCardType } from "@/types";
 
 interface StoreDetailResponse {
@@ -55,7 +54,7 @@ export default async function StorePage(
   const area = areaFromAddress(store);
 
   return (
-    <div className="h-full flex flex-col bg-[#FDFBF7]">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1">
         <div className="relative h-[28vh] sm:h-[45vh] md:h-[55vh] overflow-hidden bg-[#0A1F5C]">
         {banners.length > 1 ? (
@@ -149,7 +148,6 @@ export default async function StorePage(
         </div>
       </div>
       </div>
-      <Footer />
     </div>
   );
 }

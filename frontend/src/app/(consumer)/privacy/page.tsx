@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Footer } from "@/components/consumer/Footer";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -8,7 +7,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <div className="h-full flex flex-col bg-[#FDFBF7]">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-8 py-10">
         <p className="text-xs uppercase tracking-widest text-[#E68910] font-bold mb-2">Legal</p>
         <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight mb-2">Privacy Policy</h1>
@@ -87,7 +86,6 @@ export default function PrivacyPage() {
           </section>
         </div>
       </div>
-      <Footer />
     </div>
   );
 }

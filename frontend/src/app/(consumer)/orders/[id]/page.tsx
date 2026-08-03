@@ -12,7 +12,6 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
-import { Footer } from "@/components/consumer/Footer";
 import { ReturnModal } from "@/components/consumer/ReturnComplaintModals";
 import type { Order, OrderTimelineEntry } from "@/types";
 
@@ -163,7 +162,7 @@ export default function OrderTrackingPage() {
 
   if (notFoundState) {
     return (
-      <div className="h-full flex flex-col bg-[#FDFBF7]" data-testid="order-not-found">
+      <div className="flex-1 flex flex-col bg-[#FDFBF7]" data-testid="order-not-found">
         <div className="flex-1 grid place-items-center px-6">
           <div className="max-w-md text-center">
             <div className="w-12 h-12 rounded-full bg-red-100 grid place-items-center mx-auto mb-3">
@@ -174,16 +173,14 @@ export default function OrderTrackingPage() {
             <Link href="/account" className="inline-block mt-5 px-5 py-2.5 rounded-full bg-[#E68910] text-white text-sm font-semibold">Back to my account</Link>
           </div>
         </div>
-        <Footer />
       </div>
     );
   }
 
   if (!order) {
     return (
-      <div className="h-full flex flex-col bg-[#FDFBF7]">
+      <div className="flex-1 flex flex-col bg-[#FDFBF7]">
         <div className="flex-1 grid place-items-center text-sm text-[#64748B]">Loading order…</div>
-        <Footer />
       </div>
     );
   }
@@ -221,7 +218,7 @@ export default function OrderTrackingPage() {
   const total = order.total || subtotal;
 
   return (
-    <div className="h-full flex flex-col bg-[#FDFBF7]">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-8 pt-6 sm:pt-8 space-y-5 sm:space-y-6">
         <section data-testid="status-hero" className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm">
           <div className="flex items-start justify-between gap-3">
@@ -438,8 +435,6 @@ export default function OrderTrackingPage() {
 
         <div className="pb-2" />
       </main>
-
-      <Footer />
 
       {showReturn && <ReturnModal order={order} onClose={() => setShowReturn(false)} onCreated={load} />}
     </div>

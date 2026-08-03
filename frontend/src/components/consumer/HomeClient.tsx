@@ -36,7 +36,7 @@ import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
 import { JustInSection } from "@/components/consumer/JustInSection";
-import { Footer } from "@/components/consumer/Footer";
+import { TrustBadges } from "@/components/consumer/TrustBadges";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
 import type { ProductCard as ProductCardType, StoreCard, CategoryNode } from "@/types";
@@ -105,7 +105,6 @@ export function HomeClient() {
     () => DEFAULT_SECTIONS.find((s) => s.id === "stores")?.enabled ?? false
   );
   const storesEnabledRef = useRef(storesEnabled);
-  const offersScrollRef = useRef<HTMLDivElement>(null);
 
   const markLoaded = (key: string) =>
     setLoaded((prev) => { const next = new Set(prev); next.add(key); return next; });
@@ -211,42 +210,6 @@ export function HomeClient() {
       api.stores.nearby({ lat, lng, limit: 10 }).then((r) => { setNearby(r); markLoaded("nearby"); }).catch(() => { markLoaded("nearby"); });
     }
   }, [lat, lng, storesEnabled]);
-
-  useEffect(() => {
-    const el = offersScrollRef.current;
-    if (!el || offers.length <= 1) return;
-
-    let animId: number;
-    let paused = false;
-
-    const tick = () => {
-      if (!paused && el) {
-        el.scrollLeft += 0.6;
-        if (el.scrollLeft >= el.scrollWidth - el.clientWidth - 2) {
-          el.scrollLeft = 0;
-        }
-      }
-      animId = requestAnimationFrame(tick);
-    };
-
-    animId = requestAnimationFrame(tick);
-
-    const pause = () => { paused = true; };
-    const resume = () => { paused = false; };
-
-    el.addEventListener("mouseenter", pause);
-    el.addEventListener("touchstart", pause, { passive: true });
-    el.addEventListener("mouseleave", resume);
-    el.addEventListener("touchend", resume);
-
-    return () => {
-      cancelAnimationFrame(animId);
-      el.removeEventListener("mouseenter", pause);
-      el.removeEventListener("touchstart", pause);
-      el.removeEventListener("mouseleave", resume);
-      el.removeEventListener("touchend", resume);
-    };
-  }, [offers]);
 
   const storesReady = loaded.has("nearby") || loaded.has("popularStores");
   const storesRail = nearby.length > 0 ? nearby : popularStores;
@@ -448,7 +411,6 @@ export function HomeClient() {
           <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">Offers for you</h2>
         </div>
         <div
-          ref={offersScrollRef}
           className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 lg:scroll-pl-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto"
         >
           {offers.slice(0, 6).map((offer) => {
@@ -559,11 +521,11 @@ export function HomeClient() {
     .filter(Boolean);
 
   return (
-    <div className="h-full flex flex-col bg-[#FDFBF7]">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <main className="flex-1">
         {orderedSections}
+        <TrustBadges />
       </main>
-      <Footer topGap={testimonials.length > 0} />
     </div>
   );
 }

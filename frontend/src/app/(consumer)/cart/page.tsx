@@ -8,7 +8,6 @@ import { Trash2, ShoppingBag, Bike, AlertTriangle } from "lucide-react";
 import { useCartStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
 import { DiscoveryRails } from "@/components/consumer/DiscoveryRails";
-import { Footer } from "@/components/consumer/Footer";
 
 interface StoreAvailStatus {
   can_order: boolean;
@@ -47,7 +46,7 @@ export default function CartPage() {
 
   if (items.length === 0) {
     return (
-      <div className="h-full flex flex-col bg-[#FDFBF7]">
+      <div className="flex-1 flex flex-col bg-[#FDFBF7]">
         <main className="flex-1">
           <section className="max-w-7xl mx-auto px-4 sm:px-8 pt-8" data-testid="cart-header">
             <div className="flex items-center gap-3">
@@ -74,7 +73,6 @@ export default function CartPage() {
           </section>
           <DiscoveryRails testidPrefix="cart" />
         </main>
-        <Footer />
       </div>
     );
   }
@@ -86,7 +84,7 @@ export default function CartPage() {
   });
 
   return (
-    <div className="h-full flex flex-col bg-[#FDFBF7]">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1 max-w-7xl w-full mx-auto px-4 md:px-8 py-10">
         <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">Your bag</h1>
         <div className="grid md:grid-cols-3 gap-8 mt-8">
@@ -150,7 +148,6 @@ export default function CartPage() {
           </div>
         </div>
       </div>
-      <Footer />
     </div>
   );
 }

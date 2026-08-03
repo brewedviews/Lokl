@@ -7,7 +7,6 @@ import Image from "next/image";
 import { Search as SearchIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { ProductCard } from "@/components/consumer/ProductCard";
-import { Footer } from "@/components/consumer/Footer";
 import type { ProductCard as ProductCardType, StoreCard, CategoryNode } from "@/types";
 
 type CategoryWithImage = CategoryNode & { image?: string };
@@ -32,7 +31,7 @@ export default function SearchPage() {
   const hasResults = data.products.length > 0 || data.stores.length > 0;
 
   return (
-    <div className="h-full flex flex-col bg-[#FDFBF7]">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 py-8">
         <div className="flex items-center gap-3 mb-6">
           <SearchIcon size={20} className="text-[#E68910]" />
@@ -92,7 +91,6 @@ export default function SearchPage() {
           </div>
         </section>
       </div>
-      <Footer />
     </div>
   );
 }

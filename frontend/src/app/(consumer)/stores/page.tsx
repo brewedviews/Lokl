@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useLocationStore } from "@/stores";
 import { StoreListCard, StoreListCardSkeleton } from "@/components/consumer/StoreListCard";
-import { Footer } from "@/components/consumer/Footer";
 import type { Store } from "@/types";
 
 export default function StoresPage() {
@@ -35,8 +34,9 @@ export default function StoresPage() {
     // (consumer) layout's wrapper is now `flex flex-col` (see its comment),
     // so this root can flex-grow into it instead — no percentage involved,
     // always resolvable. This div is ALSO `flex flex-col` so its own
-    // content area (flex-1 below) can grow and push Footer to the true
-    // bottom on short pages.
+    // content area (flex-1 below) can grow to fill the true bottom of the
+    // viewport on short pages, instead of leaving dead space above the
+    // sticky bottom nav.
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 pt-10">
         <h1 data-testid="stores-title" className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">Stores near you</h1>
@@ -62,7 +62,6 @@ export default function StoresPage() {
           </div>
         )}
       </div>
-      <Footer />
     </div>
   );
 }

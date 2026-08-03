@@ -166,7 +166,7 @@ export function ConsumerHeader() {
         <Link
           href="/cart"
           data-testid="nav-cart"
-          aria-label="Cart"
+          aria-label="Bag"
           className="relative flex items-center gap-1 px-3 py-2 rounded-full bg-brand-primary text-white hover:bg-brand-primary/90 transition shrink-0"
         >
           <ShoppingBag size={16} />

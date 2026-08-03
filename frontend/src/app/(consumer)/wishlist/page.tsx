@@ -5,7 +5,6 @@ import { Heart, Package } from "lucide-react";
 import { useWishlistStore } from "@/stores";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { DiscoveryRails } from "@/components/consumer/DiscoveryRails";
-import { Footer } from "@/components/consumer/Footer";
 
 export default function WishlistPage() {
   const products = useWishlistStore((s) => s.products);
@@ -15,7 +14,7 @@ export default function WishlistPage() {
   const items = hydrated ? products : [];
 
   return (
-    <div className="h-full flex flex-col bg-[#FDFBF7]">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <main className="flex-1">
         <section className="max-w-7xl mx-auto px-4 sm:px-8 pt-8" data-testid="wishlist-header">
           <div className="flex items-center gap-3">
@@ -56,7 +55,6 @@ export default function WishlistPage() {
           </>
         )}
       </main>
-      <Footer />
     </div>
   );
 }

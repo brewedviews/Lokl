@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { ProductCard } from "@/components/consumer/ProductCard";
-import { Footer } from "@/components/consumer/Footer";
 import type { ProductCard as ProductCardType, CategoryNode } from "@/types";
 
 type L2 = { id: string; name: string; slug: string; image?: string };
@@ -101,7 +100,7 @@ export function CategoryClient() {
   const l2List = subcategories.length > 0 ? subcategories : (l1.l2 ?? []);
 
   return (
-    <div className="h-full flex flex-col bg-[#FDFBF7]">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <main className="flex-1">
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
           {/* Header */}
@@ -174,7 +173,6 @@ export function CategoryClient() {
           )}
         </div>
       </main>
-      <Footer />
     </div>
   );
 }

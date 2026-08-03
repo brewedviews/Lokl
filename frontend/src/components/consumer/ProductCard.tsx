@@ -250,7 +250,7 @@ export function ProductCard({ p, size = "default" }: Props) {
             }`}
           >
             <ShoppingBag size={isCompact ? 11 : 13} />
-            {isCompact ? "Add" : "Add to Cart"}
+            {isCompact ? "Add" : "Add to Bag"}
           </button>
         ) : (
           <div

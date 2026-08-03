@@ -15,7 +15,6 @@ import { getErrorMessage } from "@/lib/api-error";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { useLocationStore } from "@/stores/location.store";
 import { CustomerOtpLogin } from "@/components/consumer/CustomerOtpLogin";
-import { Footer } from "@/components/consumer/Footer";
 import { useRazorpay } from "@/hooks/useRazorpay";
 import type { CustomerAddress } from "@/types";
 
@@ -235,7 +234,7 @@ export default function CheckoutPage() {
     if (!BHILAI_PINCODES.includes(addr.pincode.trim())) {
       return toast.error("We only deliver to Bhilai pincodes (490xxx). Please check your pincode.");
     }
-    if (items.length === 0) return toast.error("Cart is empty");
+    if (items.length === 0) return toast.error("Bag is empty");
     const customerToken = typeof window !== "undefined" ? localStorage.getItem("bf_customer_token") : null;
     if (!hasAuth || !customerToken) { router.push("/account"); return; }
     if (estimate && !estimate.deliverable) return toast.error(estimate.reason || "Delivery unavailable for this address");
@@ -281,14 +280,13 @@ export default function CheckoutPage() {
 
   if (!hasAuth) {
     return (
-      <div className="h-full flex flex-col bg-[#FDFBF7]">
+      <div className="flex-1 flex flex-col bg-[#FDFBF7]">
         <div className="flex-1 max-w-md w-full mx-auto px-4 sm:px-8 pt-10 pb-16">
           <CustomerOtpLogin
             title="Sign in to checkout"
             subtitle="We use your number to deliver, send order updates, and process returns."
           />
         </div>
-        <Footer />
       </div>
     );
   }
@@ -296,7 +294,7 @@ export default function CheckoutPage() {
   const uniqueStoreNames = Array.from(new Set(items.map((it) => it.store_name).filter(Boolean)));
 
   return (
-    <div className="h-full flex flex-col bg-[#FDFBF7]">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 py-10 grid md:grid-cols-3 gap-8">
         <div className="md:col-span-2 space-y-6">
           {unserviceable && (
@@ -504,7 +502,6 @@ export default function CheckoutPage() {
           </button>
         </div>
       </div>
-      <Footer />
     </div>
   );
 }

@@ -13,7 +13,6 @@ import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { useCustomerAuthStore, useWishlistStore } from "@/stores";
-import { Footer } from "@/components/consumer/Footer";
 import type {
   Customer, CustomerAddress, Order, ProductCard,
 } from "@/types";
@@ -125,7 +124,7 @@ export default function CustomerAccountPage() {
   ];
 
   return (
-    <div className="h-full flex flex-col bg-[#FDFBF7]">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-8 pt-8">
         <section data-testid="profile-header-card" className="bg-white border border-[#E5E2DC] rounded-3xl p-4 sm:p-6 flex items-center gap-4 shadow-sm">
           <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#1A2B4C] flex items-center justify-center shrink-0 border border-[#E5E2DC]">
@@ -203,7 +202,6 @@ export default function CustomerAccountPage() {
       </main>
 
       {addrModal && <AddressModal address={addrModal} onCancel={() => setAddrModal(null)} onSave={saveAddress} />}
-      <Footer />
     </div>
   );
 }

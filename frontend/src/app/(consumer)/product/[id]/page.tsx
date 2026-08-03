@@ -5,7 +5,6 @@ import { serverFetch } from "@/lib/server-fetch";
 import { ProductGallery } from "@/components/consumer/ProductGallery";
 import { ProductActions } from "@/components/consumer/ProductActions";
 import { ProductCard } from "@/components/consumer/ProductCard";
-import { Footer } from "@/components/consumer/Footer";
 import type { Product, ProductCard as ProductCardType } from "@/types";
 
 interface ProductDetailResponse {
@@ -48,7 +47,7 @@ export default async function ProductDetailPage(
     : ([product.image].filter(Boolean) as string[]);
 
   return (
-    <div className="h-full flex flex-col bg-white pb-24 md:pb-10">
+    <div className="flex-1 flex flex-col bg-white pb-24 md:pb-10">
       <div className="flex-1 w-full max-w-[1200px] mx-auto">
 
         {/*
@@ -181,8 +180,6 @@ export default async function ProductDetailPage(
           </section>
         )}
       </div>
-
-      <Footer />
     </div>
   );
 }
