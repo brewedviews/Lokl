@@ -270,12 +270,21 @@ async def register(request: Request, response: Response, payload: MerchantSignup
     if await db.merchants.find_one({"phone_canonical": p10}, {"_id": 0}):
         raise HTTPException(400, "Phone number already registered")
     mid = f"m-{uuid.uuid4().hex[:10]}"
-    doc = {"id": mid, "email": payload.email, "password_hash": hash_password(payload.password or secrets.token_hex(16)),
+    doc = {"id": mid, "password_hash": hash_password(payload.password or secrets.token_hex(16)),
            "store_name": payload.store_name, "owner_name": payload.owner_name,
            "phone": phone, "phone_canonical": p10, "city": payload.city,
            "created_at": datetime.now(timezone.utc).isoformat(), "role": "merchant",
            "kyc_status": "draft", "kyc_submitted_at": None, "approved_at": None,
            "published": False, "storefront": None, "notifications": []}
+    # Omit the key entirely rather than storing email: null — this is what
+    # actually makes the partial index (idx_merchants_email_unique, filtered
+    # on {"email": {"$type": "string"}}) correctly exclude phone-only signups
+    # from the uniqueness constraint. (A present-but-null field would still
+    # fail the $type: "string" filter too, so this isn't strictly required
+    # for correctness given the partial index — but it's the cleaner
+    # representation and means a plain sparse index would also work.)
+    if payload.email:
+        doc["email"] = payload.email
     try:
         await db.merchants.insert_one(doc)
     except DuplicateKeyError as e:

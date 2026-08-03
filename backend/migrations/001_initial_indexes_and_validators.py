@@ -14,12 +14,20 @@ VERSION = "001_initial_indexes_and_validators"
 # ===== Indexes (every read pattern in server.py) =====
 INDEXES = {
     "merchants": [
-        # sparse=True: email is optional (phone-based registration never
-        # collects one) — without sparse, every merchant past the first with
-        # a null email collides on the same {email: null} key. See migration
-        # 007 for the drop+recreate that repairs a database where this index
-        # was already created non-sparse.
-        {"keys": [("email", ASCENDING)], "unique": True, "sparse": True, "name": "idx_merchants_email_unique"},
+        # partialFilterExpression, NOT sparse: email is optional (phone-based
+        # registration never collects one) and the register endpoint stores
+        # it as an explicit `null` on the doc. Sparse indexes only exclude
+        # documents where the field is entirely ABSENT — a field present with
+        # value null still gets indexed, so every merchant past the first
+        # with email:null still collided (this was tried first in migration
+        # 007 and confirmed insufficient against real MongoDB in production).
+        # A partial index filtered on {"$type": "string"} only indexes docs
+        # with an actual email string, which is what's needed here. See
+        # migration 008 for the drop+recreate that repairs a database where
+        # this index already exists as unique-non-sparse or unique-sparse.
+        {"keys": [("email", ASCENDING)], "unique": True,
+         "partialFilterExpression": {"email": {"$type": "string"}},
+         "name": "idx_merchants_email_unique"},
         {"keys": [("phone_canonical", ASCENDING)], "unique": True, "sparse": True, "name": "idx_merchants_phone_unique"},
         {"keys": [("role", ASCENDING)], "name": "idx_merchants_role"},
         {"keys": [("kyc_status", ASCENDING)], "name": "idx_merchants_kyc_status"},
