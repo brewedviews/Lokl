@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
 import os, logging, uuid, base64, io, csv, json, random, secrets, hmac, hashlib, asyncio
 from pathlib import Path
 from pydantic import BaseModel, EmailStr
@@ -275,7 +276,19 @@ async def register(request: Request, response: Response, payload: MerchantSignup
            "created_at": datetime.now(timezone.utc).isoformat(), "role": "merchant",
            "kyc_status": "draft", "kyc_submitted_at": None, "approved_at": None,
            "published": False, "storefront": None, "notifications": []}
-    await db.merchants.insert_one(doc)
+    try:
+        await db.merchants.insert_one(doc)
+    except DuplicateKeyError as e:
+        # Last-resort net: the pre-checks above cover the common case, but a
+        # concurrent request (or an index this code doesn't know about yet)
+        # can still race past them — surface a clean 400 instead of an
+        # uncaught 500. keyPattern tells us which unique index actually hit.
+        key_pattern = (getattr(e, "details", None) or {}).get("keyPattern", {})
+        if "email" in key_pattern:
+            raise HTTPException(400, "Email already registered")
+        if "phone_canonical" in key_pattern:
+            raise HTTPException(400, "Phone number already registered")
+        raise HTTPException(400, "An account with these details already exists")
     safe = {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
     _set_refresh_cookie(response, create_token(mid, "merchant", "refresh"))
     return {"token": create_token(mid, "merchant", "access"), "merchant": safe}

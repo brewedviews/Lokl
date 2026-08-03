@@ -14,7 +14,12 @@ VERSION = "001_initial_indexes_and_validators"
 # ===== Indexes (every read pattern in server.py) =====
 INDEXES = {
     "merchants": [
-        {"keys": [("email", ASCENDING)], "unique": True, "name": "idx_merchants_email_unique"},
+        # sparse=True: email is optional (phone-based registration never
+        # collects one) — without sparse, every merchant past the first with
+        # a null email collides on the same {email: null} key. See migration
+        # 007 for the drop+recreate that repairs a database where this index
+        # was already created non-sparse.
+        {"keys": [("email", ASCENDING)], "unique": True, "sparse": True, "name": "idx_merchants_email_unique"},
         {"keys": [("phone_canonical", ASCENDING)], "unique": True, "sparse": True, "name": "idx_merchants_phone_unique"},
         {"keys": [("role", ASCENDING)], "name": "idx_merchants_role"},
         {"keys": [("kyc_status", ASCENDING)], "name": "idx_merchants_kyc_status"},
