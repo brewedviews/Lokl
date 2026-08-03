@@ -120,10 +120,15 @@ export default function DesignSystemPage() {
 
         {/* === PRICECHIP === */}
         <Section title="PriceChip">
-          <div className="flex flex-wrap items-center gap-6 bg-surface-card rounded-card shadow-1 p-6">
-            <PriceChip price={499} />
-            <PriceChip price={499} mrp={799} />
-            <PriceChip price={499} mrp={799} showDiscount={false} />
+          <div className="space-y-4 bg-surface-card rounded-card shadow-1 p-6">
+            <div className="flex flex-wrap items-center gap-6">
+              <PriceChip price={499} />
+              <PriceChip price={499} mrp={799} />
+              <PriceChip price={499} mrp={799} showDiscount />
+            </div>
+            <p className="text-meta text-brand-primary/50">
+              Default: price + strikethrough mrp only. showDiscount is opt-in per placement, off by default.
+            </p>
           </div>
         </Section>
 

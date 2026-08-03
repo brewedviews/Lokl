@@ -12,7 +12,8 @@ interface PriceChipProps {
   price: number;
   /** Original price — renders as a muted-navy strikethrough beside the chip when higher than price. */
   mrp?: number | null;
-  /** Show the small discount-% label when mrp implies one. Default true. */
+  /** Show the small discount-% label when mrp implies one. Default OFF —
+   * price confident, not shouting a discount; opt in per placement. */
   showDiscount?: boolean;
   className?: string;
 }
@@ -21,13 +22,13 @@ function formatInr(n: number): string {
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
 }
 
-export function PriceChip({ price, mrp, showDiscount = true, className = "" }: PriceChipProps) {
+export function PriceChip({ price, mrp, showDiscount = false, className = "" }: PriceChipProps) {
   const hasMrp = typeof mrp === "number" && mrp > price;
   const discount = hasMrp ? Math.round((1 - price / mrp) * 100) : 0;
 
   return (
     <span className={`inline-flex items-baseline gap-1.5 ${className}`} data-testid="price-chip">
-      <span className="inline-flex items-center rounded-pill bg-brand-accent px-2 py-0.5 text-price-chip font-medium leading-none text-white">
+      <span className="inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-price-chip font-medium leading-none text-white">
         {formatInr(price)}
       </span>
       {hasMrp && (
@@ -36,7 +37,7 @@ export function PriceChip({ price, mrp, showDiscount = true, className = "" }: P
         </span>
       )}
       {hasMrp && showDiscount && discount > 0 && (
-        <span className="text-meta font-medium leading-none text-brand-primary/50">
+        <span className="text-[10px] leading-none text-brand-primary/40">
           {discount}% off
         </span>
       )}

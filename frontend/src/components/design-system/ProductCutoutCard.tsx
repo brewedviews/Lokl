@@ -14,10 +14,19 @@ import { PriceChip } from "./PriceChip";
  * doorway to the PDP, not a transactional card (that's the existing
  * ProductCard, unaffected by this addition).
  *
+ * The disc is ALWAYS --surface-tint, regardless of category or which image
+ * is showing — the product provides the color, the disc is a constant
+ * neutral surface. This is why cutout AND fallback both render
+ * object-contain (inset, not cropped-to-fill): object-cover on the
+ * fallback path would let an opaque photo's own background (a yellow
+ * studio backdrop, a grey wall, whatever) paint the entire disc, making
+ * every product's disc a different color — the disc token would be
+ * correct in code but invisible in practice.
+ *
  * `cutoutImage` is a background-removed Cloudinary variant, wired by a
  * later task. Until then (or whenever it's unavailable for a given
- * product), this falls back to the normal `image` — cropped to fill the
- * disc instead of floating on it — so the card never breaks.
+ * product), this falls back to the normal `image` — inset the same way,
+ * just without transparency — so the card never breaks.
  */
 interface ProductCutoutCardProps {
   id: string;
@@ -34,7 +43,6 @@ interface ProductCutoutCardProps {
 export function ProductCutoutCard({
   id, name, price, mrp, image, cutoutImage, className = "",
 }: ProductCutoutCardProps) {
-  const isCutout = !!cutoutImage;
   const displayImage = cutoutImage || image;
 
   return (
@@ -57,7 +65,7 @@ export function ProductCutoutCard({
               fill
               sizes="(max-width: 640px) 40vw, 220px"
               loading="lazy"
-              className={isCutout ? "object-contain p-2" : "object-cover"}
+              className="object-contain p-5"
             />
           )}
         </div>
