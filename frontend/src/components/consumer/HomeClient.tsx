@@ -64,6 +64,8 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills", label: "Category pills",            enabled: true,  rank: 10 },
   { id: "hero",           label: "Hero",                      enabled: true,  rank: 20 },
+  { id: "for_her",        label: "For Her",                   enabled: true,  rank: 25 },
+  { id: "for_him",        label: "For Him",                   enabled: true,  rank: 26 },
   { id: "under_499",      label: "Under ₹499",                enabled: true,  rank: 30 },
   { id: "trending",       label: "Trending now",              enabled: false, rank: 40 },
   { id: "offers",         label: "Offers for you",            enabled: true,  rank: 50 },
@@ -85,6 +87,97 @@ function cloudinaryOptimize(url: string | undefined | null, transform = "w_300,q
   if (!url) return "";
   if (!url.includes("res.cloudinary.com") || !url.includes("/upload/")) return url;
   return url.replace("/upload/", `/upload/${transform}/`);
+}
+
+// ---------------------------------------------------------------------------
+// For Her / For Him bento — reuses category_pills' tile visual pattern
+// (mobile horizontal-scroll circles, desktop image-led portrait grid) against
+// a curated list of L2s (+ a few standalone L1s) rather than the full
+// category set. Tiles resolve their image from the same /api/categories
+// response category_pills already fetches — no extra request.
+// ---------------------------------------------------------------------------
+interface GenderTileSpec {
+  label: string;
+  l1Slug: string;
+  l2Slug?: string; // omit for a standalone L1 tile (e.g. Ethnic, Footwear)
+}
+
+const FOR_HER_TILES: GenderTileSpec[] = [
+  { label: "Dresses",     l1Slug: "women", l2Slug: "dresses" },
+  { label: "Tops",        l1Slug: "women", l2Slug: "tops" },
+  { label: "Bottoms",     l1Slug: "women", l2Slug: "bottoms" },
+  { label: "Ethnic",      l1Slug: "ethnic" },
+  { label: "Co-ord Sets", l1Slug: "women", l2Slug: "coords" },
+  { label: "Lingerie",    l1Slug: "lingerie" },
+  { label: "Footwear",    l1Slug: "footwear" },
+  { label: "Accessories", l1Slug: "accessories" },
+];
+
+const FOR_HIM_TILES: GenderTileSpec[] = [
+  { label: "T-Shirts",    l1Slug: "men", l2Slug: "tshirts" },
+  { label: "Jeans",       l1Slug: "men", l2Slug: "jeans" },
+  { label: "Shirts",      l1Slug: "men", l2Slug: "shirts" },
+  { label: "Ethnic",      l1Slug: "ethnic" },
+  { label: "Formals",     l1Slug: "men", l2Slug: "formals" },
+  { label: "Inner Wear",  l1Slug: "men", l2Slug: "innerwear" },
+  { label: "Footwear",    l1Slug: "footwear" },
+  { label: "Accessories", l1Slug: "accessories" },
+];
+
+interface ResolvedGenderTile { key: string; href: string; image: string; label: string }
+
+// Footwear links to the full l1-footwear listing (not gender-filtered) for
+// both sections — footwear products don't reliably carry a `gender` value
+// (the merchant form never even shows the field once an L1 has L2 children,
+// which footwear does), so a gender-filtered footwear view would show near-
+// empty results. l1Slug alone (no l2Slug) already does this correctly.
+function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[]): ResolvedGenderTile[] {
+  const out: ResolvedGenderTile[] = [];
+  for (const spec of specs) {
+    const l1 = categories.find((c) => c.slug === spec.l1Slug);
+    if (!l1) continue;
+    if (!spec.l2Slug) {
+      if (l1.image) out.push({ key: `l1-${l1.slug}`, href: `/c/${l1.slug}`, image: l1.image, label: spec.label });
+      continue;
+    }
+    const l2 = (l1.l2 ?? []).find((s) => s.slug === spec.l2Slug);
+    if (l2?.image) out.push({ key: l2.id, href: `/c/${l1.slug}/${l2.slug}`, image: l2.image, label: spec.label });
+  }
+  return out;
+}
+
+function GenderBentoSection({ id, title, tiles }: { id: string; title: string; tiles: ResolvedGenderTile[] }) {
+  if (tiles.length === 0) return null;
+  return (
+    <div key={id} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid={`home-${id}`}>
+      <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">{title}</h2>
+
+      {/* Mobile — horizontal-scroll tile strip */}
+      <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2 md:hidden">
+        {tiles.map((t) => (
+          <Link key={t.key} href={t.href} data-testid={`${id}-tile-${t.key}`}
+            className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition">
+            <div className="w-16 h-16 rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC]">
+              <img src={cloudinaryOptimize(t.image, "w_128,q_auto,f_auto")} alt={t.label} loading="lazy" className="w-full h-full object-cover object-top" />
+            </div>
+            <span className="text-[11px] font-semibold text-[#0A1F5C] text-center w-16 leading-tight line-clamp-2">{t.label}</span>
+          </Link>
+        ))}
+      </div>
+
+      {/* Desktop — image-led portrait card grid */}
+      <div className="hidden md:grid gap-4 pb-2" style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }}>
+        {tiles.map((t) => (
+          <Link key={t.key} href={t.href} data-testid={`${id}-tile-${t.key}`}
+            className="group relative aspect-[3/4] rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC] transition hover:border-[#0A1F5C]">
+            <img src={cloudinaryOptimize(t.image, "w_400,q_auto,f_auto")} alt={t.label} loading="lazy" className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
+            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/75 via-black/15 to-transparent pointer-events-none" />
+            <span className="absolute bottom-3 left-3 right-3 font-display font-bold text-white text-sm leading-tight line-clamp-2 break-words">{t.label}</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function HomeClient() {
@@ -280,6 +373,10 @@ export function HomeClient() {
         <HeroV2 stats={stats} hero={hero} />
       </div>
     ),
+
+    for_her: <GenderBentoSection key="for-her" id="for_her" title="For Her" tiles={resolveGenderTiles(categories, FOR_HER_TILES)} />,
+
+    for_him: <GenderBentoSection key="for-him" id="for_him" title="For Him" tiles={resolveGenderTiles(categories, FOR_HIM_TILES)} />,
 
     under_499: (
       <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}>

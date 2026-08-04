@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { ProductCard } from "@/components/consumer/ProductCard";
@@ -43,8 +43,13 @@ function SkeletonGrid() {
 }
 
 export function CategoryClient() {
-  const params = useParams<{ slug: string }>();
+  // L2 deep-link: /c/{l1-slug}/{l2-slug} (route segment) OR /c/{l1-slug}?l2={l2-slug}
+  // (query param) both pre-select the L2 filter on load — used by the
+  // homepage For Her / For Him bento tiles to land pre-filtered.
+  const params = useParams<{ slug: string; l2slug?: string[] }>();
+  const searchParams = useSearchParams();
   const slug = params.slug;
+  const l2FromUrl = params.l2slug?.[0] || searchParams.get("l2") || "";
 
   const [cats, setCats] = useState<Cat[]>([]);
   const [subcategories, setSubcategories] = useState<L2[]>([]);
@@ -55,7 +60,7 @@ export function CategoryClient() {
 
   const l1 = useMemo(() => cats.find((c) => c.slug === slug), [cats, slug]);
 
-  useEffect(() => { setL2Filter(""); }, [slug]);
+  useEffect(() => { setL2Filter(l2FromUrl); }, [slug, l2FromUrl]);
 
   useEffect(() => {
     api.catalog.categories().then((r) => setCats(r as Cat[])).catch(() => {});

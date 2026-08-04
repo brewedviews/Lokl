@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { CategoryClient } from "@/components/consumer/CategoryClient";
 
 const CATEGORY_NAMES: Record<string, string> = {
@@ -31,5 +32,9 @@ export async function generateMetadata(
 }
 
 export default function CategoryL1Page() {
-  return <CategoryClient />;
+  return (
+    <Suspense fallback={null}>
+      <CategoryClient />
+    </Suspense>
+  );
 }
