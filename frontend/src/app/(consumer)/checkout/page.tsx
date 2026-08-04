@@ -15,8 +15,9 @@ import { getErrorMessage } from "@/lib/api-error";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { useLocationStore } from "@/stores/location.store";
 import { CustomerOtpLogin } from "@/components/consumer/CustomerOtpLogin";
+import { ProductCard } from "@/components/consumer/ProductCard";
 import { useRazorpay } from "@/hooks/useRazorpay";
-import type { CustomerAddress } from "@/types";
+import type { CustomerAddress, ProductCard as ProductCardType } from "@/types";
 
 interface StoreAvailInfo {
   name: string;
@@ -62,6 +63,7 @@ export default function CheckoutPage() {
   const [estimate, setEstimate] = useState<DeliveryEstimate>(null);
   const [estimating, setEstimating] = useState(false);
   const [storeAvailMap, setStoreAvailMap] = useState<Record<string, StoreAvailInfo>>({});
+  const [storeProductsMap, setStoreProductsMap] = useState<Record<string, ProductCardType[]>>({});
   const [couponCode, setCouponCode] = useState("");
   const [couponResult, setCouponResult] = useState<{ code: string; discount_amount: number; description: string } | null>(null);
   const [couponError, setCouponError] = useState("");
@@ -103,27 +105,42 @@ export default function CheckoutPage() {
   const uniqueStores = useMemo(() => Array.from(new Set(items.map((it) => it.store_id).filter(Boolean))) as string[], [items]);
   const cartStoreId = uniqueStores.length === 1 ? uniqueStores[0] : null;
 
-  // Fetch store availability for all unique stores in the cart.
+  // Fetch store availability for all unique stores in the cart. The same
+  // response also carries that store's product list — reused below to build
+  // the impulse-buy rail so this doesn't cost an extra request.
   useEffect(() => {
     if (uniqueStores.length === 0) return;
     Promise.all(
       uniqueStores.map((sid) =>
-        apiClient.get<{ store: { name?: string; badge?: string; availability_rank?: number; can_order?: boolean; eta_message?: string; next_open_label?: string } }>(
-          `/api/stores/${sid}`
-        ).then((r) => {
-          const s = r.data.store;
-          return [sid, {
-            name: s.name ?? sid,
-            badge: s.badge ?? "LIVE",
-            rank: s.availability_rank ?? 1,
-            can_order: s.can_order !== false,
-            eta_message: s.eta_message ?? "",
-            opens_at_label: s.next_open_label ?? null,
-          }] as [string, StoreAvailInfo];
-        }).catch(() => [sid, { name: sid, badge: "LIVE", rank: 1, can_order: false, eta_message: "" }] as [string, StoreAvailInfo])
+        apiClient.get<{
+          store: { name?: string; badge?: string; availability_rank?: number; can_order?: boolean; eta_message?: string; next_open_label?: string };
+          products?: ProductCardType[];
+        }>(`/api/stores/${sid}`)
+          .then((r) => {
+            const s = r.data.store;
+            if (r.data.products) {
+              setStoreProductsMap((prev) => ({ ...prev, [sid]: r.data.products! }));
+            }
+            return [sid, {
+              name: s.name ?? sid,
+              badge: s.badge ?? "LIVE",
+              rank: s.availability_rank ?? 1,
+              can_order: s.can_order !== false,
+              eta_message: s.eta_message ?? "",
+              opens_at_label: s.next_open_label ?? null,
+            }] as [string, StoreAvailInfo];
+          }).catch(() => [sid, { name: sid, badge: "LIVE", rank: 1, can_order: false, eta_message: "" }] as [string, StoreAvailInfo])
       )
     ).then((entries) => setStoreAvailMap(Object.fromEntries(entries)));
   }, [uniqueStores]);
+
+  // One-store-per-bag ⇒ cartStoreId is unambiguous, so the impulse rail
+  // never needs cross-store filtering. Exclude anything already in the bag.
+  const impulseProducts = useMemo(() => {
+    if (!cartStoreId) return [];
+    const bagIds = new Set(items.map((it) => it.id));
+    return (storeProductsMap[cartStoreId] ?? []).filter((p) => !bagIds.has(p.id)).slice(0, 8);
+  }, [cartStoreId, storeProductsMap, items]);
 
   useEffect(() => {
     if (!hasAuth || !phone) return;
@@ -496,6 +513,22 @@ export default function CheckoutPage() {
             <span>Total</span>
             <span className="text-[#0A1F5C]" data-testid="grand-total">₹{grandTotal.toLocaleString()}</span>
           </div>
+
+          {impulseProducts.length > 0 && (
+            <div className="border-t border-[#E5E2DC] mt-4 pt-4" data-testid="checkout-impulse-rail">
+              <h4 className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">
+                Add more from {storeAvailMap[cartStoreId ?? ""]?.name ?? items[0]?.store_name ?? "this store"}
+              </h4>
+              <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
+                {impulseProducts.map((p) => (
+                  <div key={p.id} className="w-[128px] shrink-0" data-testid={`impulse-item-${p.id}`}>
+                    <ProductCard p={p} size="compact" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <button onClick={place} disabled={placing || !canPay || unserviceable} data-testid="place-order-btn"
             className="w-full mt-5 px-6 py-3.5 rounded-full bg-[#E68910] text-white font-semibold hover:bg-[#C9770E] disabled:opacity-50 transition inline-flex items-center justify-center gap-2">
             {placing ? <><Loader2 size={14} className="animate-spin" /> Placing…</> : "Place order"}
