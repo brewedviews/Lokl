@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { Trash2, ShoppingBag, Bike, AlertTriangle } from "lucide-react";
 import { useCartStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
-import { DiscoveryRails } from "@/components/consumer/DiscoveryRails";
+import { TrendingBestDealsRails } from "@/components/consumer/TrendingBestDealsRails";
 
 interface StoreAvailStatus {
   can_order: boolean;
@@ -71,7 +71,7 @@ export default function CartPage() {
               </Link>
             </div>
           </section>
-          <DiscoveryRails testidPrefix="cart" />
+          <TrendingBestDealsRails testidPrefix="cart" />
         </main>
       </div>
     );
