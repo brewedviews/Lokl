@@ -52,19 +52,27 @@ interface HomeStatsDoc { fastest_eta_min?: number }
 interface HeroConfigDoc { image?: string; eyebrow?: string; title_line1?: string; title_line2?: string; subtitle?: string }
 interface SectionDoc { id: string; label: string; enabled: boolean; rank: number }
 interface HomeProductsRail { store_id: string; store_name: string; store_slug: string; store_banner?: string; store_tagline?: string; products: ProductCardType[] }
-interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCardType[]; best_deals: ProductCardType[] }
+interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCardType[]; best_deals: ProductCardType[]; premium_picks: ProductCardType[] }
 
+// Rail order note: just_in(60) → best_deals(65) → premium_picks(68) are
+// deliberately consecutive with nothing else between them — the "what's
+// new / best value / top shelf" discovery block. trending is disabled
+// (id kept, logic kept — degrades to "newest 8" when ratings are sparse,
+// see feed_home_products; flip enabled back to true once real popularity
+// data exists) but its rank is left alone since disabled sections never
+// reach the sort step.
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills", label: "Category pills",            enabled: true,  rank: 10 },
   { id: "hero",           label: "Hero",                      enabled: true,  rank: 20 },
-  { id: "just_in",        label: "Just In",                   enabled: true,  rank: 60 },
-  { id: "stores",         label: "Popular stores",            enabled: false, rank: 80 },
-  { id: "best_deals",     label: "Best deals",                enabled: true,  rank: 70 },
   { id: "under_499",      label: "Under ₹499",                enabled: true,  rank: 30 },
+  { id: "trending",       label: "Trending now",              enabled: false, rank: 40 },
   { id: "offers",         label: "Offers for you",            enabled: true,  rank: 50 },
+  { id: "just_in",        label: "Just In",                   enabled: true,  rank: 60 },
+  { id: "best_deals",     label: "Best deals",                enabled: true,  rank: 65 },
+  { id: "premium_picks",  label: "Premium picks",             enabled: true,  rank: 68 },
+  { id: "stores",         label: "Popular stores",            enabled: false, rank: 80 },
   { id: "merchant_cta",   label: "Open a store",              enabled: true,  rank: 90 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: true,  rank: 100 },
-  { id: "trending",       label: "Trending now",              enabled: true, rank: 40 },
 ];
 
 /**
@@ -88,6 +96,7 @@ export function HomeClient() {
   const [offers, setOffers] = useState<OfferDoc[]>([]);
   const [trending, setTrending] = useState<ProductCardType[]>([]);
   const [bestDeals, setBestDeals] = useState<ProductCardType[]>([]);
+  const [premiumPicks, setPremiumPicks] = useState<ProductCardType[]>([]);
   const [_storeRails, setStoreRails] = useState<HomeProductsRail[]>([]);
   const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [nearby, setNearby] = useState<StoreCard[]>([]);
@@ -149,13 +158,14 @@ export function HomeClient() {
 
     // Single request for all product content — replaces N+1 store fetches
     apiClient.get<HomeProductsResponse>("/api/feed/home-products").then((r) => {
-      const data = r.data || { store_rails: [], trending: [], best_deals: [] };
+      const data = r.data || { store_rails: [], trending: [], best_deals: [], premium_picks: [] };
       const hasProducts = (data.trending?.length || 0) + (data.store_rails?.length || 0) > 0;
 
       if (hasProducts) {
         setStoreRails(data.store_rails || []);
         setTrending(data.trending || []);
         setBestDeals(data.best_deals || []);
+        setPremiumPicks(data.premium_picks || []);
       } else {
         // Direct fallback — fetch products without feed filtering
         apiClient.get("/api/products?limit=24&sort=newest").then((r2: any) => {
@@ -163,6 +173,7 @@ export function HomeClient() {
           if (products.length > 0) {
             setTrending(products.slice(0, 8));
             setBestDeals(products.slice(8, 16));
+            setPremiumPicks(products.slice(16, 24));
             const byStore: Record<string, ProductCardType[]> = {};
             products.forEach((p: any) => {
               if (!p.store_id) return;
@@ -185,20 +196,24 @@ export function HomeClient() {
       markLoaded("storeRails");
       markLoaded("sellingFast");
       markLoaded("recent");
+      markLoaded("premiumPicks");
     }).catch(() => {
       // On total failure still try direct products
-      apiClient.get("/api/products?limit=16").then((r2: any) => {
+      apiClient.get("/api/products?limit=24").then((r2: any) => {
         const products: ProductCardType[] = r2.data?.products || [];
         if (products.length > 0) {
           setTrending(products.slice(0, 8));
-          setBestDeals(products.slice(8));
+          setBestDeals(products.slice(8, 16));
+          setPremiumPicks(products.slice(16, 24));
         }
       }).catch(() => {});
       markLoaded("storeRails");
       markLoaded("sellingFast");
       markLoaded("recent");
+      markLoaded("premiumPicks");
       markError("sellingFast");
       markError("recent");
+      markError("premiumPicks");
     });
 
     return () => clearTimeout(_deferTimer);
@@ -402,6 +417,19 @@ export function HomeClient() {
           </HCarousel>
         )
       : !loaded.has("sellingFast") ? <ProductRailSkeleton key="best-deals-skeleton" testid="home-best-deals-skeleton" /> : null,
+
+    // Premium picks — highest-priced products, full stop
+    premium_picks: errors.has("premiumPicks") ? null
+      : loaded.has("premiumPicks") && premiumPicks.length >= 1 ? (
+          <HCarousel key="premium-picks" title="Premium picks" testid="home-premium-picks" link="/products?sort=price_desc" linkLabel="See all">
+            {premiumPicks.slice(0, 8).map((p, pIdx) => (
+              <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "premium_picks", position: pIdx }); } catch {} }}>
+                <ProductCard p={p} size="default" />
+              </div>
+            ))}
+          </HCarousel>
+        )
+      : !loaded.has("premiumPicks") ? <ProductRailSkeleton key="premium-picks-skeleton" testid="home-premium-picks-skeleton" /> : null,
 
     offers: errors.has("offers") ? (
       <SectionError key="offers-error" minHeight="min-h-[120px]" />

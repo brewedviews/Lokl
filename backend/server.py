@@ -933,12 +933,14 @@ async def feed_home_products():
     sids = list(avail_map.keys())
     print(f"[home-products] stores={len(stores_raw)} sids={len(sids)}")
     if not sids:
-        return {"store_rails": [], "trending": [], "best_deals": []}
+        return {"store_rails": [], "trending": [], "best_deals": [], "premium_picks": []}
 
     all_products = await db.products.find(
         {
             "store_id": {"$in": sids},
             "is_deleted": {"$ne": True},
+            "paused": {"$ne": True},  # matches _visible_product_filter() — a merchant-paused
+                                       # product must never surface in a discovery rail.
             "status": {"$nin": ["deleted", "rejected"]},
         },
         {"_id": 0},
@@ -991,7 +993,13 @@ async def feed_home_products():
         reverse=True,
     )[:8]
 
-    return {"store_rails": store_rails, "trending": trending, "best_deals": best_deals}
+    # Premium picks — highest-priced products, full stop. No discount/rating
+    # weighting, mirrors how Just In is strictly created_at DESC with nothing
+    # else mixed in.
+    premium_picks = sorted(all_products, key=lambda p: float(p.get("price") or 0), reverse=True)[:8]
+
+    return {"store_rails": store_rails, "trending": trending, "best_deals": best_deals,
+            "premium_picks": premium_picks}
 
 
 @api.get("/feed/under-499")
