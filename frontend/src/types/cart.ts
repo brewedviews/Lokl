@@ -23,11 +23,12 @@ export interface CartItem {
   return_eligible?: boolean;
 }
 
-/** Iter-44 — multi-store cart limit (max 2 stores). The cart accepts items
- *  from up to TWO distinct stores. Adding a 3rd unique store surfaces a
- *  conflict so the UI can warn the customer. `existing_store_name` carries
- *  the *first* existing store for backward-compat with iter-32 callers;
- *  `existing_store_names` lists every store already in the bag. */
+/** One store per bag. Adding an item from a different store than what's
+ *  already in the bag surfaces a conflict so the UI can warn the customer
+ *  and offer to clear the bag and start over. `existing_store_name` carries
+ *  the store already in the bag; `existing_store_names` lists the same
+ *  (kept as an array for backward-compat with callers built for the old
+ *  multi-store limit). */
 export interface CartConflict {
   existing_store_id: string;
   existing_store_name: string;

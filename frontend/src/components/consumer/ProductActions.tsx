@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
+import { useStoreConflict } from "@/hooks/useStoreConflict";
+import { StoreConflictDialog } from "./StoreConflictDialog";
 import type { Product } from "@/types";
 
 export function ProductActions({
@@ -52,6 +54,7 @@ export function ProductActions({
   const [reserving, setReserving] = useState(false);
   const [reservation, setReservation] = useState<{ orderId: string; pickupCode: string; expiresAt: string } | null>(null);
   const [showPickupSheet, setShowPickupSheet] = useState(false);
+  const { conflict, promptConflict, confirmClearAndAdd, dismiss } = useStoreConflict();
 
   const badge = storeBadge ?? product.store_badge ?? "LIVE";
   const sName = storeName ?? product.store_name ?? "this store";
@@ -75,19 +78,29 @@ export function ProductActions({
     } catch { return ""; }
   };
 
-  const handleAdd = (): boolean => {
-    if (isClosed) { toast.error("This store is currently closed"); return false; }
-    if (!storeCanOrder) { toast.error("This store is currently unavailable"); return false; }
-    if (product.sizes?.length && !size) { toast.error("Please pick a size"); return false; }
+  // Shared by "Add to bag" and "Buy now" — they need different post-add
+  // behavior (toast vs. navigate), so that's passed in as onSuccess. On a
+  // store conflict, the warn-and-clear dialog re-runs this same add and
+  // fires onSuccess itself once the retry succeeds.
+  const handleAdd = (onSuccess: () => void) => {
+    if (isClosed) { toast.error("This store is currently closed"); return; }
+    if (!storeCanOrder) { toast.error("This store is currently unavailable"); return; }
+    if (product.sizes?.length && !size) { toast.error("Please pick a size"); return; }
     const r = addItem(product, size ?? "");
     if (!r.success && r.conflict) {
-      toast.error(`Your bag already has items from ${r.conflict.existing_store_names.join(" & ")}. Lokl allows up to ${r.conflict.max_stores} stores per order.`);
-      return false;
+      promptConflict(r.conflict, () => {
+        addItem(product, size ?? "");
+        try {
+          trackAddToCart({ product_id: product.id, product_name: product.name, price: product.price, size: size ?? "", source: "product_page" });
+        } catch {}
+        onSuccess();
+      });
+      return;
     }
     try {
       trackAddToCart({ product_id: product.id, product_name: product.name, price: product.price, size: size ?? "", source: "product_page" });
     } catch {}
-    return true;
+    onSuccess();
   };
 
   const handleNotifySubmit = async (e: React.FormEvent) => {
@@ -208,11 +221,11 @@ export function ProductActions({
             </div>
           ) : storeCanOrder ? (
             <>
-              <button onClick={() => { if (handleAdd()) toast.success("Added to bag"); }} data-testid="add-to-bag"
+              <button onClick={() => handleAdd(() => toast.success("Added to bag"))} data-testid="add-to-bag"
                 className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border-2 border-[#0A1F5C] text-[#0A1F5C] text-sm font-bold hover:bg-[#0A1F5C] hover:text-white transition whitespace-nowrap">
                 <ShoppingBag size={16} /> Add to bag
               </button>
-              <button onClick={() => { if (handleAdd()) router.push("/checkout"); }} data-testid="buy-now"
+              <button onClick={() => handleAdd(() => router.push("/checkout"))} data-testid="buy-now"
                 className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#E68910] text-white text-sm font-bold hover:bg-[#c4780f] transition whitespace-nowrap">
                 Buy now
               </button>
@@ -392,6 +405,8 @@ export function ProductActions({
           </div>
         </>
       )}
+
+      <StoreConflictDialog conflict={conflict} onConfirm={confirmClearAndAdd} onCancel={dismiss} />
     </>
   );
 }

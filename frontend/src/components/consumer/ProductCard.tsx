@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { useCartStore, useWishlistStore } from "@/stores";
 import { useMounted } from "@/hooks/useMounted";
 import { useDeliveryEta } from "@/hooks/useDeliveryEta";
+import { useStoreConflict } from "@/hooks/useStoreConflict";
+import { StoreConflictDialog } from "./StoreConflictDialog";
 import type { ProductCard as ProductCardType } from "@/types";
 
 type AnyProduct = ProductCardType & {
@@ -52,6 +54,7 @@ export function ProductCard({ p, size = "default" }: Props) {
   });
   const sizes = (p.sizes ?? []).slice(0, 4);
   const [pickingSize, setPickingSize] = useState(false);
+  const { conflict, promptConflict, confirmClearAndAdd, dismiss } = useStoreConflict();
 
   const storeBadge = (p as any).store_badge as string | undefined;
   const storeOpensAt = (p as any).store_opens_at_label as string | undefined;
@@ -64,9 +67,11 @@ export function ProductCard({ p, size = "default" }: Props) {
     }
     const r = addItem(p, chosenSize);
     if (!r.success && r.conflict) {
-      toast.error(
-        `Your bag already has items from ${r.conflict.existing_store_names.join(" & ")}. Lokl allows up to ${r.conflict.max_stores} stores per order.`,
-      );
+      promptConflict(r.conflict, () => {
+        addItem(p, chosenSize);
+        toast.success(`${p.name} added`);
+        setPickingSize(false);
+      });
       return;
     }
     toast.success(`${p.name} added`);
@@ -285,6 +290,8 @@ export function ProductCard({ p, size = "default" }: Props) {
           </div>
         )}
       </div>
+
+      <StoreConflictDialog conflict={conflict} onConfirm={confirmClearAndAdd} onCancel={dismiss} />
     </div>
   );
 }

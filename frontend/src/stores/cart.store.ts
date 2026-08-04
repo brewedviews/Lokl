@@ -6,11 +6,12 @@
  * Legacy line shape:
  *   { key, id, name, price, image, size, store_name, store_eta_min, qty }
  *
- * Iter-44 — Multi-store cart limit. The customer may stack items from up to
- * MAX_STORES_PER_CART (=2) distinct stores. Adding a 3rd unique store
- * returns `{success:false, conflict}` so the UI can warn the customer.
- * Backward-compat: legacy lines without `store_id` are grandfathered — the
- * uniqueness check counts only items with a real `store_id`.
+ * One store per bag. MAX_STORES_PER_CART (=1) means adding an item from a
+ * second distinct store returns `{success:false, conflict}` instead of
+ * mixing stores — the call site warns the customer and offers to clear the
+ * bag and start fresh with the new store. Backward-compat: legacy lines
+ * without `store_id` are grandfathered — the uniqueness check counts only
+ * items with a real `store_id`.
  *
  * Persistence shape: zustand/persist wraps state in `{state, version}`. The
  * legacy app reads `localStorage.bf_cart` as a bare JSON array. We solve the
@@ -23,7 +24,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type { CartConflict, CartItem, ProductCard, RupeeAmount } from "@/types";
 
 export const CART_KEY = "bf_cart";
-export const MAX_STORES_PER_CART = 2;
+export const MAX_STORES_PER_CART = 1;
 
 // ---------------------------------------------------------------------------
 // State + actions
@@ -92,7 +93,7 @@ export const useCartStore = create<CartStore>()(
         const itemStoreId = product.store_id;
         const stores = distinctStores(state.items);
 
-        // Max-2-stores rule — only applies when the new line has a real
+        // One-store-per-bag rule — only applies when the new line has a real
         // store_id AND it's a store we haven't seen yet in the bag.
         if (
           itemStoreId &&
