@@ -64,17 +64,17 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills", label: "Category pills",            enabled: true,  rank: 10 },
   { id: "hero",           label: "Hero",                      enabled: true,  rank: 20 },
-  { id: "for_her",        label: "For Her",                   enabled: true,  rank: 25 },
-  { id: "for_him",        label: "For Him",                   enabled: true,  rank: 26 },
+  { id: "for_her",        label: "For Her",                   enabled: true,  rank: 42 },
+  { id: "for_him",        label: "For Him",                   enabled: true,  rank: 43 },
   { id: "under_499",      label: "Under ₹499",                enabled: true,  rank: 30 },
-  { id: "trending",       label: "Trending now",              enabled: false, rank: 40 },
-  { id: "offers",         label: "Offers for you",            enabled: true,  rank: 50 },
-  { id: "just_in",        label: "Just In",                   enabled: true,  rank: 60 },
-  { id: "best_deals",     label: "Best deals",                enabled: true,  rank: 65 },
+  { id: "trending",       label: "Trending now",              enabled: false, rank: 45 },
+  { id: "offers",         label: "Offers for you",            enabled: true,  rank: 70 },
+  { id: "just_in",        label: "Just In",                   enabled: false,  rank: 60 },
+  { id: "best_deals",     label: "Best deals",                enabled: true,  rank: 40 },
   { id: "premium_picks",  label: "Premium picks",             enabled: true,  rank: 68 },
   { id: "stores",         label: "Popular stores",            enabled: false, rank: 80 },
   { id: "merchant_cta",   label: "Open a store",              enabled: true,  rank: 90 },
-  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: true,  rank: 100 },
+  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false,  rank: 100 },
 ];
 
 /**
