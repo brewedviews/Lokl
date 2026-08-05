@@ -203,33 +203,37 @@ function GenderBentoSection({ id, title, tiles }: { id: string; title: string; t
   );
 }
 
-// "Shop by Area" — same tile-grid pattern as GenderBentoSection (image +
-// label + pill badge, no card box) but circular tiles and the badge is a
-// live store count that ALWAYS renders, including "0 stores" — unlike the
-// price chip above, a missing count isn't a reason to hide the badge, an
+// "Shop by Area" — 3x2 rectangular bentos (all 6 areas always visible, no
+// horizontal scroll — fixed grid-cols-3 regardless of width, unlike the
+// gender bento's responsive column count, since this set is always exactly
+// 6). Bigger, image-forward cards: label + store-count pill sit BELOW the
+// image (not overlaid), matching an editorial "bestsellers" card rather
+// than the circular pill-tile look. The count pill ALWAYS renders,
+// including "0 stores" — a missing count isn't a reason to hide it, an
 // area with no stores yet is still real information ("expanding here").
-// All 6 featured areas always render regardless of count.
 function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
   if (areas.length === 0) return null;
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_area">
       <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">Shop by Area</h2>
 
-      <div className="grid grid-cols-3 min-[360px]:grid-cols-4 gap-x-3 gap-y-4 sm:gap-x-4">
+      <div className="grid grid-cols-3 gap-3 sm:gap-4">
         {areas.map((a) => (
           <Link key={a.slug} href={`/stores?area=${a.slug}`} data-testid={`shop-by-area-tile-${a.slug}`}
-            className="group flex flex-col items-center gap-1.5 active:scale-[0.97] transition">
-            <div className="relative w-full aspect-square rounded-full overflow-hidden bg-transparent">
+            className="group flex flex-col gap-1.5 active:scale-[0.97] transition">
+            <div className="relative w-full aspect-[4/5] rounded-card overflow-hidden bg-transparent shadow-[var(--shadow-1)]">
               {a.image ? (
-                <img src={cloudinaryOptimize(a.image, "w_300,q_auto,f_auto")} alt={a.name} loading="lazy" className="w-full h-full rounded-full object-cover object-top transition duration-500 group-hover:scale-105" />
+                <img src={cloudinaryOptimize(a.image, "w_400,q_auto,f_auto")} alt={a.name} loading="lazy" className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
               ) : (
-                <div className="w-full h-full rounded-full bg-surface-tint" data-testid={`shop-by-area-blank-${a.slug}`} />
+                <div className="w-full h-full bg-surface-tint" data-testid={`shop-by-area-blank-${a.slug}`} />
               )}
             </div>
-            <span className="text-[12px] font-semibold text-brand-primary text-center leading-tight line-clamp-1 w-full">{a.name}</span>
-            <span className="inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-[10px] font-medium leading-none text-white" data-testid={`shop-by-area-count-${a.slug}`}>
-              {a.store_count} {a.store_count === 1 ? "store" : "stores"}
-            </span>
+            <div className="text-center">
+              <div className="text-[13px] font-semibold text-brand-primary leading-tight line-clamp-1">{a.name}</div>
+              <span className="inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-[10px] font-medium leading-none text-white mt-1" data-testid={`shop-by-area-count-${a.slug}`}>
+                {a.store_count} {a.store_count === 1 ? "store" : "stores"}
+              </span>
+            </div>
           </Link>
         ))}
       </div>
