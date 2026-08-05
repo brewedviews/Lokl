@@ -182,11 +182,11 @@ function GenderBentoSection({ id, title, tiles }: { id: string; title: string; t
         {tiles.map((t) => (
           <Link key={t.key} href={t.href} data-testid={`${id}-tile-${t.key}`}
             className="group flex flex-col items-center gap-1.5 active:scale-[0.97] transition">
-            <div className="relative w-full aspect-square rounded-card overflow-hidden bg-surface-tint">
+            <div className="relative w-full aspect-square rounded-card overflow-hidden bg-transparent">
               {t.image ? (
                 <img src={cloudinaryOptimize(t.image, "w_300,q_auto,f_auto")} alt={t.label} loading="lazy" className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
               ) : (
-                <div className="w-full h-full" data-testid={`${id}-blank-${t.key}`} />
+                <div className="w-full h-full bg-surface-tint" data-testid={`${id}-blank-${t.key}`} />
               )}
             </div>
             <span className="text-[12px] font-semibold text-brand-primary text-center leading-tight line-clamp-1 w-full">{t.label}</span>
