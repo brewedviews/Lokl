@@ -312,8 +312,8 @@ export default function CheckoutPage() {
 
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
-      <div className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 py-10 grid md:grid-cols-3 gap-8">
-        <div className="md:col-span-2 space-y-6">
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 py-10 grid grid-cols-1 md:grid-cols-3 gap-8 min-w-0">
+        <div className="md:col-span-2 space-y-6 min-w-0">
           {unserviceable && (
             <div className="mx-4 mb-4 p-4 bg-red-50 border border-red-200 rounded-2xl">
               <p className="font-semibold text-red-700 text-sm">Area not serviceable</p>
@@ -370,7 +370,7 @@ export default function CheckoutPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC] h-fit">
+        <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC] h-fit min-w-0">
           <h3 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">Bag ({items.length})</h3>
           {uniqueStoreNames.length > 1 && (
             <div data-testid="multi-store-notice" className="mb-3 rounded-xl border border-[#E68910]/30 bg-[#E68910]/10 px-3 py-2 text-[12px] text-[#0A1F5C]">
@@ -454,6 +454,14 @@ export default function CheckoutPage() {
               ) : (
                 <span className="text-xs text-[#595959]">—</span>
               )}
+            </div>
+            <div className="flex justify-between text-sm" data-testid="platform-fee-row">
+              <span className="text-[#595959]">Platform fee</span>
+              <span className="font-bold text-[#E68910]">Nah bro!</span>
+            </div>
+            <div className="flex justify-between text-sm" data-testid="handling-fee-row">
+              <span className="text-[#595959]">Handling fee</span>
+              <span className="font-bold text-[#E68910]">Absolutely Not!</span>
             </div>
             {estimate?.deliverable && !estimate.is_free && (
               <p className="text-[10px] text-[#4F7363]">Free delivery on orders above ₹{estimate.free_delivery_threshold ?? 499}</p>
