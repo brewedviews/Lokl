@@ -107,10 +107,10 @@ const FOR_HER_TILES: GenderTileSpec[] = [
   { label: "Dresses",     l1Slug: "women", l2Slug: "dresses" },
   { label: "Tops",        l1Slug: "women", l2Slug: "tops" },
   { label: "Bottoms",     l1Slug: "women", l2Slug: "bottoms" },
-  { label: "Ethnic",      l1Slug: "ethnic" },
+  { label: "Ethnic",      l1Slug: "ethnic", l2Slug: "ethinic" },
   { label: "Co-ord Sets", l1Slug: "women", l2Slug: "coords" },
-  { label: "Lingerie",    l1Slug: "lingerie" },
-  { label: "Footwear",    l1Slug: "footwear" },
+  { label: "Lingerie",    l1Slug: "lingerie", l2Slug: "lingerie" },
+  { label: "Footwear",    l1Slug: "footwear", l2Slug: "footwear" },
   { label: "Accessories", l1Slug: "accessories" },
 ];
 
@@ -118,10 +118,10 @@ const FOR_HIM_TILES: GenderTileSpec[] = [
   { label: "T-Shirts",    l1Slug: "men", l2Slug: "tshirts" },
   { label: "Jeans",       l1Slug: "men", l2Slug: "jeans" },
   { label: "Shirts",      l1Slug: "men", l2Slug: "shirts" },
-  { label: "Ethnic",      l1Slug: "ethnic" },
+  { label: "Ethnic",      l1Slug: "ethnic", l2Slug: "ethinic" },
   { label: "Formals",     l1Slug: "men", l2Slug: "formals" },
   { label: "Inner Wear",  l1Slug: "men", l2Slug: "innerwear" },
-  { label: "Footwear",    l1Slug: "footwear" },
+  { label: "Footwear",    l1Slug: "footwear", l2Slug: "footwear" },
   { label: "Accessories", l1Slug: "accessories" },
 ];
 
