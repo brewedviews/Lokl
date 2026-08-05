@@ -23,7 +23,7 @@ import { SearchOverlayHost } from "@/components/consumer/SearchOverlayHost";
  * short pages instead of leaving dead space above the sticky bottom nav.
  * Pages must pair this with their own `flex-1 flex flex-col` root — see
  * stores/page.tsx. (No page-level Footer exists anymore — the bottom nav
- * covers that role; the homepage additionally ends with TrustBadges.)
+ * covers that role; the homepage additionally ends with TrustStickers.)
  */
 export default function ConsumerLayout({ children }: { children: React.ReactNode }) {
   return (

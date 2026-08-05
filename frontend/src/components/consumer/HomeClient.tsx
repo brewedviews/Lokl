@@ -36,7 +36,7 @@ import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
 import { JustInSection } from "@/components/consumer/JustInSection";
-import { TrustBadges } from "@/components/consumer/TrustBadges";
+import { TrustStickers } from "@/components/consumer/TrustStickers";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
 import type { ProductCard as ProductCardType, StoreCard, CategoryNode } from "@/types";
@@ -647,10 +647,10 @@ export function HomeClient() {
     .filter(Boolean);
 
   return (
-    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7] bottom-nav-safe">
       <main className="flex-1">
         {orderedSections}
-        <TrustBadges />
+        <TrustStickers />
       </main>
     </div>
   );
