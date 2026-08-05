@@ -32,6 +32,13 @@ const BLANK_ADDR = { name: "", phone: "", line1: "", landmark: "", city: "Bhilai
 // Pilot is Bhilai-only; centroid is good enough until we wire geolocation.
 const BHILAI_LAT = 21.1938;
 const BHILAI_LNG = 81.3509;
+// Single source of truth for "is this pincode serviceable" — used by BOTH
+// the checkout serviceability banner and order placement's own gate, so
+// the two can never disagree (previously the banner checked the browser's
+// GPS position instead of the delivery address, which falsely flagged
+// valid Bhilai addresses as unserviceable whenever the tester's device was
+// physically elsewhere).
+const BHILAI_PINCODES = ["490001", "490006", "490009", "490020", "490023"];
 
 type DeliveryEstimate = {
   deliverable: boolean;
@@ -71,17 +78,26 @@ export default function CheckoutPage() {
   const [unserviceable, setUnserviceable] = useState(false);
   const [unserviceableMessage, setUnserviceableMessage] = useState("");
 
+  // Serviceability is about the DELIVERY ADDRESS, not the shopper's current
+  // GPS position — re-evaluates whenever the selected/entered address's
+  // pincode changes (picking a saved address, switching to "new address",
+  // or typing one in). Waits for a complete 6-digit pincode so it doesn't
+  // flash "not serviceable" mid-keystroke.
   useEffect(() => {
-    if (!customerLat || !customerLng) return;
-    apiClient.get(`/api/delivery/check-serviceability?lat=${customerLat}&lng=${customerLng}`)
-      .then((r: any) => {
-        if (!r.data.serviceable) {
-          setUnserviceable(true);
-          setUnserviceableMessage(r.data.message);
-        }
-      })
-      .catch(() => {});
-  }, [customerLat, customerLng]);
+    const pin = addr.pincode.trim();
+    if (pin.length !== 6) {
+      setUnserviceable(false);
+      setUnserviceableMessage("");
+      return;
+    }
+    if (!BHILAI_PINCODES.includes(pin)) {
+      setUnserviceable(true);
+      setUnserviceableMessage("Sorry, we don't deliver to this pincode yet. We're expanding soon!");
+    } else {
+      setUnserviceable(false);
+      setUnserviceableMessage("");
+    }
+  }, [addr.pincode]);
 
   useEffect(() => {
     if (items.length === 0) return;
@@ -247,7 +263,6 @@ export default function CheckoutPage() {
     if ((addr.city || "").trim().toLowerCase() !== "bhilai") {
       return toast.error("Lokl is only serving Bhilai right now — please update your delivery city.");
     }
-    const BHILAI_PINCODES = ["490001", "490006", "490009", "490020", "490023"];
     if (!BHILAI_PINCODES.includes(addr.pincode.trim())) {
       return toast.error("We only deliver to Bhilai pincodes (490xxx). Please check your pincode.");
     }
