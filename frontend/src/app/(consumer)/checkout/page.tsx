@@ -326,18 +326,18 @@ export default function CheckoutPage() {
   const uniqueStoreNames = Array.from(new Set(items.map((it) => it.store_name).filter(Boolean)));
 
   return (
-    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
-      <div className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 py-10 grid grid-cols-1 md:grid-cols-3 gap-8 min-w-0">
-        <div className="md:col-span-2 space-y-6 min-w-0">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7] bottom-nav-safe">
+      <div className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 pt-4 pb-8 grid grid-cols-1 md:grid-cols-3 gap-5 min-w-0">
+        <div className="md:col-span-2 space-y-4 min-w-0">
           {unserviceable && (
-            <div className="mx-4 mb-4 p-4 bg-red-50 border border-red-200 rounded-2xl">
+            <div className="mx-4 mb-3 p-4 bg-red-50 border border-red-200 rounded-2xl">
               <p className="font-semibold text-red-700 text-sm">Area not serviceable</p>
               <p className="text-red-600 text-xs mt-1">{unserviceableMessage}</p>
             </div>
           )}
           {savedAddresses.length > 0 && (
-            <div className="bg-white rounded-2xl p-5 border border-[#E5E2DC]" data-testid="saved-addresses">
-              <h3 className="text-[11px] uppercase tracking-widest text-[#595959] mb-3">Deliver to</h3>
+            <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="saved-addresses">
+              <h3 className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">Deliver to</h3>
               <div className="space-y-2">
                 {savedAddresses.map((a) => (
                   <button key={a.id} type="button" data-testid={`pick-addr-${a.id}`} onClick={() => pickSaved(a.id)}
@@ -362,31 +362,31 @@ export default function CheckoutPage() {
           )}
 
           {selectedId === "__new__" && (
-            <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC]">
-              <h2 className="font-display text-2xl font-bold text-[#0A1F5C] mb-4">New delivery address</h2>
-              <p className="text-xs text-[#595959] mb-4">Saved addresses appear in your account for one-tap checkout next time.</p>
-              <div className="grid md:grid-cols-2 gap-3">
-                <input data-testid="addr-name" value={addr.name} onChange={(e) => setAddr({ ...addr, name: e.target.value })} placeholder="Full name" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
-                <input data-testid="addr-phone" value={addr.phone} onChange={(e) => setAddr({ ...addr, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="Phone" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
-                <textarea data-testid="addr-line1" value={addr.line1} onChange={(e) => setAddr({ ...addr, line1: e.target.value })} placeholder="House no, street, locality" rows={2} className="md:col-span-2 px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C] resize-none" />
-                <input data-testid="addr-landmark" value={addr.landmark} onChange={(e) => setAddr({ ...addr, landmark: e.target.value })} placeholder="Landmark (e.g. opposite SBI / near Globe Chowk)" className="md:col-span-2 px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
-                <input data-testid="addr-city" value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} placeholder="City (Bhilai only)" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
-                <input data-testid="addr-pin" value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="Pincode" className="px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+            <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]">
+              <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-1">New delivery address</h2>
+              <p className="text-xs text-[#595959] mb-3">Saved addresses appear in your account for one-tap checkout next time.</p>
+              <div className="grid md:grid-cols-2 gap-2.5">
+                <input data-testid="addr-name" value={addr.name} onChange={(e) => setAddr({ ...addr, name: e.target.value })} placeholder="Full name" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                <input data-testid="addr-phone" value={addr.phone} onChange={(e) => setAddr({ ...addr, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="Phone" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                <textarea data-testid="addr-line1" value={addr.line1} onChange={(e) => setAddr({ ...addr, line1: e.target.value })} placeholder="House no, street, locality" rows={2} className="md:col-span-2 px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C] resize-none" />
+                <input data-testid="addr-landmark" value={addr.landmark} onChange={(e) => setAddr({ ...addr, landmark: e.target.value })} placeholder="Landmark (e.g. opposite SBI / near Globe Chowk)" className="md:col-span-2 px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                <input data-testid="addr-city" value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} placeholder="City (Bhilai only)" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                <input data-testid="addr-pin" value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="Pincode" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
               </div>
             </div>
           )}
 
-          <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC]">
-            <h2 className="font-display text-2xl font-bold text-[#0A1F5C] mb-4">Payment</h2>
-            <div className="flex items-center gap-3 p-4 rounded-2xl border-2 border-[#0A1F5C] bg-[#0A1F5C]/5" data-testid="pay-cod">
-              <Banknote size={20} className="text-[#E68910]" />
+          <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]">
+            <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-2">Payment</h2>
+            <div className="flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 border-[#0A1F5C] bg-[#0A1F5C]/5" data-testid="pay-cod">
+              <Banknote size={18} className="text-[#E68910]" />
               <span className="font-semibold text-sm">Pay at Delivery</span>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC] h-fit min-w-0">
-          <h3 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">Bag ({items.length})</h3>
+        <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC] h-fit min-w-0">
+          <h3 className="font-display text-lg font-bold text-[#0A1F5C] mb-2">Bag ({items.length})</h3>
           {uniqueStoreNames.length > 1 && (
             <div data-testid="multi-store-notice" className="mb-3 rounded-xl border border-[#E68910]/30 bg-[#E68910]/10 px-3 py-2 text-[12px] text-[#0A1F5C]">
               Your bag has items from <strong>{uniqueStoreNames.length} stores</strong>. You&apos;ll pay once now and may receive
@@ -407,15 +407,15 @@ export default function CheckoutPage() {
               })}
             </div>
           )}
-          <div className="space-y-3 max-h-72 overflow-auto">
+          <div className="space-y-2 max-h-72 overflow-auto">
             {items.map((it) => (
-              <div key={it.key} className="flex gap-3 text-sm">
+              <div key={it.key} className="flex gap-2.5 text-sm">
                 {it.image ? (
-                  <Image src={it.image} alt={it.name} width={56} height={64} className="w-14 h-16 rounded-lg object-cover" />
-                ) : <div className="w-14 h-16 rounded-lg bg-slate-100" />}
+                  <Image src={it.image} alt={it.name} width={48} height={56} className="w-12 h-14 rounded-lg object-cover" />
+                ) : <div className="w-12 h-14 rounded-lg bg-slate-100" />}
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-[#0A1F5C] truncate">{it.name}</div>
-                  <div className="text-xs text-[#595959]">{it.store_name ? `${it.store_name} · ` : ""}Qty {it.qty}{it.size ? ` · ${it.size}` : ""}</div>
+                  <div className="font-semibold text-[#0A1F5C] truncate leading-tight">{it.name}</div>
+                  <div className="text-xs text-[#595959] leading-tight mt-0.5">{it.store_name ? `${it.store_name} · ` : ""}Qty {it.qty}{it.size ? ` · ${it.size}` : ""}</div>
                 </div>
                 <div className="font-semibold">₹{(it.price * it.qty).toLocaleString()}</div>
               </div>
@@ -423,7 +423,7 @@ export default function CheckoutPage() {
           </div>
 
           {/* Coupon code */}
-          <div className="border-t border-[#E5E2DC] mt-4 pt-4" data-testid="coupon-section">
+          <div className="border-t border-[#E5E2DC] mt-3 pt-3" data-testid="coupon-section">
             {couponResult ? (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-[#4F7363] font-semibold">{couponResult.code} applied</span>
@@ -449,7 +449,7 @@ export default function CheckoutPage() {
           </div>
 
           {/* Delivery estimate panel */}
-          <div className="border-t border-[#E5E2DC] mt-4 pt-4 space-y-2" data-testid="delivery-estimate">
+          <div className="border-t border-[#E5E2DC] mt-3 pt-3 space-y-1.5" data-testid="delivery-estimate">
             <div className="flex justify-between text-sm">
               <span className="text-[#595959]">Subtotal</span>
               <span className="font-semibold">₹{subtotal.toLocaleString()}</span>
@@ -532,13 +532,13 @@ export default function CheckoutPage() {
               <span>−₹{discountAmount.toLocaleString()}</span>
             </div>
           )}
-          <div className="border-t border-[#E5E2DC] mt-3 pt-3 flex justify-between font-bold">
+          <div className="border-t border-[#E5E2DC] mt-2.5 pt-2.5 flex justify-between font-bold">
             <span>Total</span>
             <span className="text-[#0A1F5C]" data-testid="grand-total">₹{grandTotal.toLocaleString()}</span>
           </div>
 
           {impulseProducts.length > 0 && (
-            <div className="border-t border-[#E5E2DC] mt-4 pt-4" data-testid="checkout-impulse-rail">
+            <div className="border-t border-[#E5E2DC] mt-3 pt-3" data-testid="checkout-impulse-rail">
               <h4 className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">
                 Add more from {storeAvailMap[cartStoreId ?? ""]?.name ?? items[0]?.store_name ?? "this store"}
               </h4>
@@ -553,7 +553,7 @@ export default function CheckoutPage() {
           )}
 
           <button onClick={place} disabled={placing || !canPay || unserviceable} data-testid="place-order-btn"
-            className="w-full mt-5 px-6 py-3.5 rounded-full bg-[#E68910] text-white font-semibold hover:bg-[#C9770E] disabled:opacity-50 transition inline-flex items-center justify-center gap-2">
+            className="w-full mt-4 px-6 py-3.5 rounded-full bg-[#E68910] text-white font-semibold hover:bg-[#C9770E] disabled:opacity-50 transition inline-flex items-center justify-center gap-2">
             {placing ? <><Loader2 size={14} className="animate-spin" /> Placing…</> : "Place order"}
           </button>
         </div>
