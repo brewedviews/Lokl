@@ -125,7 +125,7 @@ const FOR_HIM_TILES: GenderTileSpec[] = [
   { label: "Accessories", l1Slug: "accessories" },
 ];
 
-interface ResolvedGenderTile { key: string; href: string; image: string; label: string; minPrice: number | null }
+interface ResolvedGenderTile { key: string; href: string; image: string | null; label: string; minPrice: number | null }
 
 function formatFromPrice(n: number): string {
   return `from ₹${Math.round(n).toLocaleString("en-IN")}`;
@@ -136,17 +136,26 @@ function formatFromPrice(n: number): string {
 // (the merchant form never even shows the field once an L1 has L2 children,
 // which footwear does), so a gender-filtered footwear view would show near-
 // empty results. l1Slug alone (no l2Slug) already does this correctly.
+//
+// Image is read ONLY from the tile's own target — l1.image for an L1-target
+// tile, l2.image for an L2-target tile — never a cross-fallback between the
+// two. A tile is only dropped when its target CATEGORY doesn't exist (l1
+// missing, or l2Slug given but no matching l2 under that l1); if the
+// category exists but its image is unset, the tile still renders with
+// image: null so the grid keeps its full 8 tiles and the component below
+// shows a blank placeholder instead of borrowing imagery from elsewhere.
 function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[]): ResolvedGenderTile[] {
   const out: ResolvedGenderTile[] = [];
   for (const spec of specs) {
     const l1 = categories.find((c) => c.slug === spec.l1Slug);
     if (!l1) continue;
     if (!spec.l2Slug) {
-      if (l1.image) out.push({ key: `l1-${l1.slug}`, href: `/c/${l1.slug}`, image: l1.image, label: spec.label, minPrice: l1.min_price ?? null });
+      out.push({ key: `l1-${l1.slug}`, href: `/c/${l1.slug}`, image: l1.image || null, label: spec.label, minPrice: l1.min_price ?? null });
       continue;
     }
     const l2 = (l1.l2 ?? []).find((s) => s.slug === spec.l2Slug);
-    if (l2?.image) out.push({ key: l2.id, href: `/c/${l1.slug}/${l2.slug}`, image: l2.image, label: spec.label, minPrice: l2.min_price ?? null });
+    if (!l2) continue;
+    out.push({ key: l2.id, href: `/c/${l1.slug}/${l2.slug}`, image: l2.image || null, label: spec.label, minPrice: l2.min_price ?? null });
   }
   return out;
 }
@@ -154,21 +163,25 @@ function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[])
 // 4×2 shoppable grid (all 8 tiles always visible, no horizontal scroll) —
 // deliberately NOT the same look as the top L1 pill row (category_pills):
 // that's a full-bleed image with the label overlaid on a gradient. This is
-// a bordered card with the image on top and label + "from ₹X" price chip
-// in a separate content area below, so the two rows read as different UI,
-// not a repeat of the same pattern.
+// image + label + price chip sitting directly on the page background, no
+// card/border/box, so the two rows read as different UI, not a repeat of
+// the same pattern.
 function GenderBentoSection({ id, title, tiles }: { id: string; title: string; tiles: ResolvedGenderTile[] }) {
   if (tiles.length === 0) return null;
   return (
     <div key={id} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid={`home-${id}`}>
       <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">{title}</h2>
 
-      <div className="grid grid-cols-3 min-[360px]:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-3 min-[360px]:grid-cols-4 gap-x-3 gap-y-4 sm:gap-x-4">
         {tiles.map((t) => (
           <Link key={t.key} href={t.href} data-testid={`${id}-tile-${t.key}`}
-            className="group flex flex-col items-center gap-1.5 rounded-card bg-white border border-card-border p-2 shadow-[var(--shadow-1)] hover:shadow-[var(--shadow-2)] hover:border-brand-primary/30 transition active:scale-[0.97]">
-            <div className="relative w-full aspect-square rounded-[calc(var(--radius-card)-6px)] overflow-hidden bg-surface-tint">
-              <img src={cloudinaryOptimize(t.image, "w_300,q_auto,f_auto")} alt={t.label} loading="lazy" className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
+            className="group flex flex-col items-center gap-1.5 active:scale-[0.97] transition">
+            <div className="relative w-full aspect-square rounded-card overflow-hidden bg-surface-tint">
+              {t.image ? (
+                <img src={cloudinaryOptimize(t.image, "w_300,q_auto,f_auto")} alt={t.label} loading="lazy" className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
+              ) : (
+                <div className="w-full h-full" data-testid={`${id}-blank-${t.key}`} />
+              )}
             </div>
             <span className="text-[12px] font-semibold text-brand-primary text-center leading-tight line-clamp-1 w-full">{t.label}</span>
             {t.minPrice != null && (
