@@ -107,10 +107,10 @@ const FOR_HER_TILES: GenderTileSpec[] = [
   { label: "Dresses",     l1Slug: "women", l2Slug: "dresses" },
   { label: "Tops",        l1Slug: "women", l2Slug: "tops" },
   { label: "Bottoms",     l1Slug: "women", l2Slug: "bottoms" },
-  { label: "Ethnic",      l1Slug: "ethnic", l2Slug: "ethinic" },
+  { label: "Ethnic",      l1Slug: "women", l2Slug: "ethnic-wear" },
   { label: "Co-ord Sets", l1Slug: "women", l2Slug: "coords" },
-  { label: "Lingerie",    l1Slug: "lingerie", l2Slug: "lingerie" },
-  { label: "Footwear",    l1Slug: "footwear", l2Slug: "footwear" },
+  { label: "Lingerie",    l1Slug: "women", l2Slug: "lingerie" },
+  { label: "Footwear",    l1Slug: "women", l2Slug: "footwear" },
   { label: "Accessories", l1Slug: "accessories" },
 ];
 
@@ -118,10 +118,10 @@ const FOR_HIM_TILES: GenderTileSpec[] = [
   { label: "T-Shirts",    l1Slug: "men", l2Slug: "tshirts" },
   { label: "Jeans",       l1Slug: "men", l2Slug: "jeans" },
   { label: "Shirts",      l1Slug: "men", l2Slug: "shirts" },
-  { label: "Ethnic",      l1Slug: "ethnic", l2Slug: "ethinic" },
+  { label: "Ethnic",      l1Slug: "men", l2Slug: "ethnic-wear" },
   { label: "Formals",     l1Slug: "men", l2Slug: "formals" },
   { label: "Inner Wear",  l1Slug: "men", l2Slug: "innerwear" },
-  { label: "Footwear",    l1Slug: "footwear", l2Slug: "footwear" },
+  { label: "Footwear",    l1Slug: "men", l2Slug: "footwear" },
   { label: "Accessories", l1Slug: "accessories" },
 ];
 
@@ -131,11 +131,17 @@ function formatFromPrice(n: number): string {
   return `from ₹${Math.round(n).toLocaleString("en-IN")}`;
 }
 
-// Footwear links to the full l1-footwear listing (not gender-filtered) for
-// both sections — footwear products don't reliably carry a `gender` value
-// (the merchant form never even shows the field once an L1 has L2 children,
-// which footwear does), so a gender-filtered footwear view would show near-
-// empty results. l1Slug alone (no l2Slug) already does this correctly.
+// Ethnic/Footwear/Lingerie tiles target the L2s already nested under
+// l1-women / l1-men (l2-women-ethnic, l2-men-footwear, etc.) rather than
+// the standalone l1-ethnic/l1-footwear/l1-lingerie categories or the
+// product `gender` field. That field is unreliable — the merchant form
+// never shows a gender picker once an L1 has L2 children, which Ethnic and
+// Footwear both do, so it's almost never set — but these gendered L2s sidestep
+// that entirely: they're real, separate category docs (same mechanism as
+// Dresses/Tops/Bottoms), each with its own image and its own filtered
+// destination, no gender field involved. Accessories has no gendered L2
+// under either l1-women or l1-men, so it stays pointed at the shared
+// standalone l1-accessories for both grids.
 //
 // Image is read ONLY from the tile's own target — l1.image for an L1-target
 // tile, l2.image for an L2-target tile — never a cross-fallback between the

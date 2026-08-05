@@ -53,6 +53,17 @@ L2_BY_L1 = {
         {"id": "l2-women-jackets",    "name": "Jackets & Coats",       "slug": "jackets",      "order": 10},
         {"id": "l2-women-sarees",     "name": "Sarees & Dupattas",     "slug": "sarees",       "order": 11},
         {"id": "l2-women-kurtas",     "name": "Kurtas & Suits",        "slug": "kurtas",       "order": 12},
+        # Pre-existing live-DB docs (not previously tracked in seed_data.py —
+        # ids/names/slugs below match what's already live) — the Women
+        # category page's filter pills already use these; codified here so
+        # fresh DBs get them too and so their images are admin/seed-managed
+        # going forward, same as every other L2.
+        {"id": "l2-women-ethnic",     "name": "Ethnic Wear",           "slug": "ethnic-wear",  "order": 13,
+         "image": "https://images.unsplash.com/photo-1597983073750-16f5ded1321f?w=600&q=80"},
+        {"id": "l2-women-footwear",   "name": "Footwear",              "slug": "footwear",     "order": 14,
+         "image": "https://images.unsplash.com/photo-1535043934128-cf0b28d52f95?w=600&q=80"},
+        {"id": "l2-women-lingerie",   "name": "Lingerie",              "slug": "lingerie",     "order": 15,
+         "image": "https://images.unsplash.com/photo-1568441556126-f36ae0900180?w=600&q=80"},
     ],
     "l1-men": [
         {"id": "l2-men-tshirts",      "name": "T-Shirts",              "slug": "tshirts",      "order": 1,
@@ -72,6 +83,11 @@ L2_BY_L1 = {
         {"id": "l2-men-innerwear",    "name": "Inner Wear",            "slug": "innerwear",    "order": 11,
          "image": "https://images.unsplash.com/photo-1640765937555-6f413ed1d936?w=600&q=80"},
         {"id": "l2-men-winterwear",   "name": "Winterwear",            "slug": "winterwear",   "order": 12},
+        # Pre-existing live-DB docs — see the matching comment under l1-women.
+        {"id": "l2-men-ethnic",       "name": "Ethnic Wear",           "slug": "ethnic-wear",  "order": 13,
+         "image": "https://images.unsplash.com/photo-1701365676249-9d7ab5022dec?w=600&q=80"},
+        {"id": "l2-men-footwear",     "name": "Footwear",              "slug": "footwear",     "order": 14,
+         "image": "https://images.unsplash.com/photo-1668069226492-508742b03147?w=600&q=80"},
     ],
     "l1-ethnic": [
         {"id": "l2-ethnic-sarees",    "name": "Sarees",                "slug": "sarees",       "order": 1},
