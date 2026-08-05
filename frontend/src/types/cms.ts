@@ -33,6 +33,16 @@ export interface CmsSubcategory {
   non_clickable?: boolean;
 }
 
+/** Homepage "Shop by Area" tile — GET/PUT /api/admin/areas[/:id]. */
+export interface CmsArea {
+  id: string;
+  slug: string;
+  name: string;
+  image?: string;
+  order?: number;
+  featured?: boolean;
+}
+
 export interface CmsOffer {
   id: string;
   title: string;

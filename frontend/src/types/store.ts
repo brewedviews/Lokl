@@ -71,3 +71,12 @@ export type StoreCard = Pick<
   | "distance_km" | "eta_min" | "rating" | "reviews" | "online" | "paused"
   | "product_count" | "specialties"
 >;
+
+/** A featured area tile for the homepage "Shop by Area" section —
+ *  GET /api/areas. `image` is null until an admin sets it via CMS. */
+export interface AreaTile {
+  slug: string;
+  name: string;
+  image: string | null;
+  store_count: number;
+}

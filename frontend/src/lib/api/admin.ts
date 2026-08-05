@@ -7,7 +7,7 @@
 import { apiClient } from "@/lib/api-client";
 import type {
   AdminAuthResponse, AdminLoginPayload, HomepageConfig,
-  CmsCategory, CmsSubcategory, CmsOffer, CmsDestinationSearch,
+  CmsCategory, CmsSubcategory, CmsArea, CmsOffer, CmsDestinationSearch,
   CmsUploadResponse, AnalyticsAssetType, TopClicksResponse,
 } from "@/types";
 
@@ -48,6 +48,17 @@ export const adminApi = {
 
   updateSubcategory: async (id: string, patch: Partial<CmsSubcategory>): Promise<CmsSubcategory> => {
     const r = await apiClient.put<CmsSubcategory>(`/api/admin/subcategories/${id}`, patch);
+    return r.data;
+  },
+
+  // ── Areas ("Shop by Area") ──────────────────────────────────
+  listAreas: async (): Promise<CmsArea[]> => {
+    const r = await apiClient.get<CmsArea[]>("/api/admin/areas");
+    return r.data;
+  },
+
+  updateArea: async (id: string, patch: Partial<CmsArea>): Promise<CmsArea> => {
+    const r = await apiClient.put<CmsArea>(`/api/admin/areas/${id}`, patch);
     return r.data;
   },
 

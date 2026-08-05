@@ -39,7 +39,7 @@ import { JustInSection } from "@/components/consumer/JustInSection";
 import { TrustStickers } from "@/components/consumer/TrustStickers";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
-import type { ProductCard as ProductCardType, StoreCard, CategoryNode } from "@/types";
+import type { ProductCard as ProductCardType, StoreCard, CategoryNode, AreaTile } from "@/types";
 import {
   trackSectionImpression, trackCategoryTileClick, trackCategoryTileImpression,
   trackPriceFilterClick, trackProductClick, trackStoreClick,
@@ -75,6 +75,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "trending",       label: "Trending now",              enabled: false, rank: 85 },
   { id: "merchant_cta",   label: "Open a store",              enabled: true,  rank: 90 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 100 },
+  { id: "shop_by_area",   label: "Shop by Area",              enabled: true,  rank: 105 },
   { id: "stores",         label: "Popular stores",            enabled: false, rank: 110 },
 ];
 
@@ -202,6 +203,40 @@ function GenderBentoSection({ id, title, tiles }: { id: string; title: string; t
   );
 }
 
+// "Shop by Area" — same tile-grid pattern as GenderBentoSection (image +
+// label + pill badge, no card box) but circular tiles and the badge is a
+// live store count that ALWAYS renders, including "0 stores" — unlike the
+// price chip above, a missing count isn't a reason to hide the badge, an
+// area with no stores yet is still real information ("expanding here").
+// All 6 featured areas always render regardless of count.
+function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
+  if (areas.length === 0) return null;
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_area">
+      <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">Shop by Area</h2>
+
+      <div className="grid grid-cols-3 min-[360px]:grid-cols-4 gap-x-3 gap-y-4 sm:gap-x-4">
+        {areas.map((a) => (
+          <Link key={a.slug} href={`/stores?area=${a.slug}`} data-testid={`shop-by-area-tile-${a.slug}`}
+            className="group flex flex-col items-center gap-1.5 active:scale-[0.97] transition">
+            <div className="relative w-full aspect-square rounded-full overflow-hidden bg-transparent">
+              {a.image ? (
+                <img src={cloudinaryOptimize(a.image, "w_300,q_auto,f_auto")} alt={a.name} loading="lazy" className="w-full h-full rounded-full object-cover object-top transition duration-500 group-hover:scale-105" />
+              ) : (
+                <div className="w-full h-full rounded-full bg-surface-tint" data-testid={`shop-by-area-blank-${a.slug}`} />
+              )}
+            </div>
+            <span className="text-[12px] font-semibold text-brand-primary text-center leading-tight line-clamp-1 w-full">{a.name}</span>
+            <span className="inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-[10px] font-medium leading-none text-white" data-testid={`shop-by-area-count-${a.slug}`}>
+              {a.store_count} {a.store_count === 1 ? "store" : "stores"}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function HomeClient() {
   const lat = useLocationStore((s) => s.lat);
   const lng = useLocationStore((s) => s.lng);
@@ -214,6 +249,7 @@ export function HomeClient() {
   const [premiumPicks, setPremiumPicks] = useState<ProductCardType[]>([]);
   const [_storeRails, setStoreRails] = useState<HomeProductsRail[]>([]);
   const [categories, setCategories] = useState<CategoryNode[]>([]);
+  const [areas, setAreas] = useState<AreaTile[]>([]);
   const [nearby, setNearby] = useState<StoreCard[]>([]);
   const [popularStores, setPopularStores] = useState<StoreCard[]>([]);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
@@ -260,6 +296,7 @@ export function HomeClient() {
       markLoaded("hero");
     }).catch(() => { markLoaded("hero"); });
     api.catalog.categories().then((r) => setCategories(r)).catch(() => {});
+    api.catalog.areas().then((r) => setAreas(r)).catch(() => {});
 
     const _deferTimer = setTimeout(() => {
       api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
@@ -658,6 +695,8 @@ export function HomeClient() {
     ),
 
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
+
+    shop_by_area: <ShopByAreaSection key="shop-by-area" areas={areas} />,
 
   };
 

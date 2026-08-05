@@ -9,11 +9,13 @@ import { apiClient } from "@/lib/api-client";
 import type { Store, StoreCard } from "@/types";
 
 export const storesApi = {
-  /** GET /api/stores?limit=&lat=&lng= — non-geo store list / geo-aware feed. */
+  /** GET /api/stores?limit=&lat=&lng=&area= — non-geo store list / geo-aware
+   *  feed, optionally filtered to one area_slug (from "Shop by Area"). */
   list: async (params?: {
     limit?: number;
     lat?: number;
     lng?: number;
+    area?: string;
   }): Promise<Store[]> => {
     const r = await apiClient.get<Store[]>("/api/stores", { params });
     return r.data;

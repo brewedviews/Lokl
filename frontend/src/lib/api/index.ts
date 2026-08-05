@@ -4,7 +4,7 @@
  */
 import { apiClient } from "@/lib/api-client";
 import type {
-  CategoryCount, CategoryNode, HomeStats, HomepageConfig, Offer,
+  AreaTile, CategoryCount, CategoryNode, HomeStats, HomepageConfig, Offer,
   SearchResults, Testimonial,
 } from "@/types";
 
@@ -49,6 +49,12 @@ export const catalogApi = {
 
   testimonials: async (): Promise<Testimonial[]> => {
     const r = await apiClient.get<Testimonial[]>("/api/testimonials");
+    return r.data;
+  },
+
+  /** GET /api/areas — featured "Shop by Area" tiles, image + live store count. */
+  areas: async (): Promise<AreaTile[]> => {
+    const r = await apiClient.get<AreaTile[]>("/api/areas");
     return r.data;
   },
 };

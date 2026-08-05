@@ -16,24 +16,26 @@
  */
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Eye, EyeOff, ChevronUp, ChevronDown, Save, Loader2, LayoutTemplate, Image as ImgIcon, Folder, Layers, Sparkles } from "lucide-react";
+import { Eye, EyeOff, ChevronUp, ChevronDown, Save, Loader2, LayoutTemplate, Image as ImgIcon, Folder, Layers, Sparkles, MapPin } from "lucide-react";
 import { adminApi } from "@/lib/api/admin";
 import { HeroEditor } from "@/components/admin/cms/HeroEditor";
 import { L1CategoriesEditor } from "@/components/admin/cms/L1CategoriesEditor";
 import { L2SubcategoriesEditor } from "@/components/admin/cms/L2SubcategoriesEditor";
+import { AreasEditor } from "@/components/admin/cms/AreasEditor";
 import { OffersEditor } from "@/components/admin/cms/OffersEditor";
 import { TopClicksWidget } from "@/components/admin/cms/TopClicksWidget";
 import type { HomepageConfig } from "@/types";
 
 interface Section { id: string; label: string; enabled: boolean; rank: number }
 
-type SubTab = "sections" | "hero" | "l1" | "l2" | "offers";
+type SubTab = "sections" | "hero" | "l1" | "l2" | "areas" | "offers";
 
 const SUB_TABS: { id: SubTab; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
   { id: "sections", label: "Sections",      icon: LayoutTemplate },
   { id: "hero",     label: "Hero banner",   icon: ImgIcon },
   { id: "l1",       label: "L1 Categories", icon: Folder },
   { id: "l2",       label: "L2 Sub-cats",   icon: Layers },
+  { id: "areas",    label: "Areas",         icon: MapPin },
   { id: "offers",   label: "Offers",        icon: Sparkles },
 ];
 
@@ -65,6 +67,7 @@ export function CmsTab() {
         {tab === "hero"     && <HeroEditor />}
         {tab === "l1"       && <L1CategoriesEditor />}
         {tab === "l2"       && <L2SubcategoriesEditor />}
+        {tab === "areas"    && <AreasEditor />}
         {tab === "offers"   && <OffersEditor />}
       </div>
 

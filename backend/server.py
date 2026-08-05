@@ -747,6 +747,26 @@ async def list_categories():
     return [{**c, "min_price": l1_min.get(c["id"]), "l2": by_l1.get(c["id"], [])} for c in cats]
 
 
+@api.get("/areas")
+async def list_areas():
+    """Featured Bhilai areas for the homepage "Shop by Area" section — image
+    + live store count per area, one grouped aggregation (not per-area
+    N+1). All featured areas are returned even at 0 stores; the frontend
+    shows an honest "0 stores" rather than hiding the tile."""
+    rows = await db.areas.find({"featured": True}, {"_id": 0}).sort("order", 1).to_list(50)
+    slugs = [r["slug"] for r in rows]
+    counts = await _area_store_counts(slugs)
+    return [
+        {
+            "slug": r["slug"],
+            "name": r["name"],
+            "image": r.get("image") or None,
+            "store_count": counts.get(r["slug"], 0),
+        }
+        for r in rows
+    ]
+
+
 # ===== Lokl V2 — dynamic homepage feeds =====
 from feeds import home_stats as _home_stats, enrich_products_with_badges as _enrich_badges
 
@@ -1787,6 +1807,30 @@ async def admin_update_subcategory(sid: str, payload: dict, admin: dict = Depend
     return doc
 
 
+@api.get("/admin/areas")
+async def admin_list_areas(admin: dict = Depends(require_admin)):
+    rows = await db.areas.find({}, {"_id": 0}).sort("order", 1).to_list(100)
+    return rows
+
+
+ALLOWED_AREA_FIELDS = {"name", "image", "order", "featured"}
+
+
+@api.put("/admin/areas/{aid}")
+async def admin_update_area(aid: str, payload: dict, admin: dict = Depends(require_admin)):
+    update = {k: v for k, v in payload.items() if k in ALLOWED_AREA_FIELDS}
+    if "order" in update:
+        update["order"] = int(update["order"])
+    if "featured" in update:
+        update["featured"] = bool(update["featured"])
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    r = await db.areas.update_one({"id": aid}, {"$set": update})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Area not found")
+    doc = await db.areas.find_one({"id": aid}, {"_id": 0})
+    return doc
+
+
 @api.post("/admin/cms/upload")
 async def admin_cms_upload(file: UploadFile = File(...), admin: dict = Depends(require_admin)):
     """Cloudinary upload for any CMS image asset. Returns the secure_url
@@ -2079,6 +2123,18 @@ async def _category_min_prices():
     return l1_min, l2_min
 
 
+async def _area_store_counts(slugs: list) -> dict:
+    """Live visible-store count per area_slug, one grouped aggregation
+    (not one query per area) — powers the "Shop by Area" tile badges."""
+    if not slugs:
+        return {}
+    rows = await db.stores.aggregate([
+        {"$match": {**_visible_store_filter(), "area_slug": {"$in": slugs}}},
+        {"$group": {"_id": "$area_slug", "n": {"$sum": 1}}},
+    ]).to_list(len(slugs))
+    return {r["_id"]: r["n"] for r in rows if r["_id"]}
+
+
 # DEPRECATED — replaced by _store_availability(). Do not use.
 def _is_store_open_now(store: dict) -> tuple[bool, str | None]:
     """Returns (is_open, next_open_label). 30-min buffer after opens_at and before closes_at.
@@ -2268,10 +2324,11 @@ def _attach_distance_and_eta(stores: list, user_lat: Optional[float], user_lng: 
 
 
 @api.get("/stores")
-async def list_stores(city: Optional[str] = None, limit: int = 50,
+async def list_stores(city: Optional[str] = None, area: Optional[str] = None, limit: int = 50,
                       lat: Optional[float] = None, lng: Optional[float] = None):
     q = dict(_visible_store_filter())
     if city: q["city"] = city
+    if area: q["area_slug"] = area
     stores = await db.stores.find(q, {"_id": 0, "banner_images": 0}).to_list(limit)
     stores = _attach_distance_and_eta(stores, lat, lng)
     for s in stores:
@@ -5943,6 +6000,21 @@ async def startup_seed():
             upsert=True,
         )
     log.info("Categories seeded: %d L1, %d L2", len(cats), len(l2s))
+
+    # Idempotent upsert of featured Bhilai areas ("Shop by Area"). Same
+    # $setOnInsert-for-image pattern as categories — admin-set images survive
+    # restarts, only name/slug/order/featured refresh from areas_data.py.
+    from areas_data import AREAS_SEED
+    for area in AREAS_SEED:
+        await db.areas.update_one(
+            {"id": area["id"]},
+            {
+                "$set": {k: v for k, v in area.items() if k != "image"},
+                "$setOnInsert": {"image": area.get("image", "")},
+            },
+            upsert=True,
+        )
+    log.info("Areas seeded: %d", len(AREAS_SEED))
 
     # Idempotency index for payment webhooks — same payment_id is silently
     # ignored on retry (Razorpay can replay webhooks).
