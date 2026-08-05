@@ -54,27 +54,28 @@ interface SectionDoc { id: string; label: string; enabled: boolean; rank: number
 interface HomeProductsRail { store_id: string; store_name: string; store_slug: string; store_banner?: string; store_tagline?: string; products: ProductCardType[] }
 interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCardType[]; best_deals: ProductCardType[]; premium_picks: ProductCardType[] }
 
-// Rail order note: just_in(60) → best_deals(65) → premium_picks(68) are
-// deliberately consecutive with nothing else between them — the "what's
-// new / best value / top shelf" discovery block. trending is disabled
-// (id kept, logic kept — degrades to "newest 8" when ratings are sparse,
-// see feed_home_products; flip enabled back to true once real popularity
-// data exists) but its rank is left alone since disabled sections never
-// reach the sort step.
+// Rendered order (enabled sections only): category_pills → hero →
+// under_499 → best_deals → for_her → for_him → offers → premium_picks →
+// merchant_cta. just_in is PAUSED (enabled:false) — code and rank stay in
+// place so re-enabling is a one-flag revert; its rank keeps it slotted
+// right before best_deals, its old position, for when that happens.
+// customer_love is also paused (matches the live call already made on this
+// section). trending/stores stay disabled as before, ranks pushed clear of
+// the reorder just so nothing here shares a rank.
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills", label: "Category pills",            enabled: true,  rank: 10 },
   { id: "hero",           label: "Hero",                      enabled: true,  rank: 20 },
-  { id: "for_her",        label: "For Her",                   enabled: true,  rank: 42 },
-  { id: "for_him",        label: "For Him",                   enabled: true,  rank: 43 },
   { id: "under_499",      label: "Under ₹499",                enabled: true,  rank: 30 },
-  { id: "trending",       label: "Trending now",              enabled: false, rank: 45 },
-  { id: "offers",         label: "Offers for you",            enabled: true,  rank: 70 },
-  { id: "just_in",        label: "Just In",                   enabled: false,  rank: 60 },
+  { id: "just_in",        label: "Just In",                   enabled: false, rank: 35 },
   { id: "best_deals",     label: "Best deals",                enabled: true,  rank: 40 },
-  { id: "premium_picks",  label: "Premium picks",             enabled: true,  rank: 68 },
-  { id: "stores",         label: "Popular stores",            enabled: false, rank: 80 },
+  { id: "for_her",        label: "For Her",                   enabled: true,  rank: 50 },
+  { id: "for_him",        label: "For Him",                   enabled: true,  rank: 60 },
+  { id: "offers",         label: "Offers for you",            enabled: true,  rank: 70 },
+  { id: "premium_picks",  label: "Premium picks",             enabled: true,  rank: 80 },
+  { id: "trending",       label: "Trending now",              enabled: false, rank: 85 },
   { id: "merchant_cta",   label: "Open a store",              enabled: true,  rank: 90 },
-  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false,  rank: 100 },
+  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 100 },
+  { id: "stores",         label: "Popular stores",            enabled: false, rank: 110 },
 ];
 
 /**
