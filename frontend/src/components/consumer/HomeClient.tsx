@@ -125,7 +125,11 @@ const FOR_HIM_TILES: GenderTileSpec[] = [
   { label: "Accessories", l1Slug: "accessories" },
 ];
 
-interface ResolvedGenderTile { key: string; href: string; image: string; label: string }
+interface ResolvedGenderTile { key: string; href: string; image: string; label: string; minPrice: number | null }
+
+function formatFromPrice(n: number): string {
+  return `from ₹${Math.round(n).toLocaleString("en-IN")}`;
+}
 
 // Footwear links to the full l1-footwear listing (not gender-filtered) for
 // both sections — footwear products don't reliably carry a `gender` value
@@ -138,42 +142,40 @@ function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[])
     const l1 = categories.find((c) => c.slug === spec.l1Slug);
     if (!l1) continue;
     if (!spec.l2Slug) {
-      if (l1.image) out.push({ key: `l1-${l1.slug}`, href: `/c/${l1.slug}`, image: l1.image, label: spec.label });
+      if (l1.image) out.push({ key: `l1-${l1.slug}`, href: `/c/${l1.slug}`, image: l1.image, label: spec.label, minPrice: l1.min_price ?? null });
       continue;
     }
     const l2 = (l1.l2 ?? []).find((s) => s.slug === spec.l2Slug);
-    if (l2?.image) out.push({ key: l2.id, href: `/c/${l1.slug}/${l2.slug}`, image: l2.image, label: spec.label });
+    if (l2?.image) out.push({ key: l2.id, href: `/c/${l1.slug}/${l2.slug}`, image: l2.image, label: spec.label, minPrice: l2.min_price ?? null });
   }
   return out;
 }
 
+// 4×2 shoppable grid (all 8 tiles always visible, no horizontal scroll) —
+// deliberately NOT the same look as the top L1 pill row (category_pills):
+// that's a full-bleed image with the label overlaid on a gradient. This is
+// a bordered card with the image on top and label + "from ₹X" price chip
+// in a separate content area below, so the two rows read as different UI,
+// not a repeat of the same pattern.
 function GenderBentoSection({ id, title, tiles }: { id: string; title: string; tiles: ResolvedGenderTile[] }) {
   if (tiles.length === 0) return null;
   return (
     <div key={id} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid={`home-${id}`}>
       <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">{title}</h2>
 
-      {/* Mobile — horizontal-scroll tile strip */}
-      <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2 md:hidden">
+      <div className="grid grid-cols-3 min-[360px]:grid-cols-4 gap-3 sm:gap-4">
         {tiles.map((t) => (
           <Link key={t.key} href={t.href} data-testid={`${id}-tile-${t.key}`}
-            className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition">
-            <div className="w-16 h-16 rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC]">
-              <img src={cloudinaryOptimize(t.image, "w_128,q_auto,f_auto")} alt={t.label} loading="lazy" className="w-full h-full object-cover object-top" />
+            className="group flex flex-col items-center gap-1.5 rounded-card bg-white border border-card-border p-2 shadow-[var(--shadow-1)] hover:shadow-[var(--shadow-2)] hover:border-brand-primary/30 transition active:scale-[0.97]">
+            <div className="relative w-full aspect-square rounded-[calc(var(--radius-card)-6px)] overflow-hidden bg-surface-tint">
+              <img src={cloudinaryOptimize(t.image, "w_300,q_auto,f_auto")} alt={t.label} loading="lazy" className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
             </div>
-            <span className="text-[11px] font-semibold text-[#0A1F5C] text-center w-16 leading-tight line-clamp-2">{t.label}</span>
-          </Link>
-        ))}
-      </div>
-
-      {/* Desktop — image-led portrait card grid */}
-      <div className="hidden md:grid gap-4 pb-2" style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }}>
-        {tiles.map((t) => (
-          <Link key={t.key} href={t.href} data-testid={`${id}-tile-${t.key}`}
-            className="group relative aspect-[3/4] rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC] transition hover:border-[#0A1F5C]">
-            <img src={cloudinaryOptimize(t.image, "w_400,q_auto,f_auto")} alt={t.label} loading="lazy" className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
-            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/75 via-black/15 to-transparent pointer-events-none" />
-            <span className="absolute bottom-3 left-3 right-3 font-display font-bold text-white text-sm leading-tight line-clamp-2 break-words">{t.label}</span>
+            <span className="text-[12px] font-semibold text-brand-primary text-center leading-tight line-clamp-1 w-full">{t.label}</span>
+            {t.minPrice != null && (
+              <span className="inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-[10px] font-medium leading-none text-white" data-testid={`${id}-price-${t.key}`}>
+                {formatFromPrice(t.minPrice)}
+              </span>
+            )}
           </Link>
         ))}
       </div>

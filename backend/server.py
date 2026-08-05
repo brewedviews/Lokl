@@ -733,13 +733,18 @@ async def merchant_next_route(user: dict = Depends(get_current_user)):
 async def list_categories():
     """Returns L1 categories with their L2 children. Filters out admin-paused
     L1 and L2 rows (iter-27 Item 7) — paused entries are hidden from the
-    customer-facing site entirely."""
+    customer-facing site entirely. Each L1 and L2 row also carries
+    `min_price` (cheapest visible product in that category, or null if it
+    has none yet) so the homepage bento tiles can show a "from ₹X" chip
+    without a follow-up request."""
     cats = await db.categories.find({"paused": {"$ne": True}}, {"_id": 0}).sort("order", 1).to_list(50)
     l2s = await db.subcategories.find({"paused": {"$ne": True}}, {"_id": 0}).to_list(200)
+    l1_min, l2_min = await _category_min_prices()
     by_l1 = {}
     for s in l2s:
+        s["min_price"] = l2_min.get(s["id"])
         by_l1.setdefault(s["l1_id"], []).append(s)
-    return [{**c, "l2": by_l1.get(c["id"], [])} for c in cats]
+    return [{**c, "min_price": l1_min.get(c["id"]), "l2": by_l1.get(c["id"], [])} for c in cats]
 
 
 # ===== Lokl V2 — dynamic homepage feeds =====
@@ -2054,6 +2059,24 @@ def _visible_store_filter():
 
 def _visible_product_filter():
     return {"paused": {"$ne": True}, "is_deleted": {"$ne": True}}
+
+
+async def _category_min_prices():
+    """Cheapest visible product price per L1 and per L2, each in a single
+    aggregation (2 DB round trips total, regardless of catalog/category
+    count) — used to show "from ₹X" chips on the homepage category tiles
+    without an N+1 query per tile."""
+    l1_rows = await db.products.aggregate([
+        {"$match": _visible_product_filter()},
+        {"$group": {"_id": "$l1_id", "min_price": {"$min": "$price"}}},
+    ]).to_list(200)
+    l2_rows = await db.products.aggregate([
+        {"$match": {**_visible_product_filter(), "l2_id": {"$nin": [None, ""]}}},
+        {"$group": {"_id": "$l2_id", "min_price": {"$min": "$price"}}},
+    ]).to_list(500)
+    l1_min = {r["_id"]: r["min_price"] for r in l1_rows if r["_id"]}
+    l2_min = {r["_id"]: r["min_price"] for r in l2_rows if r["_id"]}
+    return l1_min, l2_min
 
 
 # DEPRECATED — replaced by _store_availability(). Do not use.

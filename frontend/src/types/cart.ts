@@ -59,7 +59,9 @@ export interface CategoryNode {
   name: string;
   slug: string;
   image?: string;
-  l2: Array<{ id: string; name: string; slug: string; image?: string }>;
+  /** Cheapest visible product price in this L1, or null/absent if it has none yet. */
+  min_price?: number | null;
+  l2: Array<{ id: string; name: string; slug: string; image?: string; min_price?: number | null }>;
 }
 
 export interface Offer {
