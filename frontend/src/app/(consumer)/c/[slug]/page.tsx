@@ -23,7 +23,7 @@ export async function generateMetadata(
     .join(" ");
   return {
     title: `${name} in Bhilai — Shop Local | Lokl`,
-    description: `Browse ${name} from trusted local stores in Bhilai. Order online, delivered in 30 minutes. Pay at delivery.`,
+    description: `Browse ${name} from trusted local stores in Bhilai. Order online, delivered in 45 minutes. Pay at delivery.`,
     openGraph: {
       title: `${name} in Bhilai | Lokl`,
       description: `Shop ${name} from Bhilai's best local stores. Fast delivery, real prices.`,

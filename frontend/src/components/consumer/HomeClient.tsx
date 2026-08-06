@@ -661,7 +661,7 @@ export function HomeClient() {
               </div>
               <div className="p-2.5">
                 <div className="font-bold text-[#0A1F5C] text-[12px] truncate">{s.name}</div>
-                <div className="text-[10px] text-[#9CA3AF] mt-0.5">⚡ {s.eta_min ?? 30} min</div>
+                <div className="text-[10px] text-[#9CA3AF] mt-0.5">⚡ {s.eta_min ?? 45} min</div>
               </div>
             </Link>
           ))}

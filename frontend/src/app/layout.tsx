@@ -8,15 +8,15 @@ export const metadata: Metadata = {
     default: "Lokl — Fashion from stores next door · Bhilai",
     template: "%s | Lokl Bhilai",
   },
-  description: "Order fashion from your favourite Bhilai stores. Delivered in 30 minutes. Browse kurtas, jeans, sneakers, ethnic wear and more from local stores near you.",
-  keywords: ["Bhilai fashion", "local stores Bhilai", "30 minute delivery", "kurta", "jeans", "ethnic wear", "Lokl"],
+  description: "Order fashion from your favourite Bhilai stores. Delivered in 45 minutes. Browse kurtas, jeans, sneakers, ethnic wear and more from local stores near you.",
+  keywords: ["Bhilai fashion", "local stores Bhilai", "45 minute delivery", "kurta", "jeans", "ethnic wear", "Lokl"],
   openGraph: {
     type: "website",
     locale: "en_IN",
     url: "https://www.shoplokl.in",
     siteName: "Lokl",
     title: "Lokl — Fashion from stores next door · Bhilai",
-    description: "Order fashion from your favourite Bhilai stores. Delivered in 30 minutes.",
+    description: "Order fashion from your favourite Bhilai stores. Delivered in 45 minutes.",
     images: [
       {
         url: "https://res.cloudinary.com/doojqkyff/image/upload/q_auto/f_auto/v1781682248/n1elwepz_ChatGPT_Image_May_16_2026_06_29_23_PM_qmzld0.png",
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Lokl — Fashion from stores next door · Bhilai",
-    description: "Order fashion from your favourite Bhilai stores. Delivered in 30 minutes.",
+    description: "Order fashion from your favourite Bhilai stores. Delivered in 45 minutes.",
     images: ["https://res.cloudinary.com/doojqkyff/image/upload/q_auto/f_auto/v1781682248/n1elwepz_ChatGPT_Image_May_16_2026_06_29_23_PM_qmzld0.png"],
   },
   icons: {

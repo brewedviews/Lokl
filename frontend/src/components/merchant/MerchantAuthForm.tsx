@@ -52,7 +52,7 @@ export function MerchantAuthForm({ mode }: { mode: "login" | "register" }) {
           <div className="mt-10 grid grid-cols-3 gap-4 text-sm">
             <div><div className="font-display text-3xl font-bold text-[#E68910]">₹0</div><div className="text-white/60">to start</div></div>
             <div><div className="font-display text-3xl font-bold text-[#E68910]">0%</div><div className="text-white/60">commission</div></div>
-            <div><div className="font-display text-3xl font-bold text-[#E68910]">30 min</div><div className="text-white/60">delivery</div></div>
+            <div><div className="font-display text-3xl font-bold text-[#E68910]">45 min</div><div className="text-white/60">delivery</div></div>
           </div>
         </div>
         <p className="relative text-xs text-white/40">Lokl.shop — built for Bhilai&apos;s stores</p>

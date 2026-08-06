@@ -514,7 +514,7 @@ export default function CheckoutPage() {
                     <div key={sid} className="flex justify-between items-center">
                       <span className="text-[#595959] truncate max-w-[60%]">{info.name}</span>
                       <span className={`font-semibold ${info.rank === 3 ? "text-blue-700" : info.rank >= 4 ? "text-red-500" : "text-emerald-700"}`}>
-                        {info.rank === 3 ? "Closed" : info.rank >= 4 ? "Unavailable" : info.eta_message || "~30 min"}
+                        {info.rank === 3 ? "Closed" : info.rank >= 4 ? "Unavailable" : info.eta_message || "~45 min"}
                       </span>
                     </div>
                   );

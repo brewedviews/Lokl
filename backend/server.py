@@ -2246,14 +2246,14 @@ def _store_availability(store: dict) -> dict:
     last_seen = store.get("last_seen_at")
     if not last_seen:
         return {"rank": 1, "badge": "LIVE", "badge_color": "green",
-                "can_order": True, "eta_message": "Delivery in ~30 mins", "opens_at_label": None}
+                "can_order": True, "eta_message": "Delivery in ~45 mins", "opens_at_label": None}
 
     try:
         last_dt = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
         elapsed_min = (datetime.now(timezone.utc) - last_dt).total_seconds() / 60
         if elapsed_min < 60:
             return {"rank": 1, "badge": "LIVE", "badge_color": "green",
-                    "can_order": True, "eta_message": "Delivery in ~30 mins", "opens_at_label": None}
+                    "can_order": True, "eta_message": "Delivery in ~45 mins", "opens_at_label": None}
         if elapsed_min < 180:
             return {"rank": 2, "badge": "Away", "badge_color": "yellow",
                     "can_order": False, "eta_message": "Store is away · Try again later", "opens_at_label": None}
@@ -2261,7 +2261,7 @@ def _store_availability(store: dict) -> dict:
                 "can_order": False, "eta_message": "Store offline · Try other stores", "opens_at_label": None}
     except Exception:
         return {"rank": 1, "badge": "LIVE", "badge_color": "green",
-                "can_order": True, "eta_message": "Delivery in ~30 mins", "opens_at_label": None}
+                "can_order": True, "eta_message": "Delivery in ~45 mins", "opens_at_label": None}
 
 
 async def _availability_map() -> dict[str, dict]:
@@ -2278,7 +2278,7 @@ async def _availability_map() -> dict[str, dict]:
 def _attach_store_avail(products: list, avail_map: dict) -> list:
     """Stamp store availability fields onto each product dict in-place."""
     _default = {"rank": 1, "badge": "LIVE", "badge_color": "green",
-                "can_order": True, "eta_message": "Delivery in ~30 mins", "opens_at_label": None}
+                "can_order": True, "eta_message": "Delivery in ~45 mins", "opens_at_label": None}
     for p in products:
         avail = avail_map.get(p.get("store_id"), _default)
         p["store_badge"] = avail["badge"]
@@ -2425,7 +2425,7 @@ async def feed_delivery_status():
 
     live_stores = [s for s in stores if _store_availability(s).get("rank", 4) <= 2]
     if live_stores:
-        return {"status": "live", "label": "LIVE", "eta_label": "30 minutes", "message": "Fast delivery"}
+        return {"status": "live", "label": "LIVE", "eta_label": "45 minutes", "message": "Fast delivery"}
 
     ist_now = datetime.now(timezone.utc) + timedelta(minutes=330)
     current_minutes = ist_now.hour * 60 + ist_now.minute

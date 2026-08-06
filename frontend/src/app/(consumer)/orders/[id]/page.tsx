@@ -236,7 +236,7 @@ export default function OrderTrackingPage() {
             )}
             {!isCancelledLike && !isDeliveredLike && !isPickup && (
               <div className="inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold bg-[#E68910]/10 text-[#E68910] border-[#E68910]/30">
-                <Clock size={12} /> 35–45 min
+                <Clock size={12} /> 45 min
               </div>
             )}
           </div>

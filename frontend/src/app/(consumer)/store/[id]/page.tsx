@@ -14,7 +14,7 @@ interface StoreDetailResponse {
 }
 
 function etaFromDistance(km?: number | null) {
-  if (km == null) return "30-45 min";
+  if (km == null) return "45 min";
   const min = Math.max(15, Math.round(20 + Number(km) * 4));
   return `${min} min`;
 }

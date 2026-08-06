@@ -49,10 +49,10 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
 
   const img = hero?.image || FALLBACK_HERO_IMG;
   const mobileImg = hero?.mobile_image || img;
-  const t1 = hero?.title_line1 || "Delivered in minutes from";
+  const t1 = hero?.title_line1 || "Delivered in 45 mins from";
   const t2 = hero?.title_line2 || "stores next door.";
   const sub = hero?.subtitle || "Hand-picked fashion from trusted stores in Bhilai.";
-  const eta = stats?.fastest_eta_min || 30;
+  const eta = stats?.fastest_eta_min || 45;
   const redirect = hero?.redirect_url || hero?.cta_primary_link || "";
   // iter-27 (Item 7) — non_clickable forces static render even if a redirect is set.
   const clickable = !hero?.non_clickable && !!redirect;

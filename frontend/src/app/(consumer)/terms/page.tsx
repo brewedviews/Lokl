@@ -16,7 +16,7 @@ export default function TermsPage() {
         <div className="space-y-8 text-[15px] leading-relaxed text-[#1C1C1C]">
           <section>
             <h2 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">About Lokl</h2>
-            <p className="text-[#595959]">Lokl is a hyperlocal fashion marketplace operating in Bhilai, Chhattisgarh. We connect customers with local merchants for fast, same-day delivery — typically within 30 minutes. By using Lokl you agree to these terms.</p>
+            <p className="text-[#595959]">Lokl is a hyperlocal fashion marketplace operating in Bhilai, Chhattisgarh. We connect customers with local merchants for fast, same-day delivery — typically within 45 minutes. By using Lokl you agree to these terms.</p>
           </section>
 
           <section>
@@ -26,7 +26,7 @@ export default function TermsPage() {
 
           <section>
             <h2 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">Delivery</h2>
-            <p className="text-[#595959]">We aim to deliver within 30 minutes of merchant acceptance. Actual delivery times may vary based on distance, traffic and store availability. Lokl does not guarantee exact delivery times. Delivery is currently available only within Bhilai (pincodes starting with 490).</p>
+            <p className="text-[#595959]">We aim to deliver within 45 minutes of merchant acceptance. Actual delivery times may vary based on distance, traffic and store availability. Lokl does not guarantee exact delivery times. Delivery is currently available only within Bhilai (pincodes starting with 490).</p>
           </section>
 
           <section>
