@@ -32,6 +32,12 @@ export const MAX_STORES_PER_CART = 1;
 
 interface CartState {
   items: CartItem[];
+  /** False until zustand-persist has restored `items` from localStorage.
+   *  Always false on the very first render (SSR + first client paint), even
+   *  when the cart actually has items — consumers MUST gate on this before
+   *  treating an empty `items` array as a genuine empty cart, otherwise a
+   *  populated cart flashes "empty" for one frame while persist catches up. */
+  _hasHydrated: boolean;
 }
 
 interface CartActions {
@@ -49,11 +55,12 @@ interface CartActions {
   getStoreIds: () => string[];
   /** Hydrate from the legacy bare-array `bf_cart` shape if present. */
   _syncFromLegacy: () => void;
+  _setHasHydrated: (v: boolean) => void;
 }
 
 type CartStore = CartState & CartActions;
 
-const INITIAL: CartState = { items: [] };
+const INITIAL: CartState = { items: [], _hasHydrated: false };
 
 const cartKeyFor = (productId: string, size: string) =>
   `${productId}-${size || "free"}`;
@@ -196,6 +203,8 @@ export const useCartStore = create<CartStore>()(
           if (process.env.NODE_ENV !== "production") console.warn("[cart] legacy bare-array adoption failed", e);
         }
       },
+
+      _setHasHydrated: (v) => set({ _hasHydrated: v }),
     }),
     {
       // Persist under a sibling key so we don't fight the legacy app's
@@ -203,6 +212,15 @@ export const useCartStore = create<CartStore>()(
       // the legacy key in sync for cross-app reads.
       name: "bf_cart:next",
       storage: createJSONStorage(() => localStorage),
+      // Never persist _hasHydrated itself — it must always start `false` on
+      // a fresh load and only flip via onRehydrateStorage below, otherwise
+      // a stale `true` written to storage in a prior session could make a
+      // brand-new page load think it's already hydrated before this
+      // session's own rehydration has actually run.
+      partialize: (state) => ({ items: state.items }),
+      onRehydrateStorage: () => (state) => {
+        state?._setHasHydrated(true);
+      },
     },
   ),
 );

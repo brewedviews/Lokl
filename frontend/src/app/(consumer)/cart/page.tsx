@@ -22,6 +22,11 @@ export default function CartPage() {
   const updateQty = useCartStore((s) => s.updateQty);
   const removeItem = useCartStore((s) => s.removeItem);
   const total = useCartStore((s) => s.getTotal());
+  // Cart items live in localStorage (zustand-persist), restored async after
+  // first paint — `items` reads as [] for one frame even on a populated
+  // cart. Gate the empty-state on hydration so that frame never renders
+  // "Your bag is empty" for a cart that actually has items.
+  const hasHydrated = useCartStore((s) => s._hasHydrated);
   const [storeStatuses, setStoreStatuses] = useState<Record<string, StoreAvailStatus>>({});
 
   useEffect(() => {
@@ -43,6 +48,30 @@ export default function CartPage() {
       )
     ).then((entries) => setStoreStatuses(Object.fromEntries(entries)));
   }, [items]);
+
+  if (!hasHydrated) {
+    return (
+      <div className="flex-1 flex flex-col bg-[#FDFBF7]" data-testid="cart-hydrating">
+        <main className="flex-1">
+          <section className="max-w-7xl mx-auto px-4 sm:px-8 pt-8">
+            <div className="h-8 w-40 bg-[#E5E2DC] rounded-lg animate-pulse" />
+          </section>
+          <section className="max-w-7xl mx-auto px-4 sm:px-8 pt-6 space-y-3">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="flex gap-4 p-4 bg-white rounded-2xl border border-[#E5E2DC]">
+                <div className="w-24 h-32 rounded-xl bg-[#E5E2DC] animate-pulse shrink-0" />
+                <div className="flex-1 py-2 space-y-2">
+                  <div className="h-4 w-2/3 bg-[#E5E2DC] rounded animate-pulse" />
+                  <div className="h-3 w-1/3 bg-[#E5E2DC] rounded animate-pulse" />
+                  <div className="h-3 w-1/4 bg-[#E5E2DC] rounded animate-pulse" />
+                </div>
+              </div>
+            ))}
+          </section>
+        </main>
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (

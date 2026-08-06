@@ -2304,21 +2304,43 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
     return 2 * R * math.asin(math.sqrt(a))
 
+# Bhilai city centroid — same value the frontend checkout page uses for the
+# delivery-fee estimate (BHILAI_LAT/BHILAI_LNG in checkout/page.tsx).
+BHILAI_LAT = 21.1938
+BHILAI_LNG = 81.3509
+# Generous radius covering the whole Bhilai+Raipur pilot footprint (Raipur is
+# ~30-35km from Bhilai). A user this far outside it isn't physically in the
+# service area — their real GPS is not a meaningful reference point for
+# "distance to a Bhilai store" and would show nonsense like "997 km away" on
+# a page that's explicitly claiming "sorted by distance" for a hyperlocal
+# same-city service. Fall back to the city centroid instead.
+BHILAI_PLAUSIBLE_RADIUS_KM = 75.0
+
+
 def _attach_distance_and_eta(stores: list, user_lat: Optional[float], user_lng: Optional[float]) -> list:
-    """Compute distance_km + eta_min from store coords ↔ user coords, then sort ascending."""
+    """Compute distance_km + eta_min from store coords ↔ user coords, then sort ascending.
+
+    If the caller's coords are implausibly far from Bhilai (tester's real GPS
+    in another city, geolocation permission granted somewhere else, etc.),
+    distance is computed from the Bhilai centroid instead — never a raw
+    ~1000km readout for a hyperlocal single-city service."""
     if user_lat is None or user_lng is None:
         # No user coords — distance/ETA hidden (frontend should respect this)
         for s in stores:
             s.pop("distance_km", None); s.pop("eta_min", None)
         return stores
+    ref_lat, ref_lng = user_lat, user_lng
+    if _haversine_km(user_lat, user_lng, BHILAI_LAT, BHILAI_LNG) > BHILAI_PLAUSIBLE_RADIUS_KM:
+        ref_lat, ref_lng = BHILAI_LAT, BHILAI_LNG
     for s in stores:
         slat, slng = s.get("lat"), s.get("lng")
         if isinstance(slat, (int, float)) and isinstance(slng, (int, float)):
-            d = round(_haversine_km(user_lat, user_lng, float(slat), float(slng)), 2)
+            d = round(_haversine_km(ref_lat, ref_lng, float(slat), float(slng)), 2)
             s["distance_km"] = d
             # Simple ETA model: 15 min base prep + ~5 min/km for short distances, capped 90.
             s["eta_min"] = max(20, min(90, int(round(15 + d * 5))))
         else:
+            # Missing/invalid store coords — never show a garbage distance.
             s.pop("distance_km", None); s.pop("eta_min", None)
     return stores
 
@@ -2695,11 +2717,19 @@ async def all_products(
     price: Optional[str] = None,
     l1: Optional[str] = None,
     sort: Optional[str] = None,
+    search: Optional[str] = None,
     limit: int = 60,
 ):
     avail_map = await _availability_map()
     q: dict = {**_visible_product_filter()}
     if l1: q["l1_id"] = l1
+    if search and search.strip():
+        # Same escape-then-regex pattern as GET /api/search — never pass raw
+        # user input to $regex (ReDoS + Mongo regex injection).
+        import re as _re
+        safe_q = _re.escape(search.strip()[:64])
+        rx = {"$regex": safe_q, "$options": "i"}
+        q["$or"] = [{"name": rx}, {"description": rx}]
     if price == "under-499":
         q["price"] = {"$lt": 499}
     elif price == "499-1099":

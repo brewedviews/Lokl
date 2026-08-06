@@ -26,7 +26,7 @@ function InfoChip({ icon: Icon, label, value, accent, onClick, testid }: InfoChi
       </div>
       <div className="min-w-0 flex-1">
         <div className="text-[10px] uppercase tracking-wider text-[#64748B] leading-tight">{label}</div>
-        <div className="text-xs font-semibold text-[#0A1F5C] truncate">{value}</div>
+        <div className="text-xs font-semibold text-[#0A1F5C] leading-snug line-clamp-2">{value}</div>
       </div>
       <ChevronRight size={14} className="text-[#94A3B8] shrink-0" />
     </button>
@@ -43,11 +43,15 @@ interface Props {
 
 export function StoreInfoChips({ storyText, area, eta, city, timing }: Props) {
   const [sheet, setSheet] = useState<"story" | "delivery" | null>(null);
+  // Whitespace-only story ("" from a merchant who never wrote one, but also
+  // possibly " ") shouldn't render a chip that opens a sheet with nothing
+  // in it — treat it the same as no story at all.
+  const hasStory = !!storyText?.trim();
   return (
     <>
       <div className="md:hidden -mt-3 relative z-10 px-4">
         <div className="flex gap-2.5">
-          {storyText && (
+          {hasStory && (
             <InfoChip
               icon={ShieldCheck}
               label="The Story"

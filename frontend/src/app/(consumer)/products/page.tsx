@@ -23,7 +23,8 @@ const PRICE_LABELS: Record<string, string> = {
   "above-1099": "₹1,099+",
 };
 
-function pageTitle(cat: L1Cat | undefined) {
+function pageTitle(cat: L1Cat | undefined, search: string) {
+  if (search) return `Results for "${search}"`;
   if (cat) return cat.name;
   return "All Products in Bhilai";
 }
@@ -38,6 +39,7 @@ function ProductsInner() {
   const categoryFilter = searchParams.get("l1") || "";
   const priceFilter = searchParams.get("price") || "";
   const sortFilter = searchParams.get("sort") || "newest";
+  const searchFilter = searchParams.get("search") || "";
 
   useEffect(() => {
     apiClient.get("/api/categories").then((r) => {
@@ -52,12 +54,13 @@ function ProductsInner() {
     if (categoryFilter) params.set("l1", categoryFilter);
     if (priceFilter) params.set("price", priceFilter);
     if (sortFilter && sortFilter !== "newest") params.set("sort", sortFilter);
+    if (searchFilter) params.set("search", searchFilter);
     apiClient
       .get<{ products: ProductCardType[] }>(`/api/products/all?${params.toString()}`)
       .then((r) => setProducts(r.data.products || []))
       .catch(() => setProducts([]))
       .finally(() => setLoading(false));
-  }, [categoryFilter, priceFilter, sortFilter]);
+  }, [categoryFilter, priceFilter, sortFilter, searchFilter]);
 
   const setFilter = (key: string, val: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -71,7 +74,7 @@ function ProductsInner() {
   return (
     <div className="w-full max-w-7xl mx-auto px-4 sm:px-8 pt-4 pb-24">
       <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight mb-2">
-        {pageTitle(activeL1)}
+        {pageTitle(activeL1, searchFilter)}
         {!loading && (
           <span className="text-sm font-normal text-[#9CA3AF] ml-2">
             ({products.length} products)
