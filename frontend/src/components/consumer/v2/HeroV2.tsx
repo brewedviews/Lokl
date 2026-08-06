@@ -53,6 +53,11 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
   const t2 = hero?.title_line2 || "stores next door.";
   const sub = hero?.subtitle || "Hand-picked fashion from trusted stores in Bhilai.";
   const eta = stats?.fastest_eta_min || 45;
+  // "CLOSED" (outside operating hours) is a scheduled, forward-looking state —
+  // don't lead a first-time visitor with a bold negative badge for it. AWAY
+  // (in-hours but temporarily offline) keeps its badge since that's a more
+  // notable, unscheduled state.
+  const isClosedLabel = deliveryStatus?.label === "CLOSED";
   const redirect = hero?.redirect_url || hero?.cta_primary_link || "";
   // iter-27 (Item 7) — non_clickable forces static render even if a redirect is set.
   const clickable = !hero?.non_clickable && !!redirect;
@@ -90,27 +95,31 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
           </p>
         </div>
         <div className="md:hidden mt-4 inline-flex items-center gap-2.5 self-start px-3 py-2 rounded-2xl bg-white/95 backdrop-blur-sm shadow-md">
-          <div className="w-8 h-8 rounded-full bg-[#F59E0B] flex items-center justify-center shrink-0"><Bike size={14} className="text-white" /></div>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${isClosedLabel ? "bg-[#94A3B8]" : "bg-[#F59E0B]"}`}><Bike size={14} className="text-white" /></div>
           <div className="leading-tight">
             <div className="text-[10px] text-[#0A1F5C]/70 font-medium">{deliveryStatus?.message || "Fast delivery"}</div>
-            <div className="font-bold text-[#0A1F5C] font-display text-sm" data-testid="hero-fastest-eta-mobile">{deliveryStatus?.eta_label || `${eta} minutes`}</div>
+            <div className={`font-display text-sm ${isClosedLabel ? "font-semibold text-[#64748B]" : "font-bold text-[#0A1F5C]"}`} data-testid="hero-fastest-eta-mobile">{deliveryStatus?.eta_label || `${eta} minutes`}</div>
           </div>
-          <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[9px] font-bold flex items-center gap-1">
-            <span className={`w-1.5 h-1.5 rounded-full ${deliveryStatus?.label === "AWAY" ? "bg-[#E68910]" : deliveryStatus?.status === "closed" ? "bg-[#9CA3AF]" : "bg-[#F59E0B] animate-pulse"}`} />
-            {deliveryStatus?.label || "LIVE"}
-          </span>
+          {!isClosedLabel && (
+            <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[9px] font-bold flex items-center gap-1">
+              <span className={`w-1.5 h-1.5 rounded-full ${deliveryStatus?.label === "AWAY" ? "bg-[#E68910]" : "bg-[#F59E0B] animate-pulse"}`} />
+              {deliveryStatus?.label || "LIVE"}
+            </span>
+          )}
         </div>
       </div>
       <div className="hidden md:flex absolute top-1/2 right-6 lg:right-10 -translate-y-1/2 bg-white/90 backdrop-blur-md rounded-2xl p-3.5 items-center gap-3 min-w-[260px] shadow-xl">
-        <div className="w-11 h-11 rounded-full bg-[#F59E0B] flex items-center justify-center shrink-0"><Bike size={18} className="text-white" /></div>
+        <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${isClosedLabel ? "bg-[#94A3B8]" : "bg-[#F59E0B]"}`}><Bike size={18} className="text-white" /></div>
         <div className="flex-1">
           <div className="text-[11px] text-[#0A1F5C]/70">{deliveryStatus?.message || "Fast delivery in Bhilai"}</div>
-          <div className="font-bold text-[#0A1F5C] font-display text-lg" data-testid="hero-fastest-eta">{deliveryStatus?.eta_label || `${eta} minutes`}</div>
+          <div className={`font-display text-lg ${isClosedLabel ? "font-semibold text-[#64748B]" : "font-bold text-[#0A1F5C]"}`} data-testid="hero-fastest-eta">{deliveryStatus?.eta_label || `${eta} minutes`}</div>
         </div>
-        <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[10px] font-bold flex items-center gap-1">
-          <span className={`w-1.5 h-1.5 rounded-full ${deliveryStatus?.label === "AWAY" ? "bg-[#E68910]" : deliveryStatus?.status === "closed" ? "bg-[#9CA3AF]" : "bg-[#F59E0B] animate-pulse"}`} />
-          {deliveryStatus?.label || "LIVE"}
-        </span>
+        {!isClosedLabel && (
+          <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[10px] font-bold flex items-center gap-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${deliveryStatus?.label === "AWAY" ? "bg-[#E68910]" : "bg-[#F59E0B] animate-pulse"}`} />
+            {deliveryStatus?.label || "LIVE"}
+          </span>
+        )}
       </div>
     </>
   );

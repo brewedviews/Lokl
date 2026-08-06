@@ -484,7 +484,17 @@ export default function CheckoutPage() {
             {(() => {
               const avail = cartStoreId ? storeAvailMap[cartStoreId] : null;
               const badge = avail?.badge;
-              if (badge === "Closed") return null;
+              if (badge === "Closed") {
+                const opensSuffix = (avail?.opens_at_label || "Opens soon").replace(/^Opens\s+/i, "");
+                return (
+                  <div className="flex items-start gap-1.5 text-xs bg-blue-50 border border-blue-200 rounded-xl px-3 py-2" data-testid="preorder-notice">
+                    <Clock size={12} className="text-blue-600 mt-0.5 shrink-0" />
+                    <span className="text-blue-700 font-medium">
+                      This order will be delivered after {avail?.name ?? "the store"} opens {opensSuffix}.
+                    </span>
+                  </div>
+                );
+              }
               if (badge === "Unavailable") return (
                 <div className="flex justify-between text-xs items-center">
                   <span className="text-[#595959] inline-flex items-center gap-1.5"><Clock size={11} /> Estimated arrival</span>

@@ -17,6 +17,7 @@ export function ProductActions({
   product,
   storeCanOrder = true,
   storeBadge,
+  storeOpensAtLabel,
   storeName,
   storeId,
 }: {
@@ -83,7 +84,6 @@ export function ProductActions({
   // store conflict, the warn-and-clear dialog re-runs this same add and
   // fires onSuccess itself once the retry succeeds.
   const handleAdd = (onSuccess: () => void) => {
-    if (isClosed) { toast.error("This store is currently closed"); return; }
     if (!storeCanOrder) { toast.error("This store is currently unavailable"); return; }
     if (product.sizes?.length && !size) { toast.error("Please pick a size"); return; }
     const r = addItem(product, size ?? "");
@@ -215,13 +215,11 @@ export function ProductActions({
                 <Bell size={16} /> Notify Me
               </button>
             </>
-          ) : isClosed ? (
-            <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-slate-100 text-slate-400 text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-closed-label">
-              <ShoppingBag size={16} /> Store closed
-            </div>
           ) : storeCanOrder ? (
             <>
-              <button onClick={() => handleAdd(() => toast.success("Added to bag"))} data-testid="add-to-bag"
+              <button
+                onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
+                data-testid="add-to-bag"
                 className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border-2 border-[#0A1F5C] text-[#0A1F5C] text-sm font-bold hover:bg-[#0A1F5C] hover:text-white transition whitespace-nowrap">
                 <ShoppingBag size={16} /> Add to bag
               </button>
@@ -265,6 +263,12 @@ export function ProductActions({
           {isAway && (
             <div className="mt-3 mx-4 md:mx-0 px-4 py-2 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold text-center">
               Store is away · Delivery may take longer
+            </div>
+          )}
+
+          {isClosed && (
+            <div className="mt-3 mx-4 md:mx-0 px-4 py-2 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold text-center" data-testid="preorder-note">
+              {(storeOpensAtLabel || "Store opens soon")} · delivered after it opens
             </div>
           )}
 
