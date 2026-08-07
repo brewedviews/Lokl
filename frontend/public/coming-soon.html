@@ -46,8 +46,6 @@ a{text-decoration:none;color:inherit}
 .field-group select{width:100%;padding:12px 16px;border:1.5px solid #E5E2DC;border-radius:12px;font-family:'Inter',sans-serif;font-size:14px;color:#1A2B4C;background:#FDFBF7;outline:none;-webkit-appearance:none;transition:border-color 0.15s}
 .field-group input:focus,
 .field-group select:focus{border-color:#E68910;background:#fff}
-.merchant-field{display:none}
-.merchant-field.show{display:block}
 .submit-btn{width:100%;padding:14px;background:#E68910;color:#fff;border:none;border-radius:50px;font-family:'Inter',sans-serif;font-size:15px;font-weight:800;cursor:pointer;margin-top:6px;letter-spacing:-0.2px;transition:background 0.15s,transform 0.1s}
 .submit-btn:hover{background:#d17c0a}
 .submit-btn:active{transform:scale(0.985)}
@@ -169,27 +167,8 @@ hr{border:none;border-top:1px solid #E5E2DC;margin:0}
           <label>WhatsApp number</label>
           <input type="tel" id="phone" placeholder="98765 43210" inputmode="numeric" maxlength="10">
         </div>
-        <div class="field-group merchant-field" id="store-name-wrap">
-          <label>Store name</label>
-          <input type="text" id="store-name" placeholder="Priya Fashion, Sector 6">
-        </div>
-        <div class="field-group merchant-field" id="category-wrap">
-          <label>What do you sell?</label>
-          <select id="category">
-            <option value="">Select a category</option>
-            <option>Women's Fashion</option>
-            <option>Men's Fashion</option>
-            <option>Ethnic Wear</option>
-            <option>Footwear</option>
-            <option>Kids Clothing</option>
-            <option>Accessories</option>
-            <option>Beauty and Personal Care</option>
-            <option>Sports and Fitness</option>
-            <option>Multiple categories</option>
-          </select>
-        </div>
         <button class="submit-btn" id="submit-btn" onclick="submit()">Join the waitlist</button>
-        <p class="form-note">We'll WhatsApp you when Lokl goes live in your area. No spam.</p>
+        <p class="form-note" id="form-note">We'll WhatsApp you when Lokl goes live in your area. No spam.</p>
         <p class="form-error" id="form-error">Something went wrong, please try again.</p>
       </div>
 
@@ -313,15 +292,18 @@ hr{border:none;border-top:1px solid #E5E2DC;margin:0}
 <script>
 var currentTab = 'customer';
 
+var MERCHANT_REGISTER_URL = 'https://merchant.shoplokl.in';
+
 function switchTab(t) {
   currentTab = t;
   var btns = document.querySelectorAll('.tab-btn');
   btns[0].classList.toggle('on', t === 'customer');
   btns[1].classList.toggle('on', t === 'merchant');
-  var fields = document.querySelectorAll('.merchant-field');
-  fields.forEach(function(f){ f.classList.toggle('show', t === 'merchant'); });
   document.getElementById('submit-btn').textContent =
     t === 'merchant' ? 'List my store for free' : 'Join the waitlist';
+  document.getElementById('form-note').textContent = t === 'merchant'
+    ? "We'll save your number, then take you to register your store."
+    : "We'll WhatsApp you when Lokl goes live in your area. No spam.";
 }
 
 function submit() {
@@ -330,29 +312,41 @@ function submit() {
   var btn = document.getElementById('submit-btn');
   var errEl = document.getElementById('form-error');
   errEl.classList.remove('show');
-  btn.textContent = 'Joining...'; btn.disabled = true;
+  var isMerchant = currentTab === 'merchant';
+  btn.textContent = isMerchant ? 'Redirecting…' : 'Joining...';
+  btn.disabled = true;
   var payload = { phone: phone, type: currentTab };
-  if (currentTab === 'merchant') {
-    payload.store_name = document.getElementById('store-name').value.trim();
-    payload.category = document.getElementById('category').value;
-  }
-  fetch('/api/waitlist', {
+
+  var req = fetch('/api/waitlist', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
-  }).then(function(res) {
+  });
+
+  if (isMerchant) {
+    // Capture the lead first so it's saved even if the merchant bounces
+    // before finishing registration — but a capture hiccup must never
+    // block them from getting to the real-time registration flow, so the
+    // redirect fires whether the POST succeeds or fails, always AFTER it
+    // settles (never racing the navigation against an in-flight request).
+    req.then(function(res) {
+      if (!res.ok) throw new Error('Request failed: ' + res.status);
+    }).catch(function() {
+      // Swallow — registration must proceed regardless of capture outcome.
+    }).then(function() {
+      window.location = MERCHANT_REGISTER_URL;
+    });
+    return;
+  }
+
+  req.then(function(res) {
     if (!res.ok) throw new Error('Request failed: ' + res.status);
     document.getElementById('form-body').style.display = 'none';
     var s = document.getElementById('success-state');
     s.classList.add('show');
-    if (currentTab === 'merchant') {
-      document.getElementById('success-title').textContent = "We'll be in touch";
-      document.getElementById('success-sub').textContent =
-        "Our team will WhatsApp you within 24 hours to set up your store on Lokl.";
-    }
   }).catch(function() {
     errEl.classList.add('show');
-    btn.textContent = currentTab === 'merchant' ? 'List my store for free' : 'Join the waitlist';
+    btn.textContent = 'Join the waitlist';
     btn.disabled = false;
   });
 }
