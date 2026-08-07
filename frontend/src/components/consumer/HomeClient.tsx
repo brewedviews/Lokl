@@ -448,8 +448,8 @@ export function HomeClient() {
         <div className="grid grid-cols-3 gap-2">
           {[
             { href: "/products?price=under-499", label: "Under ₹499", filter: "under_499" as const, bentoKey: "under_499" as const },
-            { href: "/products?price=499-1499", label: "Most Loved", filter: "499_999" as const, bentoKey: "most_loved" as const },
-            { href: "/products?price=above-1499", label: "Premium", filter: "premium" as const, bentoKey: "premium" as const },
+            { href: "/products?price=499-1499", label: "₹499 - ₹1499", filter: "499_999" as const, bentoKey: "most_loved" as const },
+            { href: "/products?price=above-1499", label: "₹1499+", filter: "premium" as const, bentoKey: "premium" as const },
           ].map(({ href, label, filter, bentoKey }) => {
             const image = priceBento?.[bentoKey] ?? null;
             return (
