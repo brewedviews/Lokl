@@ -43,6 +43,17 @@ export interface CmsArea {
   featured?: boolean;
 }
 
+/** Homepage price-bento tile ("Under ₹499" / "Most Loved" / "Premium") —
+ *  GET/PUT /api/admin/price-bands[/:id]. Only `image` is admin-editable;
+ *  label/slug/order are fixed by the band definitions. */
+export interface CmsPriceBand {
+  id: string;
+  slug: string;
+  label: string;
+  image?: string;
+  order?: number;
+}
+
 export interface CmsOffer {
   id: string;
   title: string;

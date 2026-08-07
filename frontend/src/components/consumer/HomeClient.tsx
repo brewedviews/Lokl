@@ -448,33 +448,26 @@ export function HomeClient() {
         <div className="grid grid-cols-3 gap-2">
           {[
             { href: "/products?price=under-499", label: "Under ₹499", filter: "under_499" as const, bentoKey: "under_499" as const },
-            { href: "/products?price=499-1099", label: "₹499–₹1,099", filter: "499_999" as const, bentoKey: "range_499_1099" as const },
-            { href: "/products?price=above-1099", label: "₹1,099+", filter: "premium" as const, bentoKey: "above_1099" as const },
+            { href: "/products?price=499-1499", label: "Most Loved", filter: "499_999" as const, bentoKey: "most_loved" as const },
+            { href: "/products?price=above-1499", label: "Premium", filter: "premium" as const, bentoKey: "premium" as const },
           ].map(({ href, label, filter, bentoKey }) => {
-            const rep = priceBento?.[bentoKey] ?? null;
-            // No product yet in this band (sparse catalog) — a plain navy
-            // slot + the band's own range text as the "price" stands in for
-            // a real photo/price, so the tile still sells the filter instead
-            // of showing a broken image. Fills in automatically once
-            // inventory lands in that range.
-            const heroPrice = rep ? `₹${rep.price.toLocaleString("en-IN")}` : label;
+            const image = priceBento?.[bentoKey] ?? null;
             return (
               <Link key={href} href={href} onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
                 className="flex flex-col bg-white rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] hover:shadow-md transition-all active:scale-95">
-                <div className="relative aspect-square bg-[#0A1F5C]">
-                  {rep?.image && (
+                <div className="relative aspect-[4/3] bg-[#0A1F5C]">
+                  {image && (
                     <img
-                      src={cloudinaryOptimize(rep.image, "w_300,q_auto,f_auto")}
+                      src={cloudinaryOptimize(image, "w_300,q_auto,f_auto")}
                       alt={label}
                       loading="lazy"
                       className="absolute inset-0 w-full h-full object-cover"
                     />
                   )}
                 </div>
-                <div className="px-2 py-2.5 text-center">
-                  <div className="text-[9px] font-semibold text-[#64748B] uppercase tracking-wide leading-tight">{label}</div>
-                  <div className="font-display font-bold text-[#0A1F5C] text-base leading-tight mt-0.5">{heroPrice}</div>
-                  <span className="inline-block mt-1.5 px-2.5 py-1 rounded-full bg-[#E68910] text-white text-[9px] font-bold">
+                <div className="px-2 py-2 text-center">
+                  <div className="text-[12px] font-bold text-[#0A1F5C] leading-tight line-clamp-1">{label}</div>
+                  <span className="inline-block mt-1 px-2.5 py-0.5 rounded-full bg-[#E68910] text-white text-[9px] font-bold">
                     Shop now
                   </span>
                 </div>

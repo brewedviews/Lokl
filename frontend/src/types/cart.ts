@@ -54,18 +54,14 @@ export interface CategoryCount {
   image?: string;
 }
 
-/** One representative product for a homepage price-bento band. `null` when
- *  that band has no matching visible product yet (sparse catalog). */
-export interface PriceBentoProduct {
-  id: string;
-  price: number;
-  image: string;
-}
-
+/** Image for each homepage price-bento tile — an admin CMS override if one
+ *  is set, else the cheapest visible product's image in that band, else
+ *  `null` when the band has neither (sparse catalog — tile falls back to
+ *  a neutral tile). */
 export interface PriceBentoResponse {
-  under_499: PriceBentoProduct | null;
-  range_499_1099: PriceBentoProduct | null;
-  above_1099: PriceBentoProduct | null;
+  under_499: string | null;
+  most_loved: string | null;
+  premium: string | null;
 }
 
 export interface CategoryNode {

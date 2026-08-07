@@ -7,7 +7,7 @@
 import { apiClient } from "@/lib/api-client";
 import type {
   AdminAuthResponse, AdminLoginPayload, HomepageConfig,
-  CmsCategory, CmsSubcategory, CmsArea, CmsOffer, CmsDestinationSearch,
+  CmsCategory, CmsSubcategory, CmsArea, CmsOffer, CmsPriceBand, CmsDestinationSearch,
   CmsUploadResponse, AnalyticsAssetType, TopClicksResponse,
 } from "@/types";
 
@@ -59,6 +59,17 @@ export const adminApi = {
 
   updateArea: async (id: string, patch: Partial<CmsArea>): Promise<CmsArea> => {
     const r = await apiClient.put<CmsArea>(`/api/admin/areas/${id}`, patch);
+    return r.data;
+  },
+
+  // ── Price bands (homepage price-bento tiles) ────────────────
+  listPriceBands: async (): Promise<CmsPriceBand[]> => {
+    const r = await apiClient.get<CmsPriceBand[]>("/api/admin/price-bands");
+    return r.data;
+  },
+
+  updatePriceBand: async (id: string, patch: Partial<CmsPriceBand>): Promise<CmsPriceBand> => {
+    const r = await apiClient.put<CmsPriceBand>(`/api/admin/price-bands/${id}`, patch);
     return r.data;
   },
 

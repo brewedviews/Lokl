@@ -19,8 +19,8 @@ const SORT_OPTIONS = [
 // price-bento hrefs and server.py's all_products().
 const PRICE_LABELS: Record<string, string> = {
   "under-499": "Under ₹499",
-  "499-1099": "₹499–₹1,099",
-  "above-1099": "₹1,099+",
+  "499-1499": "Most Loved",
+  "above-1499": "Premium",
 };
 
 function pageTitle(cat: L1Cat | undefined, search: string) {

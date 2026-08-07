@@ -1074,41 +1074,48 @@ async def feed_above_1099(limit: int = 12):
 
 @api.get("/feed/price-bento")
 async def feed_price_bento():
-    """One representative product per homepage price-bento band (Under ₹499 /
-    ₹499-1,099 / ₹1,099+) — the cheapest visible product in that band
-    (ties broken by newest), computed in a single aggregation via $facet.
-    2 DB round trips total (visible store ids, then one $facet covering all
-    three bands) regardless of catalog size — never 3 separate queries.
-    A band with no matching product returns null so the frontend can render
-    a neutral fallback tile instead of a broken image."""
+    """Image for each homepage price-bento tile (Under ₹499 / Most Loved /
+    Premium — <499, 499-1499, >=1500). Per band: an admin-set override in
+    db.price_bands wins if present; otherwise the cheapest visible
+    product's image in that band (ties broken by newest); otherwise null
+    so the frontend renders a neutral fallback tile instead of a broken
+    image. Never N+1: at most 3 DB round trips regardless of catalog size
+    (band overrides, visible store ids, one $facet covering all three
+    bands) — and if every band already has an admin override, the product
+    lookup is skipped entirely."""
+    band_docs = await db.price_bands.find({}, {"_id": 0, "slug": 1, "image": 1}).to_list(10)
+    overrides = {b["slug"]: b.get("image") for b in band_docs if b.get("image")}
+    result = {
+        "under_499": overrides.get("under-499"),
+        "most_loved": overrides.get("499-1499"),
+        "premium": overrides.get("above-1499"),
+    }
+    if all(result.values()):
+        return result
+
     store_docs = await db.stores.find(_visible_store_filter(), {"_id": 0, "id": 1}).to_list(2000)
     sids = [s["id"] for s in store_docs]
-    empty = {"under_499": None, "range_499_1099": None, "above_1099": None}
     if not sids:
-        return empty
+        return result
+
     pipeline = [
         {"$match": {"store_id": {"$in": sids}, **_visible_product_filter()}},
         {"$sort": {"price": 1, "created_at": -1}},
         {"$facet": {
             "under_499": [{"$match": {"price": {"$lt": 499}}}, {"$limit": 1}],
-            "range_499_1099": [{"$match": {"price": {"$gte": 499, "$lte": 1099}}}, {"$limit": 1}],
-            "above_1099": [{"$match": {"price": {"$gt": 1099}}}, {"$limit": 1}],
+            "most_loved": [{"$match": {"price": {"$gte": 499, "$lte": 1499}}}, {"$limit": 1}],
+            "premium": [{"$match": {"price": {"$gte": 1500}}}, {"$limit": 1}],
         }},
     ]
     rows = await db.products.aggregate(pipeline).to_list(1)
     facets = rows[0] if rows else {}
 
-    def _fmt(arr):
-        if not arr:
-            return None
-        p = arr[0]
-        return {"id": p.get("id"), "price": p.get("price"), "image": p.get("image") or ""}
-
-    return {
-        "under_499": _fmt(facets.get("under_499")),
-        "range_499_1099": _fmt(facets.get("range_499_1099")),
-        "above_1099": _fmt(facets.get("above_1099")),
-    }
+    for key in ("under_499", "most_loved", "premium"):
+        if result[key]:
+            continue  # admin override already set for this band
+        arr = facets.get(key) or []
+        result[key] = (arr[0].get("image") or None) if arr else None
+    return result
 
 
 @api.get("/feed/gender-rail")
@@ -1867,6 +1874,36 @@ async def admin_update_area(aid: str, payload: dict, admin: dict = Depends(requi
     if r.matched_count == 0:
         raise HTTPException(404, "Area not found")
     doc = await db.areas.find_one({"id": aid}, {"_id": 0})
+    return doc
+
+
+# Fixed set of 3 homepage price-bento bands. slug MUST match the
+# price=<slug> query param /api/products/all and the price-bento tiles'
+# href use, and the label bands feed_price_bento() matches overrides against.
+PRICE_BANDS_SEED = [
+    {"id": "band-under-499", "slug": "under-499", "label": "Under ₹499", "order": 1},
+    {"id": "band-most-loved", "slug": "499-1499", "label": "Most Loved", "order": 2},
+    {"id": "band-premium", "slug": "above-1499", "label": "Premium", "order": 3},
+]
+
+
+@api.get("/admin/price-bands")
+async def admin_list_price_bands(admin: dict = Depends(require_admin)):
+    rows = await db.price_bands.find({}, {"_id": 0}).sort("order", 1).to_list(10)
+    return rows
+
+
+ALLOWED_PRICE_BAND_FIELDS = {"image"}
+
+
+@api.put("/admin/price-bands/{bid}")
+async def admin_update_price_band(bid: str, payload: dict, admin: dict = Depends(require_admin)):
+    update = {k: v for k, v in payload.items() if k in ALLOWED_PRICE_BAND_FIELDS}
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    r = await db.price_bands.update_one({"id": bid}, {"$set": update})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Price band not found")
+    doc = await db.price_bands.find_one({"id": bid}, {"_id": 0})
     return doc
 
 
@@ -2771,10 +2808,10 @@ async def all_products(
         q["$or"] = [{"name": rx}, {"description": rx}]
     if price == "under-499":
         q["price"] = {"$lt": 499}
-    elif price == "499-1099":
-        q["price"] = {"$gte": 499, "$lte": 1099}
-    elif price == "above-1099":
-        q["price"] = {"$gt": 1099}
+    elif price == "499-1499":
+        q["price"] = {"$gte": 499, "$lte": 1499}
+    elif price == "above-1499":
+        q["price"] = {"$gte": 1500}
     sort_field, sort_dir = "created_at", -1
     if sort == "price_asc":
         sort_field, sort_dir = "price", 1
@@ -6084,6 +6121,21 @@ async def startup_seed():
             upsert=True,
         )
     log.info("Areas seeded: %d", len(AREAS_SEED))
+
+    # Idempotent upsert of the 3 homepage price-bento bands (Under ₹499 /
+    # Most Loved / Premium). Same $setOnInsert-for-image pattern as
+    # categories/areas above — an admin-set override image survives
+    # restarts; label/slug/order refresh from PRICE_BANDS_SEED every boot.
+    for band in PRICE_BANDS_SEED:
+        await db.price_bands.update_one(
+            {"id": band["id"]},
+            {
+                "$set": {k: v for k, v in band.items() if k != "image"},
+                "$setOnInsert": {"image": band.get("image", "")},
+            },
+            upsert=True,
+        )
+    log.info("Price bands seeded: %d", len(PRICE_BANDS_SEED))
 
     # Idempotency index for payment webhooks — same payment_id is silently
     # ignored on retry (Razorpay can replay webhooks).
