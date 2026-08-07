@@ -1072,6 +1072,45 @@ async def feed_above_1099(limit: int = 12):
     return items[:limit]
 
 
+@api.get("/feed/price-bento")
+async def feed_price_bento():
+    """One representative product per homepage price-bento band (Under ₹499 /
+    ₹499-1,099 / ₹1,099+) — the cheapest visible product in that band
+    (ties broken by newest), computed in a single aggregation via $facet.
+    2 DB round trips total (visible store ids, then one $facet covering all
+    three bands) regardless of catalog size — never 3 separate queries.
+    A band with no matching product returns null so the frontend can render
+    a neutral fallback tile instead of a broken image."""
+    store_docs = await db.stores.find(_visible_store_filter(), {"_id": 0, "id": 1}).to_list(2000)
+    sids = [s["id"] for s in store_docs]
+    empty = {"under_499": None, "range_499_1099": None, "above_1099": None}
+    if not sids:
+        return empty
+    pipeline = [
+        {"$match": {"store_id": {"$in": sids}, **_visible_product_filter()}},
+        {"$sort": {"price": 1, "created_at": -1}},
+        {"$facet": {
+            "under_499": [{"$match": {"price": {"$lt": 499}}}, {"$limit": 1}],
+            "range_499_1099": [{"$match": {"price": {"$gte": 499, "$lte": 1099}}}, {"$limit": 1}],
+            "above_1099": [{"$match": {"price": {"$gt": 1099}}}, {"$limit": 1}],
+        }},
+    ]
+    rows = await db.products.aggregate(pipeline).to_list(1)
+    facets = rows[0] if rows else {}
+
+    def _fmt(arr):
+        if not arr:
+            return None
+        p = arr[0]
+        return {"id": p.get("id"), "price": p.get("price"), "image": p.get("image") or ""}
+
+    return {
+        "under_499": _fmt(facets.get("under_499")),
+        "range_499_1099": _fmt(facets.get("range_499_1099")),
+        "above_1099": _fmt(facets.get("above_1099")),
+    }
+
+
 @api.get("/feed/gender-rail")
 async def feed_gender_rail(l1: str, limit: int = 20):
     """Random sample of up to `limit` visible products from a given L1 category.

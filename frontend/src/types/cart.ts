@@ -54,6 +54,20 @@ export interface CategoryCount {
   image?: string;
 }
 
+/** One representative product for a homepage price-bento band. `null` when
+ *  that band has no matching visible product yet (sparse catalog). */
+export interface PriceBentoProduct {
+  id: string;
+  price: number;
+  image: string;
+}
+
+export interface PriceBentoResponse {
+  under_499: PriceBentoProduct | null;
+  range_499_1099: PriceBentoProduct | null;
+  above_1099: PriceBentoProduct | null;
+}
+
 export interface CategoryNode {
   id: string;          // l1_id
   name: string;

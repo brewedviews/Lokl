@@ -39,7 +39,7 @@ import { JustInSection } from "@/components/consumer/JustInSection";
 import { TrustStickers } from "@/components/consumer/TrustStickers";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
-import type { ProductCard as ProductCardType, StoreCard, CategoryNode, AreaTile } from "@/types";
+import type { ProductCard as ProductCardType, StoreCard, CategoryNode, AreaTile, PriceBentoResponse } from "@/types";
 import {
   trackSectionImpression, trackCategoryTileClick, trackCategoryTileImpression,
   trackPriceFilterClick, trackProductClick, trackStoreClick,
@@ -254,6 +254,7 @@ export function HomeClient() {
   const [_storeRails, setStoreRails] = useState<HomeProductsRail[]>([]);
   const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [areas, setAreas] = useState<AreaTile[]>([]);
+  const [priceBento, setPriceBento] = useState<PriceBentoResponse | null>(null);
   const [nearby, setNearby] = useState<StoreCard[]>([]);
   const [popularStores, setPopularStores] = useState<StoreCard[]>([]);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
@@ -301,6 +302,7 @@ export function HomeClient() {
     }).catch(() => { markLoaded("hero"); });
     api.catalog.categories().then((r) => setCategories(r)).catch(() => {});
     api.catalog.areas().then((r) => setAreas(r)).catch(() => {});
+    api.catalog.priceBento().then((r) => setPriceBento(r)).catch(() => {});
 
     const _deferTimer = setTimeout(() => {
       api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
@@ -445,20 +447,40 @@ export function HomeClient() {
       <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}>
         <div className="grid grid-cols-3 gap-2">
           {[
-            { href: "/products?price=under-499", price: "Under ₹499", sub: "Budget picks", filter: "under_499" as const },
-            { href: "/products?price=499-1099", price: "₹499–₹1,099", sub: "Most popular", filter: "499_999" as const },
-            { href: "/products?price=above-1099", price: "₹1,099+", sub: "Premium", filter: "premium" as const },
-          ].map(({ href, price, sub, filter }) => (
-            <Link key={href} href={href} onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
-              className="flex flex-col bg-white border border-[#E5E2DC] rounded-xl overflow-hidden hover:border-[#E68910] hover:shadow-sm transition-all active:scale-95">
-              <div className="flex-1 flex items-center justify-center px-2 pt-3 pb-2">
-                <span className="font-bold text-[#0A1F5C] text-[13px] text-center leading-tight">{price}</span>
-              </div>
-              <div className="bg-[#F5F4F0] px-2 py-1.5 text-center">
-                <span className="text-[10px] text-[#595959] font-medium">{sub}</span>
-              </div>
-            </Link>
-          ))}
+            { href: "/products?price=under-499", label: "Under ₹499", filter: "under_499" as const, bentoKey: "under_499" as const },
+            { href: "/products?price=499-1099", label: "₹499–₹1,099", filter: "499_999" as const, bentoKey: "range_499_1099" as const },
+            { href: "/products?price=above-1099", label: "₹1,099+", filter: "premium" as const, bentoKey: "above_1099" as const },
+          ].map(({ href, label, filter, bentoKey }) => {
+            const rep = priceBento?.[bentoKey] ?? null;
+            // No product yet in this band (sparse catalog) — a plain navy
+            // slot + the band's own range text as the "price" stands in for
+            // a real photo/price, so the tile still sells the filter instead
+            // of showing a broken image. Fills in automatically once
+            // inventory lands in that range.
+            const heroPrice = rep ? `₹${rep.price.toLocaleString("en-IN")}` : label;
+            return (
+              <Link key={href} href={href} onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
+                className="flex flex-col bg-white rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] hover:shadow-md transition-all active:scale-95">
+                <div className="relative aspect-square bg-[#0A1F5C]">
+                  {rep?.image && (
+                    <img
+                      src={cloudinaryOptimize(rep.image, "w_300,q_auto,f_auto")}
+                      alt={label}
+                      loading="lazy"
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  )}
+                </div>
+                <div className="px-2 py-2.5 text-center">
+                  <div className="text-[9px] font-semibold text-[#64748B] uppercase tracking-wide leading-tight">{label}</div>
+                  <div className="font-display font-bold text-[#0A1F5C] text-base leading-tight mt-0.5">{heroPrice}</div>
+                  <span className="inline-block mt-1.5 px-2.5 py-1 rounded-full bg-[#E68910] text-white text-[9px] font-bold">
+                    Shop now
+                  </span>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       </div>
     ),

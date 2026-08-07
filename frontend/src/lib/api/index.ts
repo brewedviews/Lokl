@@ -5,7 +5,7 @@
 import { apiClient } from "@/lib/api-client";
 import type {
   AreaTile, CategoryCount, CategoryNode, HomeStats, HomepageConfig, Offer,
-  SearchResults, Testimonial,
+  PriceBentoResponse, SearchResults, Testimonial,
 } from "@/types";
 
 export const siteApi = {
@@ -55,6 +55,14 @@ export const catalogApi = {
   /** GET /api/areas — featured "Shop by Area" tiles, image + live store count. */
   areas: async (): Promise<AreaTile[]> => {
     const r = await apiClient.get<AreaTile[]>("/api/areas");
+    return r.data;
+  },
+
+  /** GET /api/feed/price-bento — one representative (cheapest visible)
+   *  product per homepage price-bento band. A band is `null` when the
+   *  catalog has nothing in that range yet. */
+  priceBento: async (): Promise<PriceBentoResponse> => {
+    const r = await apiClient.get<PriceBentoResponse>("/api/feed/price-bento");
     return r.data;
   },
 };
