@@ -52,6 +52,8 @@ a{text-decoration:none;color:inherit}
 .submit-btn:hover{background:#d17c0a}
 .submit-btn:active{transform:scale(0.985)}
 .form-note{font-size:12px;color:#aaa;text-align:center;margin-top:12px;line-height:1.5}
+.form-error{display:none;font-size:13px;color:#C62828;text-align:center;margin-top:12px;line-height:1.5;font-weight:600}
+.form-error.show{display:block}
 .success-state{display:none;text-align:center;padding:12px 0}
 .success-state.show{display:block}
 .success-check{width:48px;height:48px;background:#E8F5E9;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
@@ -188,6 +190,7 @@ hr{border:none;border-top:1px solid #E5E2DC;margin:0}
         </div>
         <button class="submit-btn" id="submit-btn" onclick="submit()">Join the waitlist</button>
         <p class="form-note">We'll WhatsApp you when Lokl goes live in your area. No spam.</p>
+        <p class="form-error" id="form-error">Something went wrong, please try again.</p>
       </div>
 
       <div class="success-state" id="success-state">
@@ -325,6 +328,8 @@ function submit() {
   var phone = document.getElementById('phone').value.replace(/\D/g,'');
   if (phone.length < 10) { document.getElementById('phone').focus(); return; }
   var btn = document.getElementById('submit-btn');
+  var errEl = document.getElementById('form-error');
+  errEl.classList.remove('show');
   btn.textContent = 'Joining...'; btn.disabled = true;
   var payload = { phone: phone, type: currentTab };
   if (currentTab === 'merchant') {
@@ -335,7 +340,8 @@ function submit() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
-  }).then(function() {
+  }).then(function(res) {
+    if (!res.ok) throw new Error('Request failed: ' + res.status);
     document.getElementById('form-body').style.display = 'none';
     var s = document.getElementById('success-state');
     s.classList.add('show');
@@ -345,6 +351,7 @@ function submit() {
         "Our team will WhatsApp you within 24 hours to set up your store on Lokl.";
     }
   }).catch(function() {
+    errEl.classList.add('show');
     btn.textContent = currentTab === 'merchant' ? 'List my store for free' : 'Join the waitlist';
     btn.disabled = false;
   });

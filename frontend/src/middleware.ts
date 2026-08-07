@@ -42,7 +42,12 @@ export function middleware(request: NextRequest) {
 
   const isShopLokl = host === 'shoplokl.in' || host === 'www.shoplokl.in'
 
-  if (isShopLokl) {
+  // /api/* must fall through to the next.config.ts backend proxy rewrite,
+  // never to the coming-soon page — otherwise POSTs made BY that very page
+  // (e.g. the waitlist form's relative fetch('/api/waitlist')) inherit the
+  // same Host header and get hijacked into a 405 against the static HTML,
+  // silently dropping every submission before it reaches the backend.
+  if (isShopLokl && !pathname.startsWith('/api')) {
     const url = request.nextUrl.clone()
     url.pathname = '/coming-soon.html'
     return NextResponse.rewrite(url)
