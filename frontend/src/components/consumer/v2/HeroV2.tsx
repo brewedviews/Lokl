@@ -94,7 +94,11 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
             {sub}
           </p>
         </div>
-        <div className="md:hidden mt-4 inline-flex items-center gap-2.5 self-start px-3 py-2 rounded-2xl bg-white/95 backdrop-blur-sm shadow-md">
+        {/* Compact pill — sits in normal flow below the headline, so it can
+            never collide with it. Shown through the tablet range and only
+            swapped for the roomier floating card (below) once the container
+            is wide enough (xl) that the two genuinely don't overlap. */}
+        <div className="xl:hidden mt-4 inline-flex items-center gap-2.5 self-start px-3 py-2 rounded-2xl bg-white/95 backdrop-blur-sm shadow-md">
           <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${isClosedLabel ? "bg-[#94A3B8]" : "bg-[#F59E0B]"}`}><Bike size={14} className="text-white" /></div>
           <div className="leading-tight">
             <div className="text-[10px] text-[#0A1F5C]/70 font-medium">{deliveryStatus?.message || "Fast delivery"}</div>
@@ -108,7 +112,7 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
           )}
         </div>
       </div>
-      <div className="hidden md:flex absolute top-1/2 right-6 lg:right-10 -translate-y-1/2 bg-white/90 backdrop-blur-md rounded-2xl p-3.5 items-center gap-3 min-w-[260px] shadow-xl">
+      <div className="hidden xl:flex absolute top-1/2 right-6 lg:right-10 -translate-y-1/2 bg-white/90 backdrop-blur-md rounded-2xl p-3.5 items-center gap-3 min-w-[260px] shadow-xl">
         <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${isClosedLabel ? "bg-[#94A3B8]" : "bg-[#F59E0B]"}`}><Bike size={18} className="text-white" /></div>
         <div className="flex-1">
           <div className="text-[11px] text-[#0A1F5C]/70">{deliveryStatus?.message || "Fast delivery in Bhilai"}</div>
