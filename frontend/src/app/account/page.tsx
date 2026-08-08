@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import {
   Save, Package, MapPin, Plus, Trash2, Home as HomeIcon, Heart, Wallet,
   TicketPercent, HelpCircle, Settings, ChevronRight, LogOut, Pencil, RotateCcw,
+  Phone, Info, FileText, Shield, Truck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -29,6 +30,19 @@ function statusTone(s: string) {
 
 type TileKey = "orders" | "addresses" | "wishlist" | "wallet" | "coupons" | "support" | "profile";
 const VALID_TILES: TileKey[] = ["orders", "addresses", "wishlist", "wallet", "coupons", "support", "profile"];
+
+// Legal/support pages — previously only linked from the dead, unimported
+// Footer.tsx (Terms/Privacy) or not linked anywhere at all (the other 5).
+// This list is their first reachable entry point in the app.
+const POLICY_LINKS: { href: string; label: string; sub: string; icon: typeof Phone }[] = [
+  { href: "/contact",        label: "Contact Us",                sub: "Reach our support team",        icon: Phone },
+  { href: "/about",          label: "About Us",                  sub: "Our story and mission",          icon: Info },
+  { href: "/faq",            label: "FAQs",                      sub: "Common questions, answered",     icon: HelpCircle },
+  { href: "/terms",          label: "Terms & Conditions",        sub: "The rules of using Lokl",        icon: FileText },
+  { href: "/privacy",        label: "Privacy Policy",            sub: "How we handle your data",        icon: Shield },
+  { href: "/returns-policy", label: "Return & Exchange Policy",  sub: "Try & Buy, returns, refunds",    icon: RotateCcw },
+  { href: "/shipping",       label: "Shipping Policy",           sub: "Delivery area, time and fees",   icon: Truck },
+];
 
 export default function CustomerAccountPage() {
   const sp = useSearchParams();
@@ -205,6 +219,29 @@ export default function CustomerAccountPage() {
           </div>
           <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
         </Link>
+
+        <section className="mt-4 bg-white border border-[#E5E2DC] rounded-3xl p-2 sm:p-3" data-testid="account-policy-links">
+          {POLICY_LINKS.map((l) => {
+            const Icon = l.icon;
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                data-testid={`account-link-${l.href.replace(/\//g, "")}`}
+                className="flex items-center gap-3 px-3 py-3 hover:bg-[#FDFBF7] rounded-xl transition"
+              >
+                <div className="w-9 h-9 rounded-full bg-[#0A1F5C]/8 flex items-center justify-center shrink-0">
+                  <Icon size={16} className="text-[#0A1F5C]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-[#0A1F5C]">{l.label}</div>
+                  <div className="text-[11px] text-[#64748B]">{l.sub}</div>
+                </div>
+                <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
+              </Link>
+            );
+          })}
+        </section>
 
         <button
           onClick={logout}

@@ -61,12 +61,12 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 // place so re-enabling is a one-flag revert; its rank keeps it slotted
 // right before best_deals, its old position, for when that happens.
 // customer_love is also paused (matches the live call already made on this
-// section). trending/stores stay disabled as before, ranks pushed clear of
-// the reorder just so nothing here shares a rank.
+// section). trending stays disabled as before, ranks pushed clear of the
+// reorder just so nothing here shares a rank.
 // Approved homepage sequence: category pills -> hero -> price bentos ->
 // best deals -> try & buy -> For Her/For Him (consecutive) -> meet your
 // sellers -> merchant CTA -> premium picks -> offers -> shop by area.
-// Disabled sections (just_in, trending, customer_love, stores) keep their
+// Disabled sections (just_in, trending, customer_love) keep their
 // enabled:false and are left untouched — their ranks only got nudged
 // where they'd otherwise collide with a newly-assigned enabled rank
 // (disabled sections are filtered out before sort, so a collision is
@@ -76,6 +76,10 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 // overlapping intent, so meet_sellers' rail is now open-stores-first,
 // nearest-first, then closed stores — see sellersSorted in HomeClient
 // and MeetSellersSection above. There is no longer a separate id for it.
+// The standalone "stores" section (disabled "Popular stores" rail) has
+// been deleted entirely — same storesRail data, same /stores
+// destination as meet_sellers, just an older visual style; dead weight
+// once meet_sellers covers the same ground.
 // TrustStickers isn't part of this ranked list at all — it's hardcoded to
 // render after {orderedSections} unconditionally (see JSX below), which
 // already puts it last, matching the target sequence's final position.
@@ -95,7 +99,6 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "offers",         label: "Offers for you",            enabled: true,  rank: 95 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 100 },
   { id: "shop_by_area",   label: "Shop by Area",              enabled: true,  rank: 105 },
-  { id: "stores",         label: "Popular stores",            enabled: false, rank: 110 },
 ];
 
 /**
@@ -287,10 +290,10 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
 // "Meet your sellers" — the community/emotional pillar. Two parts:
 //   A. A static cream positioning band (always renders — claims the local-
 //      first story even with zero merchants onboarded).
-//   B. A real-merchant rail sourced from the SAME store data the (currently
-//      disabled) "stores" section already fetches — see storesEnabled in
-//      HomeClient, broadened to cover this section too so there's no
-//      redundant API call.
+//   B. A real-merchant rail sourced from nearby/popularStores — see
+//      storesEnabled in HomeClient, which gates that fetch on this
+//      section's own enabled flag (the standalone "stores" section that
+//      used to share this fetch has since been removed as redundant).
 // Sparse-catalog handling: whatever real stores exist render first, then a
 // dashed "more shops joining" tile so 1-2 real stores reads as early
 // momentum, not an empty rail. Zero stores → a single inviting banner,
@@ -490,20 +493,15 @@ export function HomeClient() {
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Set<string>>(new Set());
   // Gates the popular-stores / nearby-stores fetches — no point fetching
-  // data unless SOME section that renders it is enabled. Two sections share
-  // this one fetch: "stores" (the standalone rail, currently disabled) and
-  // "meet_sellers" (Part B of the community section) — true if either is
-  // enabled, so meet_sellers never triggers a second, redundant call for
-  // the same data. Seeded from the local default and updated once the
-  // server config (which can override enabled/disabled without a deploy)
-  // resolves. Mirrored into a ref too since the deferred-fetch timer lives
-  // inside a mount-only effect and can't reactively read updated state from
-  // its own closure.
+  // data unless meet_sellers (the only remaining consumer of this fetch,
+  // now that the standalone "stores" section has been removed) is enabled.
+  // Seeded from the local default and updated once the server config
+  // (which can override enabled/disabled without a deploy) resolves.
+  // Mirrored into a ref too since the deferred-fetch timer lives inside a
+  // mount-only effect and can't reactively read updated state from its own
+  // closure.
   const [storesEnabled, setStoresEnabled] = useState(
-    () => {
-      const map = new Map(DEFAULT_SECTIONS.map((s) => [s.id, s]));
-      return (map.get("stores")?.enabled ?? false) || (map.get("meet_sellers")?.enabled ?? false);
-    }
+    () => DEFAULT_SECTIONS.find((s) => s.id === "meet_sellers")?.enabled ?? false
   );
   const storesEnabledRef = useRef(storesEnabled);
 
@@ -531,8 +529,7 @@ export function HomeClient() {
         const seen = new Set<string>();
         const deduped = merged.filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
         setSections(deduped);
-        const resolvedStoresEnabled = (deduped.find((s) => s.id === "stores")?.enabled ?? false)
-          || (deduped.find((s) => s.id === "meet_sellers")?.enabled ?? false);
+        const resolvedStoresEnabled = deduped.find((s) => s.id === "meet_sellers")?.enabled ?? false;
         setStoresEnabled(resolvedStoresEnabled);
         storesEnabledRef.current = resolvedStoresEnabled;
       }
@@ -624,7 +621,6 @@ export function HomeClient() {
 
   const storesReady = loaded.has("nearby") || loaded.has("popularStores");
   const storesRail = nearby.length > 0 ? nearby : popularStores;
-  const storesTitle = nearby.length > 0 ? "Stores near you" : "Popular stores in Bhilai";
 
   // meet_sellers' rail order: open stores first, then closed — each bucket
   // nearest-first. "Open" = availability_rank 1, the exact same LIVE rank
@@ -657,23 +653,6 @@ export function HomeClient() {
             <Skeleton className="h-3 w-3/4 rounded mb-1.5" />
             <Skeleton className="h-3 w-1/2 rounded mb-1.5" />
             <Skeleton className="h-6 w-full rounded-full" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-  const StoreRailSkeleton = () => (
-    <div className="pt-4 px-4 sm:px-6">
-      <Skeleton className="h-7 w-44 rounded-full mb-1" />
-      <Skeleton className="h-4 w-56 rounded-full mb-3" />
-      <div className="flex gap-3 overflow-hidden">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="shrink-0 w-36 rounded-2xl overflow-hidden bg-white">
-            <Skeleton className="w-full h-20 rounded-none" />
-            <div className="p-2.5 space-y-1.5">
-              <Skeleton className="h-3.5 w-3/4 rounded" />
-              <Skeleton className="h-3 w-1/2 rounded" />
-            </div>
           </div>
         ))}
       </div>
@@ -935,34 +914,6 @@ export function HomeClient() {
     // JustInSection self-fetches newest arrivals + the store-chip list and
     // collapses to null if no store has any visible products.
     just_in: <JustInSection key="just-in" />,
-
-    stores: errors.has("popularStores") && !storesRail.length ? (
-      <SectionError key="stores-error" minHeight="min-h-[200px]" />
-    ) : storesReady && storesRail.length > 0 ? (
-      <section key="stores" className="pt-8" data-testid="home-stores">
-        <div className="px-4 sm:px-6 lg:px-8 flex items-end justify-between gap-3 mb-3 max-w-7xl mx-auto">
-          <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">{storesTitle}</h2>
-          <a href="/stores" className="text-xs font-bold text-[#F59E0B] shrink-0 hover:underline">See all →</a>
-        </div>
-        <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto pb-1">
-          {storesRail.map((s) => (
-            <Link key={s.id} href={`/store/${(s as any).slug || s.id}`}
-              onClick={() => { try { trackStoreClick(s.id, s.name, "homepage_stores"); } catch {} }}
-              className="flex-shrink-0 w-36 bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden hover:shadow-sm transition active:scale-95">
-              <div className="relative h-20 bg-[#E5E2DC]">
-                {((s as any).banner || (Array.isArray((s as any).banners) && (s as any).banners[0]) || s.image || s.logo) ? (
-                  <img src={(s as any).banner || (Array.isArray((s as any).banners) && (s as any).banners[0]) || s.image || s.logo} alt={s.name} className="w-full h-full object-cover" />
-                ) : null}
-              </div>
-              <div className="p-2.5">
-                <div className="font-bold text-[#0A1F5C] text-[12px] truncate">{s.name}</div>
-                <div className="text-[10px] text-[#9CA3AF] mt-0.5">⚡ {s.eta_min ?? 45} min</div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </section>
-    ) : !storesReady ? <StoreRailSkeleton key="stores-skeleton" /> : null,
 
     merchant_cta: (
       <div key="merchant-cta" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
