@@ -3146,19 +3146,16 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         addr_pincode = str(payload.address.get("pincode") or "").strip()
         if addr_pincode and addr_pincode not in BHILAI_PINCODES:
             raise HTTPException(400, "We only deliver to Bhilai pincodes (490xxx). Please check your pincode.")
-        c_lat = payload.customer_lat
-        c_lng = payload.customer_lng
-        if c_lat and c_lng:
-            try:
-                if not _is_in_bhilai_delivery_zone(float(c_lat), float(c_lng)):
-                    raise HTTPException(
-                        400,
-                        "Sorry, we don't deliver to your location yet. Lokl currently delivers within Bhilai only."
-                    )
-            except HTTPException:
-                raise
-            except Exception:
-                pass
+        # NOTE: deliberately no check against payload.customer_lat/customer_lng here.
+        # Serviceability is about the DELIVERY ADDRESS, not the shopper's physical
+        # GPS — the pincode check above is the authoritative gate. A prior version
+        # additionally rejected orders whose customer_lat/lng fell outside
+        # _is_in_bhilai_delivery_zone()'s polygon, which disagreed with this pincode
+        # check and false-rejected valid Bhilai-address orders whenever the shopper
+        # was physically outside Bhilai (e.g. a tester's real device). customer_lat/
+        # customer_lng are still accepted and stored on the order (see below) as
+        # informational metadata/for rider routing — just never used to block
+        # placement.
 
     # Pre-check store availability before any stock reservations.
     # Pickup: block Away (rank 2) and Offline (rank≥4); compute dynamic window.
