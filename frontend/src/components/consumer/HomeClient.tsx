@@ -29,7 +29,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { HeroV2 } from "@/components/consumer/v2/HeroV2";
@@ -76,6 +76,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "trending",       label: "Trending now",              enabled: false, rank: 85 },
   { id: "merchant_cta",   label: "Open a store",              enabled: true,  rank: 90 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 100 },
+  { id: "meet_sellers",   label: "Meet your sellers",         enabled: true,  rank: 102 },
   { id: "shop_by_area",   label: "Shop by Area",              enabled: true,  rank: 105 },
   { id: "stores",         label: "Popular stores",            enabled: false, rank: 110 },
 ];
@@ -265,6 +266,112 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// "Meet your sellers" — the community/emotional pillar. Two parts:
+//   A. A static cream positioning band (always renders — claims the local-
+//      first story even with zero merchants onboarded).
+//   B. A real-merchant rail sourced from the SAME store data the (currently
+//      disabled) "stores" section already fetches — see storesEnabled in
+//      HomeClient, broadened to cover this section too so there's no
+//      redundant API call.
+// Sparse-catalog handling: whatever real stores exist render first, then a
+// dashed "more shops joining" tile so 1-2 real stores reads as early
+// momentum, not an empty rail. Zero stores → a single inviting banner,
+// never a broken/empty scroll strip. All fallbacks are light (cream/tint),
+// consistent with the recent navy-restraint pass — no dark slabs.
+// ---------------------------------------------------------------------------
+function SellerCard({ s }: { s: StoreCard }) {
+  const banner = (s as any).banner || (Array.isArray((s as any).banners) && (s as any).banners[0]) || s.image || null; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const area = (s as any).area_label || (s as any).area || s.locality || "Bhilai"; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const quote = (s.tagline || (s as any).story || `A local shop in ${area}`) as string; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const initial = (s.name || "?").trim().charAt(0).toUpperCase();
+  return (
+    <Link key={s.id} href={`/store/${(s as any).slug || s.id}`} // eslint-disable-line @typescript-eslint/no-explicit-any
+      onClick={() => { try { trackStoreClick(s.id, s.name, "meet_sellers"); } catch {} }}
+      data-testid={`meet-sellers-card-${s.id}`}
+      className="flex-shrink-0 w-40 bg-white rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] hover:shadow-md transition active:scale-95">
+      <div className="relative h-24 bg-[#F4F1E9]">
+        {banner && (
+          <img src={cloudinaryOptimize(banner, "w_320,q_auto,f_auto")} alt={s.name} loading="lazy" className="w-full h-full object-cover" />
+        )}
+        <div className="absolute -bottom-4 left-3 w-9 h-9 rounded-full bg-white shadow-[0_2px_6px_rgba(10,31,92,0.15)] flex items-center justify-center overflow-hidden border-2 border-white">
+          {s.logo ? (
+            <img src={s.logo} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <span className="font-display font-bold text-[#0A1F5C] text-sm">{initial}</span>
+          )}
+        </div>
+      </div>
+      <div className="pt-6 px-3 pb-3">
+        <div className="font-bold text-[#0A1F5C] text-[12px] truncate">{s.name}</div>
+        <div className="text-[10px] text-[#94A3B8] mt-0.5">{area}</div>
+        <p className="text-[10px] text-[#595959] mt-1.5 leading-snug line-clamp-2">{quote}</p>
+      </div>
+    </Link>
+  );
+}
+
+function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boolean }) {
+  return (
+    <div className="pt-8" data-testid="home-meet_sellers">
+      {/* Part A — static positioning band. No data dependency; always renders. */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="bg-[#F4F1E9] rounded-3xl px-5 py-7 sm:px-10 sm:py-9 text-center">
+          <h2 className="font-display italic font-bold text-[#0A1F5C] text-xl sm:text-[28px] leading-snug max-w-md mx-auto">
+            Behind every order is a real Bhilai shopkeeper.
+          </h2>
+          <p className="text-[13px] sm:text-sm text-[#595959] mt-2.5 max-w-sm mx-auto leading-relaxed">
+            Not a warehouse. Not a faceless brand. Your neighbour&apos;s shop, delivered to your door.
+          </p>
+          <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#E5E2DC] text-[11px] font-semibold text-[#0A1F5C]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#E68910]" /> Real local shops
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#E5E2DC] text-[11px] font-semibold text-[#0A1F5C]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#E68910]" /> Money stays in Bhilai
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Part B — real-merchant rail. */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+        <div className="flex items-end justify-between gap-3 mb-3">
+          <h3 className="text-lg sm:text-xl font-display font-bold text-[#0A1F5C] leading-tight">Meet your sellers</h3>
+          <a href="/stores" className="text-xs font-bold text-[#F59E0B] shrink-0 hover:underline">See all →</a>
+        </div>
+
+        {!ready ? (
+          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex-shrink-0 w-40 h-[136px] rounded-2xl bg-[#E5E2DC] animate-pulse" />
+            ))}
+          </div>
+        ) : stores.length === 0 ? (
+          <div className="bg-[#F4F1E9] rounded-2xl px-5 py-6 text-center flex flex-col items-center gap-2" data-testid="meet-sellers-empty">
+            <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
+              <Sparkles size={16} className="text-[#E68910]" />
+            </div>
+            <p className="text-[12px] font-semibold text-[#0A1F5C] max-w-xs mx-auto">
+              We&apos;re onboarding your neighbourhood&apos;s shops right now — check back soon.
+            </p>
+          </div>
+        ) : (
+          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+            {stores.slice(0, 10).map((s) => <SellerCard key={s.id} s={s} />)}
+            <div className="flex-shrink-0 w-40 rounded-2xl border-2 border-dashed border-[#E5E2DC] bg-[#FDFBF7] flex flex-col items-center justify-center text-center px-3 py-4 gap-2" data-testid="meet-sellers-more-tile">
+              <div className="w-8 h-8 rounded-full bg-[#E68910]/15 flex items-center justify-center">
+                <Plus size={16} className="text-[#E68910]" />
+              </div>
+              <p className="text-[11px] font-semibold text-[#0A1F5C] leading-snug">More shops joining your neighbourhood</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function HomeClient() {
   const lat = useLocationStore((s) => s.lat);
   const lng = useLocationStore((s) => s.lng);
@@ -285,13 +392,20 @@ export function HomeClient() {
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Set<string>>(new Set());
   // Gates the popular-stores / nearby-stores fetches — no point fetching
-  // data for a section that's disabled and will never render. Seeded from
-  // the local default and updated once the server config (which can
-  // override enabled/disabled without a deploy) resolves. Mirrored into a
-  // ref too since the deferred-fetch timer lives inside a mount-only
-  // effect and can't reactively read updated state from its own closure.
+  // data unless SOME section that renders it is enabled. Two sections share
+  // this one fetch: "stores" (the standalone rail, currently disabled) and
+  // "meet_sellers" (Part B of the community section) — true if either is
+  // enabled, so meet_sellers never triggers a second, redundant call for
+  // the same data. Seeded from the local default and updated once the
+  // server config (which can override enabled/disabled without a deploy)
+  // resolves. Mirrored into a ref too since the deferred-fetch timer lives
+  // inside a mount-only effect and can't reactively read updated state from
+  // its own closure.
   const [storesEnabled, setStoresEnabled] = useState(
-    () => DEFAULT_SECTIONS.find((s) => s.id === "stores")?.enabled ?? false
+    () => {
+      const map = new Map(DEFAULT_SECTIONS.map((s) => [s.id, s]));
+      return (map.get("stores")?.enabled ?? false) || (map.get("meet_sellers")?.enabled ?? false);
+    }
   );
   const storesEnabledRef = useRef(storesEnabled);
 
@@ -318,7 +432,8 @@ export function HomeClient() {
         const seen = new Set<string>();
         const deduped = merged.filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
         setSections(deduped);
-        const resolvedStoresEnabled = deduped.find((s) => s.id === "stores")?.enabled ?? false;
+        const resolvedStoresEnabled = (deduped.find((s) => s.id === "stores")?.enabled ?? false)
+          || (deduped.find((s) => s.id === "meet_sellers")?.enabled ?? false);
         setStoresEnabled(resolvedStoresEnabled);
         storesEnabledRef.current = resolvedStoresEnabled;
       }
@@ -760,6 +875,8 @@ export function HomeClient() {
     ),
 
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
+
+    meet_sellers: <MeetSellersSection key="meet-sellers" stores={storesRail} ready={storesReady} />,
 
     shop_by_area: <ShopByAreaSection key="shop-by-area" areas={areas} />,
 
