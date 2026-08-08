@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { Toaster } from "sonner";
 import { ConsumerHeader } from "@/components/consumer/ConsumerHeader";
 import { StickyBottomNav } from "@/components/consumer/StickyBottomNav";
+import { ActiveOrderPill } from "@/components/consumer/ActiveOrderPill";
 import { CustomerOtpLogin } from "@/components/consumer/CustomerOtpLogin";
 import { useCustomerAuthStore } from "@/stores";
 
@@ -47,6 +48,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
           </div>
         </main>
       )}
+      <ActiveOrderPill />
       <StickyBottomNav />
     </>
   );

@@ -3,6 +3,7 @@ import { ConsumerHeader } from "@/components/consumer/ConsumerHeader";
 import { StickyBottomNav } from "@/components/consumer/StickyBottomNav";
 import { LocationBanner } from "@/components/consumer/LocationBanner";
 import { SearchOverlayHost } from "@/components/consumer/SearchOverlayHost";
+import { ActiveOrderPill } from "@/components/consumer/ActiveOrderPill";
 
 /**
  * Consumer route-group layout. Wraps every public-facing page with the
@@ -32,6 +33,7 @@ export default function ConsumerLayout({ children }: { children: React.ReactNode
       <ConsumerHeader />
       <LocationBanner />
       <div className="flex-1 flex flex-col">{children}</div>
+      <ActiveOrderPill />
       <StickyBottomNav />
       <SearchOverlayHost />
     </div>
