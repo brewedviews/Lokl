@@ -63,14 +63,19 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 // customer_love is also paused (matches the live call already made on this
 // section). trending/stores stay disabled as before, ranks pushed clear of
 // the reorder just so nothing here shares a rank.
-// Reordered per the approved homepage sequence: category pills -> hero ->
-// price bentos -> best deals -> try & buy -> For Her/For Him (consecutive)
-// -> meet your sellers -> merchant CTA -> premium picks -> offers -> shop
-// by area -> open now. Disabled sections (just_in, trending, customer_love,
-// stores) keep their enabled:false and are left untouched — their ranks
-// only got nudged where they'd otherwise collide with a newly-assigned
-// enabled rank (disabled sections are filtered out before sort, so a
-// collision is never a rendering bug, just untidy data — avoided anyway).
+// Approved homepage sequence: category pills -> hero -> price bentos ->
+// best deals -> try & buy -> For Her/For Him (consecutive) -> meet your
+// sellers -> merchant CTA -> premium picks -> offers -> shop by area.
+// Disabled sections (just_in, trending, customer_love, stores) keep their
+// enabled:false and are left untouched — their ranks only got nudged
+// where they'd otherwise collide with a newly-assigned enabled rank
+// (disabled sections are filtered out before sort, so a collision is
+// never a rendering bug, just untidy data — avoided anyway).
+// "open_now" (formerly its own "Open now near you" rail) has been folded
+// into meet_sellers — the two showed the same store data with
+// overlapping intent, so meet_sellers' rail is now open-stores-first,
+// nearest-first, then closed stores — see sellersSorted in HomeClient
+// and MeetSellersSection above. There is no longer a separate id for it.
 // TrustStickers isn't part of this ranked list at all — it's hardcoded to
 // render after {orderedSections} unconditionally (see JSX below), which
 // already puts it last, matching the target sequence's final position.
@@ -91,7 +96,6 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 100 },
   { id: "shop_by_area",   label: "Shop by Area",              enabled: true,  rank: 105 },
   { id: "stores",         label: "Popular stores",            enabled: false, rank: 110 },
-  { id: "open_now",       label: "Open now near you",         enabled: true,  rank: 115 },
 ];
 
 /**
@@ -295,14 +299,16 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
 // ---------------------------------------------------------------------------
 // Same overlay-tile pattern as ShopByAreaSection above (aspect-[3/4],
 // rounded-2xl, whisper shadow, neutral dark scrim, bold white name +
-// small cream area subtitle) so every store rail on the homepage
-// (meet_sellers, open_now) reads as one design family — same card,
-// different filter feeding it. No overlapping avatar — the name on the
-// image is enough. Store's own tagline/story is intentionally left out
-// to keep the card as clean as an area tile: name + area is the
-// priority. `openNow` adds a small light "Open now" pill (reused by the
-// open_now rail) — omitted by default so meet_sellers is unaffected.
-function SellerCard({ s, source = "meet_sellers", openNow = false }: { s: StoreCard; source?: string; openNow?: boolean }) {
+// small cream area subtitle) — the single store-rail card family used
+// across the homepage. No overlapping avatar — the name on the image is
+// enough. Store's own tagline/story is intentionally left out to keep
+// the card as clean as an area tile: name + area is the priority.
+// `openNow` shows a small light-green "Open now" pill; otherwise
+// `closedLabel` (e.g. "Opens at 6:00 PM", or a generic "Closed" when no
+// specific reopen time is known) shows a muted pill instead — so every
+// card in the merged meet_sellers rail carries a status, not just the
+// open ones.
+function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel }: { s: StoreCard; source?: string; openNow?: boolean; closedLabel?: string }) {
   const banner = (s as any).banner || (Array.isArray((s as any).banners) && (s as any).banners[0]) || s.image || null; // eslint-disable-line @typescript-eslint/no-explicit-any
   const area = (s as any).area_label || (s as any).area || s.locality || "Bhilai"; // eslint-disable-line @typescript-eslint/no-explicit-any
   return (
@@ -310,11 +316,15 @@ function SellerCard({ s, source = "meet_sellers", openNow = false }: { s: StoreC
       onClick={() => { try { trackStoreClick(s.id, s.name, source); } catch {} }}
       data-testid={`${source}-card-${s.id}`}
       className="group flex-shrink-0 w-32 sm:w-36 relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
-      {openNow && (
+      {openNow ? (
         <span className="absolute top-2 left-2 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 text-[9px] font-bold text-[#0A1F5C]">
           <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" /> Open now
         </span>
-      )}
+      ) : closedLabel ? (
+        <span className="absolute top-2 left-2 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/80 text-[9px] font-bold text-[#64748B]">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#94A3B8]" /> {closedLabel}
+        </span>
+      ) : null}
       {banner ? (
         <>
           <img
@@ -346,12 +356,19 @@ function SellerCard({ s, source = "meet_sellers", openNow = false }: { s: StoreC
   );
 }
 
+// Combined "why local" + real-sellers rail. Used to be two sections
+// (meet_sellers Part A/B, and a separate open_now rail) — merged into one
+// since both showed the same store data with overlapping intent. `stores`
+// is expected pre-sorted: open stores first, each bucket ascending by
+// distance (see the sort in HomeClient below) — this component just
+// renders whatever order it's given, per-card open/closed status included.
 function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boolean }) {
   return (
     <div className="pt-8" data-testid="home-meet_sellers">
-      {/* Part A — editorial statement, same voice/treatment as the hero
-          headline (bold display font, navy ink, orange accent word,
-          left-aligned, sits directly on the page). No box, no pills. */}
+      {/* Header/hook — editorial statement, same voice/treatment as the
+          hero headline (bold display font, navy ink, orange accent word,
+          left-aligned, sits directly on the page). No box, no pills.
+          Always shows, independent of whether any seller is open. */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <h2 className="font-display font-bold text-[#0A1F5C] text-[22px] sm:text-2xl leading-[1.15] tracking-tight max-w-md">
           your neighbour&apos;s shop, not a faraway <span className="text-[#E68910]">warehouse.</span>
@@ -361,7 +378,9 @@ function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boo
         </p>
       </div>
 
-      {/* Part B — real-merchant rail. */}
+      {/* Real-seller rail — open stores first (green "Open now" pill),
+          then closed ones (muted "Opens at X" / "Closed" pill), each
+          bucket nearest-first. */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
         <div className="flex items-end justify-between gap-3 mb-3">
           <h3 className="text-lg sm:text-xl font-display font-bold text-[#0A1F5C] leading-tight">Meet your sellers</h3>
@@ -385,7 +404,11 @@ function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boo
           </div>
         ) : (
           <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-            {stores.slice(0, 10).map((s) => <SellerCard key={s.id} s={s} />)}
+            {stores.slice(0, 10).map((s) => {
+              const isOpen = (s as any).availability_rank === 1; // eslint-disable-line @typescript-eslint/no-explicit-any
+              const closedLabel = isOpen ? undefined : ((s as any).next_open_label || "Closed"); // eslint-disable-line @typescript-eslint/no-explicit-any
+              return <SellerCard key={s.id} s={s} source="meet_sellers" openNow={isOpen} closedLabel={closedLabel} />;
+            })}
             {/* Same aspect-[3/4] card footprint as the sellers themselves —
                 a short list should feel like the start of a rail, not an
                 undersized rail padded out with an oversized empty tile. */}
@@ -442,29 +465,6 @@ function TryAndBuySection({ image }: { image: string }) {
           </div>
         </div>
       </Link>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// "Open now near you" — reuses SellerCard (same overlay-tile family) with
-// the openNow badge on, fed by whatever "open now, nearest first" list
-// HomeClient computed (see openNowStores below — filters the SAME
-// storesRail/nearby data meet_sellers already fetched, no extra call).
-// Hides entirely when nothing is open anywhere right now (late night etc.)
-// rather than rendering an empty/misleading rail.
-// ---------------------------------------------------------------------------
-function OpenNowSection({ stores }: { stores: StoreCard[] }) {
-  if (stores.length === 0) return null;
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-open_now">
-      <div className="flex items-end justify-between gap-3 mb-3">
-        <h3 className="text-lg sm:text-xl font-display font-bold text-[#0A1F5C] leading-tight">Open now near you</h3>
-        <a href="/stores" className="text-xs font-bold text-[#F59E0B] shrink-0 hover:underline">See all →</a>
-      </div>
-      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-        {stores.slice(0, 8).map((s) => <SellerCard key={s.id} s={s} source="open_now" openNow />)}
-      </div>
     </div>
   );
 }
@@ -626,19 +626,25 @@ export function HomeClient() {
   const storesRail = nearby.length > 0 ? nearby : popularStores;
   const storesTitle = nearby.length > 0 ? "Stores near you" : "Popular stores in Bhilai";
 
-  // "Open now near you" — reuses storesRail/nearby (no extra fetch).
-  // "Open now" = availability_rank 1, the exact same LIVE rank
+  // meet_sellers' rail order: open stores first, then closed — each bucket
+  // nearest-first. "Open" = availability_rank 1, the exact same LIVE rank
   // _store_availability() computes everywhere else in the app (badges,
   // checkout, order placement) — never a separate open/closed check.
-  // Area match: the nearest store's own area_slug stands in for "the
-  // user's area" (nearby is already distance-sorted when geo is known;
-  // there's no separate area-detection signal on the client). When that's
-  // unknown, or filtering to it leaves zero open stores, fall back to
-  // open stores city-wide rather than an empty rail.
-  const openStoresAll = storesRail.filter((s) => (s as any).availability_rank === 1); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const userAreaSlug = nearby.length > 0 ? (nearby[0] as any).area_slug : null; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const openStoresInArea = userAreaSlug ? openStoresAll.filter((s) => (s as any).area_slug === userAreaSlug) : []; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const openNowStores = openStoresInArea.length > 0 ? openStoresInArea : openStoresAll;
+  // distance_km is only populated when the backend had real user coords to
+  // compute it from (nearby-stores; popularStores never gets one) — the
+  // backend itself already falls back to the Bhilai centroid rather than a
+  // faraway tester's real GPS (see _attach_distance_and_eta), so this never
+  // sorts by a meaningless ~1000km reading. Missing distance sorts last
+  // within its bucket, which for popularStores (no distance data at all)
+  // just preserves the backend's own popularity order as a stable tiebreak.
+  const sellersSorted = [...storesRail].sort((a, b) => {
+    const aOpen = (a as any).availability_rank === 1 ? 0 : 1; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const bOpen = (b as any).availability_rank === 1 ? 0 : 1; // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (aOpen !== bOpen) return aOpen - bOpen;
+    const aDist = (a as any).distance_km ?? Infinity; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const bDist = (b as any).distance_km ?? Infinity; // eslint-disable-line @typescript-eslint/no-explicit-any
+    return aDist - bDist;
+  });
 
   const ProductRailSkeleton = ({ testid }: { testid: string }) => (
     <div data-testid={testid} className="pt-4 px-4 sm:px-6">
@@ -989,13 +995,11 @@ export function HomeClient() {
 
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
 
-    meet_sellers: <MeetSellersSection key="meet-sellers" stores={storesRail} ready={storesReady} />,
+    meet_sellers: <MeetSellersSection key="meet-sellers" stores={sellersSorted} ready={storesReady} />,
 
     try_and_buy: <TryAndBuySection key="try-and-buy" image={tryAndBuyImage} />,
 
     shop_by_area: <ShopByAreaSection key="shop-by-area" areas={areas} />,
-
-    open_now: <OpenNowSection key="open-now" stores={openNowStores} />,
 
   };
 
