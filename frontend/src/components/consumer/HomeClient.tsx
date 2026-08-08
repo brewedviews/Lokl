@@ -92,7 +92,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "try_and_buy",    label: "Try & Buy",                 enabled: true,  rank: 50 },
   { id: "for_her",        label: "For Her",                   enabled: true,  rank: 60 },
   { id: "for_him",        label: "For Him",                   enabled: true,  rank: 62 },
-  { id: "meet_sellers",   label: "Meet your sellers",         enabled: true,  rank: 32 },
+  { id: "meet_sellers",   label: "Meet your sellers",         enabled: true,  rank: 33 },
   { id: "merchant_cta",   label: "Open a store",              enabled: true,  rank: 80 },
   { id: "trending",       label: "Trending now",              enabled: false, rank: 85 },
   { id: "premium_picks",  label: "Premium picks",             enabled: true,  rank: 90 },
