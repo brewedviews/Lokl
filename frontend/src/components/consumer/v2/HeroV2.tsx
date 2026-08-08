@@ -49,9 +49,9 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
 
   const img = hero?.image || FALLBACK_HERO_IMG;
   const mobileImg = hero?.mobile_image || img;
-  const t1 = hero?.title_line1 || "Delivered in 45 mins from";
-  const t2 = hero?.title_line2 || "stores next door.";
-  const sub = hero?.subtitle || "Hand-picked fashion from trusted stores in Bhilai.";
+  const t1 = hero?.title_line1 || "Bhilai's own neighbourhood";
+  const t2 = hero?.title_line2 || "shopping app.";
+  const sub = hero?.subtitle || "Shop from trusted local stores around you.";
   const eta = stats?.fastest_eta_min || 45;
   // "CLOSED" (outside operating hours) is a scheduled, forward-looking state —
   // don't lead a first-time visitor with a bold negative badge for it. AWAY
