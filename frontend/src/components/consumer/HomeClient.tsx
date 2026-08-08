@@ -280,33 +280,47 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
 // never a broken/empty scroll strip. All fallbacks are light (cream/tint),
 // consistent with the recent navy-restraint pass — no dark slabs.
 // ---------------------------------------------------------------------------
+// Same overlay-tile pattern as ShopByAreaSection above (aspect-[3/4],
+// rounded-2xl, whisper shadow, neutral dark scrim, bold white name +
+// small cream area subtitle) so the two rails read as one design family.
+// No overlapping avatar — the name on the image is enough. Store's own
+// tagline/story is intentionally left out to keep the card as clean as
+// an area tile: name + area is the priority.
 function SellerCard({ s }: { s: StoreCard }) {
   const banner = (s as any).banner || (Array.isArray((s as any).banners) && (s as any).banners[0]) || s.image || null; // eslint-disable-line @typescript-eslint/no-explicit-any
   const area = (s as any).area_label || (s as any).area || s.locality || "Bhilai"; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const quote = (s.tagline || (s as any).story || `A local shop in ${area}`) as string; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const initial = (s.name || "?").trim().charAt(0).toUpperCase();
   return (
     <Link key={s.id} href={`/store/${(s as any).slug || s.id}`} // eslint-disable-line @typescript-eslint/no-explicit-any
       onClick={() => { try { trackStoreClick(s.id, s.name, "meet_sellers"); } catch {} }}
       data-testid={`meet-sellers-card-${s.id}`}
-      className="flex-shrink-0 w-40 bg-white rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] hover:shadow-md transition active:scale-95">
-      <div className="relative h-24 bg-[#F4F1E9]">
-        {banner && (
-          <img src={cloudinaryOptimize(banner, "w_320,q_auto,f_auto")} alt={s.name} loading="lazy" className="w-full h-full object-cover" />
-        )}
-        <div className="absolute -bottom-4 left-3 w-9 h-9 rounded-full bg-white shadow-[0_2px_6px_rgba(10,31,92,0.15)] flex items-center justify-center overflow-hidden border-2 border-white">
-          {s.logo ? (
-            <img src={s.logo} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <span className="font-display font-bold text-[#0A1F5C] text-sm">{initial}</span>
-          )}
+      className="group flex-shrink-0 w-32 sm:w-36 relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
+      {banner ? (
+        <>
+          <img
+            src={cloudinaryOptimize(banner, "w_320,q_auto,f_auto")}
+            alt={s.name}
+            loading="lazy"
+            className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+          />
+          <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
+          <div className="absolute bottom-2.5 left-2.5 right-2.5">
+            <div className="font-display font-bold text-white text-[13px] sm:text-sm leading-tight line-clamp-1">{s.name}</div>
+            <div className="text-[10px] font-semibold text-[#F0E9DD]/90 mt-0.5 leading-tight">{area}</div>
+          </div>
+        </>
+      ) : (
+        // No banner set for this store — same light cream/tint fallback the
+        // area tiles use, not a dark slab.
+        <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-2 px-2 text-center">
+          <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
+            <Sparkles size={15} className="text-[#E68910]" />
+          </div>
+          <div>
+            <div className="font-display font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight line-clamp-1">{s.name}</div>
+            <div className="text-[10px] font-semibold text-[#0A1F5C]/55 mt-0.5 leading-tight">{area}</div>
+          </div>
         </div>
-      </div>
-      <div className="pt-6 px-3 pb-3">
-        <div className="font-bold text-[#0A1F5C] text-[12px] truncate">{s.name}</div>
-        <div className="text-[10px] text-[#94A3B8] mt-0.5">{area}</div>
-        <p className="text-[10px] text-[#595959] mt-1.5 leading-snug line-clamp-2">{quote}</p>
-      </div>
+      )}
     </Link>
   );
 }
@@ -316,18 +330,18 @@ function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boo
     <div className="pt-8" data-testid="home-meet_sellers">
       {/* Part A — static positioning band. No data dependency; always renders. */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-[#F4F1E9] rounded-3xl px-5 py-7 sm:px-10 sm:py-9 text-center">
-          <h2 className="font-display italic font-bold text-[#0A1F5C] text-xl sm:text-[28px] leading-snug max-w-md mx-auto">
+        <div className="bg-[#F4F1E9] rounded-3xl px-5 py-5 sm:px-8 sm:py-6 text-center">
+          <h2 className="font-display italic font-bold text-[#0A1F5C] text-lg sm:text-xl leading-snug max-w-md mx-auto">
             Behind every order is a real Bhilai shopkeeper.
           </h2>
-          <p className="text-[13px] sm:text-sm text-[#595959] mt-2.5 max-w-sm mx-auto leading-relaxed">
+          <p className="text-[12px] sm:text-[13px] text-[#595959] mt-1.5 max-w-sm mx-auto leading-relaxed">
             Not a warehouse. Not a faceless brand. Your neighbour&apos;s shop, delivered to your door.
           </p>
-          <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#E5E2DC] text-[11px] font-semibold text-[#0A1F5C]">
+          <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-[#E5E2DC] text-[11px] font-semibold text-[#0A1F5C]">
               <span className="w-1.5 h-1.5 rounded-full bg-[#E68910]" /> Real local shops
             </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-[#E5E2DC] text-[11px] font-semibold text-[#0A1F5C]">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-[#E5E2DC] text-[11px] font-semibold text-[#0A1F5C]">
               <span className="w-1.5 h-1.5 rounded-full bg-[#E68910]" /> Money stays in Bhilai
             </span>
           </div>
@@ -344,7 +358,7 @@ function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boo
         {!ready ? (
           <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="flex-shrink-0 w-40 h-[136px] rounded-2xl bg-[#E5E2DC] animate-pulse" />
+              <div key={i} className="flex-shrink-0 w-32 sm:w-36 aspect-[3/4] rounded-2xl bg-[#E5E2DC] animate-pulse" />
             ))}
           </div>
         ) : stores.length === 0 ? (
@@ -359,7 +373,10 @@ function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boo
         ) : (
           <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
             {stores.slice(0, 10).map((s) => <SellerCard key={s.id} s={s} />)}
-            <div className="flex-shrink-0 w-40 rounded-2xl border-2 border-dashed border-[#E5E2DC] bg-[#FDFBF7] flex flex-col items-center justify-center text-center px-3 py-4 gap-2" data-testid="meet-sellers-more-tile">
+            {/* Same aspect-[3/4] card footprint as the sellers themselves —
+                a short list should feel like the start of a rail, not an
+                undersized rail padded out with an oversized empty tile. */}
+            <div className="flex-shrink-0 w-32 sm:w-36 aspect-[3/4] rounded-2xl border-2 border-dashed border-[#E5E2DC] bg-[#FDFBF7] flex flex-col items-center justify-center text-center px-3 gap-2" data-testid="meet-sellers-more-tile">
               <div className="w-8 h-8 rounded-full bg-[#E68910]/15 flex items-center justify-center">
                 <Plus size={16} className="text-[#E68910]" />
               </div>
