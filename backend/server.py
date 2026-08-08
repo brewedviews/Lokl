@@ -2081,7 +2081,7 @@ DEFAULT_HERO = {
 async def _get_site_config() -> dict:
     doc = await db.site_config.find_one({"id": "homepage"}, {"_id": 0})
     if not doc:
-        doc = {"id": "homepage", "sections": DEFAULT_HOMEPAGE_SECTIONS, "hero": DEFAULT_HERO}
+        doc = {"id": "homepage", "sections": DEFAULT_HOMEPAGE_SECTIONS, "hero": DEFAULT_HERO, "try_and_buy_image": ""}
         await db.site_config.insert_one(doc)
     section_ids = {s["id"] for s in doc.get("sections", [])}
     added = [s for s in DEFAULT_HOMEPAGE_SECTIONS if s["id"] not in section_ids]
@@ -2091,6 +2091,12 @@ async def _get_site_config() -> dict:
     if "hero" not in doc:
         doc["hero"] = DEFAULT_HERO
         await db.site_config.update_one({"id": "homepage"}, {"$set": {"hero": doc["hero"]}})
+    # Try & Buy homepage strip photo — single admin-settable field, same
+    # $setOnInsert-style "backfill once, never overwrite an existing value"
+    # semantics as the category/area image CMS fields.
+    if "try_and_buy_image" not in doc:
+        doc["try_and_buy_image"] = ""
+        await db.site_config.update_one({"id": "homepage"}, {"$set": {"try_and_buy_image": ""}})
     # iter-27 (Item 7) — backfill new toggles on legacy hero docs so the admin
     # editor sees explicit `false` checkboxes and the consumer code never has
     # to guess between "missing" and "off".
@@ -2141,6 +2147,8 @@ async def admin_put_homepage_config(payload: dict, admin: dict = Depends(require
         cur = (await _get_site_config()).get("hero", DEFAULT_HERO)
         merged = {**cur, **{k: v for k, v in payload["hero"].items() if k in DEFAULT_HERO}}
         update["hero"] = merged
+    if "try_and_buy_image" in payload:
+        update["try_and_buy_image"] = str(payload.get("try_and_buy_image") or "")
     if not update:
         raise HTTPException(400, "Nothing to update")
     await db.site_config.update_one({"id": "homepage"}, {"$set": update}, upsert=True)

@@ -16,29 +16,31 @@
  */
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Eye, EyeOff, ChevronUp, ChevronDown, Save, Loader2, LayoutTemplate, Image as ImgIcon, Folder, Layers, Sparkles, MapPin, Tag } from "lucide-react";
+import { Eye, EyeOff, ChevronUp, ChevronDown, Save, Loader2, LayoutTemplate, Image as ImgIcon, Folder, Layers, Sparkles, MapPin, Tag, RotateCcw } from "lucide-react";
 import { adminApi } from "@/lib/api/admin";
 import { HeroEditor } from "@/components/admin/cms/HeroEditor";
 import { L1CategoriesEditor } from "@/components/admin/cms/L1CategoriesEditor";
 import { L2SubcategoriesEditor } from "@/components/admin/cms/L2SubcategoriesEditor";
 import { AreasEditor } from "@/components/admin/cms/AreasEditor";
 import { PriceBandsEditor } from "@/components/admin/cms/PriceBandsEditor";
+import { TryAndBuyEditor } from "@/components/admin/cms/TryAndBuyEditor";
 import { OffersEditor } from "@/components/admin/cms/OffersEditor";
 import { TopClicksWidget } from "@/components/admin/cms/TopClicksWidget";
 import type { HomepageConfig } from "@/types";
 
 interface Section { id: string; label: string; enabled: boolean; rank: number }
 
-type SubTab = "sections" | "hero" | "l1" | "l2" | "areas" | "price_bands" | "offers";
+type SubTab = "sections" | "hero" | "l1" | "l2" | "areas" | "price_bands" | "try_and_buy" | "offers";
 
 const SUB_TABS: { id: SubTab; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
-  { id: "sections",    label: "Sections",      icon: LayoutTemplate },
-  { id: "hero",        label: "Hero banner",   icon: ImgIcon },
-  { id: "l1",          label: "L1 Categories", icon: Folder },
-  { id: "l2",          label: "L2 Sub-cats",   icon: Layers },
-  { id: "areas",       label: "Areas",         icon: MapPin },
-  { id: "price_bands", label: "Price bands",   icon: Tag },
-  { id: "offers",      label: "Offers",        icon: Sparkles },
+  { id: "sections",     label: "Sections",      icon: LayoutTemplate },
+  { id: "hero",         label: "Hero banner",   icon: ImgIcon },
+  { id: "l1",           label: "L1 Categories", icon: Folder },
+  { id: "l2",           label: "L2 Sub-cats",   icon: Layers },
+  { id: "areas",        label: "Areas",         icon: MapPin },
+  { id: "price_bands",  label: "Price bands",   icon: Tag },
+  { id: "try_and_buy",  label: "Try & Buy",     icon: RotateCcw },
+  { id: "offers",       label: "Offers",        icon: Sparkles },
 ];
 
 export function CmsTab() {
@@ -71,6 +73,7 @@ export function CmsTab() {
         {tab === "l2"       && <L2SubcategoriesEditor />}
         {tab === "areas"       && <AreasEditor />}
         {tab === "price_bands" && <PriceBandsEditor />}
+        {tab === "try_and_buy" && <TryAndBuyEditor />}
         {tab === "offers"      && <OffersEditor />}
       </div>
 

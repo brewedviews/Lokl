@@ -29,7 +29,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Sparkles, Plus } from "lucide-react";
+import { Sparkles, Plus, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { HeroV2 } from "@/components/consumer/v2/HeroV2";
@@ -77,6 +77,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "merchant_cta",   label: "Open a store",              enabled: true,  rank: 90 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 100 },
   { id: "meet_sellers",   label: "Meet your sellers",         enabled: true,  rank: 102 },
+  { id: "try_and_buy",    label: "Try & Buy",                 enabled: true,  rank: 103 },
   { id: "shop_by_area",   label: "Shop by Area",              enabled: true,  rank: 105 },
   { id: "stores",         label: "Popular stores",            enabled: false, rank: 110 },
 ];
@@ -381,11 +382,56 @@ function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boo
   );
 }
 
+// ---------------------------------------------------------------------------
+// "Try & Buy" — Lokl's differentiated wedge (rider waits while you try, keep
+// what you love, return the rest on the spot). A compact strip matching the
+// merchant-CTA banner's proportions (rounded-2xl, whisper shadow, same
+// overall footprint) — NOT a tall feature section. Light treatment (white
+// card, navy text, orange accents), not a navy fill, per the restraint pass.
+// The photo is CMS-settable (site_config.try_and_buy_image); a neutral
+// cream fallback with a small orange icon renders when unset, same spirit
+// as the price/area tiles' empty states.
+// ---------------------------------------------------------------------------
+function TryAndBuySection({ image }: { image: string }) {
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-try_and_buy">
+      <Link href="/try-and-buy" className="block">
+        <div className="bg-white rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] flex items-stretch active:scale-[0.99] transition-transform">
+          <div className="relative w-24 sm:w-28 shrink-0 bg-[#F4F1E9]">
+            {image ? (
+              <img
+                src={cloudinaryOptimize(image, "w_240,q_auto,f_auto")}
+                alt="Try & Buy"
+                loading="lazy"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
+                  <RotateCcw size={16} className="text-[#E68910]" />
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center">
+            <p className="text-[10px] font-bold text-[#E68910] uppercase tracking-wide">Try &amp; Buy</p>
+            <p className="font-display font-bold text-[#0A1F5C] text-sm sm:text-base leading-tight mt-0.5">try before you pay.</p>
+            <p className="text-[10px] sm:text-[11px] text-[#595959] mt-1 leading-snug">
+              order it <span className="text-[#E68910] font-bold">·</span> rider waits while you try <span className="text-[#E68910] font-bold">·</span> keep what you love
+            </p>
+          </div>
+        </div>
+      </Link>
+    </div>
+  );
+}
+
 export function HomeClient() {
   const lat = useLocationStore((s) => s.lat);
   const lng = useLocationStore((s) => s.lng);
   const [stats, setStats] = useState<HomeStatsDoc | null>(null);
   const [hero, setHero] = useState<HeroConfigDoc | null>(null);
+  const [tryAndBuyImage, setTryAndBuyImage] = useState<string>("");
   const [sections, setSections] = useState<SectionDoc[]>(DEFAULT_SECTIONS);
   const [offers, setOffers] = useState<OfferDoc[]>([]);
   const [trending, setTrending] = useState<ProductCardType[]>([]);
@@ -426,8 +472,9 @@ export function HomeClient() {
   useEffect(() => {
     api.site.homeStats().then((r) => setStats(r as unknown as HomeStatsDoc)).catch(() => {});
     api.site.homepageConfig().then((cfg) => {
-      const c = cfg as unknown as { hero?: HeroConfigDoc; sections?: SectionDoc[] };
+      const c = cfg as unknown as { hero?: HeroConfigDoc; sections?: SectionDoc[]; try_and_buy_image?: string };
       if (c.hero) setHero(c.hero);
+      if (c.try_and_buy_image) setTryAndBuyImage(c.try_and_buy_image);
       if (Array.isArray(c.sections) && c.sections.length > 0) {
         // Merge: server config toggles enabled/disabled, but LOCAL rank always wins
         // so newly added DEFAULT_SECTIONS entries always appear in the right order.
@@ -886,6 +933,8 @@ export function HomeClient() {
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
 
     meet_sellers: <MeetSellersSection key="meet-sellers" stores={storesRail} ready={storesReady} />,
+
+    try_and_buy: <TryAndBuySection key="try-and-buy" image={tryAndBuyImage} />,
 
     shop_by_area: <ShopByAreaSection key="shop-by-area" areas={areas} />,
 

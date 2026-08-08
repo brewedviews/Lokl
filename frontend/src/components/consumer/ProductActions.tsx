@@ -4,7 +4,7 @@
 import { useState, useEffect } from "react";
 import { trackAddToCart, trackPickupStart, trackPickupComplete, trackProductView } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
-import { Heart, ShoppingBag, Share2, Bell, CheckCircle2, Store } from "lucide-react";
+import { Heart, ShoppingBag, Share2, Bell, CheckCircle2, Store, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
@@ -243,6 +243,18 @@ export function ProductActions({
 
         {/* ── 3. Pickup button + below-fold banners ── */}
         <div className="md:order-3">
+          {/* Try & Buy nudge — no per-store/product availability flag exists
+              yet, so it's always shown whenever ordering itself is (i.e. the
+              same gate as the Add to Bag / Buy Now buttons above). */}
+          {!isOffline && storeCanOrder && (
+            <div className="mt-3 px-4 md:px-0">
+              <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#FDF4E7] text-[11px] text-[#0A1F5C]" data-testid="try-and-buy-note">
+                <RotateCcw size={13} className="text-[#E68910] shrink-0" />
+                <span><span className="font-bold text-[#E68910]">Try &amp; Buy</span> · try it on at your door, pay only for what you keep.</span>
+              </div>
+            </div>
+          )}
+
           {!isOffline && (canPickup || reservation) && (
             <div className="mt-3 px-4 md:px-0">
               <button

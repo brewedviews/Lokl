@@ -6,7 +6,7 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import {
   Save, Package, MapPin, Plus, Trash2, Home as HomeIcon, Heart, Wallet,
-  TicketPercent, HelpCircle, Settings, ChevronRight, LogOut, Pencil,
+  TicketPercent, HelpCircle, Settings, ChevronRight, LogOut, Pencil, RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -190,6 +190,21 @@ export default function CustomerAccountPage() {
           {activeTile === "support" && <SupportPanel />}
           {activeTile === "profile" && <ProfilePanel form={form} setForm={setForm} onSave={saveProfile} busy={busy} />}
         </section>
+
+        <Link
+          href="/try-and-buy"
+          data-testid="how-try-and-buy-works"
+          className="mt-4 w-full flex items-center gap-3 bg-white border border-[#E5E2DC] hover:border-[#0A1F5C] rounded-2xl px-4 py-3.5 transition"
+        >
+          <div className="w-9 h-9 rounded-full bg-[#E68910]/10 flex items-center justify-center shrink-0">
+            <RotateCcw size={16} className="text-[#E68910]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-[#0A1F5C]">How Try &amp; Buy works</div>
+            <div className="text-[11px] text-[#64748B]">Try it on at your door, keep what you love</div>
+          </div>
+          <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
+        </Link>
 
         <button
           onClick={logout}

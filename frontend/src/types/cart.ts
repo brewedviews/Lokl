@@ -137,6 +137,9 @@ export interface HomepageConfig {
   id?: string;
   hero?: HeroConfig;
   sections?: HomepageSection[];
+  /** Photo for the homepage "Try & Buy" strip — admin-settable, empty
+   *  string when unset (renders a neutral fallback). */
+  try_and_buy_image?: string;
   // Forward-compat slots — admins may publish these later without a backend change.
   offers?: unknown[];
   text_overrides?: Record<string, string>;
