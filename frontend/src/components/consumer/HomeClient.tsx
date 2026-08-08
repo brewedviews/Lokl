@@ -84,21 +84,23 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 // render after {orderedSections} unconditionally (see JSX below), which
 // already puts it last, matching the target sequence's final position.
 const DEFAULT_SECTIONS: SectionDoc[] = [
-  { id: "category_pills", label: "Category pills",            enabled: true,  rank: 10 },
-  { id: "hero",           label: "Hero",                      enabled: true,  rank: 20 },
-  { id: "under_499",      label: "Under ₹499",                enabled: true,  rank: 30 },
-  { id: "just_in",        label: "Just In",                   enabled: false, rank: 35 },
-  { id: "best_deals",     label: "Best deals",                enabled: true,  rank: 40 },
-  { id: "try_and_buy",    label: "Try & Buy",                 enabled: true,  rank: 50 },
-  { id: "for_her",        label: "For Her",                   enabled: true,  rank: 60 },
-  { id: "for_him",        label: "For Him",                   enabled: true,  rank: 62 },
-  { id: "meet_sellers",   label: "Meet your sellers",         enabled: true,  rank: 33 },
-  { id: "merchant_cta",   label: "Open a store",              enabled: true,  rank: 80 },
-  { id: "trending",       label: "Trending now",              enabled: false, rank: 85 },
-  { id: "premium_picks",  label: "Premium picks",             enabled: true,  rank: 90 },
-  { id: "offers",         label: "Offers for you",            enabled: true,  rank: 95 },
-  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 100 },
-  { id: "shop_by_area",   label: "Shop by Area",              enabled: true,  rank: 105 },
+  { id: "category_pills", label: "Category pills",    enabled: true, rank: 10 },
+  { id: "hero",           label: "Hero",              enabled: true, rank: 20 },
+  { id: "under_499",      label: "Under ₹499",        enabled: true, rank: 30 },
+  { id: "meet_sellers",   label: "Meet your sellers", enabled: true, rank: 40 },
+  { id: "best_deals",     label: "Best deals",        enabled: true, rank: 50 },
+  { id: "try_and_buy",    label: "Try & Buy",         enabled: true, rank: 60 },
+  { id: "for_her",        label: "For Her",           enabled: true, rank: 70 },
+  { id: "for_him",        label: "For Him",           enabled: true, rank: 72 },
+  { id: "merchant_cta",   label: "Open a store",      enabled: true, rank: 80 },
+  { id: "premium_picks",  label: "Premium picks",     enabled: true, rank: 90 },
+  { id: "shop_by_area",   label: "Shop by Area",      enabled: true, rank: 100 },
+  { id: "offers",         label: "Offers for you",    enabled: true, rank: 110 },
+
+  // Optional / Future
+  { id: "just_in",        label: "Just In",                   enabled: false, rank: 120 },
+  { id: "trending",       label: "Trending now",              enabled: false, rank: 130 },
+  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 140 },
 ];
 
 /**
