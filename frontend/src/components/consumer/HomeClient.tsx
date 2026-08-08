@@ -328,24 +328,16 @@ function SellerCard({ s }: { s: StoreCard }) {
 function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boolean }) {
   return (
     <div className="pt-8" data-testid="home-meet_sellers">
-      {/* Part A — static positioning band. No data dependency; always renders. */}
+      {/* Part A — editorial statement, same voice/treatment as the hero
+          headline (bold display font, navy ink, orange accent word,
+          left-aligned, sits directly on the page). No box, no pills. */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-[#F4F1E9] rounded-3xl px-5 py-5 sm:px-8 sm:py-6 text-center">
-          <h2 className="font-display italic font-bold text-[#0A1F5C] text-lg sm:text-xl leading-snug max-w-md mx-auto">
-            Behind every order is a real Bhilai shopkeeper.
-          </h2>
-          <p className="text-[12px] sm:text-[13px] text-[#595959] mt-1.5 max-w-sm mx-auto leading-relaxed">
-            Not a warehouse. Not a faceless brand. Your neighbour&apos;s shop, delivered to your door.
-          </p>
-          <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-[#E5E2DC] text-[11px] font-semibold text-[#0A1F5C]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#E68910]" /> Real local shops
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-[#E5E2DC] text-[11px] font-semibold text-[#0A1F5C]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#E68910]" /> Money stays in Bhilai
-            </span>
-          </div>
-        </div>
+        <h2 className="font-display font-bold text-[#0A1F5C] text-[22px] sm:text-2xl leading-[1.15] tracking-tight max-w-md">
+          your neighbour&apos;s shop, not a faraway <span className="text-[#E68910]">warehouse.</span>
+        </h2>
+        <p className="text-[13px] text-[#595959] mt-1.5 max-w-sm leading-relaxed">
+          real shopkeepers. real bhilai. delivered in 45 mins.
+        </p>
       </div>
 
       {/* Part B — real-merchant rail. */}
