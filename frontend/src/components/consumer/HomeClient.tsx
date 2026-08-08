@@ -204,36 +204,48 @@ function GenderBentoSection({ id, title, tiles }: { id: string; title: string; t
   );
 }
 
-// "Shop by Area" — 3x2 rectangular bentos (all 6 areas always visible, no
-// horizontal scroll — fixed grid-cols-3 regardless of width, unlike the
-// gender bento's responsive column count, since this set is always exactly
-// 6). Bigger, image-forward cards: label + store-count pill sit BELOW the
-// image (not overlaid), matching an editorial "bestsellers" card rather
-// than the circular pill-tile look. The count pill ALWAYS renders,
-// including "0 stores" — a missing count isn't a reason to hide it, an
-// area with no stores yet is still real information ("expanding here").
+// "Shop by Area" — same overlay-card family as the price-bento tiles
+// (under_499 render map entry below): full-bleed image, bottom navy
+// gradient, name as the bold white hero + store-count as the small
+// cream/orange subtitle, no white block underneath. Fixed grid-cols-3
+// regardless of width (unlike the gender bento's responsive column
+// count) since this set is always exactly 6. The count subtitle ALWAYS
+// renders, including "0 stores" — a missing count isn't a reason to
+// hide it, an area with no stores yet is still real information
+// ("expanding here").
 function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
   if (areas.length === 0) return null;
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_area">
       <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">Shop by Area</h2>
 
-      <div className="grid grid-cols-3 gap-3 sm:gap-4">
+      <div className="grid grid-cols-3 gap-2">
         {areas.map((a) => (
           <Link key={a.slug} href={`/stores?area=${a.slug}`} data-testid={`shop-by-area-tile-${a.slug}`}
-            className="group flex flex-col gap-1.5 active:scale-[0.97] transition">
-            <div className="relative w-full aspect-[4/5] rounded-card overflow-hidden bg-transparent shadow-[var(--shadow-1)]">
-              {a.image ? (
-                <img src={cloudinaryOptimize(a.image, "w_400,q_auto,f_auto")} alt={a.name} loading="lazy" className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
-              ) : (
-                <div className="w-full h-full bg-surface-tint" data-testid={`shop-by-area-blank-${a.slug}`} />
-              )}
-            </div>
-            <div className="text-center">
-              <div className="text-[13px] font-semibold text-brand-primary leading-tight line-clamp-1">{a.name}</div>
-              <span className="inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-[10px] font-medium leading-none text-white mt-1" data-testid={`shop-by-area-count-${a.slug}`}>
+            className="group relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
+            {a.image ? (
+              <img
+                src={cloudinaryOptimize(a.image, "w_400,q_auto,f_auto")}
+                alt={a.name}
+                loading="lazy"
+                className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+              />
+            ) : (
+              // No CMS image set for this area — same styled navy gradient +
+              // orange accent mark as the price tiles' empty state, so it
+              // reads as intentional rather than a broken image.
+              <div className="absolute inset-0 bg-gradient-to-br from-[#0A1F5C] via-[#122a6e] to-[#081540] flex items-center justify-center pb-6" data-testid={`shop-by-area-blank-${a.slug}`}>
+                <div className="w-9 h-9 rounded-full bg-[#E68910]/20 flex items-center justify-center">
+                  <Sparkles size={15} className="text-[#E68910]" />
+                </div>
+              </div>
+            )}
+            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#0A1F5C]/95 via-[#0A1F5C]/35 to-transparent pointer-events-none" />
+            <div className="absolute bottom-2.5 left-2.5 right-2.5">
+              <div className="font-display font-bold text-white text-[13px] sm:text-sm leading-tight line-clamp-1">{a.name}</div>
+              <div className="text-[10px] font-semibold text-[#F5C99B] mt-0.5 leading-tight" data-testid={`shop-by-area-count-${a.slug}`}>
                 {a.store_count} {a.store_count === 1 ? "store" : "stores"}
-              </span>
+              </div>
             </div>
           </Link>
         ))}
