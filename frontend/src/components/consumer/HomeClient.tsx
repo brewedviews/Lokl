@@ -29,6 +29,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { HeroV2 } from "@/components/consumer/v2/HeroV2";
@@ -447,29 +448,41 @@ export function HomeClient() {
       <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}>
         <div className="grid grid-cols-3 gap-2">
           {[
-            { href: "/products?price=under-499", label: "Under ₹499", filter: "under_499" as const, bentoKey: "under_499" as const },
-            { href: "/products?price=499-1499", label: "₹499 - ₹1499", filter: "499_999" as const, bentoKey: "most_loved" as const },
-            { href: "/products?price=above-1499", label: "₹1499+", filter: "premium" as const, bentoKey: "premium" as const },
-          ].map(({ href, label, filter, bentoKey }) => {
+            // Gap-free, integer-price bands: <499, 499-1499, >=1500. The
+            // hero text below says "₹1,500+" (not "₹1,499+") specifically
+            // so it agrees with the >=1500 filter it links to — 1499 itself
+            // belongs to the middle band, so a "₹1,499+" label would have
+            // overlapped it.
+            { href: "/products?price=under-499", hero: "Under ₹499", sub: "Steals & deals", filter: "under_499" as const, bentoKey: "under_499" as const },
+            { href: "/products?price=499-1499", hero: "₹499–1,499", sub: "Most loved", filter: "499_999" as const, bentoKey: "most_loved" as const },
+            { href: "/products?price=above-1499", hero: "₹1,500+", sub: "Premium picks", filter: "premium" as const, bentoKey: "premium" as const },
+          ].map(({ href, hero, sub, filter, bentoKey }) => {
             const image = priceBento?.[bentoKey] ?? null;
             return (
               <Link key={href} href={href} onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
-                className="flex flex-col bg-white rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] hover:shadow-md transition-all active:scale-95">
-                <div className="relative aspect-[4/3] bg-[#0A1F5C]">
-                  {image && (
-                    <img
-                      src={cloudinaryOptimize(image, "w_300,q_auto,f_auto")}
-                      alt={label}
-                      loading="lazy"
-                      className="absolute inset-0 w-full h-full object-cover"
-                    />
-                  )}
-                </div>
-                <div className="px-2 py-2 text-center">
-                  <div className="text-[12px] font-bold text-[#0A1F5C] leading-tight line-clamp-1">{label}</div>
-                  <span className="inline-block mt-1 px-2.5 py-0.5 rounded-full bg-[#E68910] text-white text-[9px] font-bold">
-                    Shop now
-                  </span>
+                className="group relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
+                {image ? (
+                  <img
+                    src={cloudinaryOptimize(image, "w_400,q_auto,f_auto")}
+                    alt={hero}
+                    loading="lazy"
+                    className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+                  />
+                ) : (
+                  // No product in this band yet (sparse catalog) — a styled
+                  // navy gradient + a small orange accent mark reads as
+                  // "premium / coming soon" rather than a broken image.
+                  // Fills in automatically once inventory lands in range.
+                  <div className="absolute inset-0 bg-gradient-to-br from-[#0A1F5C] via-[#122a6e] to-[#081540] flex items-center justify-center pb-6">
+                    <div className="w-9 h-9 rounded-full bg-[#E68910]/20 flex items-center justify-center">
+                      <Sparkles size={15} className="text-[#E68910]" />
+                    </div>
+                  </div>
+                )}
+                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#0A1F5C]/95 via-[#0A1F5C]/35 to-transparent pointer-events-none" />
+                <div className="absolute bottom-2.5 left-2.5 right-2.5">
+                  <div className="font-display font-bold text-white text-[13px] sm:text-sm leading-tight">{hero}</div>
+                  <div className="text-[10px] font-semibold text-[#F5C99B] mt-0.5 leading-tight">{sub}</div>
                 </div>
               </Link>
             );
