@@ -205,13 +205,15 @@ function GenderBentoSection({ id, title, tiles }: { id: string; title: string; t
 }
 
 // "Shop by Area" — same overlay-card family as the price-bento tiles
-// (under_499 render map entry below): full-bleed image, bottom navy
-// gradient, name as the bold white hero + store-count as the small
-// cream/orange subtitle, no white block underneath. Fixed grid-cols-3
-// regardless of width (unlike the gender bento's responsive column
-// count) since this set is always exactly 6. The count subtitle ALWAYS
-// renders, including "0 stores" — a missing count isn't a reason to
-// hide it, an area with no stores yet is still real information
+// (under_499 render map entry below): full-bleed image, a NEUTRAL dark
+// scrim (not navy — just enough to keep white text legible, so each
+// neighbourhood photo keeps its own color instead of six tiles reading
+// as navy blocks), name as the bold white hero + store-count as the
+// small warm-off-white subtitle, no white block underneath. Fixed
+// grid-cols-3 regardless of width (unlike the gender bento's responsive
+// column count) since this set is always exactly 6. The count subtitle
+// ALWAYS renders, including "0 stores" — a missing count isn't a reason
+// to hide it, an area with no stores yet is still real information
 // ("expanding here").
 function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
   if (areas.length === 0) return null;
@@ -224,29 +226,38 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
           <Link key={a.slug} href={`/stores?area=${a.slug}`} data-testid={`shop-by-area-tile-${a.slug}`}
             className="group relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
             {a.image ? (
-              <img
-                src={cloudinaryOptimize(a.image, "w_400,q_auto,f_auto")}
-                alt={a.name}
-                loading="lazy"
-                className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
-              />
+              <>
+                <img
+                  src={cloudinaryOptimize(a.image, "w_400,q_auto,f_auto")}
+                  alt={a.name}
+                  loading="lazy"
+                  className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+                />
+                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
+                <div className="absolute bottom-2.5 left-2.5 right-2.5">
+                  <div className="font-display font-bold text-white text-[13px] sm:text-sm leading-tight line-clamp-1">{a.name}</div>
+                  <div className="text-[10px] font-semibold text-[#F0E9DD]/90 mt-0.5 leading-tight" data-testid={`shop-by-area-count-${a.slug}`}>
+                    {a.store_count} {a.store_count === 1 ? "store" : "stores"}
+                  </div>
+                </div>
+              </>
             ) : (
-              // No CMS image set for this area — same styled navy gradient +
-              // orange accent mark as the price tiles' empty state, so it
-              // reads as intentional rather than a broken image.
-              <div className="absolute inset-0 bg-gradient-to-br from-[#0A1F5C] via-[#122a6e] to-[#081540] flex items-center justify-center pb-6" data-testid={`shop-by-area-blank-${a.slug}`}>
-                <div className="w-9 h-9 rounded-full bg-[#E68910]/20 flex items-center justify-center">
+              // No CMS image set for this area — a LIGHT cream/tint fallback
+              // (not a dark navy slab): navy text, a small orange accent
+              // mark. An empty tile should read as quiet, not the heaviest
+              // element on the page.
+              <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-2 px-2 text-center" data-testid={`shop-by-area-blank-${a.slug}`}>
+                <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
                   <Sparkles size={15} className="text-[#E68910]" />
+                </div>
+                <div>
+                  <div className="font-display font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight line-clamp-1">{a.name}</div>
+                  <div className="text-[10px] font-semibold text-[#0A1F5C]/55 mt-0.5 leading-tight" data-testid={`shop-by-area-count-${a.slug}`}>
+                    {a.store_count} {a.store_count === 1 ? "store" : "stores"}
+                  </div>
                 </div>
               </div>
             )}
-            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#0A1F5C]/95 via-[#0A1F5C]/35 to-transparent pointer-events-none" />
-            <div className="absolute bottom-2.5 left-2.5 right-2.5">
-              <div className="font-display font-bold text-white text-[13px] sm:text-sm leading-tight line-clamp-1">{a.name}</div>
-              <div className="text-[10px] font-semibold text-[#F5C99B] mt-0.5 leading-tight" data-testid={`shop-by-area-count-${a.slug}`}>
-                {a.store_count} {a.store_count === 1 ? "store" : "stores"}
-              </div>
-            </div>
           </Link>
         ))}
       </div>
@@ -474,28 +485,38 @@ export function HomeClient() {
               <Link key={href} href={href} onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
                 className="group relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
                 {image ? (
-                  <img
-                    src={cloudinaryOptimize(image, "w_400,q_auto,f_auto")}
-                    alt={hero}
-                    loading="lazy"
-                    className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
-                  />
+                  <>
+                    <img
+                      src={cloudinaryOptimize(image, "w_400,q_auto,f_auto")}
+                      alt={hero}
+                      loading="lazy"
+                      className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+                    />
+                    {/* Neutral dark scrim, not navy — just enough to keep the
+                        white text legible so the product photo's own color
+                        shows through instead of everything reading as navy. */}
+                    <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
+                    <div className="absolute bottom-2.5 left-2.5 right-2.5">
+                      <div className="font-display font-bold text-white text-[13px] sm:text-sm leading-tight">{hero}</div>
+                      <div className="text-[10px] font-semibold text-[#F0E9DD]/90 mt-0.5 leading-tight">{sub}</div>
+                    </div>
+                  </>
                 ) : (
-                  // No product in this band yet (sparse catalog) — a styled
-                  // navy gradient + a small orange accent mark reads as
-                  // "premium / coming soon" rather than a broken image.
+                  // No product in this band yet (sparse catalog) — a LIGHT
+                  // cream/tint fallback (not a dark navy slab): navy text, a
+                  // small orange accent mark. An empty tile should read as
+                  // quiet, not the heaviest, darkest element on the page.
                   // Fills in automatically once inventory lands in range.
-                  <div className="absolute inset-0 bg-gradient-to-br from-[#0A1F5C] via-[#122a6e] to-[#081540] flex items-center justify-center pb-6">
-                    <div className="w-9 h-9 rounded-full bg-[#E68910]/20 flex items-center justify-center">
+                  <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-2 px-2 text-center">
+                    <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
                       <Sparkles size={15} className="text-[#E68910]" />
+                    </div>
+                    <div>
+                      <div className="font-display font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight">{hero}</div>
+                      <div className="text-[10px] font-semibold text-[#0A1F5C]/55 mt-0.5 leading-tight">{sub}</div>
                     </div>
                   </div>
                 )}
-                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#0A1F5C]/95 via-[#0A1F5C]/35 to-transparent pointer-events-none" />
-                <div className="absolute bottom-2.5 left-2.5 right-2.5">
-                  <div className="font-display font-bold text-white text-[13px] sm:text-sm leading-tight">{hero}</div>
-                  <div className="text-[10px] font-semibold text-[#F5C99B] mt-0.5 leading-tight">{sub}</div>
-                </div>
               </Link>
             );
           })}
