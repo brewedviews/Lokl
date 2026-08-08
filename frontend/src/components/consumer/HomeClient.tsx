@@ -63,24 +63,35 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 // customer_love is also paused (matches the live call already made on this
 // section). trending/stores stay disabled as before, ranks pushed clear of
 // the reorder just so nothing here shares a rank.
+// Reordered per the approved homepage sequence: category pills -> hero ->
+// price bentos -> best deals -> try & buy -> For Her/For Him (consecutive)
+// -> meet your sellers -> merchant CTA -> premium picks -> offers -> shop
+// by area -> open now. Disabled sections (just_in, trending, customer_love,
+// stores) keep their enabled:false and are left untouched — their ranks
+// only got nudged where they'd otherwise collide with a newly-assigned
+// enabled rank (disabled sections are filtered out before sort, so a
+// collision is never a rendering bug, just untidy data — avoided anyway).
+// TrustStickers isn't part of this ranked list at all — it's hardcoded to
+// render after {orderedSections} unconditionally (see JSX below), which
+// already puts it last, matching the target sequence's final position.
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills", label: "Category pills",            enabled: true,  rank: 10 },
   { id: "hero",           label: "Hero",                      enabled: true,  rank: 20 },
   { id: "under_499",      label: "Under ₹499",                enabled: true,  rank: 30 },
   { id: "just_in",        label: "Just In",                   enabled: false, rank: 35 },
   { id: "best_deals",     label: "Best deals",                enabled: true,  rank: 40 },
-  { id: "for_her",        label: "For Her",                   enabled: true,  rank: 50 },
-  { id: "for_him",        label: "For Him",                   enabled: true,  rank: 60 },
-  { id: "offers",         label: "Offers for you",            enabled: true,  rank: 70 },
-  { id: "premium_picks",  label: "Premium picks",             enabled: true,  rank: 80 },
+  { id: "try_and_buy",    label: "Try & Buy",                 enabled: true,  rank: 50 },
+  { id: "for_her",        label: "For Her",                   enabled: true,  rank: 60 },
+  { id: "for_him",        label: "For Him",                   enabled: true,  rank: 62 },
+  { id: "meet_sellers",   label: "Meet your sellers",         enabled: true,  rank: 70 },
+  { id: "merchant_cta",   label: "Open a store",              enabled: true,  rank: 80 },
   { id: "trending",       label: "Trending now",              enabled: false, rank: 85 },
-  { id: "merchant_cta",   label: "Open a store",              enabled: true,  rank: 90 },
+  { id: "premium_picks",  label: "Premium picks",             enabled: true,  rank: 90 },
+  { id: "offers",         label: "Offers for you",            enabled: true,  rank: 95 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 100 },
-  { id: "meet_sellers",   label: "Meet your sellers",         enabled: true,  rank: 102 },
-  { id: "try_and_buy",    label: "Try & Buy",                 enabled: true,  rank: 103 },
   { id: "shop_by_area",   label: "Shop by Area",              enabled: true,  rank: 105 },
-  { id: "open_now",       label: "Open now near you",         enabled: true,  rank: 106 },
   { id: "stores",         label: "Popular stores",            enabled: false, rank: 110 },
+  { id: "open_now",       label: "Open now near you",         enabled: true,  rank: 115 },
 ];
 
 /**
