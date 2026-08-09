@@ -3,14 +3,16 @@
 /**
  * ConsumerHeader — sticky glass header.
  *
- * Feb-26 refinement (iter-24):
- *   • Mobile (<lg): SINGLE row — Logo · LocationChip (flex-1) · Cart.
- *     The permanent search bar that used to sit in row-2 is GONE; mobile
- *     search now lives behind the central pill in the bottom nav, which
- *     opens the slide-up SearchOverlay (Zepto/Blinkit pattern).
- *   • Desktop (≥lg): single row — Logo · LocationChip · big Search · Stores
- *     · For Merchants · Profile · Cart. The Search input claims as much of
- *     the row as possible so the header doesn't have wasted whitespace.
+ * Mobile (<lg): TWO rows, both inside the same sticky header element so
+ *   they scroll together — Logo · LocationChip (flex-1) · Cart on row 1,
+ *   then a full-width pinned search bar on row 2 (replaces the old bare
+ *   search icon). Tapping it opens the slide-up SearchOverlay (Zepto/
+ *   Blinkit pattern) — same overlay the bottom-nav search pill opens, so
+ *   there's one search experience, just two entry points. See
+ *   MobileSearchBar below for the cycling placeholder.
+ * Desktop (≥lg): single row — Logo · LocationChip · big Search · Stores
+ *   · For Merchants · Profile · Cart. The Search input claims as much of
+ *   the row as possible so the header doesn't have wasted whitespace.
  *
  * LocationChip handles its own auto-detect on mount and its own popover —
  * see the LocationChip component below.
@@ -155,14 +157,6 @@ export function ConsumerHeader() {
         >
           <User size={16} />
         </Link>
-        <button
-          type="button"
-          onClick={showSearch}
-          className="lg:hidden w-9 h-9 flex items-center justify-center rounded-full hover:bg-[#E5E2DC] transition"
-          aria-label="Search"
-        >
-          <Search size={20} className="text-[#0A1F5C]" />
-        </button>
         <Link
           href="/cart"
           data-testid="nav-cart"
@@ -173,11 +167,62 @@ export function ConsumerHeader() {
           {mounted && cartCount > 0 && <span className="text-xs font-semibold" data-testid="cart-badge">{cartCount}</span>}
         </Link>
       </div>
+
+      {/* Mobile pinned search bar — row 2, still inside the sticky header
+          so it scrolls together with row 1. Replaces the old bare search
+          icon; tapping it opens the same SearchOverlay the bottom-nav
+          search pill uses. */}
+      <div className="lg:hidden max-w-7xl mx-auto px-4 pb-2.5">
+        <MobileSearchBar onOpen={showSearch} />
+      </div>
     </header>
   );
 }
 
 // ─── Subcomponents ─────────────────────────────────────────────────
+
+// Mobile pinned search bar — looks like a text input (rounded, on-brand,
+// whisper shadow, search glyph) but is really a button: tapping it opens
+// the SearchOverlay, which owns the real input + type-ahead + recent/
+// trending searches. The placeholder cycles through category hints every
+// couple seconds (a fade, not a hard cut) purely as an idle-state nudge —
+// nothing here is user input, so there's no state to preserve across ticks.
+const SEARCH_HINTS = ["try: jeans", "try: kurtas", "try: sarees", "try: sneakers", "try: ethnic wear"];
+
+function MobileSearchBar({ onOpen }: { onOpen: () => void }) {
+  const [hintIndex, setHintIndex] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    let fadeTimer: ReturnType<typeof setTimeout> | undefined;
+    const tick = setInterval(() => {
+      setVisible(false);
+      fadeTimer = setTimeout(() => {
+        setHintIndex((i) => (i + 1) % SEARCH_HINTS.length);
+        setVisible(true);
+      }, 180);
+    }, 2200);
+    return () => { clearInterval(tick); if (fadeTimer) clearTimeout(fadeTimer); };
+  }, []);
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      data-testid="mobile-search-bar"
+      aria-label="Search"
+      className="w-full flex items-center gap-2.5 px-4 py-2.5 bg-white rounded-full border border-card-border shadow-[0_2px_8px_rgba(10,31,92,0.06)] text-left active:scale-[0.99] transition"
+    >
+      <Search size={17} className="text-brand-accent shrink-0" />
+      <span
+        data-testid="mobile-search-hint"
+        className={`flex-1 min-w-0 truncate text-sm text-text-secondary transition-opacity duration-200 ${visible ? "opacity-100" : "opacity-0"}`}
+      >
+        {SEARCH_HINTS[hintIndex]}
+      </span>
+    </button>
+  );
+}
 
 function SearchInput({
   q, onChange, onSubmit, onFocus,

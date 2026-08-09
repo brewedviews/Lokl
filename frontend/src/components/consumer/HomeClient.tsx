@@ -27,7 +27,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Sparkles, Plus, RotateCcw } from "lucide-react";
+import { Sparkles, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { HeroV2 } from "@/components/consumer/v2/HeroV2";
@@ -287,18 +287,20 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// "Meet your sellers" — the community/emotional pillar. Two parts:
+// "Shops near you" (rail heading — section id/title still says "meet
+// sellers" in code/CMS, only the on-page copy changed) — the community/
+// emotional pillar. Two parts:
 //   A. A static cream positioning band (always renders — claims the local-
 //      first story even with zero merchants onboarded).
 //   B. A real-merchant rail sourced from nearby/popularStores — see
 //      storesEnabled in HomeClient, which gates that fetch on this
 //      section's own enabled flag (the standalone "stores" section that
 //      used to share this fetch has since been removed as redundant).
-// Sparse-catalog handling: whatever real stores exist render first, then a
-// dashed "more shops joining" tile so 1-2 real stores reads as early
-// momentum, not an empty rail. Zero stores → a single inviting banner,
-// never a broken/empty scroll strip. All fallbacks are light (cream/tint),
-// consistent with the recent navy-restraint pass — no dark slabs.
+// Sparse-catalog handling: whatever real stores exist render, in full —
+// no trailing filler tile padding out a short rail. Zero stores → a single
+// inviting banner, never a broken/empty scroll strip. All fallbacks are
+// light (cream/tint), consistent with the recent navy-restraint pass — no
+// dark slabs.
 // ---------------------------------------------------------------------------
 // Same overlay-tile pattern as ShopByAreaSection above (aspect-[3/4],
 // rounded-2xl, whisper shadow, neutral dark scrim, bold white name +
@@ -386,7 +388,7 @@ function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boo
           bucket nearest-first. */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
         <div className="flex items-end justify-between gap-3 mb-3">
-          <h3 className="text-lg sm:text-xl font-display font-bold text-[#0A1F5C] leading-tight">Meet your sellers</h3>
+          <h3 className="text-lg sm:text-xl font-display font-bold text-[#0A1F5C] leading-tight">Shops near you</h3>
           <a href="/stores" className="text-xs font-bold text-[#F59E0B] shrink-0 hover:underline">See all →</a>
         </div>
 
@@ -412,15 +414,6 @@ function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boo
               const closedLabel = isOpen ? undefined : ((s as any).next_open_label || "Closed"); // eslint-disable-line @typescript-eslint/no-explicit-any
               return <SellerCard key={s.id} s={s} source="meet_sellers" openNow={isOpen} closedLabel={closedLabel} />;
             })}
-            {/* Same aspect-[3/4] card footprint as the sellers themselves —
-                a short list should feel like the start of a rail, not an
-                undersized rail padded out with an oversized empty tile. */}
-            <div className="flex-shrink-0 w-32 sm:w-36 aspect-[3/4] rounded-2xl border-2 border-dashed border-[#E5E2DC] bg-[#FDFBF7] flex flex-col items-center justify-center text-center px-3 gap-2" data-testid="meet-sellers-more-tile">
-              <div className="w-8 h-8 rounded-full bg-[#E68910]/15 flex items-center justify-center">
-                <Plus size={16} className="text-[#E68910]" />
-              </div>
-              <p className="text-[11px] font-semibold text-[#0A1F5C] leading-snug">More shops joining your neighbourhood</p>
-            </div>
           </div>
         )}
       </div>
