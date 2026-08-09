@@ -161,7 +161,7 @@ function CategoriesInner() {
         )}
 
         {/* RIGHT — products */}
-        <div className="flex-1 p-2 pb-24">
+        <div className="flex-1 p-2">
           <div className="flex items-center gap-1 mb-2 px-1">
             <span className="text-[12px] font-semibold text-[#0A1F5C]">
               {activeL1Cat?.name}{activeL2 ? ` › ${l2Cats.find(c => c.slug === activeL2)?.name}` : ""}

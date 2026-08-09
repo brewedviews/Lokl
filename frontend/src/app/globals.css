@@ -103,7 +103,12 @@
   .text-brand        { color: var(--color-brand-primary); }
   .bg-brand-bg       { background-color: var(--color-brand-bg); }
   .border-card       { border-color: var(--color-card-border); }
-  .bottom-nav-safe   { padding-bottom: var(--spacing-bottom-nav); }
+  /* 6rem clears StickyBottomNav's own content height; the extra
+     env(safe-area-inset-bottom) clears the iPhone home-indicator strip the
+     nav's own bottom padding already reserves for itself — without this,
+     the LAST bit of page content (below the nav's true bottom edge, not
+     just below its content) can still sit flush with the home indicator. */
+  .bottom-nav-safe   { padding-bottom: calc(var(--spacing-bottom-nav) + env(safe-area-inset-bottom)); }
 
   /* Legacy animation helpers used by v2 components — kept verbatim so the
      ported components don't need rework. */

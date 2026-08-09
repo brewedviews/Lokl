@@ -326,7 +326,7 @@ export default function CheckoutPage() {
   const uniqueStoreNames = Array.from(new Set(items.map((it) => it.store_name).filter(Boolean)));
 
   return (
-    <div className="flex-1 flex flex-col bg-[#FDFBF7] bottom-nav-safe">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 pt-4 pb-8 grid grid-cols-1 md:grid-cols-3 gap-5 min-w-0">
         <div className="md:col-span-2 space-y-4 min-w-0">
           {unserviceable && (

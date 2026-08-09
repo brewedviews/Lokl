@@ -9,6 +9,13 @@
  * Router; on a hard refresh `isAuthenticated` starts `false` for a tick.
  * Showing the login screen for ~16 ms feels like a flicker, so we render
  * a spinner until the persist callback fires.
+ *
+ * NOTE — `/account` is the one consumer-facing page outside the `(consumer)`
+ * route group (see app/(consumer)/layout.tsx's comment for the systemic
+ * bottom-nav-clearance fix); this layout renders its own ConsumerHeader +
+ * StickyBottomNav rather than inheriting them, so it needs its own
+ * `bottom-nav-safe` on `{children}` too — the page itself must NOT add its
+ * own copy (would double the padding).
  */
 import { useEffect, useState } from "react";
 import { Toaster } from "sonner";
@@ -37,9 +44,9 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
       <Toaster position="top-center" richColors />
       <ConsumerHeader />
       {isAuthed ? (
-        children
+        <div className="bottom-nav-safe">{children}</div>
       ) : (
-        <main className="min-h-[60vh] flex justify-center px-4 sm:px-8 pt-10 pb-16">
+        <main className="min-h-[60vh] flex justify-center px-4 sm:px-8 pt-10 pb-16 bottom-nav-safe">
           <div className="w-full max-w-md">
             <CustomerOtpLogin
               title="Sign in"

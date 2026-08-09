@@ -47,7 +47,7 @@ export default async function ProductDetailPage(
     : ([product.image].filter(Boolean) as string[]);
 
   return (
-    <div className="flex-1 flex flex-col bg-white pb-24 md:pb-10">
+    <div className="flex-1 flex flex-col bg-white">
       <div className="flex-1 w-full max-w-[1200px] mx-auto">
 
         {/*

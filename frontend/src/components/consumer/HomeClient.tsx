@@ -971,7 +971,7 @@ export function HomeClient() {
     .filter(Boolean);
 
   return (
-    <div className="flex-1 flex flex-col bg-[#FDFBF7] bottom-nav-safe">
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <main className="flex-1">
         {orderedSections}
         <TrustStickers />

@@ -8,9 +8,19 @@ import { ActiveOrderPill } from "@/components/consumer/ActiveOrderPill";
 /**
  * Consumer route-group layout. Wraps every public-facing page with the
  * sticky header (sourced from Zustand stores) + mobile bottom nav, plus the
- * global Sonner toaster. The bottom nav clearance (`pb-24` equivalent) is
- * applied at the page level via the `bottom-nav-safe` utility so individual
- * pages can opt out for full-bleed scenarios.
+ * global Sonner toaster.
+ *
+ * Bottom-nav clearance is applied ONCE here, on the `{children}` wrapper,
+ * via the `bottom-nav-safe` utility (padding-bottom: 6rem + the iPhone
+ * safe-area inset — see globals.css) — every page under this layout gets it
+ * automatically, including any future one. This used to be a per-page
+ * opt-in and pages routinely forgot it (account, all seven policy pages,
+ * search, stores, cart, order detail, category pages, ...) — a page
+ * literally cannot ship without this padding now, since it's not that
+ * page's code that's responsible for it. Do NOT re-add `bottom-nav-safe`
+ * (or an equivalent manual `pb-24`/`pb-*` "just in case") to an individual
+ * page's own root — it stacks with this wrapper's padding and produces a
+ * double gap at the bottom instead of fixing anything.
  *
  * Iter-45 — `LocationBanner` mounts directly under the header; it's a no-op
  * for shoppers in the Bhilai footprint and surfaces a soft warning otherwise.
@@ -32,7 +42,7 @@ export default function ConsumerLayout({ children }: { children: React.ReactNode
       <Toaster position="top-center" richColors />
       <ConsumerHeader />
       <LocationBanner />
-      <div className="flex-1 flex flex-col">{children}</div>
+      <div className="flex-1 flex flex-col bottom-nav-safe">{children}</div>
       <ActiveOrderPill />
       <StickyBottomNav />
       <SearchOverlayHost />
