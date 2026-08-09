@@ -3,19 +3,17 @@
 /**
  * Home page client tree.
  *
- * Section order (desktop & mobile):
- *   1. Category pills
- *   2. Hero
- *   3. Just In (JustInSection — self-fetches newest arrivals + store chips)
- *   4. Popular stores
- *   5. Best deals (from home-products)
- *   6. Price bentos (under_499)
- *   7. Offers for you
- *   8. Open a store (merchant CTA)
- *   9. Loved by Bhilai shoppers
+ * Section order + enabled/disabled state is CMS-driven — see
+ * DEFAULT_SECTIONS below (the seed/fallback) and the homepageConfig fetch
+ * effect (the DB-is-authoritative merge). It is NOT a fixed list — an
+ * admin can reorder or toggle any section from Homepage CMS -> Sections
+ * without a code change, so don't rely on a hardcoded sequence in this
+ * comment going stale again; read DEFAULT_SECTIONS for the current
+ * default/fallback order.
  *
- * Trending now is disabled pre-launch — with no order history yet it shows
- * duplicate/fake data. Code kept in place, just `enabled: false`.
+ * Trending now, Just In and Loved by Bhilai shoppers ship disabled by
+ * default — code stays in place so re-enabling any of them from the CMS
+ * is a toggle, not a code change.
  *
  * API calls on mount — critical (immediate):
  *   • /api/feed/home-products  — trending + best deals
@@ -55,34 +53,27 @@ interface SectionDoc { id: string; label: string; enabled: boolean; rank: number
 interface HomeProductsRail { store_id: string; store_name: string; store_slug: string; store_banner?: string; store_tagline?: string; products: ProductCardType[] }
 interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCardType[]; best_deals: ProductCardType[]; premium_picks: ProductCardType[] }
 
-// Rendered order (enabled sections only): category_pills → hero →
-// under_499 → best_deals → for_her → for_him → offers → premium_picks →
-// merchant_cta. just_in is PAUSED (enabled:false) — code and rank stay in
-// place so re-enabling is a one-flag revert; its rank keeps it slotted
-// right before best_deals, its old position, for when that happens.
-// customer_love is also paused (matches the live call already made on this
-// section). trending stays disabled as before, ranks pushed clear of the
-// reorder just so nothing here shares a rank.
-// Approved homepage sequence: category pills -> hero -> price bentos ->
-// best deals -> try & buy -> For Her/For Him (consecutive) -> meet your
-// sellers -> merchant CTA -> premium picks -> offers -> shop by area.
-// Disabled sections (just_in, trending, customer_love) keep their
-// enabled:false and are left untouched — their ranks only got nudged
-// where they'd otherwise collide with a newly-assigned enabled rank
-// (disabled sections are filtered out before sort, so a collision is
-// never a rendering bug, just untidy data — avoided anyway).
+// SEED/FALLBACK ONLY — this array's order and enabled state are what a
+// brand-new site_config doc gets seeded with, and what the homepage falls
+// back to if the CMS config is missing/malformed. Once a DB config exists,
+// it is AUTHORITATIVE for order + enabled (see the homepageConfig fetch
+// effect in HomeClient below) — an admin reorders/toggles sections from
+// Homepage CMS -> Sections, not by editing this file. Keep this array in
+// sync with the backend's DEFAULT_HOMEPAGE_SECTIONS (server.py) so a
+// fresh install and the CMS's own seed agree.
+//
 // "open_now" (formerly its own "Open now near you" rail) has been folded
-// into meet_sellers — the two showed the same store data with
-// overlapping intent, so meet_sellers' rail is now open-stores-first,
-// nearest-first, then closed stores — see sellersSorted in HomeClient
-// and MeetSellersSection above. There is no longer a separate id for it.
+// into meet_sellers — the two showed the same store data with overlapping
+// intent, so meet_sellers' rail is now open-stores-first, nearest-first,
+// then closed stores — see sellersSorted in HomeClient and
+// MeetSellersSection above. There is no longer a separate id for it.
 // The standalone "stores" section (disabled "Popular stores" rail) has
-// been deleted entirely — same storesRail data, same /stores
-// destination as meet_sellers, just an older visual style; dead weight
-// once meet_sellers covers the same ground.
+// been deleted entirely — same storesRail data, same /stores destination
+// as meet_sellers, just an older visual style; dead weight once
+// meet_sellers covers the same ground.
 // TrustStickers isn't part of this ranked list at all — it's hardcoded to
 // render after {orderedSections} unconditionally (see JSX below), which
-// already puts it last, matching the target sequence's final position.
+// always puts it last regardless of CMS order.
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills", label: "Category pills",    enabled: true, rank: 10 },
   { id: "hero",           label: "Hero",              enabled: true, rank: 20 },
