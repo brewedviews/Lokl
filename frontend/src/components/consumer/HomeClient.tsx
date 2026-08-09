@@ -183,15 +183,15 @@ function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[])
 }
 
 // 4×2 shoppable grid (all 8 tiles always visible, no horizontal scroll) —
-// unified to the SAME boxless overlay-card family as ShopByAreaSection /
-// the price-bento tiles / SellerCard: full-bleed image, aspect-[3/4],
-// rounded-2xl, whisper shadow, neutral dark scrim (not navy), name as the
-// bold white hero. The "from ₹X" price chip is the secondary shopping
-// signal, rendered small as an orange pill under the name — same
-// bg-brand-accent pill used elsewhere on the homepage, just moved onto the
-// scrim instead of sitting below the tile. No separate label/price block
-// underneath the image anymore; everything lives on the overlay so this
-// row reads as the same tile system as area/price, not a distinct pattern.
+// a LIGHT NAVIGATION card, not the dark promotional overlay used by the
+// price bentos: the photo stays clean (no gradient scrim), the "from ₹X"
+// price pill sits overlaid bottom-left directly ON the image (its own
+// solid orange fill + shadow so it stays legible over a light or busy
+// photo), and the category name sits below the image on the page's cream
+// background in bold navy. This is what distinguishes NAVIGATION tiles
+// (For Her/Him, Shop by Area) from PROMOTIONAL tiles (the price bentos,
+// which keep the dark-gradient overlay + white-on-image text) — light card
+// = "browse a category", dark overlay = "here's a deal".
 function GenderBentoSection({ id, title, tiles }: { id: string; title: string; tiles: ResolvedGenderTile[] }) {
   if (tiles.length === 0) return null;
   return (
@@ -201,43 +201,32 @@ function GenderBentoSection({ id, title, tiles }: { id: string; title: string; t
       <div className="grid grid-cols-3 min-[360px]:grid-cols-4 gap-x-3 gap-y-4 sm:gap-x-4">
         {tiles.map((t) => (
           <Link key={t.key} href={t.href} data-testid={`${id}-tile-${t.key}`}
-            className="group relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
-            {t.image ? (
-              <>
+            className="group flex flex-col gap-1.5 active:scale-95 transition">
+            <div className="relative aspect-[3/4] rounded-card overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] bg-surface-tint">
+              {t.image ? (
                 <img
                   src={cloudinaryOptimize(t.image, "w_300,q_auto,f_auto")}
                   alt={t.label}
                   loading="lazy"
                   className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
                 />
-                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
-                <div className="absolute bottom-2.5 left-2.5 right-2.5">
-                  <div className="font-display font-bold text-white text-[13px] sm:text-sm leading-tight line-clamp-1">{t.label}</div>
-                  {t.minPrice != null && (
-                    <span className="inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-[9px] font-bold leading-none text-white mt-1" data-testid={`${id}-price-${t.key}`}>
-                      {formatFromPrice(t.minPrice)}
-                    </span>
-                  )}
+              ) : (
+                // No CMS/category image yet — a quiet cream placeholder, own
+                // orange accent mark, no label duplicated here (the name
+                // already lives below the image for every tile).
+                <div className="absolute inset-0 flex items-center justify-center" data-testid={`${id}-blank-${t.key}`}>
+                  <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center">
+                    <Sparkles size={15} className="text-brand-accent" />
+                  </div>
                 </div>
-              </>
-            ) : (
-              // No CMS/category image yet — the same light cream/tint
-              // fallback as area/price tiles (navy text, small orange
-              // accent mark), not a dark navy slab.
-              <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-2 px-2 text-center" data-testid={`${id}-blank-${t.key}`}>
-                <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
-                  <Sparkles size={15} className="text-[#E68910]" />
-                </div>
-                <div>
-                  <div className="font-display font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight line-clamp-1">{t.label}</div>
-                  {t.minPrice != null && (
-                    <span className="inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-[9px] font-bold leading-none text-white mt-1" data-testid={`${id}-price-${t.key}`}>
-                      {formatFromPrice(t.minPrice)}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
+              )}
+              {t.minPrice != null && (
+                <span className="absolute bottom-2 left-2 inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-[0_1px_4px_rgba(0,0,0,0.3)]" data-testid={`${id}-price-${t.key}`}>
+                  {formatFromPrice(t.minPrice)}
+                </span>
+              )}
+            </div>
+            <span className="text-[12.5px] font-display font-bold text-brand-primary text-center leading-tight line-clamp-1">{t.label}</span>
           </Link>
         ))}
       </div>
@@ -245,17 +234,16 @@ function GenderBentoSection({ id, title, tiles }: { id: string; title: string; t
   );
 }
 
-// "Shop by Area" — same overlay-card family as the price-bento tiles
-// (under_499 render map entry below): full-bleed image, a NEUTRAL dark
-// scrim (not navy — just enough to keep white text legible, so each
-// neighbourhood photo keeps its own color instead of six tiles reading
-// as navy blocks), name as the bold white hero + store-count as the
-// small warm-off-white subtitle, no white block underneath. Fixed
-// grid-cols-3 regardless of width (unlike the gender bento's responsive
-// column count) since this set is always exactly 6. The count subtitle
-// ALWAYS renders, including "0 stores" — a missing count isn't a reason
-// to hide it, an area with no stores yet is still real information
-// ("expanding here").
+// "Shop by Area" — a LIGHT NAVIGATION card, same rationale as
+// GenderBentoSection above: clean photo (no gradient scrim), the
+// store-count pill overlaid bottom-left ON the image (own solid white
+// fill + shadow so it reads over any photo), area name below the image in
+// bold navy. Distinct from the price bentos' dark-gradient PROMOTIONAL
+// treatment, which is unchanged. Fixed grid-cols-3 regardless of width
+// (unlike the gender bento's responsive column count) since this set is
+// always exactly 6. The count pill ALWAYS renders, including "0 stores" —
+// a missing count isn't a reason to hide it, an area with no stores yet is
+// still real information ("expanding here").
 function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
   if (areas.length === 0) return null;
   return (
@@ -265,40 +253,32 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
       <div className="grid grid-cols-3 gap-2">
         {areas.map((a) => (
           <Link key={a.slug} href={`/stores?area=${a.slug}`} data-testid={`shop-by-area-tile-${a.slug}`}
-            className="group relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
-            {a.image ? (
-              <>
+            className="group flex flex-col gap-1.5 active:scale-95 transition">
+            <div className="relative aspect-[3/4] rounded-card overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] bg-surface-tint">
+              {a.image ? (
                 <img
                   src={cloudinaryOptimize(a.image, "w_400,q_auto,f_auto")}
                   alt={a.name}
                   loading="lazy"
                   className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
                 />
-                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
-                <div className="absolute bottom-2.5 left-2.5 right-2.5">
-                  <div className="font-display font-bold text-white text-[13px] sm:text-sm leading-tight line-clamp-1">{a.name}</div>
-                  <div className="text-[10px] font-semibold text-[#F0E9DD]/90 mt-0.5 leading-tight" data-testid={`shop-by-area-count-${a.slug}`}>
-                    {a.store_count} {a.store_count === 1 ? "store" : "stores"}
+              ) : (
+                // No CMS image set for this area — a quiet cream
+                // placeholder, own orange accent mark. The area name and
+                // store count still render normally (below the image /
+                // pinned on the image respectively) — an empty photo isn't
+                // a reason to hide either.
+                <div className="absolute inset-0 flex items-center justify-center" data-testid={`shop-by-area-blank-${a.slug}`}>
+                  <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center">
+                    <Sparkles size={15} className="text-brand-accent" />
                   </div>
                 </div>
-              </>
-            ) : (
-              // No CMS image set for this area — a LIGHT cream/tint fallback
-              // (not a dark navy slab): navy text, a small orange accent
-              // mark. An empty tile should read as quiet, not the heaviest
-              // element on the page.
-              <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-2 px-2 text-center" data-testid={`shop-by-area-blank-${a.slug}`}>
-                <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
-                  <Sparkles size={15} className="text-[#E68910]" />
-                </div>
-                <div>
-                  <div className="font-display font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight line-clamp-1">{a.name}</div>
-                  <div className="text-[10px] font-semibold text-[#0A1F5C]/55 mt-0.5 leading-tight" data-testid={`shop-by-area-count-${a.slug}`}>
-                    {a.store_count} {a.store_count === 1 ? "store" : "stores"}
-                  </div>
-                </div>
-              </div>
-            )}
+              )}
+              <span className="absolute bottom-2 left-2 inline-flex items-center rounded-pill bg-white px-1.5 py-0.5 text-[9px] font-bold leading-none text-brand-primary shadow-[0_1px_4px_rgba(0,0,0,0.3)]" data-testid={`shop-by-area-count-${a.slug}`}>
+                {a.store_count} {a.store_count === 1 ? "store" : "stores"}
+              </span>
+            </div>
+            <span className="text-[12.5px] font-display font-bold text-brand-primary text-center leading-tight line-clamp-1">{a.name}</span>
           </Link>
         ))}
       </div>
