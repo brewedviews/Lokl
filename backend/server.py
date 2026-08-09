@@ -2047,19 +2047,39 @@ async def list_l2(l1_id: str):
 
 
 # ============ Lokl V2 — Site CMS ============
-# IMPORTANT: keep these defaults in sync with /app/backend/seeds/homepage_config.py
-# (the seed is the canonical authored ordering; this constant is the fallback
-# used only when neither the seed has run nor any admin has saved a config).
+# Canonical homepage section list — MUST be kept in sync with
+# HomeClient.tsx's DEFAULT_SECTIONS (frontend), id-for-id, label-for-label,
+# rank-for-rank. Every id here must have a matching entry in HomeClient's
+# `sectionRenderers` (except sections that are intentionally hardcoded
+# outside the ranked system, e.g. TrustStickers — never add those here).
+#
+# This list feeds _get_site_config() in two ways:
+#   1. Seeds a brand-new site_config.homepage doc from scratch.
+#   2. Auto-appends any id here that's missing from an EXISTING doc (so a
+#      newly-shipped section always shows up in the admin Sections CMS
+#      and on the live homepage, without a manual migration) — see the
+#      `added` logic below.
+# It does NOT overwrite rank/enabled for ids that already exist in the DB
+# doc — the DB is authoritative for those once an admin has touched them
+# via PUT /api/admin/site/homepage-config. One-time cleanup of a stale DB
+# doc (e.g. dropping long-removed ids) is a migration's job, not this
+# constant's — see migrations/012_reseed_homepage_sections.py.
 DEFAULT_HOMEPAGE_SECTIONS = [
-    {"id": "hero",            "label": "Hero",                       "enabled": True, "rank": 1},
-    {"id": "under_499",       "label": "Under ₹499",                 "enabled": True, "rank": 2},
-    {"id": "category_pills",  "label": "Category pills",             "enabled": True, "rank": 3},
-    {"id": "popular_in_city", "label": "Trending now",               "enabled": True, "rank": 10},
-    {"id": "stores",          "label": "Popular stores in Bhilai",   "enabled": False, "rank": 20},
-    {"id": "offers",          "label": "Offers for you",             "enabled": True, "rank": 30},
-    {"id": "selling_fast",    "label": "Selling fast",               "enabled": True, "rank": 40},
-    {"id": "recently_viewed", "label": "Recently added",             "enabled": True, "rank": 50},
-    {"id": "customer_love",   "label": "Loved by Bhilai shoppers",   "enabled": True, "rank": 70},
+    {"id": "category_pills", "label": "Category pills",           "enabled": True,  "rank": 10},
+    {"id": "hero",           "label": "Hero",                     "enabled": True,  "rank": 20},
+    {"id": "under_499",      "label": "Under ₹499",               "enabled": True,  "rank": 30},
+    {"id": "just_in",        "label": "Just In",                  "enabled": False, "rank": 35},
+    {"id": "best_deals",     "label": "Best deals",               "enabled": True,  "rank": 40},
+    {"id": "try_and_buy",    "label": "Try & Buy",                "enabled": True,  "rank": 50},
+    {"id": "for_her",        "label": "For Her",                  "enabled": True,  "rank": 60},
+    {"id": "for_him",        "label": "For Him",                  "enabled": True,  "rank": 62},
+    {"id": "meet_sellers",   "label": "Meet your sellers",        "enabled": True,  "rank": 70},
+    {"id": "merchant_cta",   "label": "Open a store",             "enabled": True,  "rank": 80},
+    {"id": "trending",       "label": "Trending now",             "enabled": False, "rank": 85},
+    {"id": "premium_picks",  "label": "Premium picks",            "enabled": True,  "rank": 90},
+    {"id": "offers",         "label": "Offers for you",           "enabled": True,  "rank": 95},
+    {"id": "customer_love",  "label": "Loved by Bhilai shoppers", "enabled": False, "rank": 100},
+    {"id": "shop_by_area",   "label": "Shop by Area",             "enabled": True,  "rank": 105},
 ]
 DEFAULT_HERO = {
     "image": "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png",

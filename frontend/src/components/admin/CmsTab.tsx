@@ -1,18 +1,18 @@
 "use client";
 
 /**
- * Admin → CMS → Homepage Assets parent tab (iter-26).
+ * Admin → CMS → Homepage Assets parent tab.
  *
- * Contains 5 sub-tabs:
- *   1. Sections     — existing section order/visibility (legacy panel)
- *   2. Hero         — desktop+mobile image, copy, CTAs, redirect
- *   3. L1 Categories
- *   4. L2 Sub-cats
- *   5. Offers       — full CRUD with image upload + destination picker
+ * Sub-tabs: Sections (order + on/off for every homepage section — see
+ * SectionsPanel below), Hero banner, L1 Categories, L2 Sub-cats, Areas,
+ * Price bands, Try & Buy, Offers.
  *
- * The legacy hero-text editor inside the Sections panel is preserved so
- * we don't break anyone who bookmarked it, but the Hero sub-tab is the
- * recommended path.
+ * Sections is the default/first tab and is fully load-bearing: its saves
+ * go to site_config.homepage.sections via PUT /api/admin/site/homepage-
+ * config, which HomeClient.tsx now treats as authoritative for section
+ * order/visibility (previously the frontend's local rank silently
+ * overrode whatever was saved here, so this panel edited a document with
+ * no real effect — fixed alongside this comment).
  */
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
@@ -82,7 +82,10 @@ export function CmsTab() {
   );
 }
 
-// ─── Legacy section order/visibility panel (preserved from iter-25) ───
+// ─── Section order/visibility panel — reorder (up/down) + on/off toggle
+// for every homepage section, saved to site_config.homepage.sections.
+// This IS what controls the live homepage order now (see the merge fix
+// in HomeClient.tsx's homepageConfig fetch effect). ───
 function SectionsPanel() {
   const [cfg, setCfg] = useState<HomepageConfig | null>(null);
   const [busy, setBusy] = useState(false);

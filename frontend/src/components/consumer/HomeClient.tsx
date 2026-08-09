@@ -519,15 +519,32 @@ export function HomeClient() {
       if (c.hero) setHero(c.hero);
       if (c.try_and_buy_image) setTryAndBuyImage(c.try_and_buy_image);
       if (Array.isArray(c.sections) && c.sections.length > 0) {
-        // Merge: server config toggles enabled/disabled, but LOCAL rank always wins
-        // so newly added DEFAULT_SECTIONS entries always appear in the right order.
+        // The DB config is now AUTHORITATIVE for order + enabled — this is
+        // what makes the admin "Sections" CMS panel (Homepage Assets ->
+        // Sections) actually take effect. Local DEFAULT_SECTIONS is used
+        // only to fill in (a) any individual field missing/malformed on a
+        // given DB entry — defensive; DB entries are always well-formed
+        // today via admin_put_homepage_config's coercion, but a rank/
+        // enabled value is never trusted blindly — and (b) whole sections
+        // that exist in code but haven't been synced to the DB config yet,
+        // so a newly-shipped section still appears (at its local default
+        // rank/enabled) even before an admin or migration touches the CMS.
+        // If this fetch fails, or returns no sections, `sections` state
+        // simply keeps its useState(DEFAULT_SECTIONS) initial value below —
+        // the homepage never blanks out on a missing/malformed CMS config.
         const defaultMap = new Map(DEFAULT_SECTIONS.map((s) => [s.id, s]));
         const serverIds = new Set(c.sections.map((s: SectionDoc) => s.id));
         const extra = DEFAULT_SECTIONS.filter((s) => !serverIds.has(s.id));
-        const merged = [
-          ...c.sections.map((s: SectionDoc) => ({ ...s, rank: defaultMap.get(s.id)?.rank ?? s.rank })),
-          ...extra,
-        ];
+        const fromServer = c.sections.map((s: SectionDoc) => {
+          const fallback = defaultMap.get(s.id);
+          return {
+            id: s.id,
+            label: s.label || fallback?.label || s.id,
+            enabled: typeof s.enabled === "boolean" ? s.enabled : (fallback?.enabled ?? true),
+            rank: typeof s.rank === "number" && !Number.isNaN(s.rank) ? s.rank : (fallback?.rank ?? 999),
+          };
+        });
+        const merged = [...fromServer, ...extra];
         const seen = new Set<string>();
         const deduped = merged.filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
         setSections(deduped);
