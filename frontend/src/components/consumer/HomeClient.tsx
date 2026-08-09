@@ -183,11 +183,15 @@ function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[])
 }
 
 // 4×2 shoppable grid (all 8 tiles always visible, no horizontal scroll) —
-// deliberately NOT the same look as the top L1 pill row (category_pills):
-// that's a full-bleed image with the label overlaid on a gradient. This is
-// image + label + price chip sitting directly on the page background, no
-// card/border/box, so the two rows read as different UI, not a repeat of
-// the same pattern.
+// unified to the SAME boxless overlay-card family as ShopByAreaSection /
+// the price-bento tiles / SellerCard: full-bleed image, aspect-[3/4],
+// rounded-2xl, whisper shadow, neutral dark scrim (not navy), name as the
+// bold white hero. The "from ₹X" price chip is the secondary shopping
+// signal, rendered small as an orange pill under the name — same
+// bg-brand-accent pill used elsewhere on the homepage, just moved onto the
+// scrim instead of sitting below the tile. No separate label/price block
+// underneath the image anymore; everything lives on the overlay so this
+// row reads as the same tile system as area/price, not a distinct pattern.
 function GenderBentoSection({ id, title, tiles }: { id: string; title: string; tiles: ResolvedGenderTile[] }) {
   if (tiles.length === 0) return null;
   return (
@@ -197,19 +201,42 @@ function GenderBentoSection({ id, title, tiles }: { id: string; title: string; t
       <div className="grid grid-cols-3 min-[360px]:grid-cols-4 gap-x-3 gap-y-4 sm:gap-x-4">
         {tiles.map((t) => (
           <Link key={t.key} href={t.href} data-testid={`${id}-tile-${t.key}`}
-            className="group flex flex-col items-center gap-1.5 active:scale-[0.97] transition">
-            <div className="relative w-full aspect-square rounded-card overflow-hidden bg-transparent">
-              {t.image ? (
-                <img src={cloudinaryOptimize(t.image, "w_300,q_auto,f_auto")} alt={t.label} loading="lazy" className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
-              ) : (
-                <div className="w-full h-full bg-surface-tint" data-testid={`${id}-blank-${t.key}`} />
-              )}
-            </div>
-            <span className="text-[12px] font-semibold text-brand-primary text-center leading-tight line-clamp-1 w-full">{t.label}</span>
-            {t.minPrice != null && (
-              <span className="inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-[10px] font-medium leading-none text-white" data-testid={`${id}-price-${t.key}`}>
-                {formatFromPrice(t.minPrice)}
-              </span>
+            className="group relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
+            {t.image ? (
+              <>
+                <img
+                  src={cloudinaryOptimize(t.image, "w_300,q_auto,f_auto")}
+                  alt={t.label}
+                  loading="lazy"
+                  className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+                />
+                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
+                <div className="absolute bottom-2.5 left-2.5 right-2.5">
+                  <div className="font-display font-bold text-white text-[13px] sm:text-sm leading-tight line-clamp-1">{t.label}</div>
+                  {t.minPrice != null && (
+                    <span className="inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-[9px] font-bold leading-none text-white mt-1" data-testid={`${id}-price-${t.key}`}>
+                      {formatFromPrice(t.minPrice)}
+                    </span>
+                  )}
+                </div>
+              </>
+            ) : (
+              // No CMS/category image yet — the same light cream/tint
+              // fallback as area/price tiles (navy text, small orange
+              // accent mark), not a dark navy slab.
+              <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-2 px-2 text-center" data-testid={`${id}-blank-${t.key}`}>
+                <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
+                  <Sparkles size={15} className="text-[#E68910]" />
+                </div>
+                <div>
+                  <div className="font-display font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight line-clamp-1">{t.label}</div>
+                  {t.minPrice != null && (
+                    <span className="inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-[9px] font-bold leading-none text-white mt-1" data-testid={`${id}-price-${t.key}`}>
+                      {formatFromPrice(t.minPrice)}
+                    </span>
+                  )}
+                </div>
+              </div>
             )}
           </Link>
         ))}
