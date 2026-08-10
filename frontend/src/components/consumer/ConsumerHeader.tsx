@@ -25,10 +25,11 @@
  * see the LocationChip component below.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Loader2, MapPin, Search, ShoppingBag, Store as StoreIcon, User, X, Crosshair, Home as HomeIcon, Clock, TrendingUp } from "lucide-react";
+import { Loader2, MapPin, Search, ShoppingBag, Store as StoreIcon, User, X, Crosshair, Home as HomeIcon, Clock, TrendingUp, Check } from "lucide-react";
 import {
   useCartStore, useLocationStore, useCustomerAuthStore, useSearchOverlay,
 } from "@/stores";
@@ -729,10 +730,10 @@ function SuggestPanel({
 }
 
 /**
- * LocationChip — auto-detect + smart popover.
+ * LocationChip — auto-detect + a light address picker.
  *
  * Display priority (highest first):
- *   1. Logged-in customer's default saved address  →  "Home • Smriti Nagar"
+ *   1. Logged-in customer's default saved address  →  "Home • Sector 6"
  *   2. Resolved Bhilai cluster                     →  "Smriti Nagar"
  *   3. Generic Bhilai city                          →  "Delivering to Bhilai"
  *
@@ -742,11 +743,18 @@ function SuggestPanel({
  * resolve the cluster via GET /api/v1/location/cluster.
  *
  * Tap the chip:
- *   • Permission granted → popover with saved addresses + "Add address" CTA.
- *     The "Detect" button is HIDDEN because we already auto-detected.
- *   • Permission denied / prompt → popover keeps the "Detect" button so the
- *     user can opt-in (we surface the browser geolocation dialog), plus a
- *     manual fallback (saved addresses if any).
+ *   • Mobile (<lg)  → LocationSheet, a bottom sheet (same family as the
+ *     pickup-reservation sheet in ProductActions — full-width, rounded-t-3xl,
+ *     drag handle, dimmed backdrop) — the thumb-friendly q-com pattern for
+ *     something this important, and consistent with the mobile search top
+ *     sheet just above it in this same header.
+ *   • Desktop (≥lg) → LocationDropdown, a light anchored dropdown (desktop
+ *     doesn't get a bottom sheet — that's a mobile-first pattern — but gets
+ *     the same content/hierarchy, just presented inline under the chip).
+ *   Both share AddressRow/DetectRow so the content and behavior are
+ *   identical, only the shell differs. Permission granted → "Use current
+ *   location" is hidden (already auto-detected); denied/prompt → it stays
+ *   so the user can opt in.
  */
 function LocationChip({ phone }: { phone: string | null }) {
   const mounted = useMounted();
@@ -757,7 +765,6 @@ function LocationChip({ phone }: { phone: string | null }) {
   const requestLocation = useLocationStore((s) => s.requestLocation);
   const setLocation = useLocationStore((s) => s.setLocation);
   const autoDetect = useLocationStore((s) => s.autoDetectIfGranted);
-  const ref = useRef<HTMLDivElement | null>(null);
 
   // Silent auto-detect on mount. Cheap no-op when permission isn't granted.
   useEffect(() => { void autoDetect(); }, [autoDetect]);
@@ -770,7 +777,7 @@ function LocationChip({ phone }: { phone: string | null }) {
       .catch(() => {});
   }, [phone]);
 
-  // Refresh when popover opens to pick up any new addresses.
+  // Refresh when the picker opens to pick up any new addresses.
   useEffect(() => {
     if (!open || !phone) return;
     apiClient.get<{ addresses: SavedAddress[] }>(`/api/v1/addresses/${phone}`)
@@ -778,14 +785,21 @@ function LocationChip({ phone }: { phone: string | null }) {
       .catch(() => {});
   }, [open, phone]);
 
-  // Outside-click close.
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  // Lock body scroll while the mobile bottom sheet specifically is showing
+  // (the desktop dropdown doesn't cover the page, so it doesn't need this).
+  useEffect(() => {
+    if (!open) return;
+    if (!window.matchMedia("(max-width: 1023px)").matches) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
   }, [open]);
 
   const detect = async () => {
@@ -827,7 +841,7 @@ function LocationChip({ phone }: { phone: string | null }) {
   const showDetect = permission !== "granted";
 
   return (
-    <div ref={ref} className="relative w-full lg:w-auto">
+    <div className="relative w-full lg:w-auto">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -849,102 +863,255 @@ function LocationChip({ phone }: { phone: string | null }) {
         </div>
         <svg width="10" height="6" viewBox="0 0 10 6" className="shrink-0 text-brand-primary/60"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" /></svg>
       </button>
+
       {open && (
-        <div
-          data-testid="location-popover"
-          role="dialog"
-          className="absolute left-0 top-full mt-2 w-[280px] sm:w-[320px] bg-white border border-card-border rounded-2xl shadow-[0_16px_40px_rgba(10,31,92,0.18)] z-50 overflow-hidden"
-        >
-          {/* Saved addresses (logged-in only) */}
-          {phone && addresses.length > 0 && (
-            <div>
-              <div className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-widest text-text-secondary">Saved addresses</div>
-              {addresses.map((a) => (
-                <button
-                  key={a.address_id}
-                  type="button"
-                  onClick={() => pickAddress(a)}
-                  data-testid={`location-saved-${a.address_id}`}
-                  className="w-full flex items-start gap-3 px-4 py-2.5 hover:bg-[#FDFBF7] text-left"
-                >
-                  <div className="w-7 h-7 rounded-full bg-brand-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-                    {(a.label || "").toLowerCase().includes("office")
-                      ? <StoreIcon size={13} className="text-brand-primary" />
-                      : <HomeIcon size={13} className="text-brand-primary" />}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-brand-primary">{a.label || "Address"}</div>
-                    {a.line1 && <div className="text-[11px] text-text-secondary mt-0.5">{a.line1.length > 28 ? a.line1.slice(0, 28) + "…" : a.line1}</div>}
-                  </div>
-                </button>
-              ))}
-              <Link
-                href="/account?tab=addresses"
-                onClick={() => setOpen(false)}
-                data-testid="location-manage"
-                className="block border-t border-card-border px-4 py-2.5 text-[12px] font-semibold text-brand-accent hover:bg-[#FDFBF7]"
-              >
-                Manage addresses →
-              </Link>
-            </div>
-          )}
-
-          {/* Detect — only when permission isn't already granted */}
-          {showDetect && (
-            <button
-              type="button"
-              onClick={detect}
-              disabled={busy}
-              data-testid="location-detect"
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#FDFBF7] disabled:opacity-60 text-left border-t border-card-border first:border-t-0"
-            >
-              <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center shrink-0">
-                {busy ? <Loader2 size={16} className="animate-spin text-brand-accent" /> : <Crosshair size={16} className="text-brand-accent" />}
-              </div>
-              <div>
-                <div className="text-sm font-bold text-brand-primary">Detect my location</div>
-                <div className="text-[11px] text-text-secondary">We&apos;ll match you to the nearest serviceable area</div>
-              </div>
-            </button>
-          )}
-
-          {/* Add-address / login CTA */}
-          {phone ? (
-            addresses.length === 0 && (
-              <Link
-                href="/account/addresses"
-                onClick={() => setOpen(false)}
-                data-testid="location-add"
-                className="block border-t border-card-border px-4 py-3 text-xs font-semibold text-brand-accent hover:bg-[#FDFBF7]"
-              >
-                + Add an address
-              </Link>
-            )
-          ) : (
-            <Link
-              href="/account/login"
-              onClick={() => setOpen(false)}
-              data-testid="location-login-cta"
-              className="block border-t border-card-border px-4 py-3 text-xs text-text-secondary hover:bg-[#FDFBF7]"
-            >
-              Log in to save your address →
-            </Link>
-          )}
-        </div>
+        <LocationSheet
+          phone={phone}
+          addresses={addresses}
+          selectedId={defaultAddr?.address_id}
+          busy={busy}
+          showDetect={showDetect}
+          onDetect={detect}
+          onPick={pickAddress}
+          onClose={() => setOpen(false)}
+        />
+      )}
+      {open && (
+        <LocationDropdown
+          phone={phone}
+          addresses={addresses}
+          selectedId={defaultAddr?.address_id}
+          busy={busy}
+          showDetect={showDetect}
+          onDetect={detect}
+          onPick={pickAddress}
+          onClose={() => setOpen(false)}
+        />
       )}
     </div>
   );
 }
 
+// Shared row renderers — used by both the mobile sheet and the desktop
+// dropdown so content/behavior stay identical, only the shell differs.
+
+function DetectRow({ busy, onDetect }: { busy: boolean; onDetect: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onDetect}
+      disabled={busy}
+      data-testid="location-detect"
+      className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-[#FDFBF7] disabled:opacity-60 text-left transition"
+    >
+      <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center shrink-0">
+        {busy ? <Loader2 size={16} className="animate-spin text-brand-accent" /> : <Crosshair size={16} className="text-brand-accent" />}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-bold text-brand-primary">Use current location</div>
+        <div className="text-[11px] text-text-secondary">We&apos;ll find the nearest serviceable area</div>
+      </div>
+    </button>
+  );
+}
+
+function AddressRow({ a, selected, onPick }: { a: SavedAddress; selected: boolean; onPick: () => void }) {
+  const isOffice = (a.label || "").toLowerCase().includes("office");
+  const line = a.line1 || a.full_address;
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      data-testid={`location-saved-${a.address_id}`}
+      className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-2xl text-left transition ${
+        selected ? "bg-brand-accent/8" : "hover:bg-[#FDFBF7]"
+      }`}
+    >
+      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${selected ? "bg-brand-accent/15" : "bg-brand-primary/8"}`}>
+        {isOffice
+          ? <StoreIcon size={14} className={selected ? "text-brand-accent" : "text-brand-primary"} />
+          : <HomeIcon size={14} className={selected ? "text-brand-accent" : "text-brand-primary"} />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-bold text-brand-primary">{a.label || "Address"}</span>
+          {selected && <Check size={13} className="text-brand-accent shrink-0" strokeWidth={3} />}
+        </div>
+        {line && <div className="text-xs text-text-secondary mt-0.5 line-clamp-1">{line}</div>}
+      </div>
+    </button>
+  );
+}
+
+interface LocationPickerProps {
+  phone: string | null;
+  addresses: SavedAddress[];
+  selectedId?: string;
+  busy: boolean;
+  showDetect: boolean;
+  onDetect: () => void;
+  onPick: (a: SavedAddress) => void;
+  onClose: () => void;
+}
+
+// Mobile — bottom sheet, same shell family as ProductActions' pickup sheet
+// (rounded-t-3xl, drag handle, dimmed backdrop, slides up). z-[61]/[60]
+// clears StickyBottomNav's z-50, so it renders over the nav, not behind it.
+// Portaled to document.body: LocationChip (and this component with it) lives
+// inside <header>, which has `backdrop-filter` (the bf-glass class) —
+// backdrop-filter creates a new containing block for `position: fixed`
+// descendants, which would otherwise confine this "fixed inset-0"/"fixed
+// bottom-0" sheet to the header's own ~50px box instead of the viewport.
+// (MobileSearchSheet dodges this by living outside <header> already; this
+// one can't, since it hangs off the location pill deep inside the header.)
+function LocationSheet({ phone, addresses, selectedId, busy, showDetect, onDetect, onPick, onClose }: LocationPickerProps) {
+  return createPortal(
+    <>
+      <div
+        data-testid="location-sheet-backdrop"
+        onClick={onClose}
+        className="lg:hidden fixed inset-0 z-[60] bg-[#0A1F5C]/45 search-sheet-backdrop-in"
+      />
+      <div
+        data-testid="location-sheet"
+        role="dialog"
+        aria-modal="true"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-[61] bg-white rounded-t-3xl shadow-[0_-16px_40px_rgba(10,31,92,0.18)] max-h-[75vh] flex flex-col overflow-hidden location-sheet-in"
+      >
+        <div className="shrink-0 flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 bg-[#E5E2DC] rounded-full" />
+        </div>
+        <div className="shrink-0 flex items-center justify-between px-5 pt-1 pb-2">
+          <h2 className="font-display text-lg font-bold text-brand-primary">Deliver to</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            data-testid="location-sheet-close"
+            className="w-8 h-8 rounded-full bg-[#FDFBF7] border border-card-border flex items-center justify-center"
+          >
+            <X size={15} className="text-brand-primary" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+          {showDetect && <DetectRow busy={busy} onDetect={onDetect} />}
+
+          {phone && addresses.length > 0 && (
+            <div className="mt-1">
+              <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-widest text-text-secondary">Saved addresses</div>
+              {addresses.map((a) => (
+                <AddressRow key={a.address_id} a={a} selected={a.address_id === selectedId} onPick={() => onPick(a)} />
+              ))}
+            </div>
+          )}
+
+          {phone ? (
+            <Link
+              href="/account?tab=addresses"
+              onClick={onClose}
+              data-testid="location-manage"
+              className="mt-1 flex items-center px-3 py-3 rounded-2xl hover:bg-[#FDFBF7] text-sm font-semibold text-brand-accent"
+            >
+              {addresses.length === 0 ? "+ Add an address" : "Manage addresses →"}
+            </Link>
+          ) : (
+            <Link
+              href="/account/login"
+              onClick={onClose}
+              data-testid="location-login-cta"
+              className="mt-1 block px-3 py-3 rounded-2xl hover:bg-[#FDFBF7] text-sm text-text-secondary"
+            >
+              Log in to save your address →
+            </Link>
+          )}
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+// Desktop — a light anchored dropdown (not a sheet; bottom sheets are a
+// mobile-first pattern). Same content/order as LocationSheet, tighter
+// spacing since it doesn't need thumb-sized touch targets.
+//
+// Two different positioning schemes, deliberately not both portaled:
+//   • The click-outside-to-close catcher is `fixed inset-0`, so — same
+//     backdrop-filter containing-block issue as LocationSheet above — it
+//     must be portaled to document.body, or it'd be clipped to <header>'s
+//     own small box and most of the page wouldn't count as "outside".
+//   • The dropdown panel itself is `absolute left-0 top-full`, anchored to
+//     LocationChip's own `relative` wrapper — `position: absolute` is NOT
+//     affected by an ancestor's backdrop-filter (only `fixed` is), so it's
+//     positioned correctly staying right where it is in the DOM. Portaling
+//     it too would detach it from that anchor and break the positioning.
+function LocationDropdown({ phone, addresses, selectedId, busy, showDetect, onDetect, onPick, onClose }: LocationPickerProps) {
+  return (
+    <>
+      {createPortal(<div className="hidden lg:block fixed inset-0 z-40" onClick={onClose} />, document.body)}
+      <div
+        data-testid="location-popover"
+        role="dialog"
+        className="hidden lg:block absolute left-0 top-full mt-2 w-[300px] bg-white border border-card-border rounded-2xl shadow-[0_16px_40px_rgba(10,31,92,0.18)] z-50 overflow-hidden location-dropdown-in"
+      >
+        <div className="px-4 pt-3.5 pb-1">
+          <h2 className="font-display text-sm font-bold text-brand-primary">Deliver to</h2>
+        </div>
+        <div className="px-2 pb-2 max-h-[60vh] overflow-y-auto">
+          {showDetect && <DetectRow busy={busy} onDetect={onDetect} />}
+
+          {phone && addresses.length > 0 && (
+            <div className="mt-1">
+              <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-widest text-text-secondary">Saved addresses</div>
+              {addresses.map((a) => (
+                <AddressRow key={a.address_id} a={a} selected={a.address_id === selectedId} onPick={() => onPick(a)} />
+              ))}
+            </div>
+          )}
+
+          {phone ? (
+            <Link
+              href="/account?tab=addresses"
+              onClick={onClose}
+              data-testid="location-manage"
+              className="mt-1 flex items-center px-3 py-2.5 rounded-xl hover:bg-[#FDFBF7] text-xs font-semibold text-brand-accent"
+            >
+              {addresses.length === 0 ? "+ Add an address" : "Manage addresses →"}
+            </Link>
+          ) : (
+            <Link
+              href="/account/login"
+              onClick={onClose}
+              data-testid="location-login-cta"
+              className="mt-1 block px-3 py-2.5 rounded-xl hover:bg-[#FDFBF7] text-xs text-text-secondary"
+            >
+              Log in to save your address →
+            </Link>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// The old logic only looked past line1's raw start when line1 was empty —
+// in practice line1 is almost always set, so the "smart" comma-segment
+// fallback below almost never ran, and the pill instead showed a blind
+// character-slice of line1 ("22, Sector 6, Near P…") which regularly starts
+// mid-house-number and can get cut off again by the pill's own CSS
+// `truncate` on a narrow phone. Now ALWAYS prefer a short, natural
+// comma-separated segment (a locality name, not a raw slice) from whichever
+// of line1/full_address has one, and only fall back to a short slice if
+// neither does.
 function clipAddress(a: SavedAddress): { label: string; preview: string } {
   const label = a.label || "Address";
-  const line1 = (a.line1 || "").trim();
-  if (line1) {
-    const preview = line1.length > 22 ? line1.slice(0, 20) + "…" : line1;
-    return { label, preview };
+  const candidates = [a.line1, a.full_address].filter((v): v is string => !!v && v.trim().length > 0);
+  for (const raw of candidates) {
+    const segment = raw.split(",").map((s) => s.trim()).find((s) => s.length > 2 && s.length <= 20 && !/^\d+$/.test(s));
+    if (segment) return { label, preview: segment };
   }
-  const full = (a.full_address || "").trim();
-  const seg = full.split(",").map((s) => s.trim()).find((s) => s.length > 2 && s.length < 30);
-  const preview = seg || (full.length > 28 ? full.slice(0, 26) + "…" : full || (a.city_name ?? "Bhilai"));
+  const fallback = (candidates[0] || a.city_name || "Bhilai").trim();
+  const preview = fallback.length > 18 ? fallback.slice(0, 16) + "…" : fallback;
   return { label, preview };
 }
