@@ -60,6 +60,29 @@ export function CategoryClient() {
 
   const l1 = useMemo(() => cats.find((c) => c.slug === slug), [cats, slug]);
 
+  // This component isn't remounted across /c/women -> /c/men navigations
+  // (same instance, `slug` just changes via useParams()) — so without this,
+  // the PREVIOUS category's allProducts/isLoading/subcategories would still
+  // be sitting in state and paint under the NEW category's heading for a
+  // frame, before the products-fetch effect below even gets a chance to
+  // re-fire (including showing "coming soon" if the previous category
+  // happened to be empty, or just the wrong product grid otherwise).
+  //
+  // Resetting via a plain `useEffect` wouldn't be enough — effects run
+  // AFTER React has already committed and the browser may have already
+  // painted the stale frame. Adjusting state directly during render (React's
+  // own documented pattern for "reset state when a prop changes") makes the
+  // reset part of the SAME render pass as the slug change, so the stale
+  // frame is never produced in the first place — see
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [prevSlug, setPrevSlug] = useState(slug);
+  if (slug !== prevSlug) {
+    setPrevSlug(slug);
+    setIsLoading(true);
+    setAllProducts([]);
+    setSubcategories([]);
+  }
+
   useEffect(() => { setL2Filter(l2FromUrl); }, [slug, l2FromUrl]);
 
   useEffect(() => {
@@ -100,7 +123,23 @@ export function CategoryClient() {
 
   const products = useMemo(() => sortProducts(allProducts, sort), [allProducts, sort]);
 
-  if (!l1) return <div className="p-10 text-center text-[#595959]">Loading…</div>;
+  // Cold load: `cats` (the L1 fetch) hasn't resolved yet, so `l1` can't be
+  // found at all — same SkeletonGrid the products fetch uses below, not a
+  // bare unstyled "Loading…" div, so a fresh visit to /c/[slug] shows a
+  // skeleton immediately instead of two different loading treatments back
+  // to back.
+  if (!l1) {
+    return (
+      <div className="flex-1 flex flex-col bg-[#FDFBF7]">
+        <main className="flex-1">
+          <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
+            <div className="h-8 w-40 bg-[#E5E2DC] rounded-lg animate-pulse mb-3" />
+            <SkeletonGrid />
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   const l2List = subcategories.length > 0 ? subcategories : (l1.l2 ?? []);
 

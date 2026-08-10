@@ -702,7 +702,7 @@ export function HomeClient() {
             { href: "/products?price=under-499", hero: "Under ₹499", sub: "Steals & deals", filter: "under_499" as const, bentoKey: "under_499" as const },
             { href: "/products?price=499-1499", hero: "₹499–1,499", sub: "Most loved", filter: "499_999" as const, bentoKey: "most_loved" as const },
             { href: "/products?price=above-1499", hero: "₹1,500+", sub: "Premium picks", filter: "premium" as const, bentoKey: "premium" as const },
-          ].map(({ href, hero, sub, filter, bentoKey }) => {
+          ].map(({ href, hero, sub, filter, bentoKey }, i) => {
             const image = priceBento?.[bentoKey] ?? null;
             return (
               <Link key={href} href={href} onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
@@ -712,7 +712,8 @@ export function HomeClient() {
                     <img
                       src={cloudinaryOptimize(image, "w_400,q_auto,f_auto")}
                       alt={hero}
-                      loading="lazy"
+                      loading="eager"
+                      fetchPriority={i === 0 ? "high" : "auto"}
                       className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
                     />
                     {/* Neutral dark scrim, not navy — just enough to keep the
@@ -776,7 +777,14 @@ export function HomeClient() {
                   className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition">
                   <div className="w-16 h-16 rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC]">
                     {cat.image ? (
-                      <img src={cloudinaryOptimize(cat.image, "w_128,q_auto,f_auto")} alt={cat.name} loading="lazy" className="w-full h-full object-cover object-top" />
+                      // category_pills is the very first homepage section — only the
+                      // first few tiles are actually visible without scrolling this
+                      // horizontal strip, so only those need eager loading; later
+                      // tiles are genuinely off-screen and stay lazy.
+                      <img src={cloudinaryOptimize(cat.image, "w_128,q_auto,f_auto")} alt={cat.name}
+                        loading={catIdx < 4 ? "eager" : "lazy"}
+                        fetchPriority={catIdx === 0 ? "high" : "auto"}
+                        className="w-full h-full object-cover object-top" />
                     ) : (
                       <div className="w-full h-full bg-[#E5E2DC] flex items-center justify-center">
                         <span className="text-2xl">👗</span>
@@ -820,7 +828,13 @@ export function HomeClient() {
                   className="group relative aspect-[3/4] rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC] transition hover:border-[#0A1F5C]"
                 >
                   {cat.image ? (
-                    <img src={cloudinaryOptimize(cat.image, "w_400,q_auto,f_auto")} alt={cat.name} loading="lazy" className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
+                    // Whole row fits within one desktop viewport width (a
+                    // CSS grid, not a scroll strip like mobile) — the
+                    // entire above-the-fold row loads eager.
+                    <img src={cloudinaryOptimize(cat.image, "w_400,q_auto,f_auto")} alt={cat.name}
+                      loading="eager"
+                      fetchPriority={catIdx === 0 ? "high" : "auto"}
+                      className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
                   ) : (
                     <div className="w-full h-full bg-[#E5E2DC]" />
                   )}
@@ -891,7 +905,7 @@ export function HomeClient() {
             const inner = (
               <div className="aspect-[16/9] relative">
                 {offer.image && (
-                  <img src={offer.image} alt={offer.title} className="absolute inset-0 w-full h-full object-cover opacity-70" />
+                  <img src={cloudinaryOptimize(offer.image, "w_600,q_auto,f_auto")} alt={offer.title} loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-70" />
                 )}
                 <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/30 to-transparent" />
                 <div className="absolute inset-0 p-5 flex flex-col justify-center text-white">

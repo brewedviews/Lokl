@@ -58,20 +58,33 @@ export default function CustomerAccountPage() {
   const [addrModal, setAddrModal] = useState<(typeof BLANK_ADDR & { id?: string }) | null>(null);
   const [activeTile, setActiveTile] = useState<TileKey>(VALID_TILES.includes(tabParam as TileKey) ? (tabParam as TileKey) : "orders");
   const [busy, setBusy] = useState(false);
+  // True until the FIRST real fetch resolves (success or fail) — not until
+  // `phone` merely exists, since `phone` itself comes from an async
+  // Zustand rehydration and starts as "" for a tick even on a returning,
+  // already-logged-in visitor. `load()` below only flips this to false
+  // inside its own try/finally, so a `phone=""` render (rehydrating) and a
+  // `phone` set but the fetch still in flight both stay in the loading
+  // state — the real "0 orders / Welcome" defaults are never painted as
+  // if they were genuine data.
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (tabParam && VALID_TILES.includes(tabParam as TileKey)) setActiveTile(tabParam as TileKey);
   }, [tabParam]);
 
   const load = useCallback(async () => {
-    if (!phone) return;
+    if (!phone) return; // still waiting on phone rehydration — stay loading
     try {
       const { customer, orders } = await api.customers.get(phone);
       setCustomer(customer);
       setOrders(orders);
       const c = customer as Customer & { age?: number; email?: string; gender?: string; date_of_birth?: string };
       setForm({ name: customer.name || "", gender: c.gender || "", dob: c.date_of_birth || "", email: c.email || "" });
-    } catch { setCustomer({ id: "", phone, addresses: [] } as unknown as Customer); }
+    } catch {
+      setCustomer({ id: "", phone, addresses: [] } as unknown as Customer);
+    } finally {
+      setLoading(false);
+    }
   }, [phone]);
 
   useEffect(() => { void load(); }, [load]);
@@ -136,6 +149,8 @@ export default function CustomerAccountPage() {
     { key: "support", label: "Support", icon: HelpCircle, count: 0 },
     { key: "profile", label: "Profile", icon: Settings, count: 0 },
   ];
+
+  if (loading) return <AccountSkeleton />;
 
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
@@ -254,6 +269,49 @@ export default function CustomerAccountPage() {
       </main>
 
       {addrModal && <AddressModal address={addrModal} onCancel={() => setAddrModal(null)} onSave={saveAddress} />}
+    </div>
+  );
+}
+
+// Shape-matching skeleton for the initial fetch (same animate-pulse +
+// bg-[#E5E2DC] idiom as CategoryClient's SkeletonGrid and the cart page's
+// own hasHydrated skeleton) — mirrors the profile card, tile grid, and
+// panel this page renders once real data lands, so there's no layout jump
+// when the skeleton swaps for content.
+function AccountSkeleton() {
+  return (
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]" data-testid="account-loading">
+      <main className="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-8 pt-8">
+        <section className="bg-white border border-[#E5E2DC] rounded-3xl p-4 sm:p-6 flex items-center gap-4 shadow-sm">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#E5E2DC] animate-pulse shrink-0" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="h-5 w-32 bg-[#E5E2DC] rounded-lg animate-pulse" />
+            <div className="h-3.5 w-24 bg-[#E5E2DC] rounded-lg animate-pulse" />
+          </div>
+        </section>
+
+        <section className="grid grid-cols-4 gap-3 sm:gap-4 pt-8">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="bg-white border border-[#E5E2DC] rounded-2xl p-3 sm:p-4 flex flex-col items-center justify-center gap-2">
+              <div className="w-[22px] h-[22px] rounded-md bg-[#E5E2DC] animate-pulse" />
+              <div className="h-2.5 w-10 bg-[#E5E2DC] rounded animate-pulse" />
+            </div>
+          ))}
+        </section>
+
+        <section className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm mt-8 space-y-1">
+          <div className="h-5 w-32 bg-[#E5E2DC] rounded-lg animate-pulse mb-3" />
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 py-3">
+              <div className="w-14 h-14 rounded-xl bg-[#E5E2DC] animate-pulse shrink-0" />
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="h-3.5 w-1/2 bg-[#E5E2DC] rounded animate-pulse" />
+                <div className="h-3 w-1/3 bg-[#E5E2DC] rounded animate-pulse" />
+              </div>
+            </div>
+          ))}
+        </section>
+      </main>
     </div>
   );
 }
