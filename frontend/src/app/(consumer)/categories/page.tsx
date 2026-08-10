@@ -16,9 +16,28 @@ function CategoriesInner() {
   const [l2Cats, setL2Cats] = useState<L2Cat[]>([]);
   const [loadingL2, setLoadingL2] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
-  const [loadingProducts, setLoadingProducts] = useState(false);
+  // Starts true (not false): the bottom-nav "Categories" tab links to the
+  // bare /categories (no ?l1=), so on first paint l1Cats/activeL1 are both
+  // still empty and the products-fetch effect below hasn't run yet. With a
+  // `false` default the empty-state branch below ("No products yet /
+  // Coming soon") reads as confirmed-empty from the very first render,
+  // before any fetch even started — same class of bug as CategoryClient's
+  // isLoading, fixed the same way: default to the loading state, only flip
+  // it once a real fetch has actually resolved.
+  const [loadingProducts, setLoadingProducts] = useState(true);
 
-  const activeL1 = searchParams.get("l1") || "";
+  // No ?l1= in the URL -> fall back to the first category once it's
+  // loaded. This used to be a router.replace("/categories?l1=" + slug)
+  // inside the effect below, which meant a bare /categories load rendered
+  // once with nothing, THEN client-navigated to the resolved default —
+  // a second render/URL cycle plus the empty-state flash above. Resolving
+  // the default inline here instead means the bare URL renders the right
+  // category's content directly, in the same render l1Cats arrives in —
+  // no redirect, no second load. The default itself is NOT hardcoded to
+  // "women" — it's genuinely whichever category the backend returns first
+  // (GET /api/categories, sorted by its admin-configurable `order` field),
+  // exactly matching what the old redirect used to resolve to.
+  const activeL1 = searchParams.get("l1") || l1Cats[0]?.slug || "";
   const activeL2 = searchParams.get("l2") || "";
 
   // Fetch L1 on mount
@@ -26,9 +45,6 @@ function CategoriesInner() {
     apiClient.get("/api/categories").then(r => {
       const cats: L1Cat[] = r.data?.categories || r.data || [];
       setL1Cats(cats);
-      if (!activeL1 && cats.length > 0) {
-        if (cats[0]) router.replace(`/categories?l1=${cats[0].slug}`);
-      }
     }).catch(() => {});
   }, []);
 
