@@ -127,9 +127,15 @@
 
   .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
   .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+  /* Mobile search top sheet (ConsumerHeader) — quick, not a page transition. */
+  .search-sheet-backdrop-in { animation: search-sheet-fade 140ms ease-out both; }
+  .search-sheet-in          { animation: search-sheet-drop 160ms ease-out both; }
 }
 
 @keyframes bf-fadeup  { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes bf-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 @keyframes v2-pop-in  { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
 @keyframes v2-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@keyframes search-sheet-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes search-sheet-drop { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }

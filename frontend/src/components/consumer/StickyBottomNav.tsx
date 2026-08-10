@@ -3,19 +3,13 @@
 /**
  * Mobile-only sticky bottom navigation. Hidden on /merchant + /admin routes.
  *
- * Iter-24 — Quick-commerce pattern: five items, central search overlay
- * trigger. Wallet was removed (was inactive/coming-soon). Cart already
- * lives top-right in the consumer header so we don't double up.
- *
- *   [ Home ] [ Categories ] [ Search ] [ Stores ] [ Profile ]
+ *   [ Home ] [ Categories ] [ All ] [ Stores ] [ Profile ]
  *
  * Wishlist moved into the account page (its own boxed section, matching
  * the address box) — the standalone /wishlist route still works, it's
- * just no longer the primary entry point.
- *
- * Tapping Search opens the SearchOverlay via a tiny Zustand store rather
- * than prop-drilling, so any other component (banner CTA, empty-state, ...)
- * can pop the overlay later without touching this file.
+ * just no longer the primary entry point. Search lives in the pinned bar
+ * in ConsumerHeader (its own in-place top sheet), not here — cart already
+ * lives top-right in the consumer header too, so neither doubles up.
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";

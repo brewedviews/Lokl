@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * Tiny global state for the SearchOverlay open/close — separate Zustand store
- * so multiple components (header, bottom nav, any "search inside category"
- * trigger) can open the overlay without prop-drilling.
+ * Tiny global state for the mobile search top sheet's open/close (owned and
+ * rendered by ConsumerHeader) — a separate Zustand store so any future
+ * trigger (a banner CTA, an empty-state "search instead" link, ...) can open
+ * it without prop-drilling through the header.
  */
 import { create } from "zustand";
 

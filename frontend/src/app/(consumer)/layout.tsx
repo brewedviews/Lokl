@@ -2,7 +2,6 @@ import { Toaster } from "sonner";
 import { ConsumerHeader } from "@/components/consumer/ConsumerHeader";
 import { StickyBottomNav } from "@/components/consumer/StickyBottomNav";
 import { LocationBanner } from "@/components/consumer/LocationBanner";
-import { SearchOverlayHost } from "@/components/consumer/SearchOverlayHost";
 import { ActiveOrderPill } from "@/components/consumer/ActiveOrderPill";
 
 /**
@@ -35,6 +34,11 @@ import { ActiveOrderPill } from "@/components/consumer/ActiveOrderPill";
  * Pages must pair this with their own `flex-1 flex flex-col` root — see
  * stores/page.tsx. (No page-level Footer exists anymore — the bottom nav
  * covers that role; the homepage additionally ends with TrustStickers.)
+ *
+ * Mobile search is entirely self-contained inside ConsumerHeader now (the
+ * pinned bar + its in-place top sheet) — no separate host component to
+ * mount, so it works on any layout that renders ConsumerHeader (this one,
+ * and account/layout.tsx) without each needing its own wiring.
  */
 export default function ConsumerLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -45,7 +49,6 @@ export default function ConsumerLayout({ children }: { children: React.ReactNode
       <div className="flex-1 flex flex-col bottom-nav-safe">{children}</div>
       <ActiveOrderPill />
       <StickyBottomNav />
-      <SearchOverlayHost />
     </div>
   );
 }
