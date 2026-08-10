@@ -1,16 +1,17 @@
 "use client";
 
-/** Size picker + add-to-bag + buy-now + share + notify-me + schedule interactions. */
+/** Size picker + add-to-bag + buy-now + share + wishlist + notify-me + schedule interactions. */
 import { useState, useEffect } from "react";
 import { trackAddToCart, trackPickupStart, trackPickupComplete, trackProductView } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
-import { Heart, ShoppingBag, Share2, Bell, CheckCircle2, Store, RotateCcw } from "lucide-react";
+import { Heart, ShoppingBag, Share2, Bell, CheckCircle2, Store, RotateCcw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
-import { useCartStore, useCustomerAuthStore } from "@/stores";
+import { useCartStore, useCustomerAuthStore, useWishlistStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { useStoreConflict } from "@/hooks/useStoreConflict";
 import { StoreConflictDialog } from "./StoreConflictDialog";
+import { DeliveryServiceability } from "./DeliveryServiceability";
 import type { Product } from "@/types";
 
 export function ProductActions({
@@ -34,6 +35,20 @@ export function ProductActions({
   const customerUser = useCustomerAuthStore((s) => s.user);
   const isCustomerAuth = useCustomerAuthStore((s) => s.isAuthenticated);
   const [size, setSize] = useState<string | null>(product.sizes?.[0] || null);
+
+  // Wishlist — same store + toggle pattern as ProductCard's own heart
+  // button (that one already works; this one previously had no onClick
+  // at all).
+  const isWishlisted = useWishlistStore((s) => s.isWishlisted(product.id));
+  const toggleWishlist = useWishlistStore((s) => s.toggle);
+  const [wished, setWished] = useState(false);
+  useEffect(() => { setWished(isWishlisted); }, [isWishlisted]);
+  const handleWishlist = () => {
+    const next = toggleWishlist(product);
+    const justAdded = next.some((x) => x.id === product.id);
+    setWished(justAdded);
+    toast.success(justAdded ? "Saved to wishlist" : "Removed from wishlist");
+  };
 
   useEffect(() => {
     try {
@@ -172,6 +187,8 @@ export function ProductActions({
     }
   };
 
+  const etaMin = product.store_eta_min || 45;
+
   return (
     <>
       {/*
@@ -179,7 +196,7 @@ export function ProductActions({
         On mobile (normal block flow) the DOM order already gives the right sequence.
 
         Both mobile and desktop render order:
-          order-1: Size selector  order-2: Action bar (inline)  order-3: Pickup + below-fold
+          order-1: Size selector  order-2: Action bar (inline)  order-3: below-fold trust/logistics + pickup
       */}
       <div className="md:flex md:flex-col">
 
@@ -192,7 +209,7 @@ export function ProductActions({
             <div className="flex flex-wrap gap-2">
               {product.sizes.map((s) => (
                 <button key={s} onClick={() => setSize(s)} data-testid={`size-${s}`}
-                  className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-slate-200 hover:border-[#0A1F5C]"}`}>
+                  className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-[#E5E2DC] hover:border-[#0A1F5C]"}`}>
                   {s}
                 </button>
               ))}
@@ -200,11 +217,18 @@ export function ProductActions({
           </div>
         )}
 
-        {/* ── 2. Primary action bar — inline on all breakpoints ── */}
+        {/* ── 2. Primary action bar — inline on all breakpoints ──
+             Add to bag is a SOLID ORANGE pill — matches ProductCard's own
+             "Add to Bag" button exactly (the same action must look the same
+             everywhere, including a few hundred px below this on the same
+             page, in the cross-sell rails). Buy now moves to solid NAVY so
+             the two primary actions stay visually distinct now that orange
+             is taken — previously Add was a navy outline and Buy was solid
+             orange; this is that pairing flipped, not a new third color. */}
         <div className="px-4 md:px-0 mt-4 md:mt-4 flex gap-2 md:order-2">
           {isOffline ? (
             <>
-              <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-slate-100 text-slate-400 text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-offline-label">
+              <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-offline-label">
                 Store Offline
               </div>
               <button
@@ -220,38 +244,73 @@ export function ProductActions({
               <button
                 onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
                 data-testid="add-to-bag"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full border-2 border-[#0A1F5C] text-[#0A1F5C] text-sm font-bold hover:bg-[#0A1F5C] hover:text-white transition whitespace-nowrap">
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#E68910] text-white text-sm font-bold hover:bg-[#c4780f] transition whitespace-nowrap shadow-[0_4px_12px_rgba(230,137,16,0.28)]">
                 <ShoppingBag size={16} /> Add to bag
               </button>
               <button onClick={() => handleAdd(() => router.push("/checkout"))} data-testid="buy-now"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#E68910] text-white text-sm font-bold hover:bg-[#c4780f] transition whitespace-nowrap">
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#0A1F5C] text-white text-sm font-bold hover:bg-[#0F1F3D] transition whitespace-nowrap">
                 Buy now
               </button>
             </>
           ) : (
-            <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-slate-100 text-slate-400 text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-unavailable-btn">
+            <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-unavailable-btn">
               Store Unavailable
             </div>
           )}
-          <button aria-label="Wishlist" data-testid="wishlist-btn" className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
-            <Heart size={16} />
+          <button
+            aria-label="Wishlist"
+            aria-pressed={wished}
+            data-testid="wishlist-btn"
+            onClick={handleWishlist}
+            className={`w-12 h-12 rounded-full border flex items-center justify-center transition shrink-0 ${wished ? "bg-[#E68910] border-[#E68910] text-white" : "bg-white border-[#E5E2DC] text-[#0A1F5C] hover:border-[#0A1F5C]"}`}
+          >
+            <Heart size={16} fill={wished ? "currentColor" : "none"} />
           </button>
-          <button aria-label="Share" data-testid="share-btn" onClick={handleShare} className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
+          <button aria-label="Share" data-testid="share-btn" onClick={handleShare} className="w-12 h-12 rounded-full bg-white border border-[#E5E2DC] text-[#0A1F5C] flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
             <Share2 size={16} />
           </button>
         </div>
 
-        {/* ── 3. Pickup button + below-fold banners ── */}
+        {/* ── 3. Below-fold trust/logistics signals + pickup + banners ── */}
         <div className="md:order-3">
-          {/* Try & Buy nudge — no per-store/product availability flag exists
-              yet, so it's always shown whenever ordering itself is (i.e. the
-              same gate as the Add to Bag / Buy Now buttons above). */}
-          {!isOffline && storeCanOrder && (
-            <div className="mt-3 px-4 md:px-0">
-              <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#FDF4E7] text-[11px] text-[#0A1F5C]" data-testid="try-and-buy-note">
-                <RotateCcw size={13} className="text-[#E68910] shrink-0" />
-                <span><span className="font-bold text-[#E68910]">Try &amp; Buy</span> · try it on at your door, pay only for what you keep.</span>
+
+          {/* Delivery + serviceability — pincode-based (not GPS), see
+              DeliveryServiceability's own doc comment. */}
+          <div className="mt-3 px-4 md:px-0">
+            <DeliveryServiceability etaMin={etaMin} />
+          </div>
+
+          {/* Try & Buy — now gated on the real try_at_doorstep flag (was
+              unconditional before; the flag existed on the data model and
+              on the backend but nothing read it, and merchants had no way
+              to set it — see the new checkbox in the merchant product
+              form). Made prominent — a proper on-brand callout, not a thin
+              inline note — since it's the differentiator, not an aside. */}
+          {!isOffline && storeCanOrder && product.try_at_doorstep && (
+            <div className="mt-2.5 px-4 md:px-0">
+              <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-[#E68910]/10 border border-[#E68910]/20" data-testid="try-and-buy-note">
+                <div className="w-10 h-10 rounded-full bg-[#E68910]/15 flex items-center justify-center shrink-0">
+                  <RotateCcw size={17} className="text-[#E68910]" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-[#0A1F5C]">try &amp; buy available</div>
+                  <div className="text-xs text-[#595959] mt-0.5 leading-snug">try it on at your door — pay only for what you keep</div>
+                </div>
               </div>
+            </div>
+          )}
+
+          {/* Returnable — return_eligible is fully wired (merchants set it,
+              checkout/orders already read it) but was never shown to
+              shoppers on the PDP itself. */}
+          {product.return_eligible && (
+            <div className="mt-2.5 px-4 md:px-0">
+              <span
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#4F7363]/10 text-[#4F7363] text-xs font-bold"
+                data-testid="returnable-badge"
+              >
+                <ShieldCheck size={13} /> easy returns · 24h window
+              </span>
             </div>
           )}
 
@@ -273,19 +332,19 @@ export function ProductActions({
           )}
 
           {isAway && (
-            <div className="mt-3 mx-4 md:mx-0 px-4 py-2 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold text-center">
+            <div className="mt-3 mx-4 md:mx-0 px-4 py-2 rounded-full bg-[#E68910]/10 border border-[#E68910]/20 text-[#E68910] text-xs font-semibold text-center">
               Store is away · Delivery may take longer
             </div>
           )}
 
           {isClosed && (
-            <div className="mt-3 mx-4 md:mx-0 px-4 py-2 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold text-center" data-testid="preorder-note">
+            <div className="mt-3 mx-4 md:mx-0 px-4 py-2 rounded-full bg-[#E68910]/10 border border-[#E68910]/20 text-[#0A1F5C] text-xs font-semibold text-center" data-testid="preorder-note">
               {(storeOpensAtLabel || "Store opens soon")} · delivered after it opens
             </div>
           )}
 
           {isOffline && notifyOpen && (
-            <div className="mt-3 mx-4 md:mx-0 p-4 bg-[#F0F4FF] rounded-2xl">
+            <div className="mt-3 mx-4 md:mx-0 p-4 bg-[#F4F1E9] rounded-2xl">
               {notifySubmitted ? (
                 <div className="flex items-center gap-2 text-[#4F7363]">
                   <CheckCircle2 size={16} />
@@ -317,12 +376,57 @@ export function ProductActions({
           )}
 
           {isOffline && (
-            <p className="text-xs text-[#94A3B8] mt-2 px-4 md:px-0">
+            <p className="text-xs text-[#64748B] mt-2 px-4 md:px-0">
               <a href="#similar-products" className="hover:text-[#0A1F5C] transition">See similar products ↓</a>
             </p>
           )}
         </div>
 
+      </div>
+
+      {/* ── Sticky mobile add-to-bag bar ── price + one primary action,
+          fixed just above StickyBottomNav (same offset ActiveOrderPill
+          uses — see its own comment — rather than the bottom-nav-safe
+          PADDING utility, which is meant for scrollable page content
+          reserving space below itself, not for positioning a fixed
+          element's own top/bottom edge). Mirrors the inline action bar's
+          state/handlers exactly, so pre-order/closed/offline framing never
+          drifts between the two. Desktop keeps the existing sticky RIGHT
+          COLUMN (page.tsx's md:sticky wrapper) instead — this bar is
+          mobile-only. */}
+      <div
+        className="md:hidden fixed inset-x-0 z-40 bg-white border-t border-[#E5E2DC] shadow-[0_-4px_16px_rgba(10,31,92,0.08)] px-4 py-2.5 flex items-center gap-3"
+        style={{ bottom: "calc(4.75rem + env(safe-area-inset-bottom))" }}
+        data-testid="sticky-add-to-bag-bar"
+      >
+        <div className="min-w-0 shrink-0">
+          <div className="font-display text-lg font-bold text-[#0A1F5C] leading-none">₹{Number(product.price).toLocaleString("en-IN")}</div>
+          {product.mrp && product.mrp > product.price && (
+            <div className="text-[11px] text-[#94A3B8] line-through mt-0.5">₹{Number(product.mrp).toLocaleString("en-IN")}</div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          {isOffline ? (
+            <button
+              onClick={() => setNotifyOpen(true)}
+              className="w-full inline-flex items-center justify-center gap-1.5 py-3 rounded-full bg-[#0A1F5C] text-white text-sm font-bold"
+            >
+              <Bell size={15} /> Notify Me
+            </button>
+          ) : storeCanOrder ? (
+            <button
+              onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
+              data-testid="sticky-add-to-bag"
+              className="w-full inline-flex items-center justify-center gap-1.5 py-3 rounded-full bg-[#E68910] text-white text-sm font-bold active:scale-[0.98] transition shadow-[0_4px_12px_rgba(230,137,16,0.28)]"
+            >
+              <ShoppingBag size={16} /> {isClosed ? "Pre-order" : "Add to bag"}
+            </button>
+          ) : (
+            <div className="w-full text-center py-3 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold">
+              Unavailable
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Pickup sheet (fixed, always last in DOM) ── */}
@@ -357,7 +461,7 @@ export function ProductActions({
                       <div className="flex flex-wrap gap-2">
                         {product.sizes.map((s) => (
                           <button key={s} onClick={() => setSize(s)}
-                            className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-slate-200 hover:border-[#0A1F5C]"}`}>
+                            className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-[#E5E2DC] hover:border-[#0A1F5C]"}`}>
                             {s}
                           </button>
                         ))}

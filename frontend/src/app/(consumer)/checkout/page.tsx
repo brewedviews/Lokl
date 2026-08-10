@@ -17,6 +17,7 @@ import { useLocationStore } from "@/stores/location.store";
 import { CustomerOtpLogin } from "@/components/consumer/CustomerOtpLogin";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { useRazorpay } from "@/hooks/useRazorpay";
+import { isServiceablePincode } from "@/lib/serviceability";
 import type { CustomerAddress, ProductCard as ProductCardType } from "@/types";
 
 interface StoreAvailInfo {
@@ -32,13 +33,14 @@ const BLANK_ADDR = { name: "", phone: "", line1: "", landmark: "", city: "Bhilai
 // Pilot is Bhilai-only; centroid is good enough until we wire geolocation.
 const BHILAI_LAT = 21.1938;
 const BHILAI_LNG = 81.3509;
-// Single source of truth for "is this pincode serviceable" — used by BOTH
-// the checkout serviceability banner and order placement's own gate, so
-// the two can never disagree (previously the banner checked the browser's
-// GPS position instead of the delivery address, which falsely flagged
-// valid Bhilai addresses as unserviceable whenever the tester's device was
-// physically elsewhere).
-const BHILAI_PINCODES = ["490001", "490006", "490009", "490020", "490023"];
+// isServiceablePincode() (lib/serviceability.ts) is the single source of
+// truth for "is this pincode serviceable" — used by BOTH the checkout
+// serviceability banner and order placement's own gate below, so the two
+// can never disagree (previously the banner checked the browser's GPS
+// position instead of the delivery address, which falsely flagged valid
+// Bhilai addresses as unserviceable whenever the tester's device was
+// physically elsewhere), and by the product page's delivery/serviceability
+// line, so all three surfaces agree on what's deliverable.
 
 type DeliveryEstimate = {
   deliverable: boolean;
@@ -90,7 +92,7 @@ export default function CheckoutPage() {
       setUnserviceableMessage("");
       return;
     }
-    if (!BHILAI_PINCODES.includes(pin)) {
+    if (!isServiceablePincode(pin)) {
       setUnserviceable(true);
       setUnserviceableMessage("Sorry, we don't deliver to this pincode yet. We're expanding soon!");
     } else {
@@ -263,7 +265,7 @@ export default function CheckoutPage() {
     if ((addr.city || "").trim().toLowerCase() !== "bhilai") {
       return toast.error("Lokl is only serving Bhilai right now — please update your delivery city.");
     }
-    if (!BHILAI_PINCODES.includes(addr.pincode.trim())) {
+    if (!isServiceablePincode(addr.pincode.trim())) {
       return toast.error("We only deliver to Bhilai pincodes (490xxx). Please check your pincode.");
     }
     if (items.length === 0) return toast.error("Bag is empty");

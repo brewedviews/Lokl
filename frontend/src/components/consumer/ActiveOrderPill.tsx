@@ -74,13 +74,16 @@ export function ActiveOrderPill() {
   }, [isAuthenticated, phone]);
 
   // Routes that already own the bottom-of-screen real estate (checkout's
-  // sticky place-order button) or where this is redundant (the order
-  // tracking page itself — the user is already looking at this order).
-  // StickyBottomNav hides on /merchant and /admin too; mirrored here so
-  // the pill never floats over the merchant/admin chrome.
+  // sticky place-order button, the product page's own sticky add-to-bag
+  // bar — both sit at this exact same "just above the bottom nav" offset)
+  // or where this is redundant (the order tracking page itself — the user
+  // is already looking at this order). StickyBottomNav hides on /merchant
+  // and /admin too; mirrored here so the pill never floats over the
+  // merchant/admin chrome.
   const hideOnRoute = pathname.startsWith("/checkout")
     || pathname.startsWith("/orders/")
     || pathname.startsWith("/account/orders/")
+    || pathname.startsWith("/product/")
     || pathname.startsWith("/merchant")
     || pathname.startsWith("/admin");
 
