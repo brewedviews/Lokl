@@ -2954,6 +2954,110 @@ def _stamp_merchant_step(timelines: dict, mid: str, label: str, when: str) -> di
     return timelines
 
 
+async def _mark_leg_handed_off(o: dict, mid: str) -> dict:
+    """Transition one merchant's leg from 'accepted' to 'handed_off': stamps the
+    timeline, recomputes global status, persists, and notifies the customer with
+    that leg's OTP. Extracted from merchant_handed_to_rider so it can be shared
+    with the future rider 'picked-up' endpoint — both funnel through this one
+    transition function rather than duplicating the mutation logic.
+
+    Caller must have already fetched `o` fresh (this does not re-read). Raises
+    400 if the leg isn't currently 'accepted'."""
+    oid = o["id"]
+    states = dict(o.get("merchant_states") or {})
+    my_state = states.get(mid) or (o.get("status") if not states else "pending")
+    if my_state not in ("accepted",):
+        raise HTTPException(400, "Accept the order before handing it to the rider")
+    now = datetime.now(timezone.utc).isoformat()
+    states[mid] = "handed_off"
+    timelines = dict(o.get("merchant_timelines") or {})
+    if mid not in timelines:
+        timelines[mid] = _new_merchant_timeline(o.get("created_at", now))
+    timelines = _stamp_merchant_step(timelines, mid, "Order on the way", now)
+    all_handed = states and all(_STATE_RANK.get(v, 0) >= _STATE_RANK["handed_off"] for v in states.values())
+    new_global = _derive_global_status(states)
+    tl = o.get("timeline", [])
+    if all_handed:
+        for t in tl:
+            if t["label"] in ("Order on the way", "Handed to rider", "Rider on the way") and not t["time"]:
+                t["time"] = now; break
+    await db.orders.update_one({"id": oid}, {"$set": {"status": new_global, "merchant_states": states,
+                                                       "merchant_timelines": timelines, "timeline": tl}})
+    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    if cust_phone:
+        my_otp = (o.get("merchant_otps") or {}).get(mid) or o.get("otp", "")
+        try: notify_order_on_the_way(cust_phone, oid, my_otp)
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
+    return {"all_handed": all_handed, "new_global": new_global, "my_state": "handed_off"}
+
+
+def _apply_delivered_state(states: dict, timelines: dict, delivered_map: dict, mid: str,
+                            created_at: str, now: str) -> None:
+    """Pure in-place mutation marking ONE merchant leg 'delivered' — sets
+    states[mid], stamps that leg's timeline, and records delivered_map[mid].
+    No guard, no I/O; callers decide whether this mid is eligible first (e.g.
+    'already delivered' or 'must be handed_off') before calling."""
+    states[mid] = "delivered"
+    if mid not in timelines:
+        timelines[mid] = _new_merchant_timeline(created_at)
+    _stamp_merchant_step(timelines, mid, "Delivered", now)
+    delivered_map[mid] = now
+
+
+async def _finalize_delivery_update(oid: str, o: dict, states: dict, timelines: dict,
+                                     delivered_map: dict, now: str, *,
+                                     delivered_via: Optional[str] = None) -> str:
+    """Recompute global status from `states`, persist the order, and notify the
+    customer once the WHOLE order (every merchant leg) is delivered. Always
+    writes — callers may call this even when no leg actually changed state this
+    round (matches the existing admin/Twilio behavior of an idempotent write
+    regardless of whether a guard rejected the transition)."""
+    new_global = _derive_global_status(states) if states else "delivered"
+    tl = o.get("timeline", [])
+    update_doc = {"status": new_global, "merchant_states": states,
+                  "merchant_timelines": timelines, "merchant_delivered_at": delivered_map}
+    if delivered_via:
+        update_doc["delivered_via"] = delivered_via
+    if new_global == "delivered":
+        for t in tl:
+            if t["label"] == "Delivered" and not t["time"]:
+                t["time"] = now; break
+        update_doc["timeline"] = tl
+        update_doc["delivered_at"] = now
+    await db.orders.update_one({"id": oid}, {"$set": update_doc})
+    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+    if cust_phone and new_global == "delivered":
+        try: notify_order_delivered(cust_phone, oid)
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
+    return new_global
+
+
+async def _mark_leg_delivered(o: dict, mid: Optional[str], *, require_handed_off: bool = True,
+                               delivered_via: Optional[str] = None) -> str:
+    """Single-merchant-leg 'mark delivered' flow — extracted from twilio_inbound's
+    delivery branch. Mutates leg `mid` to 'delivered' only if `mid` is set AND
+    (require_handed_off is False OR that leg is currently 'handed_off') —
+    mirroring Twilio's existing guard exactly, including its no-op-but-still-write
+    behavior when the guard rejects the transition (empty/legacy `states` still
+    finalizes to 'delivered' via `_finalize_delivery_update`'s `if states else
+    'delivered'` fallback). OTP validation is the CALLER's responsibility (Twilio
+    regex-matches before calling; the future rider endpoint will validate
+    structurally) — this helper only performs the state transition.
+
+    Caller must have already fetched `o` fresh (this does not re-read)."""
+    oid = o["id"]
+    states = dict(o.get("merchant_states") or {})
+    timelines = dict(o.get("merchant_timelines") or {})
+    delivered_map = dict(o.get("merchant_delivered_at") or {})
+    now = datetime.now(timezone.utc).isoformat()
+    if mid and (not require_handed_off or states.get(mid) == "handed_off"):
+        _apply_delivered_state(states, timelines, delivered_map, mid, o.get("created_at", now), now)
+    return await _finalize_delivery_update(oid, o, states, timelines, delivered_map, now,
+                                            delivered_via=delivered_via)
+
+
 async def _merchant_cancel_own_slice(oid: str, mid: str, reason: str) -> str:
     """Cancel one merchant's slice of an order — restocks exactly that
     merchant's items, marks their per-merchant state 'cancelled', and
@@ -3697,34 +3801,8 @@ async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_us
     o = await db.orders.find_one({"id": oid, "merchant_ids": user["sub"]}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
     mid = user["sub"]
-    states = dict(o.get("merchant_states") or {})
-    my_state = states.get(mid) or (o.get("status") if not states else "pending")
-    if my_state not in ("accepted",):
-        raise HTTPException(400, "Accept the order before handing it to the rider")
-    now = datetime.now(timezone.utc).isoformat()
-    # Mark this merchant as handed off
-    states[mid] = "handed_off"
-    timelines = dict(o.get("merchant_timelines") or {})
-    if mid not in timelines:
-        timelines[mid] = _new_merchant_timeline(o.get("created_at", now))
-    timelines = _stamp_merchant_step(timelines, mid, "Order on the way", now)
-    all_handed = states and all(_STATE_RANK.get(v, 0) >= _STATE_RANK["handed_off"] for v in states.values())
-    new_global = _derive_global_status(states)
-    tl = o.get("timeline", [])
-    if all_handed:
-        for t in tl:
-            if t["label"] in ("Order on the way", "Handed to rider", "Rider on the way") and not t["time"]:
-                t["time"] = now; break
-    await db.orders.update_one({"id": oid}, {"$set": {"status": new_global, "merchant_states": states,
-                                                       "merchant_timelines": timelines, "timeline": tl}})
-    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
-    if cust_phone:
-        # Notify customer THIS store is on the way (with that store's unique OTP)
-        my_otp = (o.get("merchant_otps") or {}).get(mid) or o.get("otp", "")
-        try: notify_order_on_the_way(cust_phone, oid, my_otp)
-        except Exception as _ne:
-            print(f"[notify_error] {_ne}", flush=True)
-    return {"ok": True, "all_handed": all_handed, "my_state": "handed_off"}
+    result = await _mark_leg_handed_off(o, mid)
+    return {"ok": True, "all_handed": result["all_handed"], "my_state": result["my_state"]}
 
 
 @api.post("/merchant/orders/{oid}/reject")
@@ -3895,28 +3973,9 @@ async def admin_mark_delivered(oid: str, payload: Optional[dict] = None, admin: 
     for mid in targets:
         if states.get(mid) == "delivered":
             continue
-        states[mid] = "delivered"
-        if mid not in timelines:
-            timelines[mid] = _new_merchant_timeline(o.get("created_at", now))
-        timelines = _stamp_merchant_step(timelines, mid, "Delivered", now)
-        delivered_map[mid] = now
+        _apply_delivered_state(states, timelines, delivered_map, mid, o.get("created_at", now), now)
 
-    new_global = _derive_global_status(states) if states else "delivered"
-    tl = o.get("timeline", [])
-    update_doc = {"status": new_global, "merchant_states": states,
-                  "merchant_timelines": timelines, "merchant_delivered_at": delivered_map}
-    if new_global == "delivered":
-        for t in tl:
-            if t["label"] == "Delivered" and not t["time"]:
-                t["time"] = now; break
-        update_doc["timeline"] = tl
-        update_doc["delivered_at"] = now
-    await db.orders.update_one({"id": oid}, {"$set": update_doc})
-    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
-    if cust_phone and new_global == "delivered":
-        try: notify_order_delivered(cust_phone, oid)
-        except Exception as _ne:
-            print(f"[notify_error] {_ne}", flush=True)
+    new_global = await _finalize_delivery_update(oid, o, states, timelines, delivered_map, now)
     return {"ok": True, "all_delivered": new_global == "delivered", "merchant_states": states}
 
 @api.post("/admin/orders/{oid}/cancel")
@@ -5272,37 +5331,10 @@ async def twilio_inbound(request: Request):
         return Response(content=twiml_empty, media_type="application/xml")
     o = target_order
 
-    now = datetime.now(timezone.utc).isoformat()
-    states = dict(o.get("merchant_states") or {})
-    timelines = dict(o.get("merchant_timelines") or {})
-    delivered_map = dict(o.get("merchant_delivered_at") or {})
-    # Only mark delivered if THIS merchant's leg has been handed to rider.
-    if target_mid and states.get(target_mid) == "handed_off":
-        states[target_mid] = "delivered"
-        if target_mid not in timelines:
-            timelines[target_mid] = _new_merchant_timeline(o.get("created_at", now))
-        timelines = _stamp_merchant_step(timelines, target_mid, "Delivered", now)
-        delivered_map[target_mid] = now
-    elif target_mid is None and not states:
-        # Truly legacy order (no per-merchant state) — flip global
-        pass
-    new_global = _derive_global_status(states) if states else "delivered"
-    tl = o.get("timeline", [])
-    update_doc = {"status": new_global, "merchant_states": states,
-                  "merchant_timelines": timelines, "merchant_delivered_at": delivered_map,
-                  "delivered_via": "rider-whatsapp"}
-    if new_global == "delivered":
-        for t in tl:
-            if t["label"] == "Delivered" and not t["time"]:
-                t["time"] = now; break
-        update_doc["timeline"] = tl
-        update_doc["delivered_at"] = now
-    await db.orders.update_one({"id": o["id"]}, {"$set": update_doc})
-    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
-    if cust_phone and new_global == "delivered":
-        try: notify_order_delivered(cust_phone, o["id"])
-        except Exception as _ne:
-            print(f"[notify_error] {_ne}", flush=True)
+    # Only mark delivered if THIS merchant's leg has been handed to rider —
+    # enforced inside _mark_leg_delivered (require_handed_off=True, its default).
+    new_global = await _mark_leg_delivered(o, target_mid, delivered_via="rider-whatsapp")
+
     log.info("[Twilio inbound] marked %s as delivered via rider WhatsApp (merchant=%s, global=%s)",
              o["id"], target_mid, new_global)
     reply = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>✅ Lokl: Order {o["id"]} marked delivered. Thank you!</Message></Response>'
