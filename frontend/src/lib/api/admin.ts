@@ -9,7 +9,20 @@ import type {
   AdminAuthResponse, AdminLoginPayload, HomepageConfig,
   CmsCategory, CmsSubcategory, CmsArea, CmsOffer, CmsPriceBand, CmsDestinationSearch,
   CmsUploadResponse, AnalyticsAssetType, TopClicksResponse,
+  Rider, RiderStatus,
 } from "@/types";
+
+export interface AdminCreateRiderPayload {
+  phone: string;
+  name: string;
+  zone?: string;
+}
+
+export interface AdminUpdateRiderPayload {
+  status?: RiderStatus;
+  name?: string;
+  zone?: string;
+}
 
 export const adminApi = {
   login: async (payload: AdminLoginPayload): Promise<AdminAuthResponse> => {
@@ -111,6 +124,22 @@ export const adminApi = {
     const r = await apiClient.get<CmsDestinationSearch>(
       `/api/admin/cms/search-destinations?q=${encodeURIComponent(q)}`,
     );
+    return r.data;
+  },
+
+  // ── Riders (Phase 1 rider delivery platform, Commit 2 backend / 5 UI) ──
+  listRiders: async (): Promise<Rider[]> => {
+    const r = await apiClient.get<Rider[]>("/api/admin/riders");
+    return r.data;
+  },
+
+  createRider: async (payload: AdminCreateRiderPayload): Promise<Rider> => {
+    const r = await apiClient.post<Rider>("/api/admin/riders", payload);
+    return r.data;
+  },
+
+  updateRider: async (id: string, patch: AdminUpdateRiderPayload): Promise<Rider> => {
+    const r = await apiClient.patch<Rider>(`/api/admin/riders/${id}`, patch);
     return r.data;
   },
 

@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Shield, Users, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop, TicketPercent, MessageSquare } from "lucide-react";
+import { Shield, Users, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop, TicketPercent, MessageSquare, Bike } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
 import { useAdminAuthStore } from "@/stores";
 import { ReturnsTab } from "@/components/admin/ReturnsTab";
@@ -28,8 +28,9 @@ import { BankRequestsTab } from "@/components/admin/BankRequestsTab";
 import { LiveMetricsTab } from "@/components/admin/LiveMetricsTab";
 import { CmsTab } from "@/components/admin/CmsTab";
 import { SupportTab } from "@/components/admin/SupportTab";
+import { RidersTab } from "@/components/admin/RidersTab";
 
-type Tab = "stats" | "live" | "merchants" | "bank" | "products" | "orders" | "returns" | "support" | "customers" | "cms" | "waitlist" | "coupons";
+type Tab = "stats" | "live" | "merchants" | "bank" | "products" | "orders" | "returns" | "support" | "customers" | "cms" | "waitlist" | "coupons" | "riders";
 
 interface Stats {
   submitted_kyc: number;
@@ -68,6 +69,7 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ size?: n
   { id: "bank", label: "Bank/Address", icon: Landmark },
   { id: "products", label: "Products", icon: Package },
   { id: "orders", label: "Orders", icon: ShoppingBag },
+  { id: "riders", label: "Riders", icon: Bike },
   { id: "returns", label: "Returns", icon: RotateCcw },
   { id: "support", label: "Support", icon: MessageSquare },
   { id: "customers", label: "Customers", icon: UserSquare2 },
@@ -122,6 +124,7 @@ export default function AdminDashboardPage() {
         {tab === "bank" && <BankRequestsTab />}
         {tab === "products" && <ProductsTab />}
         {tab === "orders" && <OrdersTab />}
+        {tab === "riders" && <RidersTab />}
         {tab === "returns" && <ReturnsTab />}
         {tab === "support" && <SupportTab onOpenCountChange={setOpenSupportCount} />}
         {tab === "customers" && <CustomersTab />}
