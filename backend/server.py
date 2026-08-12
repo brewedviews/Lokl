@@ -36,6 +36,7 @@ from notifications import (
     notify_pickup_reserved, notify_merchant_pickup_reserved,
     notify_pickup_pending, notify_merchant_pickup_pending,
     notify_merchant_approved, notify_merchant_first_order,
+    get_provider, active_provider_name,
 )
 from ai_enhance import enhance_product_images
 from observability import init_sentry
@@ -492,36 +493,53 @@ class CustomerOtpVerify(BaseModel):
 @api.post("/auth/customer/request-otp")
 @_limit(_LIMIT_CUSTOMER_OTP_REQUEST)
 async def customer_request_otp(request: Request, payload: CustomerOtpRequest):
-    """Generate a 6-digit OTP, store its bcrypt hash with a 10-minute TTL,
-    and dispatch via WhatsApp. Always returns the same shape to prevent
-    user-enumeration via response timing/structure."""
+    """Generate/dispatch a 6-digit OTP. Always returns the same shape to
+    prevent user-enumeration via response timing/structure.
+
+    Branches on the active NOTIFICATION_PROVIDER (see notifications.py's
+    module docstring for the full OTP-ownership asymmetry):
+      - twilio (default): we generate the OTP, bcrypt-hash it into
+        db.customer_otps with a 10-minute TTL, and dispatch it — UNCHANGED
+        from before this migration, rollback-safe.
+      - msg91: MSG91's OTP API generates and owns the code itself; no local
+        record is written, since there's nothing to verify locally.
+    Either way the response shape is identical, so the frontend needs no
+    changes regardless of which provider is active.
+    """
     phone = _normalize_customer_phone(payload.phone)
     if not phone:
         raise HTTPException(400, "Invalid phone number")
 
-    otp = f"{secrets.randbelow(1_000_000):06d}"
-    otp_hash = hash_password(otp)
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    if active_provider_name() == "msg91":
+        try:
+            get_provider().send_otp(phone)
+        except Exception as e:
+            log.warning("MSG91 OTP send failed for %s: %s", phone, e)
+    else:
+        # ---- Twilio / local — UNCHANGED from before this migration ----
+        otp = f"{secrets.randbelow(1_000_000):06d}"
+        otp_hash = hash_password(otp)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
 
-    # Upsert so a re-request for the same phone overwrites the prior OTP.
-    await db.customer_otps.update_one(
-        {"phone": phone},
-        {"$set": {
-            "phone": phone,
-            "otp_hash": otp_hash,
-            "attempts": 0,
-            "expires_at": expires_at,
-            "created_at": datetime.now(timezone.utc),
-        }},
-        upsert=True,
-    )
+        # Upsert so a re-request for the same phone overwrites the prior OTP.
+        await db.customer_otps.update_one(
+            {"phone": phone},
+            {"$set": {
+                "phone": phone,
+                "otp_hash": otp_hash,
+                "attempts": 0,
+                "expires_at": expires_at,
+                "created_at": datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
 
-    # Fire-and-forget delivery. The notify helper logs OTP to backend logs
-    # when CUSTOMER_OTP_DEBUG=true so dev/preview works regardless of Twilio.
-    try:
-        notify_customer_otp(phone, otp)
-    except Exception as e:
-        log.warning("OTP delivery failed for %s: %s", phone, e)
+        # Fire-and-forget delivery. The notify helper logs OTP to backend logs
+        # when CUSTOMER_OTP_DEBUG=true so dev/preview works regardless of Twilio.
+        try:
+            notify_customer_otp(phone, otp)
+        except Exception as e:
+            log.warning("OTP delivery failed for %s: %s", phone, e)
 
     return {"ok": True, "message": "OTP sent if the phone is valid", "expires_in": 600}
 
@@ -529,35 +547,47 @@ async def customer_request_otp(request: Request, payload: CustomerOtpRequest):
 @api.post("/auth/customer/verify-otp")
 @_limit(_LIMIT_CUSTOMER_OTP_VERIFY)
 async def customer_verify_otp(request: Request, payload: CustomerOtpVerify):
-    """Verify the OTP and issue a customer JWT pair. After 5 wrong attempts
-    the OTP is invalidated and the customer must request a new one."""
+    """Verify the OTP and issue a customer JWT pair.
+
+    twilio (default): local bcrypt check against db.customer_otps, 5-attempt
+    lockout — UNCHANGED from before this migration, rollback-safe.
+    msg91: no local record exists (request-otp never wrote one) — verification
+    goes through get_provider().verify_otp(), which calls MSG91's verify API.
+    """
     phone = _normalize_customer_phone(payload.phone)
     if not phone or not payload.otp:
         raise HTTPException(400, "Invalid phone or OTP")
 
-    rec = await db.customer_otps.find_one({"phone": phone})
-    if not rec:
-        raise HTTPException(401, "OTP not found or expired — request a new one")
+    if active_provider_name() == "msg91":
+        if not get_provider().verify_otp(phone, payload.otp.strip()):
+            raise HTTPException(401, "Incorrect or expired OTP")
+    else:
+        # ---- Twilio / local — UNCHANGED from before this migration ----
+        rec = await db.customer_otps.find_one({"phone": phone})
+        if not rec:
+            raise HTTPException(401, "OTP not found or expired — request a new one")
 
-    expires_at = rec.get("expires_at")
-    if isinstance(expires_at, datetime):
-        # Mongo returns naive UTC; normalize before comparison.
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if expires_at < datetime.now(timezone.utc):
+        expires_at = rec.get("expires_at")
+        if isinstance(expires_at, datetime):
+            # Mongo returns naive UTC; normalize before comparison.
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at < datetime.now(timezone.utc):
+                await db.customer_otps.delete_one({"phone": phone})
+                raise HTTPException(401, "OTP expired — request a new one")
+
+        if int(rec.get("attempts", 0)) >= 5:
             await db.customer_otps.delete_one({"phone": phone})
-            raise HTTPException(401, "OTP expired — request a new one")
+            raise HTTPException(429, "Too many attempts — request a new OTP")
 
-    if int(rec.get("attempts", 0)) >= 5:
+        if not verify_password(payload.otp.strip(), rec.get("otp_hash", "")):
+            await db.customer_otps.update_one({"phone": phone}, {"$inc": {"attempts": 1}})
+            raise HTTPException(401, "Incorrect OTP")
+
+        # Success — burn the OTP.
         await db.customer_otps.delete_one({"phone": phone})
-        raise HTTPException(429, "Too many attempts — request a new OTP")
 
-    if not verify_password(payload.otp.strip(), rec.get("otp_hash", "")):
-        await db.customer_otps.update_one({"phone": phone}, {"$inc": {"attempts": 1}})
-        raise HTTPException(401, "Incorrect OTP")
-
-    # Success — burn the OTP, ensure a customer doc exists, issue tokens.
-    await db.customer_otps.delete_one({"phone": phone})
+    # Shared for both providers — ensure a customer doc exists, issue tokens.
     await db.customers.update_one(
         {"phone": phone},
         {"$setOnInsert": {
@@ -617,6 +647,13 @@ async def merchant_request_otp(request: Request, payload: MerchantOtpRequest):
     if not m:
         raise HTTPException(404, "No merchant account found. Please register first.")
 
+    # NOTE on the provider migration: unlike customer OTP, merchant login OTP
+    # is ALWAYS generated and verified locally regardless of NOTIFICATION_PROVIDER
+    # — see notifications.py's module docstring. Merchant OTP needs custom
+    # wording ("Lokl merchant login code...") that doesn't fit either
+    # provider's fixed OTP-template contract, so it never goes through
+    # send_otp()/verify_otp(); only the delivery channel (notify_merchant_otp
+    # -> send_with_fallback) switches with the active provider.
     otp = f"{secrets.randbelow(1_000_000):06d}"
     otp_hash = hash_password(otp)
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
@@ -647,7 +684,10 @@ async def merchant_request_otp(request: Request, payload: MerchantOtpRequest):
 async def merchant_verify_otp(request: Request, response: Response, payload: MerchantOtpVerify):
     """Verify the 6-digit OTP, issue a merchant JWT, and return the same
     response envelope as `/api/auth/login` so the frontend can use one
-    `setAuth(token, merchant)` call regardless of entry point."""
+    `setAuth(token, merchant)` call regardless of entry point.
+
+    Always a local bcrypt check regardless of NOTIFICATION_PROVIDER — see
+    the note in merchant_request_otp above."""
     p10 = _normalize_merchant_phone_10(payload.phone)
     if not p10 or not payload.otp:
         raise HTTPException(400, "Invalid phone or OTP")
@@ -730,6 +770,10 @@ async def rider_request_otp(request: Request, payload: RiderOtpRequest):
     if not phone:
         raise HTTPException(400, "Invalid phone number")
 
+    # Same provider-migration note as merchant_request_otp: rider login OTP
+    # is ALWAYS generated/verified locally regardless of NOTIFICATION_PROVIDER
+    # (custom wording, not the fixed OTP-template contract) — only the
+    # delivery channel switches with the active provider.
     rider = await db.riders.find_one({"phone": phone, "status": "active"}, {"_id": 0, "id": 1})
     if rider:
         otp = f"{secrets.randbelow(1_000_000):06d}"
@@ -1652,7 +1696,7 @@ async def customer_cancel_order(oid: str, request: Request, payload: Optional[di
         for m in cancellable:
             merch = await db.merchants.find_one({"id": m}, {"_id": 0, "phone": 1})
             if merch and merch.get("phone"):
-                try: send_with_fallback(merch["phone"], f"Order {oid} was cancelled by the customer.")
+                try: send_with_fallback(merch["phone"], f"Order {oid} was cancelled by the customer.", message_type="merchant_order_cancelled_by_customer")
                 except Exception: pass
     else:
         await db.orders.update_one({"id": oid}, {"$set": {
@@ -1664,7 +1708,7 @@ async def customer_cancel_order(oid: str, request: Request, payload: Optional[di
         for m in (o.get("merchant_ids") or []):
             merch = await db.merchants.find_one({"id": m}, {"_id": 0, "phone": 1})
             if merch and merch.get("phone"):
-                try: send_with_fallback(merch["phone"], f"Order {oid} was cancelled by the customer before you accepted it.")
+                try: send_with_fallback(merch["phone"], f"Order {oid} was cancelled by the customer before you accepted it.", message_type="merchant_order_cancelled_by_customer")
                 except Exception: pass
     refund_initiated = False
     if o.get("payment_status") == "paid" and o.get("razorpay_payment_id"):
@@ -2847,7 +2891,7 @@ async def create_support_ticket(payload: dict, request: Request):
         admin_phone = os.environ.get("ADMIN_PHONE", "")
         if admin_phone:
             order_ref = f" (Order #{payload.get('order_id', '')[-6:].upper()})" if payload.get("order_id") else ""
-            send_with_fallback(admin_phone, f"New support ticket{order_ref}:\n{payload.get('message', '')[:200]}")
+            send_with_fallback(admin_phone, f"New support ticket{order_ref}:\n{payload.get('message', '')[:200]}", message_type="admin_support_ticket")
     except Exception:
         pass
 
@@ -3420,7 +3464,7 @@ async def _send_notify_me_messages(store_id: str) -> None:
                 f"Shop now: {APP_URL}/store/{store_slug}"
             )
             try:
-                send_with_fallback(phone, msg)
+                send_with_fallback(phone, msg, message_type="store_back_online")
             except Exception:
                 pass
             await db.notify_me.update_one(
@@ -6668,7 +6712,7 @@ async def _expire_pickup_reservations() -> int:
                 send_with_fallback(cust_phone,
                     f"Your Lokl pickup reservation for order {oid} at "
                     f"{order.get('store_name') or 'the store'} has expired and been cancelled. "
-                    "You have not been charged.")
+                    "You have not been charged.", message_type="pickup_reservation_expired")
             except Exception:
                 pass
         log.info("Expired pickup reservation %s", oid)
@@ -6719,7 +6763,7 @@ async def _auto_cancel_stale_orders():
                     try:
                         send_with_fallback(cust_phone,
                             f"Your Lokl order {oid} was auto-cancelled as no merchant accepted it within 2 hours. "
-                            "You have not been charged.")
+                            "You have not been charged.", message_type="order_auto_cancelled")
                     except Exception:
                         pass
                 log.info("Auto-cancelled stale order %s", oid)
