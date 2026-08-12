@@ -24,6 +24,7 @@ import jwt
 # Returns the JWT payload on success, raises 401 (no token) or 403 (wrong role).
 merchant_user = require_role("merchant", "admin")
 customer_user = require_role("customer", "admin")
+rider_user = require_role("rider", "admin")
 from ai_service import generate_product_copy, enhance_product_image, ai_model_tryon
 from seed_data import build_seed_docs, L1_CATEGORIES, L2_BY_L1, GENDERS
 from notifications import (
@@ -31,7 +32,7 @@ from notifications import (
     notify_order_accepted, notify_order_rejected, notify_order_delivered,
     notify_order_on_the_way, notify_order_cancelled, notify_rider_pickup,
     notify_rider_return_pickup, notify_return_status, notify_customer_otp,
-    notify_merchant_otp, send_with_fallback, APP_URL,
+    notify_merchant_otp, notify_rider_otp, send_with_fallback, APP_URL,
     notify_pickup_reserved, notify_merchant_pickup_reserved,
     notify_pickup_pending, notify_merchant_pickup_pending,
     notify_merchant_approved, notify_merchant_first_order,
@@ -691,7 +692,132 @@ async def merchant_verify_otp(request: Request, response: Response, payload: Mer
     return out
 
 
+# ===== Rider phone-OTP login (Phase 1 rider delivery platform, Commit 2) =====
+# Mirrors the customer-OTP flow (bcrypt-hashed OTP, 10-min TTL, 5-attempt
+# lockout), but riders are ADMIN-PROVISIONED like the merchant funnel, not
+# self-registered like customers — an authenticated rider sees real customer
+# addresses, so a random phone must never be able to OTP its way in.
+#
+# Differs from the merchant OTP flow too, though: merchant_request_otp 404s
+# on an unknown phone (a fine tradeoff for an open registration funnel — the
+# 404 gives a legitimate merchant a clear "register first" CTA). Rider
+# request-otp deliberately returns the SAME generic response whether or not
+# the phone is a registered/active rider, and only actually sends an OTP
+# behind that response when it is — so this endpoint can't be used to
+# enumerate the rider roster.
 
+class RiderOtpRequest(BaseModel):
+    phone: str
+
+
+class RiderOtpVerify(BaseModel):
+    phone: str
+    otp: str
+
+
+_LIMIT_RIDER_OTP_REQUEST = os.environ.get("RATE_LIMIT_RIDER_OTP_REQUEST", "5/minute")
+_LIMIT_RIDER_OTP_VERIFY = os.environ.get("RATE_LIMIT_RIDER_OTP_VERIFY", "10/minute")
+
+
+@api.post("/auth/rider/request-otp")
+@_limit(_LIMIT_RIDER_OTP_REQUEST)
+async def rider_request_otp(request: Request, payload: RiderOtpRequest):
+    """Generate a 6-digit OTP for a provisioned, active rider's phone and
+    dispatch via WhatsApp/SMS. Always returns the same response shape
+    regardless of whether the phone belongs to a registered rider (see
+    module note above) — the OTP is only actually created/sent when it does."""
+    phone = _normalize_customer_phone(payload.phone)  # shared Indian-phone normalization, not customer-specific
+    if not phone:
+        raise HTTPException(400, "Invalid phone number")
+
+    rider = await db.riders.find_one({"phone": phone, "status": "active"}, {"_id": 0, "id": 1})
+    if rider:
+        otp = f"{secrets.randbelow(1_000_000):06d}"
+        otp_hash = hash_password(otp)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+        await db.rider_otps.update_one(
+            {"phone": phone},
+            {"$set": {
+                "phone": phone,
+                "otp_hash": otp_hash,
+                "attempts": 0,
+                "expires_at": expires_at,
+                "created_at": datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
+        try:
+            notify_rider_otp(phone, otp)
+        except Exception as e:
+            log.warning("Rider OTP delivery failed for %s: %s", phone, e)
+
+    return {"ok": True, "message": "OTP sent if this is a registered rider", "expires_in": 600}
+
+
+@api.post("/auth/rider/verify-otp")
+@_limit(_LIMIT_RIDER_OTP_VERIFY)
+async def rider_verify_otp(request: Request, payload: RiderOtpVerify):
+    """Verify the OTP and issue a rider JWT with a long TTL (see
+    auth.create_token's role in ("customer", "rider") branch — a mid-delivery
+    401 at a customer's door is a much worse failure than a long-lived
+    token risk). After 5 wrong attempts the OTP is invalidated."""
+    phone = _normalize_customer_phone(payload.phone)
+    if not phone or not payload.otp:
+        raise HTTPException(400, "Invalid phone or OTP")
+
+    rec = await db.rider_otps.find_one({"phone": phone})
+    if not rec:
+        raise HTTPException(401, "OTP not found or expired — request a new one")
+
+    expires_at = rec.get("expires_at")
+    if isinstance(expires_at, datetime):
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
+            await db.rider_otps.delete_one({"phone": phone})
+            raise HTTPException(401, "OTP expired — request a new one")
+
+    if int(rec.get("attempts", 0)) >= 5:
+        await db.rider_otps.delete_one({"phone": phone})
+        raise HTTPException(429, "Too many attempts — request a new OTP")
+
+    if not verify_password(payload.otp.strip(), rec.get("otp_hash", "")):
+        await db.rider_otps.update_one({"phone": phone}, {"$inc": {"attempts": 1}})
+        raise HTTPException(401, "Incorrect OTP")
+
+    # Success — burn the OTP. Re-check the rider is still active (could have
+    # been suspended between request and verify) before issuing a token.
+    await db.rider_otps.delete_one({"phone": phone})
+    now = datetime.now(timezone.utc).isoformat()
+    rider = await db.riders.find_one_and_update(
+        {"phone": phone, "status": "active"},
+        {"$set": {"last_seen_at": now, "updated_at": now}},
+        projection={"_id": 0},
+        return_document=True,
+    )
+    if not rider:
+        raise HTTPException(403, "Rider account is not active")
+
+    access = create_token(phone, "rider", "access")
+    return {"token": access, "phone": phone, "role": "rider", "rider": rider}
+
+
+@api.patch("/rider/status")
+async def rider_update_status(payload: dict, user: dict = Depends(rider_user)):
+    """Rider self-service online/offline toggle. Body: {online: bool}. The
+    future incoming-orders feed (Commit 3) only surfaces legs to riders with
+    online=True. Does not touch any order/delivery state — rider doc only."""
+    online = bool(payload.get("online"))
+    now = datetime.now(timezone.utc).isoformat()
+    r = await db.riders.find_one_and_update(
+        {"phone": user["sub"]},
+        {"$set": {"online": online, "last_seen_at": now, "updated_at": now}},
+        projection={"_id": 0},
+        return_document=True,
+    )
+    if not r:
+        raise HTTPException(404, "Rider not found")
+    return {"ok": True, "online": online}
 
 
 async def _merchant_next_route(merchant_id: str) -> str:
@@ -1735,6 +1861,87 @@ async def admin_list_offers(admin: dict = Depends(require_admin)):
     """Includes unpublished offers, sorted by rank — public /offers does not."""
     rows = await db.offers.find({}, {"_id": 0}).sort("rank", 1).to_list(100)
     return rows
+
+
+# ===== Admin rider provisioning (Phase 1 rider delivery platform, Commit 2) =====
+# Minimal CRUD, mirroring admin_create_coupon/admin_list_coupons below. Riders
+# are admin-provisioned (see rider_request_otp near the merchant OTP login
+# section) — this is the only way a rider identity comes into existence in
+# Phase 1.
+
+class AdminRiderCreate(BaseModel):
+    phone: str
+    name: str
+    zone: Optional[str] = None
+
+
+class AdminRiderUpdate(BaseModel):
+    status: Optional[str] = None  # "active" | "suspended"
+    name: Optional[str] = None
+    zone: Optional[str] = None
+
+
+@api.post("/admin/riders")
+async def admin_create_rider(payload: AdminRiderCreate, admin: dict = Depends(require_admin)):
+    phone = _normalize_customer_phone(payload.phone)
+    if not phone:
+        raise HTTPException(400, "Invalid phone number")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(400, "name is required")
+    existing = await db.riders.find_one({"phone": phone})
+    if existing:
+        raise HTTPException(409, "A rider with this phone already exists")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": f"rider-{uuid.uuid4().hex[:8]}",
+        "phone": phone,
+        "name": name,
+        "status": "active",
+        "online": False,
+        "current_order_leg": None,
+        "zone": (payload.zone or "").strip() or None,
+        "created_at": now,
+        "updated_at": now,
+        "last_seen_at": None,
+    }
+    await db.riders.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.get("/admin/riders")
+async def admin_list_riders(admin: dict = Depends(require_admin)):
+    rows = await db.riders.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return rows
+
+
+@api.patch("/admin/riders/{rid}")
+async def admin_update_rider(rid: str, payload: AdminRiderUpdate, admin: dict = Depends(require_admin)):
+    """Update status (suspend/reactivate blocks/allows OTP login — see
+    rider_request_otp/rider_verify_otp's `status: 'active'` checks), name,
+    and/or zone. At least one field must be provided."""
+    updates: dict = {}
+    if payload.status is not None:
+        if payload.status not in ("active", "suspended"):
+            raise HTTPException(400, "status must be 'active' or 'suspended'")
+        updates["status"] = payload.status
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(400, "name cannot be empty")
+        updates["name"] = name
+    if payload.zone is not None:
+        updates["zone"] = payload.zone.strip() or None
+    if not updates:
+        raise HTTPException(400, "No fields to update")
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    r = await db.riders.find_one_and_update(
+        {"id": rid}, {"$set": updates}, projection={"_id": 0}, return_document=True,
+    )
+    if not r:
+        raise HTTPException(404, "Rider not found")
+    return r
 
 
 @api.post("/admin/coupons")
@@ -6214,6 +6421,17 @@ async def startup_seed():
         await db.merchant_login_otps.create_index("expires_at", expireAfterSeconds=0)
     except Exception as e:
         log.warning("merchant_login_otps indexes: %s", e)
+
+    # Rider delivery platform Phase 1, Commit 2: rider phone-OTP login.
+    # Same TTL strategy as customer/merchant OTP collections above.
+    # db.riders' own id/phone unique indexes live in migrations/014_riders.py
+    # (structural collection, not an ephemeral OTP store — matches how
+    # products/stores indexes went through the formal migrations/ path too).
+    try:
+        await db.rider_otps.create_index("phone", unique=True)
+        await db.rider_otps.create_index("expires_at", expireAfterSeconds=0)
+    except Exception as e:
+        log.warning("rider_otps indexes: %s", e)
 
     # Revoked-refresh-token store: auto-pruned when the JWT's natural expiry
     # passes, so the collection stays small.

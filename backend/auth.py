@@ -55,7 +55,10 @@ def create_token(user_id: str, role: str = "merchant", token_type: str = "access
         delta = timedelta(days=JWT_REFRESH_DAYS)
     elif role == "admin":
         delta = timedelta(hours=8)
-    elif role == "customer":
+    elif role in ("customer", "rider"):
+        # Riders are phone-first field workers mid-delivery — a 15-minute
+        # merchant-style expiry would 401 them at a customer's door. Same
+        # long-lived tradeoff as customer tokens, for the same reason.
         delta = timedelta(days=365)
     else:
         delta = timedelta(minutes=JWT_ACCESS_MIN)

@@ -287,6 +287,20 @@ def notify_merchant_otp(merchant_phone: str, otp: str) -> None:
     send_with_fallback(merchant_phone, body)
 
 
+def notify_rider_otp(rider_phone: str, otp: str) -> None:
+    """Phase 1 rider delivery platform, Commit 2: rider phone-OTP login. Same
+    Twilio fallback path as customer/merchant OTP — WhatsApp first, then SMS.
+    Body intentionally identifies this as a *rider* code, same reasoning as
+    notify_merchant_otp — riders may also be Lokl customers on the same phone."""
+    if os.environ.get("CUSTOMER_OTP_DEBUG", "").strip().lower() in ("1", "true", "yes"):
+        log.warning("[RIDER-OTP-DEBUG] phone=%s otp=%s", rider_phone, otp)
+    body = (
+        f"Lokl rider login code: {otp}. "
+        f"Valid for 10 minutes. Don't share this code with anyone."
+    )
+    send_with_fallback(rider_phone, body)
+
+
 def notify_order_placed(phone: str, order_id: str, total: float) -> None:
     short = order_id[-6:].upper()
     body = (
