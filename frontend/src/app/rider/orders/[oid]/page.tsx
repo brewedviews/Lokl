@@ -1,13 +1,26 @@
 "use client";
 
 /**
- * Rider order detail — the delivery workflow screen (Phase 1, Commit 4).
+ * Rider order detail — the delivery workflow screen (Phase 1, Commit 4;
+ * revised Group A2 for the A1 backend redesign — simultaneous dispatch +
+ * two-OTP model).
  *
  * One primary "what's next" button per state, not a status picker:
- *   accepted, not reached  -> "I've reached the store"   (reached-store)
- *   accepted, reached      -> "Picked up the order"      (picked-up)
- *   handed_off             -> "Mark delivered" -> OTP entry -> (deliver)
- *   delivered               -> success state -> back to feed
+ *   pending/accepted, not reached -> "I've reached the store"  (reached-store;
+ *                                     works even before the merchant accepts)
+ *   reached, merchant not accepted -> disabled "Waiting for the store to accept"
+ *   reached, merchant accepted    -> "Out for delivery" -> enter the MERCHANT
+ *                                     HANDOFF code (told to the merchant at
+ *                                     pickup) -> out-for-delivery
+ *   handed_off, no payment yet    -> "Payment received" (collect first)
+ *   handed_off, payment done      -> "Mark delivered" -> enter the CUSTOMER's
+ *                                     delivery code -> deliver
+ *   delivered                     -> success state -> back to feed
+ *
+ * The merchant-handoff OTP is shown prominently and unconditionally (the
+ * rider needs to know it well before the "out for delivery" step, not just
+ * at the moment they submit it) — separate from the customer's delivery OTP
+ * further down, which is what's asked for at drop-off.
  *
  * Polls GET /api/rider/orders/{oid} every 8s (same cadence + stop-on-terminal
  * technique as the customer order-tracking page), stopping once the leg is
@@ -17,7 +30,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Store, MapPin, Phone, Navigation, Package, CheckCircle2, Loader2,
-  ShieldCheck, Wallet, QrCode, ArrowLeft,
+  ShieldCheck, Wallet, QrCode, ArrowLeft, KeyRound, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -37,6 +50,11 @@ export default function RiderOrderDetailPage() {
   const [detail, setDetail] = useState<RiderOrderLegDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  const [showHandoffForm, setShowHandoffForm] = useState(false);
+  const [handoffInput, setHandoffInput] = useState("");
+  const [handoffError, setHandoffError] = useState("");
+
   const [showOtpForm, setShowOtpForm] = useState(false);
   const [otpInput, setOtpInput] = useState("");
   const [cashCollected, setCashCollected] = useState(false);
@@ -70,12 +88,28 @@ export default function RiderOrderDetailPage() {
     } finally { setBusy(false); }
   };
 
-  const pickedUp = async () => {
+  const submitHandoff = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!detail || handoffInput.length !== 4) return;
+    setBusy(true);
+    setHandoffError("");
+    try {
+      await api.rider.outForDelivery(oid, detail.merchant_id, { merchant_handoff_otp: handoffInput });
+      toast.success("Out for delivery");
+      setShowHandoffForm(false);
+      setHandoffInput("");
+      await load();
+    } catch (err) {
+      setHandoffError(getErrorMessage(err));
+    } finally { setBusy(false); }
+  };
+
+  const markPaymentReceived = async () => {
     if (!detail) return;
     setBusy(true);
     try {
-      await api.rider.pickedUp(oid, detail.merchant_id);
-      toast.success("Marked picked up");
+      await api.rider.paymentCompleted(oid, detail.merchant_id, { payment_method: detail.payment.method });
+      toast.success("Payment marked received");
       await load();
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -88,10 +122,7 @@ export default function RiderOrderDetailPage() {
     setBusy(true);
     setOtpError("");
     try {
-      await api.rider.deliver(oid, detail.merchant_id, {
-        otp: otpInput,
-        cash_collected: detail.payment.method === "cod" ? cashCollected : undefined,
-      });
+      await api.rider.deliver(oid, detail.merchant_id, { otp: otpInput, cash_collected: cashCollected });
       toast.success("Delivered!");
       await load();
     } catch (err) {
@@ -115,8 +146,11 @@ export default function RiderOrderDetailPage() {
   }
 
   const reached = !!detail.rider_assignment?.reached_store_at;
-  const isDelivered = detail.status === "delivered";
+  const paymentDone = !!detail.rider_assignment?.payment_completed_at;
+  const isPending = detail.status === "pending";
+  const isAccepted = detail.status === "accepted";
   const isHandedOff = detail.status === "handed_off";
+  const isDelivered = detail.status === "delivered";
 
   if (isDelivered) {
     return (
@@ -137,6 +171,14 @@ export default function RiderOrderDetailPage() {
     );
   }
 
+  let statusLabel = "Heading to store";
+  if (isPending && !reached) statusLabel = "Heading to store · waiting for store to accept";
+  else if (isPending && reached) statusLabel = "At the store · waiting for store to accept";
+  else if (isAccepted && !reached) statusLabel = "Heading to store";
+  else if (isAccepted && reached) statusLabel = "At the store · ready for handoff";
+  else if (isHandedOff && !paymentDone) statusLabel = "Out for delivery · collect payment";
+  else if (isHandedOff && paymentDone) statusLabel = "Out for delivery · ready to complete";
+
   return (
     <div className="flex-1 flex flex-col pb-6" data-testid="rider-order-detail">
       <div className="px-4 pt-4">
@@ -147,8 +189,21 @@ export default function RiderOrderDetailPage() {
 
       <div className="px-4 space-y-4 flex-1">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-accent/10 text-brand-accent text-xs font-bold uppercase tracking-wide" data-testid="rider-status-pill">
-          {isHandedOff ? "Picked up · Out for delivery" : reached ? "At the store" : "Heading to store"}
+          {statusLabel}
         </div>
+
+        {/* MERCHANT HANDOFF CODE — always visible once assigned, so the rider
+            has it ready well before "out for delivery". */}
+        <section className="bg-brand-primary text-white rounded-card-lg p-4" data-testid="rider-handoff-otp-card">
+          <div className="flex items-center gap-2 mb-1">
+            <KeyRound size={16} className="text-brand-accent-alt" />
+            <h3 className="text-xs font-bold uppercase tracking-wide text-white/70">Merchant handoff code</h3>
+          </div>
+          <div className="font-display text-3xl font-bold tracking-[0.3em]" data-testid="rider-handoff-otp-value">
+            {detail.handoff_otp || "----"}
+          </div>
+          <p className="text-xs text-white/70 mt-1">{detail.handoff_otp_note}</p>
+        </section>
 
         {/* PICKUP */}
         <section className="bg-card-surface border border-card-border rounded-card-lg p-4" data-testid="rider-pickup-block">
@@ -200,7 +255,7 @@ export default function RiderOrderDetailPage() {
           </div>
         </section>
 
-        {/* OTP heads-up */}
+        {/* Customer delivery-code heads-up */}
         <section className="bg-brand-accent/10 border border-brand-accent/20 rounded-card-lg p-4 flex items-start gap-2">
           <ShieldCheck size={16} className="text-brand-accent shrink-0 mt-0.5" />
           <p className="text-sm text-brand-primary">{detail.otp_note}</p>
@@ -217,8 +272,54 @@ export default function RiderOrderDetailPage() {
             // eslint-disable-next-line @next/next/no-img-element
             <img src={detail.payment.upi_qr_url} alt="Store UPI QR code" className="w-32 h-32 mt-3 rounded-card border border-card-border object-contain bg-white" />
           )}
+          {isHandedOff && (
+            <div className="mt-3 pt-3 border-t border-card-border">
+              {paymentDone ? (
+                <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#22C55E]" data-testid="rider-payment-done-note">
+                  <CheckCircle2 size={14} /> Payment received
+                </p>
+              ) : (
+                <button
+                  onClick={markPaymentReceived} disabled={busy} data-testid="rider-payment-received-btn"
+                  className="w-full py-3 rounded-full bg-brand-primary text-white font-bold text-sm disabled:opacity-60"
+                >
+                  {busy ? "Updating…" : "Payment received"}
+                </button>
+              )}
+            </div>
+          )}
         </section>
 
+        {/* Merchant-handoff confirmation form */}
+        {showHandoffForm && (
+          <form onSubmit={submitHandoff} className="bg-card-surface border border-card-border rounded-card-lg p-4 space-y-3" data-testid="rider-handoff-otp-form">
+            <h3 className="text-sm font-bold text-brand-primary">Confirm the code you told the store</h3>
+            <input
+              value={handoffInput}
+              onChange={(e) => { setHandoffInput(e.target.value.replace(/\D/g, "").slice(0, 4)); setHandoffError(""); }}
+              placeholder="••••" inputMode="numeric" autoFocus data-testid="rider-handoff-otp-input"
+              className="w-full px-4 py-3 rounded-card border border-card-border text-center text-2xl tracking-[0.5em] font-bold text-brand-primary focus:border-brand-accent outline-none"
+            />
+            {handoffError && <p className="text-sm text-red-600" data-testid="rider-handoff-otp-error">{handoffError}</p>}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => { setShowHandoffForm(false); setHandoffError(""); setHandoffInput(""); }}
+                className="flex-1 py-3 rounded-full border border-card-border text-brand-primary font-semibold text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit" disabled={busy || handoffInput.length !== 4} data-testid="rider-confirm-handoff-btn"
+                className="flex-[2] py-3 rounded-full bg-brand-primary text-white font-bold text-sm disabled:opacity-60"
+              >
+                {busy ? "Confirming…" : "Confirm out for delivery"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Customer delivery-OTP entry form */}
         {showOtpForm && (
           <form onSubmit={submitDelivery} className="bg-card-surface border border-card-border rounded-card-lg p-4 space-y-3" data-testid="rider-otp-form">
             <h3 className="text-sm font-bold text-brand-primary">Enter the customer&apos;s delivery code</h3>
@@ -257,9 +358,9 @@ export default function RiderOrderDetailPage() {
         )}
       </div>
 
-      {!showOtpForm && (
+      {!showHandoffForm && !showOtpForm && (
         <div className="sticky bottom-0 bg-brand-bg border-t border-card-border px-4 pt-3 pb-4 mt-4">
-          {detail.status === "accepted" && !reached && (
+          {!reached && (isPending || isAccepted) && (
             <button
               onClick={reachedStore} disabled={busy} data-testid="rider-reached-store-btn"
               className="w-full py-4 rounded-full bg-brand-primary text-white font-bold text-base disabled:opacity-60"
@@ -267,15 +368,26 @@ export default function RiderOrderDetailPage() {
               {busy ? "Updating…" : "I've reached the store"}
             </button>
           )}
-          {detail.status === "accepted" && reached && (
+          {reached && isPending && (
             <button
-              onClick={pickedUp} disabled={busy} data-testid="rider-picked-up-btn"
-              className="w-full py-4 rounded-full bg-brand-primary text-white font-bold text-base disabled:opacity-60"
+              disabled data-testid="rider-waiting-for-merchant-btn"
+              className="w-full py-4 rounded-full bg-card-border text-text-muted font-bold text-base flex items-center justify-center gap-2 cursor-not-allowed"
             >
-              {busy ? "Updating…" : "Picked up the order"}
+              <Clock size={18} /> Waiting for the store to accept
             </button>
           )}
-          {isHandedOff && (
+          {reached && isAccepted && (
+            <button
+              onClick={() => setShowHandoffForm(true)} data-testid="rider-out-for-delivery-btn"
+              className="w-full py-4 rounded-full bg-brand-primary text-white font-bold text-base"
+            >
+              Out for delivery
+            </button>
+          )}
+          {isHandedOff && !paymentDone && (
+            <p className="text-center text-xs text-text-muted py-2">Mark payment received above to continue</p>
+          )}
+          {isHandedOff && paymentDone && (
             <button
               onClick={() => setShowOtpForm(true)} data-testid="rider-mark-delivered-btn"
               className="w-full py-4 rounded-full bg-[#22C55E] text-white font-bold text-base flex items-center justify-center gap-2"

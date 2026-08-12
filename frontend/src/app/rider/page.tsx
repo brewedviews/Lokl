@@ -16,7 +16,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Store, MapPin, Package, Loader2, PowerOff } from "lucide-react";
+import { Store, MapPin, Package, Loader2, PowerOff, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { getErrorMessage, getErrorStatus } from "@/lib/api-error";
@@ -133,7 +133,18 @@ export default function RiderFeedPage() {
                     <Store size={18} className="text-brand-accent" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-brand-primary truncate">{leg.store_name}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-bold text-brand-primary truncate">{leg.store_name}</p>
+                      {leg.merchant_accepted ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#22C55E]/10 text-[#22C55E] text-[10px] font-bold uppercase tracking-wide shrink-0">
+                          Ready
+                        </span>
+                      ) : (
+                        <span data-testid="rider-leg-waiting-badge" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand-accent/10 text-brand-accent text-[10px] font-bold uppercase tracking-wide shrink-0">
+                          <Clock size={10} /> Waiting for store
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-text-muted mt-0.5">Pickup: {leg.pickup_area}</p>
                     <div className="flex items-center gap-1 text-xs text-text-muted mt-1">
                       <MapPin size={12} className="shrink-0" />

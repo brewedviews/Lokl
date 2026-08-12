@@ -113,7 +113,14 @@ export interface Order {
   merchant_ids: Id[];
   merchant_states: Record<Id, OrderMerchantState>;
 
+  /** The customer<->rider DELIVERY code. Rider-flow redesign (Group A1):
+   *  the backend only reveals this once the relevant leg is "handed_off"/
+   *  delivered — empty/absent before that, NOT at merchant-accept. */
   otp?: string;
+  /** Assigned rider's contact, keyed by merchant_id — stamped once that leg
+   *  goes "out for delivery" (naturally absent before, so no separate
+   *  gating needed on the read side). Single-store orders: one entry. */
+  rider_contact?: Record<Id, { name: string; phone: string }>;
   cancel_reason?: string;
   timeline: OrderTimelineEntry[];
 

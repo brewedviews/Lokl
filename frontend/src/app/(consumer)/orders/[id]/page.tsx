@@ -192,7 +192,14 @@ export default function OrderTrackingPage() {
   const pickupStoreName = order.store_name;
   const pickupStoreAddress = order.store_address;
   const pickupMapsLink = order.maps_link;
-  const showOtp = !order.is_multi_store && status === "on_the_way" && order.otp;
+  // Rider-flow redesign (Group A1): the backend only populates order.otp once
+  // the leg is handed_off/delivered — never at merchant-accept — so this is
+  // unchanged from before; still scoped to "on_the_way" (mid-transit) so the
+  // card disappears again once actually delivered. Multi-store orders carry
+  // per-store OTPs via store_breakdown instead (not yet surfaced in this
+  // single-order-level card).
+  const showOtp = !order.is_multi_store && status === "on_the_way" && !!order.otp;
+  const riderContact = order.rider_contact ? Object.values(order.rider_contact)[0] : null;
   const address = order.address;
   const isDeliveredLike = status === "delivered" || status === "returned";
   const isCancelledLike = status === "cancelled";
@@ -262,6 +269,15 @@ export default function OrderTrackingPage() {
             <div className="text-[10px] uppercase tracking-[0.25em] text-white/60">Share with the rider</div>
             <div data-testid="delivery-otp" className="font-display text-4xl sm:text-6xl font-bold tracking-[0.3em] tabular-nums text-[#E68910] mt-2">{order.otp}</div>
             <p className="text-[11px] sm:text-xs text-white/70 mt-2">The rider will ask for this 4-digit code on arrival. Do not share until then.</p>
+            {riderContact?.phone && (
+              <a
+                href={`tel:${riderContact.phone}`}
+                data-testid="call-rider-link"
+                className="inline-flex items-center gap-1.5 mt-4 px-4 py-2 rounded-full bg-white/10 text-white text-xs font-semibold hover:bg-white/20"
+              >
+                <Phone size={13} /> Call rider{riderContact.name ? ` · ${riderContact.name}` : ""}
+              </a>
+            )}
           </section>
         )}
 

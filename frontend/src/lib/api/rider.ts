@@ -1,8 +1,9 @@
 /**
- * Rider delivery-platform endpoints (Phase 1, Commits 2 + 3). Auth calls hit
- * /api/auth/rider/*; everything else hits /api/rider/* — api-client.ts
- * classifies both under the "rider" scope and attaches the rider bearer
- * token automatically.
+ * Rider delivery-platform endpoints (Phase 1, Commits 2 + 3; revised Group A2
+ * for the A1 backend redesign — simultaneous dispatch + two-OTP model). Auth
+ * calls hit /api/auth/rider/*; everything else hits /api/rider/* —
+ * api-client.ts classifies both under the "rider" scope and attaches the
+ * rider bearer token automatically.
  */
 import { apiClient } from "@/lib/api-client";
 import type {
@@ -15,7 +16,10 @@ import type {
   RiderAvailableOrdersResponse,
   RiderAcceptResponse,
   RiderReachedStoreResponse,
-  RiderPickedUpResponse,
+  RiderOutForDeliveryPayload,
+  RiderOutForDeliveryResponse,
+  RiderPaymentCompletedPayload,
+  RiderPaymentCompletedResponse,
   RiderDeliverPayload,
   RiderDeliverResponse,
   RiderOrderLegDetail,
@@ -39,7 +43,7 @@ export const riderApi = {
     return r.data;
   },
 
-  // ---------------- Order endpoints (Commit 3) ----------------
+  // ---------------- Order endpoints (Commit 3, redesigned Group A1) ----------------
   available: async (): Promise<RiderAvailableOrdersResponse> => {
     const r = await apiClient.get<RiderAvailableOrdersResponse>("/api/rider/orders/available");
     return r.data;
@@ -55,8 +59,16 @@ export const riderApi = {
     return r.data;
   },
 
-  pickedUp: async (oid: string, mid: string): Promise<RiderPickedUpResponse> => {
-    const r = await apiClient.post<RiderPickedUpResponse>(`/api/rider/orders/${oid}/${mid}/picked-up`, {});
+  /** REPLACES the old pickedUp() — now requires the merchant-handoff OTP,
+   *  validated server-side. */
+  outForDelivery: async (oid: string, mid: string, payload: RiderOutForDeliveryPayload): Promise<RiderOutForDeliveryResponse> => {
+    const r = await apiClient.post<RiderOutForDeliveryResponse>(`/api/rider/orders/${oid}/${mid}/out-for-delivery`, payload);
+    return r.data;
+  },
+
+  /** Hard-gates deliver() below; pings the merchant's in-app notifications. */
+  paymentCompleted: async (oid: string, mid: string, payload: RiderPaymentCompletedPayload = {}): Promise<RiderPaymentCompletedResponse> => {
+    const r = await apiClient.post<RiderPaymentCompletedResponse>(`/api/rider/orders/${oid}/${mid}/payment-completed`, payload);
     return r.data;
   },
 

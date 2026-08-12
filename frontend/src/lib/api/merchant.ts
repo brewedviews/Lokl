@@ -216,14 +216,6 @@ export const merchantApi = {
     return r.data;
   },
 
-  handToRider: async (id: string): Promise<{ ok: boolean }> => {
-    const r = await apiClient.post<{ ok: boolean }>(
-      `/api/merchant/orders/${id}/handed-to-rider`,
-      {},
-    );
-    return r.data;
-  },
-
   rejectOrder: async (id: string, reason?: string): Promise<{ ok: boolean; status: string }> => {
     const r = await apiClient.post<{ ok: boolean; status: string }>(
       `/api/merchant/orders/${id}/reject`,

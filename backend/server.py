@@ -4364,11 +4364,19 @@ async def merchant_orders(user: dict = Depends(get_current_user)):
         # it server-side; the merchant doesn't take any action here beyond
         # eyeballing the match — "Prefer: rider submits the OTP" design).
         o["my_handoff_otp"] = (o.get("merchant_handoff_otps") or {}).get(mid, "")
-        # Hide other merchants' OTPs from this merchant's view
+        # Rider-flow redesign: surface the rider's "payment completed" ping
+        # (POST /rider/orders/{oid}/{mid}/payment-completed) directly on this
+        # merchant's own order row — same convenience-field pattern as
+        # my_otp/my_handoff_otp above, so the frontend doesn't have to read
+        # an unredacted cross-merchant rider_assignments dict for it.
+        o["my_payment_completed_at"] = ((o.get("rider_assignments") or {}).get(mid) or {}).get("payment_completed_at")
+        # Hide other merchants' OTPs / rider assignments from this merchant's view
         if o.get("merchant_otps"):
             o["merchant_otps"] = {mid: o["my_otp"]}
         if o.get("merchant_handoff_otps"):
             o["merchant_handoff_otps"] = {mid: o["my_handoff_otp"]}
+        if o.get("rider_assignments"):
+            o["rider_assignments"] = {mid: o["rider_assignments"].get(mid)} if mid in o["rider_assignments"] else {}
         # The pickup code is only ever meant to be known by the customer —
         # only they receive it via WhatsApp (notify_pickup_reserved). It must
         # NOT be visible to the merchant here, otherwise verify-pickup's code

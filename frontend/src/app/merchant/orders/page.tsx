@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bell, BellOff, Bike, CheckCircle2, MapPin, RotateCcw, MessageSquareWarning, Store, X } from "lucide-react";
+import { Bell, BellOff, CheckCircle2, MapPin, RotateCcw, MessageSquareWarning, Store, KeyRound, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
@@ -50,7 +50,10 @@ function playLoudPing(ctxRef: AudioCtxRef) {
   } catch { /* noop */ }
 }
 
-type OrderEx = Order & { my_state?: string; my_otp?: string; merchant_subtotal?: number; return_status?: string; is_multi_store?: boolean };
+type OrderEx = Order & {
+  my_state?: string; my_otp?: string; my_handoff_otp?: string; my_payment_completed_at?: string | null;
+  merchant_subtotal?: number; return_status?: string; is_multi_store?: boolean;
+};
 type ItemEx = Order["items"][number] & { images?: string[]; product_image?: string; thumbnail?: string };
 
 function formatCountdown(iso: string): string {
@@ -136,8 +139,7 @@ export default function MerchantOrdersPage() {
   };
 
   const refresh = async () => { const d = await api.merchant.listOrders() as OrderEx[]; setOrders(d); };
-  const accept = async (id: string) => { await api.merchant.acceptOrder(id); toast.success("Order accepted — waiting for rider"); refresh(); };
-  const handToRider = async (id: string) => { await api.merchant.handToRider(id); toast.success("Handed to rider · on the way"); refresh(); };
+  const accept = async (id: string) => { await api.merchant.acceptOrder(id); toast.success("Order accepted — riders can now collect it"); refresh(); };
 
   const reject = async (id: string) => {
     setRejecting(id);
@@ -440,24 +442,28 @@ export default function MerchantOrdersPage() {
       {accepted.length > 0 && (
         <section className="mb-10">
           <h2 className="font-display text-xl font-bold text-[#1A2B4C] mb-3">Awaiting rider pickup</h2>
-          <p className="text-xs text-[#595959] mb-3">Match the 4-digit OTP with the rider before handing the package over.</p>
+          <p className="text-xs text-[#595959] mb-3">
+            A rider will collect this order. When they arrive, confirm they read out the handoff code below
+            before handing over the package — you don&apos;t need to do anything else, the rider marks it
+            &quot;out for delivery&quot; from their app.
+          </p>
           <div className="space-y-3">
             {accepted.map((o) => (
               <div key={o.id} className="bg-white border-2 border-[#E68910]/40 rounded-2xl p-4" data-testid={`accepted-${o.id}`}>
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</div>
                     <div className="text-xs text-[#595959]">{o.customer?.name || o.address?.name || "Customer"} · {o.address?.pincode || ""}</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-[9px] uppercase tracking-widest text-[#595959]">Rider OTP</div>
-                    <div data-testid={`otp-${o.id}`} className="font-display text-3xl font-bold text-[#E68910] tracking-[0.2em] tabular-nums">{o.my_otp || o.otp || "----"}</div>
+                    <div className="text-[9px] uppercase tracking-widest text-[#595959] flex items-center gap-1 justify-center">
+                      <KeyRound size={10} /> Handoff code
+                    </div>
+                    <div data-testid={`handoff-otp-${o.id}`} className="font-display text-3xl font-bold text-[#E68910] tracking-[0.2em] tabular-nums">{o.my_handoff_otp || "----"}</div>
+                    <div className="text-[10px] text-[#595959] mt-0.5">the rider tells you this code</div>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <button onClick={() => handToRider(o.id)} data-testid={`hand-rider-${o.id}`} className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#1A2B4C] text-white text-sm font-semibold hover:bg-[#101D36]">
-                    <Bike size={14} /> Handed to rider
-                  </button>
+                <div className="flex gap-2 mt-3">
                   <button
                     onClick={() => cancelAccepted(o.id)}
                     disabled={cancellingOrder === o.id}
@@ -481,9 +487,18 @@ export default function MerchantOrdersPage() {
               <div key={o.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3" data-testid={`onway-${o.id}`}>
                 <div>
                   <div className="font-semibold text-[#1A2B4C]">{o.id} · ₹{(o.merchant_subtotal ?? o.total).toLocaleString()}</div>
-                  <div className="text-xs text-[#595959]">{o.is_multi_store ? "Your items handed to rider · OTP " : "Rider en-route to customer · OTP "}{o.my_otp || o.otp}</div>
+                  <div className="text-xs text-[#595959]">{o.is_multi_store ? "Your items are with the rider" : "Rider en-route to customer"}</div>
                 </div>
-                <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">On the way</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {o.my_payment_completed_at ? (
+                    <span data-testid={`payment-received-${o.id}`} className="inline-flex items-center gap-1 text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-green-100 text-green-700">
+                      <Wallet size={10} /> Payment received
+                    </span>
+                  ) : (
+                    <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-500">Payment pending</span>
+                  )}
+                  <span className="text-[10px] uppercase font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">On the way</span>
+                </div>
               </div>
             ))}
           </div>
