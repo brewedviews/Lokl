@@ -29,7 +29,7 @@ from ai_service import generate_product_copy, enhance_product_image, ai_model_tr
 from seed_data import build_seed_docs, L1_CATEGORIES, L2_BY_L1, GENDERS
 from notifications import (
     notify_order_placed, notify_merchant_new_order,
-    notify_order_accepted, notify_order_rejected, notify_order_delivered,
+    notify_order_rejected, notify_order_delivered,
     notify_order_on_the_way, notify_order_cancelled, notify_rider_pickup,
     notify_rider_return_pickup, notify_return_status, notify_customer_otp,
     notify_merchant_otp, notify_rider_otp, send_with_fallback, APP_URL,
@@ -3164,9 +3164,13 @@ def _stamp_merchant_step(timelines: dict, mid: str, label: str, when: str) -> di
 async def _mark_leg_handed_off(o: dict, mid: str) -> dict:
     """Transition one merchant's leg from 'accepted' to 'handed_off': stamps the
     timeline, recomputes global status, persists, and notifies the customer with
-    that leg's OTP. Extracted from merchant_handed_to_rider so it can be shared
-    with the future rider 'picked-up' endpoint — both funnel through this one
-    transition function rather than duplicating the mutation logic.
+    that leg's DELIVERY OTP (+ the assigned rider's contact, if any — this is
+    the customer's FIRST delivery-related notification under the redesigned
+    flow: no notification fires on merchant-accept anymore, and the delivery
+    OTP itself is only revealed here, not at accept time). Originally extracted
+    from merchant_handed_to_rider; now reached exclusively via the rider's
+    'out for delivery' action (POST .../out-for-delivery) — the merchant no
+    longer has a state-advancing action of their own.
 
     Caller must have already fetched `o` fresh (this does not re-read). Raises
     400 if the leg isn't currently 'accepted'."""
@@ -3188,12 +3192,29 @@ async def _mark_leg_handed_off(o: dict, mid: str) -> dict:
         for t in tl:
             if t["label"] in ("Order on the way", "Handed to rider", "Rider on the way") and not t["time"]:
                 t["time"] = now; break
-    await db.orders.update_one({"id": oid}, {"$set": {"status": new_global, "merchant_states": states,
-                                                       "merchant_timelines": timelines, "timeline": tl}})
+    update_doc: dict = {"status": new_global, "merchant_states": states,
+                        "merchant_timelines": timelines, "timeline": tl}
+
+    # Surface the assigned rider's contact to the customer (persisted on the
+    # order, keyed by mid like merchant_otps/rider_assignments — a "wait
+    # screen" can read order.rider_contact[mid] once this leg is handed off;
+    # naturally absent/never-set for legs that haven't reached this point,
+    # so no extra visibility gating is needed on the read side).
+    rider_phone = ""
+    rider_id = ((o.get("rider_assignments") or {}).get(mid) or {}).get("rider_id")
+    if rider_id:
+        rdoc = await db.riders.find_one({"id": rider_id}, {"_id": 0, "name": 1, "phone": 1})
+        if rdoc:
+            rider_phone = rdoc.get("phone", "")
+            rider_contact = dict(o.get("rider_contact") or {})
+            rider_contact[mid] = {"name": rdoc.get("name", ""), "phone": rider_phone}
+            update_doc["rider_contact"] = rider_contact
+
+    await db.orders.update_one({"id": oid}, {"$set": update_doc})
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     if cust_phone:
         my_otp = (o.get("merchant_otps") or {}).get(mid) or o.get("otp", "")
-        try: notify_order_on_the_way(cust_phone, oid, my_otp)
+        try: notify_order_on_the_way(cust_phone, oid, my_otp, rider_phone)
         except Exception as _ne:
             print(f"[notify_error] {_ne}", flush=True)
     return {"all_handed": all_handed, "new_global": new_global, "my_state": "handed_off"}
@@ -3642,6 +3663,12 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         _otp_rng = secrets.SystemRandom()
         def _new_otp(): return f"{_otp_rng.randint(1000, 9999)}"
         merchant_otps = {mid: _new_otp() for mid in unique_mids}
+        # NEW (rider-flow redesign): a SEPARATE per-leg merchant-handoff OTP —
+        # the rider reads this to the merchant at pickup (verified server-side
+        # by POST /rider/orders/{oid}/{mid}/out-for-delivery), distinct from
+        # merchant_otps above (the customer<->rider DELIVERY confirmation
+        # code). Same CSPRNG pattern, generated at the same time.
+        merchant_handoff_otps = {mid: _new_otp() for mid in unique_mids}
         otp = merchant_otps[unique_mids[0]] if unique_mids else _new_otp()
         merchant_states = {mid: "pending" for mid in unique_mids}
         merchant_timelines = {mid: _new_merchant_timeline(now) for mid in unique_mids}
@@ -3657,6 +3684,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                "merchant_timelines": merchant_timelines,
                "merchant_delivered_at": {},
                "merchant_otps": merchant_otps,
+               "merchant_handoff_otps": merchant_handoff_otps,
                "merchant_cancelled": {},
                "rider_assignments": {},
                "is_multi_store": len(unique_mids) > 1,
@@ -3808,6 +3836,28 @@ async def get_order(order_id: str, request: Request):
         if _norm(caller) != _norm(order_phone):
             raise HTTPException(403, "This order was not placed with your mobile number")
 
+    # Rider-flow redesign: the delivery OTP is a customer<->rider handoff
+    # code that must not be visible before the leg actually goes "out for
+    # delivery" — but the raw order doc always carries `otp`/`merchant_otps`
+    # (generated at placement) and was being returned to the customer
+    # unredacted here regardless of leg state, for BOTH single- and
+    # multi-store orders (the multi-store store_breakdown block below already
+    # gated its OWN copy correctly, but that's an added field — it doesn't
+    # remove these raw top-level ones from the same response). Gate them the
+    # same way store_breakdown does, and strip merchant_handoff_otps
+    # entirely — that code is a rider<->merchant concern the customer never
+    # needs (see merchant_orders for the merchant's own view of it).
+    if role not in ("admin", "merchant"):
+        o.pop("merchant_handoff_otps", None)
+        states_map = o.get("merchant_states") or {}
+        gated_otps = {
+            m_id: code for m_id, code in (o.get("merchant_otps") or {}).items()
+            if states_map.get(m_id) in ("handed_off", "delivered")
+        }
+        o["merchant_otps"] = gated_otps
+        first_mid = next(iter(o.get("merchant_ids") or []), None)
+        o["otp"] = gated_otps.get(first_mid, "") if first_mid else ""
+
     # Enrich multi-store orders with per-merchant breakdown for the customer
     # tracking UI: items grouped by store + each store's own 4-step timeline.
     if o.get("is_multi_store"):
@@ -3817,17 +3867,21 @@ async def get_order(order_id: str, request: Request):
             if not items: continue
             sname = items[0].get("store_name") or "Store"
             sid = items[0].get("store_id")
+            leg_state = (o.get("merchant_states") or {}).get(mid, "pending")
             breakdown.append({
                 "merchant_id": mid,
                 "store_id": sid,
                 "store_name": sname,
                 "items": items,
                 "subtotal": round(sum(float(it.get("price", 0)) * int(it.get("qty", 1)) for it in items), 2),
-                "state": (o.get("merchant_states") or {}).get(mid, "pending"),
+                "state": leg_state,
                 "timeline": (o.get("merchant_timelines") or {}).get(mid) or [],
                 "delivered_at": (o.get("merchant_delivered_at") or {}).get(mid),
-                # Customer sees the per-store OTP only AFTER that store accepts
-                "otp": (o.get("merchant_otps") or {}).get(mid) if (o.get("merchant_states") or {}).get(mid) in ("handed_off", "delivered") else None,
+                # Customer sees the per-store delivery OTP only once that
+                # leg is out for delivery (handed_off) or delivered — NOT at
+                # merchant-accept, matching the raw-field gating just above.
+                "otp": (o.get("merchant_otps") or {}).get(mid) if leg_state in ("handed_off", "delivered") else None,
+                "rider_contact": (o.get("rider_contact") or {}).get(mid),
                 "cancel_reason": (o.get("merchant_cancelled") or {}).get(mid),
             })
         o["store_breakdown"] = breakdown
@@ -3876,9 +3930,20 @@ async def _rider_owned_leg(oid: str, mid: str, rider_id: str) -> dict:
 
 @api.get("/rider/orders/available")
 async def rider_available_orders(user: dict = Depends(rider_user)):
-    """Incoming-orders feed — unclaimed 'accepted' merchant legs. PII
-    REDACTION: this is a pre-claim view, so only non-identifying fields are
-    returned (store name/area, drop-off area/pincode/landmark — the SAME
+    """Incoming-orders feed — SIMULTANEOUS DISPATCH (rider-flow redesign):
+    unclaimed legs in EITHER 'pending' OR 'accepted' state, not just
+    'accepted' — riders now see an order the moment it's placed, in parallel
+    with the merchant, and can head to the store / nudge the merchant before
+    the merchant has actually accepted. `merchant_accepted` tells the caller
+    whether this leg is claimable-for-pickup yet; a leg with
+    merchant_accepted=false can still be claimed and "arrived at store" can
+    still be logged, but "out for delivery" will 400 until the merchant
+    accepts (see rider_out_for_delivery) — the UI should show a clear
+    "waiting for the store to accept" state for those, not a blocked/greyed
+    accept button.
+
+    PII REDACTION: this is a pre-claim view, so only non-identifying fields
+    are returned (store name/area, drop-off area/pincode/landmark — the SAME
     'safe before a party is involved' field set merchant_orders already uses
     for its own redaction, NOT the full `address`/`customer` objects). Full
     customer detail only appears after a claim, via GET .../{oid} below.
@@ -3893,9 +3958,13 @@ async def rider_available_orders(user: dict = Depends(rider_user)):
     # Mongo arrays — Mongo can't $elemMatch into them, so per-leg filtering
     # happens in Python after a status-band pre-filter. Same tradeoff
     # twilio_inbound's OTP scan already accepts for the identical shape
-    # reason. Pickup orders (order_type=='pickup') have no rider leg at all.
+    # reason. 'on_the_way' is deliberately NOT in this pre-filter: by
+    # _derive_global_status's min-rank rule, a global status of 'on_the_way'
+    # means EVERY non-cancelled leg is already at rank >= handed_off, so no
+    # 'pending'/'accepted' leg could exist there anyway. Pickup orders
+    # (order_type=='pickup') have no rider leg at all.
     cands = await db.orders.find(
-        {"status": {"$in": ["accepted", "on_the_way"]}, "order_type": {"$ne": "pickup"}},
+        {"status": {"$in": ["pending_merchant", "accepted"]}, "order_type": {"$ne": "pickup"}},
         {"_id": 0},
     ).to_list(500)
 
@@ -3905,7 +3974,7 @@ async def rider_available_orders(user: dict = Depends(rider_user)):
         assignments = o.get("rider_assignments") or {}
         addr = o.get("address") or {}
         for mid, state in states.items():
-            if state != "accepted" or mid in assignments:
+            if state not in ("pending", "accepted") or mid in assignments:
                 continue
             items = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid]
             store_name = (items[0].get("store_name") if items else None) or "Store"
@@ -3921,6 +3990,7 @@ async def rider_available_orders(user: dict = Depends(rider_user)):
                 "drop_pincode": addr.get("pincode", ""),
                 "item_count": sum(int(it.get("qty", 1)) for it in items) or len(items),
                 "placed_at": o.get("created_at"),
+                "merchant_accepted": state == "accepted",
             })
     legs.sort(key=lambda l: l["placed_at"] or "")
     return {"online": True, "legs": legs}
@@ -3928,14 +3998,19 @@ async def rider_available_orders(user: dict = Depends(rider_user)):
 
 @api.post("/rider/orders/{oid}/{mid}/accept")
 async def rider_accept_leg(oid: str, mid: str, user: dict = Depends(rider_user)):
-    """Atomic first-to-accept claim. Two atomic conditional updates, in this
-    order, with rollback of the first if the second loses its race:
+    """Atomic first-to-accept claim. SIMULTANEOUS DISPATCH (rider-flow
+    redesign): a rider can claim a leg whether the merchant has accepted it
+    yet or not ('pending' OR 'accepted') — they just can't go "out for
+    delivery" until the merchant has (see rider_out_for_delivery's guard).
+
+    Two atomic conditional updates, in this order, with rollback of the
+    first if the second loses its race:
 
       1. Claim THIS rider's one-active-leg slot (db.riders, conditional on
          current_order_leg being None) — fails immediately, no order
          touched, if they already have an active delivery.
-      2. Claim the order leg itself (db.orders, conditional on the merchant
-         already having accepted AND no existing rider_assignments[mid]) —
+      2. Claim the order leg itself (db.orders, conditional on the leg being
+         'pending' or 'accepted' AND no existing rider_assignments[mid]) —
          same "conditional filter = atomic claim" technique as create_order's
          stock-decrement reservation. If this loses the race (another rider
          got there first), step 1's claim is rolled back so this rider isn't
@@ -3959,7 +4034,7 @@ async def rider_accept_leg(oid: str, mid: str, user: dict = Depends(rider_user))
         raise HTTPException(409, "You already have an active delivery — finish it before accepting another")
 
     updated = await db.orders.find_one_and_update(
-        {"id": oid, f"merchant_states.{mid}": "accepted",
+        {"id": oid, f"merchant_states.{mid}": {"$in": ["pending", "accepted"]},
          f"rider_assignments.{mid}": {"$exists": False}},
         {"$set": {f"rider_assignments.{mid}": {"rider_id": rider["id"], "accepted_at": now}}},
         projection={"_id": 0, "rider_assignments": 1},
@@ -3970,8 +4045,8 @@ async def rider_accept_leg(oid: str, mid: str, user: dict = Depends(rider_user))
         o = await db.orders.find_one({"id": oid}, {"_id": 0, "merchant_states": 1})
         if not o or mid not in (o.get("merchant_states") or {}):
             raise HTTPException(404, "Leg not found on this order")
-        if (o.get("merchant_states") or {}).get(mid) != "accepted":
-            raise HTTPException(400, "This leg is not ready for pickup yet")
+        if (o.get("merchant_states") or {}).get(mid) not in ("pending", "accepted"):
+            raise HTTPException(400, "This leg is no longer available")
         raise HTTPException(409, "Another rider already accepted this leg")
 
     return {"ok": True, "order_id": oid, "merchant_id": mid,
@@ -3981,32 +4056,98 @@ async def rider_accept_leg(oid: str, mid: str, user: dict = Depends(rider_user))
 @api.post("/rider/orders/{oid}/{mid}/reached-store")
 async def rider_reached_store(oid: str, mid: str, user: dict = Depends(rider_user)):
     """Informational checkpoint only — no merchant_states/global-status
-    change (this checkpoint has no equivalent in the existing order FSM)."""
+    change (this checkpoint has no equivalent in the existing order FSM).
+    SIMULTANEOUS DISPATCH: the merchant need NOT have accepted yet — a rider
+    can claim a leg and physically head to the store before the merchant has
+    accepted, so this only blocks once the leg has moved PAST pickup
+    (handed_off/delivered/cancelled), not on the pending/accepted split."""
     rider = await _active_rider(user)
     o = await _rider_owned_leg(oid, mid, rider["id"])
-    if (o.get("merchant_states") or {}).get(mid) != "accepted":
-        raise HTTPException(400, "Leg is not in 'accepted' state")
+    if (o.get("merchant_states") or {}).get(mid) not in ("pending", "accepted"):
+        raise HTTPException(400, "This leg has already moved past pickup")
     now = datetime.now(timezone.utc).isoformat()
     await db.orders.update_one({"id": oid}, {"$set": {f"rider_assignments.{mid}.reached_store_at": now}})
     return {"ok": True, "reached_store_at": now}
 
 
-@api.post("/rider/orders/{oid}/{mid}/picked-up")
-async def rider_picked_up(oid: str, mid: str, user: dict = Depends(rider_user)):
-    """The pickup/handoff step. Stamps rider_assignments[mid].picked_up_at,
-    then calls the SAME _mark_leg_handed_off helper (Commit 1) the merchant
-    handed-to-rider endpoint uses — the accepted->handed_off transition,
-    timeline stamp, global-status derive, write, and customer notification
-    all happen there. NOT reimplemented here."""
+class RiderOutForDeliveryPayload(BaseModel):
+    merchant_handoff_otp: str
+
+
+@api.post("/rider/orders/{oid}/{mid}/out-for-delivery")
+async def rider_out_for_delivery(oid: str, mid: str, payload: RiderOutForDeliveryPayload,
+                                 user: dict = Depends(rider_user)):
+    """The pickup/handoff step (rider-flow redesign — REPLACES the old
+    picked-up + merchant-'handed to rider' steps). GUARDS, in order:
+      1. Rider owns this leg.
+      2. The merchant has actually accepted (merchant_states[mid] ==
+         'accepted') — a rider may have claimed this leg back when it was
+         still 'pending' (simultaneous dispatch), but can't take goods
+         until the merchant has accepted it.
+      3. The submitted merchant_handoff_otp matches merchant_handoff_otps[mid]
+         — the rider reads this code to the merchant at pickup; the merchant
+         just eyeballs it against their own order view (my_handoff_otp) to
+         confirm, no separate merchant-side action needed.
+
+    On success: stamps rider_assignments[mid].picked_up_at, then calls the
+    SAME _mark_leg_handed_off helper (Commit 1) the deprecated merchant
+    handed-to-rider endpoint used to call — the accepted->handed_off
+    transition, timeline stamp, global-status derive, write, and customer
+    notification (which now ALSO reveals the delivery OTP + rider contact —
+    this is the customer's first delivery-related notification) all happen
+    there. NOT reimplemented here."""
     rider = await _active_rider(user)
     o = await _rider_owned_leg(oid, mid, rider["id"])
     if (o.get("merchant_states") or {}).get(mid) != "accepted":
-        raise HTTPException(400, "Leg is not in 'accepted' state")
+        raise HTTPException(400, "The store hasn't accepted this order yet")
+    expected_otp = (o.get("merchant_handoff_otps") or {}).get(mid)
+    if not expected_otp or payload.merchant_handoff_otp.strip() != expected_otp:
+        raise HTTPException(400, "Incorrect merchant handoff code")
+
     now = datetime.now(timezone.utc).isoformat()
     await db.orders.update_one({"id": oid}, {"$set": {f"rider_assignments.{mid}.picked_up_at": now}})
     o = await db.orders.find_one({"id": oid}, {"_id": 0})  # re-fetch fresh before the shared transition
     result = await _mark_leg_handed_off(o, mid)
     return {"ok": True, "all_handed": result["all_handed"], "my_state": result["my_state"]}
+
+
+class RiderPaymentCompletedPayload(BaseModel):
+    payment_method: Optional[str] = None
+
+
+@api.post("/rider/orders/{oid}/{mid}/payment-completed")
+async def rider_payment_completed(oid: str, mid: str, payload: RiderPaymentCompletedPayload,
+                                  user: dict = Depends(rider_user)):
+    """Rider marks payment collected from the customer (rider-flow redesign).
+    GUARD: rider owns the leg AND merchant_states[mid] == 'handed_off' (i.e.
+    already out for delivery — payment happens at the doorstep, after
+    pickup). Does NOT touch merchant_states/global status — this is a
+    sub-timestamp on rider_assignments, same tier as reached_store_at, not a
+    new global FSM state. PINGS the merchant via the existing in-app
+    notification inbox (db.merchants.notifications — see merchant_publish/
+    admin_approve for the same pattern) so their order section shows
+    "payment received." This is also the HARD GATE rider_deliver_leg checks
+    before allowing the delivery OTP step — see there."""
+    rider = await _active_rider(user)
+    o = await _rider_owned_leg(oid, mid, rider["id"])
+    if (o.get("merchant_states") or {}).get(mid) != "handed_off":
+        raise HTTPException(400, "Mark the order out for delivery before completing payment")
+
+    now = datetime.now(timezone.utc).isoformat()
+    update: dict = {f"rider_assignments.{mid}.payment_completed_at": now}
+    if payload.payment_method:
+        update[f"rider_assignments.{mid}.payment_method"] = payload.payment_method
+    await db.orders.update_one({"id": oid}, {"$set": update})
+
+    short_id = oid[-6:].upper()
+    await db.merchants.update_one({"id": mid}, {"$push": {"notifications": {
+        "type": "payment-received",
+        "title": "Payment received",
+        "body": f"The rider collected payment for order #{short_id}.",
+        "time": now,
+    }}})
+
+    return {"ok": True, "payment_completed_at": now}
 
 
 class RiderDeliverPayload(BaseModel):
@@ -4016,16 +4157,28 @@ class RiderDeliverPayload(BaseModel):
 
 @api.post("/rider/orders/{oid}/{mid}/deliver")
 async def rider_deliver_leg(oid: str, mid: str, payload: RiderDeliverPayload, user: dict = Depends(rider_user)):
-    """Delivery confirmation. VALIDATES the OTP structurally against
-    merchant_otps[mid] — STRICTER than the existing WhatsApp path's free-text
-    regex parse of an inbound message. On success, calls the SAME
-    _mark_leg_delivered helper (Commit 1) the Twilio webhook uses
-    (require_handed_off=True, delivered_via='rider-app') — NOT reimplemented
-    here — and frees the rider's current_order_leg for their next delivery."""
+    """Delivery confirmation. GUARDS, in order:
+      1. Rider owns this leg.
+      2. merchant_states[mid] == 'handed_off' (already out for delivery).
+      3. HARD GATE: rider_assignments[mid].payment_completed_at IS SET —
+         cannot deliver before payment is marked complete (see
+         rider_payment_completed above; this is what makes it a hard gate
+         rather than just a UI suggestion).
+      4. otp VALIDATES structurally against merchant_otps[mid] (the DELIVERY
+         OTP, distinct from the merchant_handoff_otp checked at step 3 of
+         out-for-delivery) — STRICTER than the WhatsApp path's free-text
+         regex parse of an inbound message.
+
+    On success: calls the SAME _mark_leg_delivered helper (Commit 1) the
+    Twilio webhook uses (require_handed_off=True, delivered_via='rider-app')
+    — NOT reimplemented here — and frees the rider's current_order_leg for
+    their next delivery."""
     rider = await _active_rider(user)
     o = await _rider_owned_leg(oid, mid, rider["id"])
     if (o.get("merchant_states") or {}).get(mid) != "handed_off":
-        raise HTTPException(400, "Leg must be picked up (handed off) before it can be delivered")
+        raise HTTPException(400, "Leg must be out for delivery before it can be delivered")
+    if not ((o.get("rider_assignments") or {}).get(mid) or {}).get("payment_completed_at"):
+        raise HTTPException(400, "Mark payment as completed before delivering")
     expected_otp = (o.get("merchant_otps") or {}).get(mid)
     if not expected_otp or payload.otp.strip() != expected_otp:
         raise HTTPException(400, "Incorrect delivery OTP")
@@ -4088,6 +4241,8 @@ async def rider_order_detail(oid: str, user: dict = Depends(rider_user)):
             "lng": o.get("customer_lng") or addr.get("lng") or 0,
         },
         "items": items,
+        "handoff_otp": (o.get("merchant_handoff_otps") or {}).get(my_mid, ""),
+        "handoff_otp_note": "Tell the store this code when you arrive to collect the order",
         "otp": (o.get("merchant_otps") or {}).get(my_mid, ""),
         "otp_note": "Ask the customer for this code at drop-off to confirm delivery",
         "payment": {
@@ -4203,9 +4358,17 @@ async def merchant_orders(user: dict = Depends(get_current_user)):
         o["my_timeline"] = (o.get("merchant_timelines") or {}).get(mid) or o.get("timeline") or []
         o["my_delivered_at"] = (o.get("merchant_delivered_at") or {}).get(mid)
         o["my_otp"] = (o.get("merchant_otps") or {}).get(mid) or o.get("otp", "")
+        # This merchant's handoff OTP — shown so the merchant can visually
+        # confirm the code the rider reads out at pickup (see
+        # POST /rider/orders/{oid}/{mid}/out-for-delivery, which validates
+        # it server-side; the merchant doesn't take any action here beyond
+        # eyeballing the match — "Prefer: rider submits the OTP" design).
+        o["my_handoff_otp"] = (o.get("merchant_handoff_otps") or {}).get(mid, "")
         # Hide other merchants' OTPs from this merchant's view
         if o.get("merchant_otps"):
             o["merchant_otps"] = {mid: o["my_otp"]}
+        if o.get("merchant_handoff_otps"):
+            o["merchant_handoff_otps"] = {mid: o["my_handoff_otp"]}
         # The pickup code is only ever meant to be known by the customer —
         # only they receive it via WhatsApp (notify_pickup_reserved). It must
         # NOT be visible to the merchant here, otherwise verify-pickup's code
@@ -4245,19 +4408,19 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
         {"$set": {"status": new_global, "merchant_states": states,
                   "merchant_timelines": timelines, "timeline": tl}},
     )
-    cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     m = await db.merchants.find_one({"id": mid}, {"_id": 0, "store_name": 1, "business_address": 1})
-    # This merchant's UNIQUE 4-digit OTP (each store gets its own; customer
-    # receives the OTP only after that merchant accepts).
+    # This merchant's UNIQUE 4-digit delivery OTP (each store gets its own).
+    # Rider-flow redesign: NO customer notification fires here anymore — the
+    # customer's first delivery-related notification is now at "out for
+    # delivery" (_mark_leg_handed_off), which is also where this OTP is
+    # first revealed to them. my_otp is still needed below for the legacy
+    # WhatsApp rider_pickup notification (RIDER_PHONE fallback, unrelated to
+    # the customer-facing timing change) and the response body.
     my_otp = (o.get("merchant_otps") or {}).get(mid) or o.get("otp", "")
     if not my_otp:
         import random as _random
         my_otp = str(_random.randint(1000, 9999))
         log.warning("[rider-pickup] no OTP found for order=%s mid=%s — generated fallback %s", oid, mid, my_otp)
-    if cust_phone:
-        try: notify_order_accepted(cust_phone, oid, (m or {}).get("store_name", "your store"), otp=my_otp)
-        except Exception as _ne:
-            print(f"[notify_error] {_ne}", flush=True)
     rider_phone = os.environ.get("RIDER_PHONE", "").strip()
     if not rider_phone:
         log.warning("[rider-pickup] RIDER_PHONE not set — skipping rider notification for order %s", oid)
@@ -4294,14 +4457,22 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
 
 @api.post("/merchant/orders/{oid}/handed-to-rider")
 async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_user)):
-    """Merchant confirms the rider has been handed the package after matching OTP.
-    In multi-store carts each merchant hands off independently — we check the
-    PER-MERCHANT state, not the global order status."""
+    """DEPRECATED as a state-advancing action (rider-flow redesign). The
+    merchant's only order action is now ACCEPT (merchant_accept_order above)
+    — handoff verification moved to the rider, who submits the merchant-
+    handoff OTP via POST /rider/orders/{oid}/{mid}/out-for-delivery (which
+    drives the accepted->handed_off transition through the SAME
+    _mark_leg_handed_off helper this endpoint used to call directly). This
+    route is kept, not deleted, so a stale client gets a clear explanation
+    instead of a bare 404 — but it can no longer advance order state."""
     o = await db.orders.find_one({"id": oid, "merchant_ids": user["sub"]}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
-    mid = user["sub"]
-    result = await _mark_leg_handed_off(o, mid)
-    return {"ok": True, "all_handed": result["all_handed"], "my_state": result["my_state"]}
+    raise HTTPException(
+        410,
+        "This action has moved to the rider app. The rider now marks the order "
+        "'out for delivery' after you give them the merchant handoff code shown "
+        "on this order.",
+    )
 
 
 @api.post("/merchant/orders/{oid}/reject")
@@ -5807,7 +5978,17 @@ async def twilio_inbound(request: Request):
     otp = m_del.group(1)
     # Match OTP against per-merchant OTP first (unique per store); fall back to
     # legacy global `otp` for single-store / pre-fix orders.
-    cands = await db.orders.find({"status": {"$in": ["accepted", "on_the_way"]}}, {"_id": 0}).to_list(500)
+    # 'pending_merchant' is included alongside 'accepted'/'on_the_way' because
+    # in a multi-store order one leg can already be 'handed_off' (rank 2)
+    # while ANOTHER leg is still 'pending' (rank 0) — _derive_global_status's
+    # min-rank rule means the ORDER's global status is 'pending_merchant' in
+    # that case even though this leg is genuinely out for delivery. Simultaneous
+    # dispatch (rider-flow redesign) makes this more reachable than before
+    # (riders can now claim/progress a 'pending' leg independently of a
+    # sibling leg's merchant even accepting yet), so a delivery confirmation
+    # for the ahead-leg must still be found here rather than silently
+    # dropped as "no matching live order".
+    cands = await db.orders.find({"status": {"$in": ["pending_merchant", "accepted", "on_the_way"]}}, {"_id": 0}).to_list(500)
     target_mid = None
     target_order = None
     for cand in cands:

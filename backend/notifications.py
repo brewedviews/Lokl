@@ -381,10 +381,15 @@ Reply: {otp} Delivered"""
     send_with_fallback(rider_phone, body)
 
 
-def notify_order_on_the_way(phone: str, order_id: str, otp: str) -> None:
+def notify_order_on_the_way(phone: str, order_id: str, otp: str, rider_phone: str = "") -> None:
+    """Rider-flow redesign: this is now the customer's FIRST delivery-related
+    notification (merchant-accept no longer notifies) — it's where the
+    delivery OTP is revealed, plus the assigned rider's phone when known."""
     short = order_id[-6:].upper()
+    rider_line = f"🛵 Your rider: {rider_phone}\n" if rider_phone else ""
     body = (
         f"🚴 Your order #{short} is on the way!\n\n"
+        f"{rider_line}"
         f"🔑 OTP: *{otp}*\n"
         f"Share this with your rider on arrival to confirm delivery.\n\n"
         f"Track: {APP_URL}/account/orders/{order_id}"
