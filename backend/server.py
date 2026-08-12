@@ -4556,12 +4556,19 @@ async def rider_me_active(user: dict = Depends(rider_user)):
         o, mid = item["order"], item["merchant_id"]
         addr = o.get("address") or {}
         m = await db.merchants.find_one({"id": mid}, {"_id": 0, "store_name": 1})
-        store = await db.stores.find_one({"id": f"store-m-{mid}"}, {"_id": 0, "lat": 1, "lng": 1}) or {}
+        store = await db.stores.find_one(
+            {"id": f"store-m-{mid}"}, {"_id": 0, "lat": 1, "lng": 1, "area_label": 1, "area": 1, "city": 1},
+        ) or {}
         legs.append({
             "order_id": item["order_id"],
             "merchant_id": mid,
             "status": item["state"],
             "store_name": (m or {}).get("store_name", "Store"),
+            # Group B2 (frontend list UI) needs short text labels, not just
+            # coordinates — same field semantics as rider_available_orders's
+            # pickup_area/drop_area, added here for the same purpose.
+            "pickup_area": store.get("area_label") or store.get("area") or store.get("city", "Bhilai"),
+            "drop_area": addr.get("landmark") or addr.get("city", "Bhilai"),
             "pickup": {"lat": store.get("lat") or 0, "lng": store.get("lng") or 0},
             "drop": {"lat": addr.get("lat") or 0, "lng": addr.get("lng") or 0},
             "rider_assignment": item["assignment"],

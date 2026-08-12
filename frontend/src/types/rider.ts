@@ -7,18 +7,16 @@ import type { Id, IsoDateTime, CanonicalPhone } from "./common";
 
 export type RiderStatus = "active" | "suspended";
 
-export interface RiderCurrentLeg {
-  order_id: string;
-  merchant_id: string;
-}
-
 export interface Rider {
   id: Id;
   phone: CanonicalPhone;
   name: string;
   status: RiderStatus;
   online: boolean;
-  current_order_leg: RiderCurrentLeg | null;
+  // Group B1: riders can hold MULTIPLE active legs now — there's no more
+  // single current_order_leg slot on this doc. Active legs are fetched via
+  // GET /rider/me/active (see RiderMeActiveResponse below), derived
+  // server-side from db.orders, not stored here.
   zone?: string | null;
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
@@ -144,11 +142,56 @@ export interface RiderOrderLegDetail {
   rider_assignment: RiderLegAssignment;
 }
 
-export interface RiderActiveLeg {
+// ============================================================================
+// Multi-order + pickup batching (Group B1 backend, 386b588; this file is the
+// Group B2 frontend contract for it). A rider can hold several active legs
+// at once — GET /rider/me/active now returns ALL of them, grouped into
+// SUGGESTED batches by pickup proximity (haversine, 2km). The batching is a
+// pure ordering/presentation overlay: no field here ever gates what action
+// is available on a leg — that's still governed entirely by `status` +
+// `rider_assignment`, exactly as before. A rider can act on any owned leg
+// regardless of its batch position.
+// ============================================================================
+
+export interface RiderMeActiveLeg {
   order_id: string;
   merchant_id: string;
-  status: string | null;
-  rider_assignment: RiderLegAssignment | null;
+  /** "pending" | "accepted" | "handed_off" (never "delivered"/"cancelled" —
+   *  those legs simply stop appearing here). */
+  status: string;
+  store_name: string;
+  pickup_area: string;
+  drop_area: string;
+  pickup: { lat: number; lng: number };
+  drop: { lat: number; lng: number };
+  rider_assignment: RiderLegAssignment;
+  /** Which batch (by pickup proximity) this leg belongs to — join
+   *  active_legs with `batches` on this, or just group active_legs
+   *  directly by this field (both give the same grouping). */
+  batch_id: number;
+  /** How many legs share this batch — 1 means "standalone", no grouping
+   *  chrome needed. */
+  batch_size: number;
+  /** 1-indexed position in the batch's suggested pickup sequence
+   *  (nearest-neighbor over pickup points). */
+  suggested_pickup_order: number;
+  /** 1-indexed position in the batch's suggested delivery sequence
+   *  (nearest-neighbor continuing from the last pickup point). */
+  suggested_delivery_order: number;
+  /** Human-readable suggestion for THIS leg's next step, e.g.
+   *  "Pickup 1 of 3" or "Deliver 2 of 3" (batch_size 1 -> just "Pickup" /
+   *  "Deliver"). Derived from status + the order fields above — SUGGESTION
+   *  ONLY, never enforced by any endpoint. */
+  suggested_label: string;
 }
 
-export interface RiderMeActiveResponse { active: RiderActiveLeg | null }
+export interface RiderBatchSummary {
+  batch_id: number;
+  size: number;
+  legs: { order_id: string; merchant_id: string }[];
+}
+
+export interface RiderMeActiveResponse {
+  active_legs: RiderMeActiveLeg[];
+  batches: RiderBatchSummary[];
+}

@@ -34,17 +34,27 @@
  * Polls GET /api/rider/orders/{oid} every 8s (same cadence + stop-on-terminal
  * technique as the customer order-tracking page), stopping once the leg is
  * delivered.
+ *
+ * Group B2: a rider can now have several of these active at once (B1,
+ * 386b588), so this screen fetches GET /rider/me/active once on mount to
+ * show a compact "switch to another active order" strip — the OTHER legs
+ * the rider is currently holding, each tappable to jump straight to its own
+ * detail screen. This is purely a navigation convenience: it doesn't re-poll
+ * (the strip can go one poll-cycle stale; landing on another order's page
+ * re-fetches fresh state immediately), and it never affects what actions
+ * are available here — each order's workflow is still entirely independent.
  */
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Store, MapPin, Phone, Navigation, Package, CheckCircle2, Loader2,
-  ShieldCheck, Wallet, QrCode, ArrowLeft, KeyRound, Clock, X, Maximize2,
+  ShieldCheck, Wallet, QrCode, ArrowLeft, KeyRound, Clock, X, Maximize2, LayoutList,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/api-error";
-import type { RiderOrderLegDetail } from "@/types";
+import { riderLegStatusLabel } from "@/lib/rider-status";
+import type { RiderOrderLegDetail, RiderMeActiveLeg } from "@/types";
 
 const POLL_MS = 8000;
 
@@ -67,6 +77,10 @@ export default function RiderOrderDetailPage() {
 
   const [showQrModal, setShowQrModal] = useState(false);
 
+  // Other active orders, for the quick-switch strip (Group B2) — fetched
+  // once, not polled (see file header note).
+  const [otherActive, setOtherActive] = useState<RiderMeActiveLeg[]>([]);
+
   const load = useCallback(() => {
     api.rider.orderDetail(oid)
       .then((d) => setDetail(d))
@@ -83,6 +97,12 @@ export default function RiderOrderDetailPage() {
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [oid, detail?.status]);
+
+  useEffect(() => {
+    api.rider.meActive()
+      .then((r) => setOtherActive(r.active_legs.filter((l) => l.order_id !== oid)))
+      .catch(() => { /* switcher strip is a convenience — fail quiet */ });
+  }, [oid]);
 
   const reachedStore = async () => {
     if (!detail) return;
@@ -154,6 +174,7 @@ export default function RiderOrderDetailPage() {
   const isAccepted = detail.status === "accepted";
   const isHandedOff = detail.status === "handed_off";
   const isDelivered = detail.status === "delivered";
+  const nextActive = otherActive[0];
 
   if (isDelivered) {
     return (
@@ -162,32 +183,64 @@ export default function RiderOrderDetailPage() {
           <CheckCircle2 size={32} className="text-[#22C55E]" />
         </div>
         <h2 className="font-display text-xl font-bold text-brand-primary">Delivered</h2>
-        <p className="text-sm text-text-muted mt-1">Nice work. You&apos;re free for your next delivery.</p>
+        <p className="text-sm text-text-muted mt-1">
+          {otherActive.length > 0
+            ? `Nice work. You still have ${otherActive.length} active order${otherActive.length === 1 ? "" : "s"}.`
+            : "Nice work. You're free for your next delivery."}
+        </p>
+        {nextActive && (
+          <button
+            onClick={() => router.push(`/rider/orders/${nextActive.order_id}`)}
+            data-testid="rider-next-order-btn"
+            className="mt-6 px-8 py-3.5 rounded-full bg-[#22C55E] text-white font-bold text-base"
+          >
+            Continue to {nextActive.store_name}
+          </button>
+        )}
         <button
           onClick={() => router.replace("/rider")}
           data-testid="rider-back-to-feed-btn"
-          className="mt-6 px-8 py-3.5 rounded-full bg-brand-primary text-white font-bold text-base"
+          className={otherActive.length > 0
+            ? "mt-3 px-8 py-3 text-brand-primary font-semibold text-sm"
+            : "mt-6 px-8 py-3.5 rounded-full bg-brand-primary text-white font-bold text-base"}
         >
-          Back to feed
+          Back to my orders
         </button>
       </div>
     );
   }
 
-  let statusLabel = "Heading to store";
-  if (isPending && !reached) statusLabel = "Heading to store · waiting for store to accept";
-  else if (isPending && reached) statusLabel = "At the store · waiting for store to accept";
-  else if (isAccepted && !reached) statusLabel = "Heading to store";
-  else if (isAccepted && reached) statusLabel = "At the store · ready for handoff";
-  else if (isHandedOff && !paymentDone) statusLabel = "Out for delivery · collect payment";
-  else if (isHandedOff && paymentDone) statusLabel = "Out for delivery · ready to complete";
+  const statusLabel = riderLegStatusLabel(detail.status, detail.rider_assignment);
 
   return (
     <div className="flex-1 flex flex-col pb-6" data-testid="rider-order-detail">
       <div className="px-4 pt-4">
-        <button onClick={() => router.push("/rider")} className="inline-flex items-center gap-1 text-xs text-text-muted mb-3">
-          <ArrowLeft size={14} /> Back
+        <button onClick={() => router.push("/rider")} data-testid="rider-back-to-list-btn" className="inline-flex items-center gap-1 text-xs text-text-muted mb-3">
+          <ArrowLeft size={14} />
+          {otherActive.length > 0 ? `Back to my orders (${otherActive.length + 1} active)` : "Back"}
         </button>
+
+        {otherActive.length > 0 && (
+          <div className="mb-3 -mx-4 px-4 overflow-x-auto" data-testid="rider-order-switcher">
+            <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold uppercase tracking-wide text-text-muted">
+              <LayoutList size={12} /> Switch to another active order
+            </div>
+            <div className="flex gap-2 pb-1">
+              {otherActive.map((leg) => (
+                <button
+                  key={`${leg.order_id}:${leg.merchant_id}`}
+                  type="button"
+                  onClick={() => router.push(`/rider/orders/${leg.order_id}`)}
+                  data-testid="rider-switcher-chip"
+                  className="shrink-0 text-left bg-card-surface border border-card-border rounded-card px-3 py-2 min-w-[9rem]"
+                >
+                  <p className="text-xs font-bold text-brand-primary truncate max-w-[8rem]">{leg.store_name}</p>
+                  <p className="text-[10px] text-brand-accent font-semibold mt-0.5">{leg.suggested_label}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="px-4 space-y-4 flex-1">
