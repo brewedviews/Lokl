@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Bell, BellOff, CheckCircle2, MapPin, RotateCcw, MessageSquareWarning, Store, KeyRound, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -417,10 +418,37 @@ export default function MerchantOrdersPage() {
                 <div className="flex items-start gap-1 text-xs"><MapPin size={11} className="mt-0.5 shrink-0 text-[#E68910]" /> {(o.address?.landmark || o.address?.line1?.split(",").slice(-1)[0] || "Bhilai").trim()} · {o.address?.pincode}</div>
               </div>
             </div>
-            <div className="space-y-1 mb-4 text-sm">
-              {o.items.map((it, i) => (
-                <div key={i} className="flex justify-between"><span>{it.name} × {it.qty}{it.size ? ` (${it.size})` : ""}</span><span>₹{(it.price * it.qty).toLocaleString()}</span></div>
-              ))}
+            <div className="space-y-2 mb-4">
+              {o.items.map((it, i) => {
+                const itEx = it as ItemEx;
+                const imgSrc = itEx.image || itEx.images?.[0] || itEx.product_image || itEx.thumbnail || null;
+                const href = it.id ? `/p/${it.id}` : null;
+                return (
+                  <div key={i} className="flex items-center gap-3 text-sm" data-testid={`order-item-${o.id}-${i}`}>
+                    <div className="shrink-0 w-11 h-14 rounded-lg overflow-hidden border border-[#E5E2DC] bg-[#F5F4F0]">
+                      {imgSrc ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={imgSrc} alt={it.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-[#9CA3AF]">
+                          {it.name?.[0]?.toUpperCase() || "P"}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
+                      {href ? (
+                        <Link href={href} target="_blank" rel="noopener noreferrer" data-testid={`order-item-link-${o.id}-${i}`}
+                          className="truncate font-medium text-[#1A2B4C] hover:text-[#E68910] hover:underline">
+                          {it.name} × {it.qty}{it.size ? ` (${it.size})` : ""}
+                        </Link>
+                      ) : (
+                        <span className="truncate">{it.name} × {it.qty}{it.size ? ` (${it.size})` : ""}</span>
+                      )}
+                      <span className="shrink-0 font-semibold text-[#1A2B4C]">₹{(it.price * it.qty).toLocaleString()}</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <div className="flex gap-2">
               <button onClick={() => accept(o.id)} data-testid={`accept-${o.id}`} className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#4F7363] text-white font-semibold hover:bg-[#3a5a4d]">

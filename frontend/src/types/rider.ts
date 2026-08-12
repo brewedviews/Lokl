@@ -95,9 +95,12 @@ export interface RiderAcceptResponse {
 
 export interface RiderReachedStoreResponse { ok: boolean; reached_store_at: IsoDateTime }
 
-/** POST .../out-for-delivery — REPLACES the old picked-up step. Requires the
- *  merchant-handoff OTP (shown to the rider, read out to the merchant). */
-export interface RiderOutForDeliveryPayload { merchant_handoff_otp: string }
+/** POST .../out-for-delivery — REPLACES the old picked-up step. Live-testing
+ *  fix: no longer requires the handoff OTP in the body — it's a shared
+ *  visual reference (shown on both the rider's and merchant's screens) the
+ *  rider reads aloud, not something the rider re-enters (they'd just be
+ *  copying a value already on their own screen, which validates nothing). */
+export interface RiderOutForDeliveryPayload { merchant_handoff_otp?: string }
 export interface RiderOutForDeliveryResponse { ok: boolean; all_handed: boolean; my_state: string }
 
 /** POST .../payment-completed — hard-gates /deliver; pings the merchant's

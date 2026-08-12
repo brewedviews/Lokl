@@ -4071,23 +4071,27 @@ async def rider_reached_store(oid: str, mid: str, user: dict = Depends(rider_use
 
 
 class RiderOutForDeliveryPayload(BaseModel):
-    merchant_handoff_otp: str
+    # Live-testing fix: the handoff code is DISPLAYED on the rider's own
+    # screen (see rider_order_detail's `handoff_otp` field) — having the
+    # rider re-type a value they can already see on the same device
+    # validates nothing (it's not a third party confirming an independently
+    # known code, unlike the customer's delivery OTP). It's now a shared
+    # VISUAL reference only (rider reads it aloud, merchant eyeballs their
+    # own copy via my_handoff_otp) — kept here as an optional, ignored field
+    # so an old client that still sends it doesn't break.
+    merchant_handoff_otp: Optional[str] = None
 
 
 @api.post("/rider/orders/{oid}/{mid}/out-for-delivery")
 async def rider_out_for_delivery(oid: str, mid: str, payload: RiderOutForDeliveryPayload,
                                  user: dict = Depends(rider_user)):
     """The pickup/handoff step (rider-flow redesign — REPLACES the old
-    picked-up + merchant-'handed to rider' steps). GUARDS, in order:
-      1. Rider owns this leg.
-      2. The merchant has actually accepted (merchant_states[mid] ==
-         'accepted') — a rider may have claimed this leg back when it was
-         still 'pending' (simultaneous dispatch), but can't take goods
-         until the merchant has accepted it.
-      3. The submitted merchant_handoff_otp matches merchant_handoff_otps[mid]
-         — the rider reads this code to the merchant at pickup; the merchant
-         just eyeballs it against their own order view (my_handoff_otp) to
-         confirm, no separate merchant-side action needed.
+    picked-up + merchant-'handed to rider' steps). GUARD: the merchant must
+    have actually accepted (merchant_states[mid] == 'accepted') — a rider
+    may have claimed this leg back when it was still 'pending' (simultaneous
+    dispatch), but can't take goods until the merchant has accepted it.
+    (The handoff code itself is no longer validated here — see
+    RiderOutForDeliveryPayload above for why.)
 
     On success: stamps rider_assignments[mid].picked_up_at, then calls the
     SAME _mark_leg_handed_off helper (Commit 1) the deprecated merchant
@@ -4100,9 +4104,6 @@ async def rider_out_for_delivery(oid: str, mid: str, payload: RiderOutForDeliver
     o = await _rider_owned_leg(oid, mid, rider["id"])
     if (o.get("merchant_states") or {}).get(mid) != "accepted":
         raise HTTPException(400, "The store hasn't accepted this order yet")
-    expected_otp = (o.get("merchant_handoff_otps") or {}).get(mid)
-    if not expected_otp or payload.merchant_handoff_otp.strip() != expected_otp:
-        raise HTTPException(400, "Incorrect merchant handoff code")
 
     now = datetime.now(timezone.utc).isoformat()
     await db.orders.update_one({"id": oid}, {"$set": {f"rider_assignments.{mid}.picked_up_at": now}})
@@ -4237,8 +4238,21 @@ async def rider_order_detail(oid: str, user: dict = Depends(rider_user)):
             "customer_name": cust.get("name") or addr.get("name", "Customer"),
             "customer_phone": cust.get("phone") or addr.get("phone", ""),
             "address": ", ".join(p for p in drop_parts if p),
-            "lat": o.get("customer_lat") or addr.get("lat") or 0,
-            "lng": o.get("customer_lng") or addr.get("lng") or 0,
+            # Live-testing fix: this used to fall back to o["customer_lat"]/
+            # ["customer_lng"] — the customer's GPS at the MOMENT THEY PLACED
+            # THE ORDER, which has no necessary relationship to the delivery
+            # address they typed/selected (could be their office while
+            # ordering for home, a friend's place, anywhere). CustomerAddress
+            # (frontend type) carries no lat/lng at all today, so addr.get
+            # ("lat"/"lng") is always None for now — deliberately left as the
+            # lookup anyway (not hardcoded to 0) so this starts working
+            # automatically once a future group lets customers pin exact
+            # delivery coordinates, with no further backend change needed.
+            # Until then this is 0/0 and the frontend's mapsUrl() helper
+            # falls back to a text-based Maps search on `address` above,
+            # which IS the correct delivery address.
+            "lat": addr.get("lat") or 0,
+            "lng": addr.get("lng") or 0,
         },
         "items": items,
         "handoff_otp": (o.get("merchant_handoff_otps") or {}).get(my_mid, ""),
@@ -4456,8 +4470,15 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
                 upi_qr_url=store_doc.get("upi_qr_url") or "",
                 store_lat=store_doc.get("lat") or 0,
                 store_lng=store_doc.get("lng") or 0,
-                customer_lat=o.get("customer_lat") or addr.get("lat") or 0,
-                customer_lng=o.get("customer_lng") or addr.get("lng") or 0,
+                # Live-testing fix (same bug as rider_order_detail's drop
+                # lat/lng, see the comment there): must NOT fall back to
+                # o["customer_lat"]/["customer_lng"] (order-time GPS, unrelated
+                # to the delivery address). addr has no lat/lng today either —
+                # this WhatsApp message still carries the correct
+                # `customer_address` text regardless; notify_rider_pickup
+                # simply omits the Maps link when lat/lng are 0.
+                customer_lat=addr.get("lat") or 0,
+                customer_lng=addr.get("lng") or 0,
             )
         except Exception as e:
             log.error("[rider-pickup] failed order=%s error=%s", oid, e)

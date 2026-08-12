@@ -3,24 +3,33 @@
 /**
  * Rider order detail — the delivery workflow screen (Phase 1, Commit 4;
  * revised Group A2 for the A1 backend redesign — simultaneous dispatch +
- * two-OTP model).
+ * two-OTP model; revised again from live-testing fixes: see below).
  *
  * One primary "what's next" button per state, not a status picker:
  *   pending/accepted, not reached -> "I've reached the store"  (reached-store;
  *                                     works even before the merchant accepts)
  *   reached, merchant not accepted -> disabled "Waiting for the store to accept"
- *   reached, merchant accepted    -> "Out for delivery" -> enter the MERCHANT
- *                                     HANDOFF code (told to the merchant at
- *                                     pickup) -> out-for-delivery
- *   handed_off, no payment yet    -> "Payment received" (collect first)
+ *   reached, merchant accepted    -> "Out for delivery" — a plain button, no
+ *                                     OTP entry (live-testing fix: the
+ *                                     handoff code is DISPLAYED on this same
+ *                                     screen, so having the rider re-type a
+ *                                     value they can already see validates
+ *                                     nothing; it's a shared visual reference
+ *                                     the rider reads aloud and the merchant
+ *                                     eyeballs on their own screen, not a
+ *                                     self-entry gate)
+ *   handed_off, no payment yet    -> "Payment received" (collect first;
+ *                                     tap the UPI QR to enlarge it for the
+ *                                     customer to scan)
  *   handed_off, payment done      -> "Mark delivered" -> enter the CUSTOMER's
- *                                     delivery code -> deliver
+ *                                     delivery code (a REAL third-party
+ *                                     confirmation, unlike the handoff code
+ *                                     above — kept as an entry form)
  *   delivered                     -> success state -> back to feed
  *
  * The merchant-handoff OTP is shown prominently and unconditionally (the
- * rider needs to know it well before the "out for delivery" step, not just
- * at the moment they submit it) — separate from the customer's delivery OTP
- * further down, which is what's asked for at drop-off.
+ * rider needs to know it well before the "out for delivery" step) —
+ * separate from the customer's delivery OTP further down.
  *
  * Polls GET /api/rider/orders/{oid} every 8s (same cadence + stop-on-terminal
  * technique as the customer order-tracking page), stopping once the leg is
@@ -30,7 +39,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Store, MapPin, Phone, Navigation, Package, CheckCircle2, Loader2,
-  ShieldCheck, Wallet, QrCode, ArrowLeft, KeyRound, Clock,
+  ShieldCheck, Wallet, QrCode, ArrowLeft, KeyRound, Clock, X, Maximize2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -51,14 +60,12 @@ export default function RiderOrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  const [showHandoffForm, setShowHandoffForm] = useState(false);
-  const [handoffInput, setHandoffInput] = useState("");
-  const [handoffError, setHandoffError] = useState("");
-
   const [showOtpForm, setShowOtpForm] = useState(false);
   const [otpInput, setOtpInput] = useState("");
   const [cashCollected, setCashCollected] = useState(false);
   const [otpError, setOtpError] = useState("");
+
+  const [showQrModal, setShowQrModal] = useState(false);
 
   const load = useCallback(() => {
     api.rider.orderDetail(oid)
@@ -88,19 +95,15 @@ export default function RiderOrderDetailPage() {
     } finally { setBusy(false); }
   };
 
-  const submitHandoff = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!detail || handoffInput.length !== 4) return;
+  const markOutForDelivery = async () => {
+    if (!detail) return;
     setBusy(true);
-    setHandoffError("");
     try {
-      await api.rider.outForDelivery(oid, detail.merchant_id, { merchant_handoff_otp: handoffInput });
+      await api.rider.outForDelivery(oid, detail.merchant_id, {});
       toast.success("Out for delivery");
-      setShowHandoffForm(false);
-      setHandoffInput("");
       await load();
     } catch (err) {
-      setHandoffError(getErrorMessage(err));
+      toast.error(getErrorMessage(err));
     } finally { setBusy(false); }
   };
 
@@ -269,8 +272,21 @@ export default function RiderOrderDetailPage() {
           </div>
           <p className="text-sm text-text-secondary">{detail.payment.note}</p>
           {detail.payment.upi_qr_url && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={detail.payment.upi_qr_url} alt="Store UPI QR code" className="w-32 h-32 mt-3 rounded-card border border-card-border object-contain bg-white" />
+            <button
+              type="button" onClick={() => setShowQrModal(true)} data-testid="rider-qr-expand-trigger"
+              className="relative mt-3 block w-32 h-32 rounded-card border border-card-border bg-white overflow-hidden group"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={detail.payment.upi_qr_url} alt="Store UPI QR code" className="w-full h-full object-contain" />
+              <span className="absolute inset-0 bg-black/0 group-active:bg-black/10 transition flex items-end justify-end p-1.5">
+                <span className="bg-brand-primary/90 text-white rounded-full p-1">
+                  <Maximize2 size={12} />
+                </span>
+              </span>
+            </button>
+          )}
+          {detail.payment.upi_qr_url && (
+            <p className="text-[11px] text-text-muted mt-1.5">Tap the QR to show the customer a larger view</p>
           )}
           {isHandedOff && (
             <div className="mt-3 pt-3 border-t border-card-border">
@@ -289,35 +305,6 @@ export default function RiderOrderDetailPage() {
             </div>
           )}
         </section>
-
-        {/* Merchant-handoff confirmation form */}
-        {showHandoffForm && (
-          <form onSubmit={submitHandoff} className="bg-card-surface border border-card-border rounded-card-lg p-4 space-y-3" data-testid="rider-handoff-otp-form">
-            <h3 className="text-sm font-bold text-brand-primary">Confirm the code you told the store</h3>
-            <input
-              value={handoffInput}
-              onChange={(e) => { setHandoffInput(e.target.value.replace(/\D/g, "").slice(0, 4)); setHandoffError(""); }}
-              placeholder="••••" inputMode="numeric" autoFocus data-testid="rider-handoff-otp-input"
-              className="w-full px-4 py-3 rounded-card border border-card-border text-center text-2xl tracking-[0.5em] font-bold text-brand-primary focus:border-brand-accent outline-none"
-            />
-            {handoffError && <p className="text-sm text-red-600" data-testid="rider-handoff-otp-error">{handoffError}</p>}
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => { setShowHandoffForm(false); setHandoffError(""); setHandoffInput(""); }}
-                className="flex-1 py-3 rounded-full border border-card-border text-brand-primary font-semibold text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit" disabled={busy || handoffInput.length !== 4} data-testid="rider-confirm-handoff-btn"
-                className="flex-[2] py-3 rounded-full bg-brand-primary text-white font-bold text-sm disabled:opacity-60"
-              >
-                {busy ? "Confirming…" : "Confirm out for delivery"}
-              </button>
-            </div>
-          </form>
-        )}
 
         {/* Customer delivery-OTP entry form */}
         {showOtpForm && (
@@ -358,7 +345,7 @@ export default function RiderOrderDetailPage() {
         )}
       </div>
 
-      {!showHandoffForm && !showOtpForm && (
+      {!showOtpForm && (
         <div className="sticky bottom-0 bg-brand-bg border-t border-card-border px-4 pt-3 pb-4 mt-4">
           {!reached && (isPending || isAccepted) && (
             <button
@@ -378,10 +365,10 @@ export default function RiderOrderDetailPage() {
           )}
           {reached && isAccepted && (
             <button
-              onClick={() => setShowHandoffForm(true)} data-testid="rider-out-for-delivery-btn"
-              className="w-full py-4 rounded-full bg-brand-primary text-white font-bold text-base"
+              onClick={markOutForDelivery} disabled={busy} data-testid="rider-out-for-delivery-btn"
+              className="w-full py-4 rounded-full bg-brand-primary text-white font-bold text-base disabled:opacity-60"
             >
-              Out for delivery
+              {busy ? "Updating…" : "Out for delivery"}
             </button>
           )}
           {isHandedOff && !paymentDone && (
@@ -395,6 +382,26 @@ export default function RiderOrderDetailPage() {
               <Package size={18} /> Mark delivered
             </button>
           )}
+        </div>
+      )}
+
+      {showQrModal && detail.payment.upi_qr_url && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6"
+          onClick={() => setShowQrModal(false)}
+          data-testid="rider-qr-modal"
+        >
+          <div className="relative bg-white rounded-card-lg p-5 max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button" onClick={() => setShowQrModal(false)} data-testid="rider-qr-modal-close"
+              className="absolute -top-3 -right-3 w-9 h-9 rounded-full bg-brand-primary text-white flex items-center justify-center shadow-lg"
+            >
+              <X size={16} />
+            </button>
+            <p className="text-center text-xs font-bold uppercase tracking-wide text-text-muted mb-3">Scan to pay</p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={detail.payment.upi_qr_url} alt="Store UPI QR code — enlarged" className="w-full aspect-square object-contain" />
+          </div>
         </div>
       )}
     </div>
