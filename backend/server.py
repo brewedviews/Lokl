@@ -2023,7 +2023,11 @@ async def admin_create_rider(payload: AdminRiderCreate, admin: dict = Depends(re
         "name": name,
         "status": "active",
         "online": False,
-        "current_order_leg": None,
+        # Group B1: riders can hold MULTIPLE active legs now — there's no
+        # more single "current_order_leg" slot to initialize. Active legs
+        # are derived on read from db.orders.rider_assignments (see
+        # _rider_active_legs) instead of denormalized onto this doc, so
+        # there's nothing to keep in sync here.
         "zone": (payload.zone or "").strip() or None,
         "created_at": now,
         "updated_at": now,
@@ -4052,6 +4056,156 @@ async def _rider_owned_leg(oid: str, mid: str, rider_id: str) -> dict:
     return o
 
 
+async def _rider_active_legs(rider_id: str) -> list[dict]:
+    """Group B1: a rider's active legs, DERIVED from db.orders.rider_assignments
+    rather than a denormalized list on the rider doc — the orders collection
+    is already the single source of truth for leg ownership (_rider_owned_leg
+    has always checked it directly, never the rider doc), so deriving avoids
+    a second copy that could drift out of sync.
+
+    Pre-filter is deliberately over-inclusive, never under-inclusive:
+    `status` can only be 'delivered' once EVERY non-cancelled leg is
+    delivered, and can only be 'cancelled' once EVERY leg is cancelled
+    (_derive_global_status's min-rank-over-non-cancelled-legs rule) — so an
+    order containing an active (non-delivered, non-cancelled) leg for this
+    rider can never have global status 'delivered' or 'cancelled'. Real
+    per-leg filtering happens in Python below, same reason
+    rider_available_orders already does this (merchant_states/
+    rider_assignments are dicts keyed by merchant_id, not Mongo arrays —
+    can't $elemMatch into them)."""
+    cands = await db.orders.find(
+        {"status": {"$nin": ["delivered", "cancelled"]}, "order_type": {"$ne": "pickup"}},
+        {"_id": 0},
+    ).to_list(500)
+
+    legs = []
+    for o in cands:
+        states = o.get("merchant_states") or {}
+        assignments = o.get("rider_assignments") or {}
+        for mid, assignment in assignments.items():
+            if assignment.get("rider_id") != rider_id:
+                continue
+            state = states.get(mid)
+            if state in (None, "delivered", "cancelled"):
+                continue
+            legs.append({"order": o, "order_id": o["id"], "merchant_id": mid,
+                         "state": state, "assignment": assignment})
+    legs.sort(key=lambda l: l["assignment"].get("accepted_at") or "")
+    return legs
+
+
+_PICKUP_BATCH_RADIUS_KM = 2.0
+
+
+def _nearest_neighbor_order(batch: list[dict], key: str, anchor: Optional[dict] = None) -> list[dict]:
+    """Nearest-neighbor ordering over batch[i][key] ({"lat","lng"} dicts),
+    reusing _haversine_km. Legs with no real coordinates (lat==0 and
+    lng==0 — e.g. customer delivery addresses carry no lat/lng today, see
+    rider_order_detail's note on that) sort last in their original relative
+    order rather than computing a distance to (0, 0) — the same anti-pattern
+    the 997km store-distance fix exists to avoid."""
+    have = [leg for leg in batch if leg[key]["lat"] and leg[key]["lng"]]
+    missing = [leg for leg in batch if not (leg[key]["lat"] and leg[key]["lng"])]
+    if not have:
+        return list(batch)
+    if anchor and anchor.get("lat") and anchor.get("lng"):
+        first = min(have, key=lambda l: _haversine_km(anchor["lat"], anchor["lng"], l[key]["lat"], l[key]["lng"]))
+        have.remove(first)
+        ordered = [first]
+    else:
+        ordered = [have.pop(0)]
+    while have:
+        last_pt = ordered[-1][key]
+        nxt = min(have, key=lambda l: _haversine_km(last_pt["lat"], last_pt["lng"], l[key]["lat"], l[key]["lng"]))
+        have.remove(nxt)
+        ordered.append(nxt)
+    return ordered + missing
+
+
+def _compute_rider_batches(legs: list[dict]) -> list[dict]:
+    """Groups a rider's active legs (Group B1) into SUGGESTED batches by
+    PICKUP proximity — legs whose store point is within
+    _PICKUP_BATCH_RADIUS_KM (2km, haversine) of another leg already in a
+    batch join it (greedy single-linkage; fine for the small leg counts one
+    rider actually holds at once — not meant as a general-purpose optimal
+    clustering algorithm). A leg with no pickup coordinates never joins
+    another (no bogus 0,0 distance) and becomes its own batch of one, same
+    as a leg that's simply >2km from everything else.
+
+    THIS IS A PURE SUGGESTION OVERLAY — it mutates each `leg` dict in place
+    to add batch_id/batch_size/suggested_pickup_order/
+    suggested_delivery_order/suggested_label, and returns a compact
+    batch-summary list, but it NEVER touches order state and NO endpoint
+    reads these fields to gate an action. A rider can act on any owned leg
+    whenever that leg's OWN state allows it (merchant-accepted gate,
+    payment-before-delivery gate, OTP check, ...), in any order, regardless
+    of what's suggested here — rider_out_for_delivery, rider_payment_completed,
+    and rider_deliver_leg are completely unaware this function exists.
+
+    Within a batch: pickups are ordered nearest-neighbor starting from the
+    earliest-claimed leg; deliveries are ordered nearest-neighbor
+    continuing from the last REAL pickup point (skipping any coordinate-less
+    tail entries). Since delivery addresses have no lat/lng for virtually
+    every order today, in practice the delivery order currently just
+    preserves pickup-cluster order until customer addresses carry real
+    coordinates — expected, not a bug."""
+    batches: list[list[dict]] = []
+    for leg in legs:
+        p = leg["pickup"]
+        joined = False
+        if p["lat"] and p["lng"]:
+            for batch in batches:
+                if any(
+                    m["pickup"]["lat"] and m["pickup"]["lng"] and
+                    _haversine_km(p["lat"], p["lng"], m["pickup"]["lat"], m["pickup"]["lng"]) <= _PICKUP_BATCH_RADIUS_KM
+                    for m in batch
+                ):
+                    batch.append(leg)
+                    joined = True
+                    break
+        if not joined:
+            batches.append([leg])
+
+    result = []
+    for idx, batch in enumerate(batches):
+        pickup_order = _nearest_neighbor_order(batch, "pickup")
+        for i, leg in enumerate(pickup_order):
+            leg["suggested_pickup_order"] = i + 1
+
+        last_pickup_pt = None
+        for leg in reversed(pickup_order):
+            if leg["pickup"]["lat"] and leg["pickup"]["lng"]:
+                last_pickup_pt = leg["pickup"]
+                break
+
+        delivery_order = _nearest_neighbor_order(batch, "drop", anchor=last_pickup_pt)
+        for i, leg in enumerate(delivery_order):
+            leg["suggested_delivery_order"] = i + 1
+
+        for leg in batch:
+            leg["batch_id"] = idx
+            leg["batch_size"] = len(batch)
+            if leg["status"] in ("pending", "accepted"):
+                leg["suggested_label"] = (
+                    f"Pickup {leg['suggested_pickup_order']} of {leg['batch_size']}"
+                    if leg["batch_size"] > 1 else "Pickup"
+                )
+            elif leg["status"] == "handed_off":
+                leg["suggested_label"] = (
+                    f"Deliver {leg['suggested_delivery_order']} of {leg['batch_size']}"
+                    if leg["batch_size"] > 1 else "Deliver"
+                )
+            else:
+                leg["suggested_label"] = ""
+
+        result.append({
+            "batch_id": idx,
+            "size": len(batch),
+            "legs": [{"order_id": l["order_id"], "merchant_id": l["merchant_id"]} for l in batch],
+        })
+    return result
+
+
 @api.get("/rider/orders/available")
 async def rider_available_orders(user: dict = Depends(rider_user)):
     """Incoming-orders feed — SIMULTANEOUS DISPATCH (rider-flow redesign):
@@ -4127,35 +4281,20 @@ async def rider_accept_leg(oid: str, mid: str, user: dict = Depends(rider_user))
     yet or not ('pending' OR 'accepted') — they just can't go "out for
     delivery" until the merchant has (see rider_out_for_delivery's guard).
 
-    Two atomic conditional updates, in this order, with rollback of the
-    first if the second loses its race:
-
-      1. Claim THIS rider's one-active-leg slot (db.riders, conditional on
-         current_order_leg being None) — fails immediately, no order
-         touched, if they already have an active delivery.
-      2. Claim the order leg itself (db.orders, conditional on the leg being
-         'pending' or 'accepted' AND no existing rider_assignments[mid]) —
-         same "conditional filter = atomic claim" technique as create_order's
-         stock-decrement reservation. If this loses the race (another rider
-         got there first), step 1's claim is rolled back so this rider isn't
-         left falsely 'busy'.
-
-    No cross-collection transaction exists (this codebase uses none anywhere
-    — read-fresh-then-write with manual rollback is the established pattern,
-    e.g. _merchant_cancel_own_slice's stock restore). The net effect is still
-    correct: two different riders racing the same leg can each win their own
-    step 1, but only one wins step 2, and the loser's step 1 is undone."""
+    Group B1: riders can now hold MULTIPLE active legs simultaneously — the
+    old "reject if the rider already has current_order_leg set" gate is
+    REMOVED, with no replacement cap (low volume today; revisit if that
+    changes). That gate used to require a two-step claim-then-rollback
+    dance across db.riders AND db.orders (see git history); with it gone,
+    the ONLY protection needed — and the only one that was ever actually
+    about preventing a conflict, rather than about a rider's own
+    availability — is the single atomic conditional update below: it can
+    only succeed for ONE caller when two riders race the same leg (same
+    "conditional filter = atomic claim" technique as create_order's
+    stock-decrement reservation), so the atomic same-leg protection is
+    fully intact even though the rider-doc side of the old dance is gone."""
     rider = await _active_rider(user)
     now = datetime.now(timezone.utc).isoformat()
-
-    claimed_rider = await db.riders.find_one_and_update(
-        {"id": rider["id"], "current_order_leg": None},
-        {"$set": {"current_order_leg": {"order_id": oid, "merchant_id": mid}, "updated_at": now}},
-        projection={"_id": 0},
-        return_document=True,
-    )
-    if not claimed_rider:
-        raise HTTPException(409, "You already have an active delivery — finish it before accepting another")
 
     updated = await db.orders.find_one_and_update(
         {"id": oid, f"merchant_states.{mid}": {"$in": ["pending", "accepted"]},
@@ -4165,7 +4304,6 @@ async def rider_accept_leg(oid: str, mid: str, user: dict = Depends(rider_user))
         return_document=True,
     )
     if not updated:
-        await db.riders.update_one({"id": rider["id"]}, {"$set": {"current_order_leg": None}})
         o = await db.orders.find_one({"id": oid}, {"_id": 0, "merchant_states": 1})
         if not o or mid not in (o.get("merchant_states") or {}):
             raise HTTPException(404, "Leg not found on this order")
@@ -4296,8 +4434,11 @@ async def rider_deliver_leg(oid: str, mid: str, payload: RiderDeliverPayload, us
 
     On success: calls the SAME _mark_leg_delivered helper (Commit 1) the
     Twilio webhook uses (require_handed_off=True, delivered_via='rider-app')
-    — NOT reimplemented here — and frees the rider's current_order_leg for
-    their next delivery."""
+    — NOT reimplemented here. Group B1: no longer clears a
+    current_order_leg slot on the rider doc — this leg simply stops
+    appearing in _rider_active_legs once merchant_states[mid] flips to
+    'delivered' (derived, not denormalized), and the rider's OTHER active
+    legs (if any) are completely unaffected."""
     rider = await _active_rider(user)
     o = await _rider_owned_leg(oid, mid, rider["id"])
     if (o.get("merchant_states") or {}).get(mid) != "handed_off":
@@ -4318,7 +4459,6 @@ async def rider_deliver_leg(oid: str, mid: str, payload: RiderDeliverPayload, us
     o = await db.orders.find_one({"id": oid}, {"_id": 0})  # re-fetch fresh before the shared transition
     new_global = await _mark_leg_delivered(o, mid, require_handed_off=True, delivered_via="rider-app")
 
-    await db.riders.update_one({"id": rider["id"]}, {"$set": {"current_order_leg": None, "updated_at": now}})
     return {"ok": True, "status": new_global}
 
 
@@ -4396,25 +4536,39 @@ async def rider_order_detail(oid: str, user: dict = Depends(rider_user)):
 
 @api.get("/rider/me/active")
 async def rider_me_active(user: dict = Depends(rider_user)):
-    """'Do I have an active leg right now' — for reopening the app
-    mid-delivery. Returns the rider's current_order_leg + a minimal status
-    snapshot, or null if they have none."""
+    """Group B1: 'what are ALL my active legs right now' — for reopening
+    the app mid-delivery. A rider can hold multiple simultaneous legs (see
+    rider_accept_leg), so this returns every one of them, grouped into
+    SUGGESTED batches by pickup proximity (_compute_rider_batches — 2km
+    haversine clustering + a suggested pickup-then-delivery sequence).
+
+    The batching is presentation-only: each leg's own `status` (from
+    merchant_states) is the only thing that gates what the rider can
+    actually do with it — batch position never does. An empty rider (no
+    active legs) gets `{"active_legs": [], "batches": []}`, not a 404."""
     rider = await _active_rider(user)
-    leg = rider.get("current_order_leg")
-    if not leg:
-        return {"active": None}
-    o = await db.orders.find_one(
-        {"id": leg["order_id"]}, {"_id": 0, "merchant_states": 1, "rider_assignments": 1},
-    )
-    my_state = (o.get("merchant_states") or {}).get(leg["merchant_id"]) if o else None
-    return {
-        "active": {
-            "order_id": leg["order_id"],
-            "merchant_id": leg["merchant_id"],
-            "status": my_state,
-            "rider_assignment": ((o or {}).get("rider_assignments") or {}).get(leg["merchant_id"]),
-        }
-    }
+    raw = await _rider_active_legs(rider["id"])
+    if not raw:
+        return {"active_legs": [], "batches": []}
+
+    legs = []
+    for item in raw:
+        o, mid = item["order"], item["merchant_id"]
+        addr = o.get("address") or {}
+        m = await db.merchants.find_one({"id": mid}, {"_id": 0, "store_name": 1})
+        store = await db.stores.find_one({"id": f"store-m-{mid}"}, {"_id": 0, "lat": 1, "lng": 1}) or {}
+        legs.append({
+            "order_id": item["order_id"],
+            "merchant_id": mid,
+            "status": item["state"],
+            "store_name": (m or {}).get("store_name", "Store"),
+            "pickup": {"lat": store.get("lat") or 0, "lng": store.get("lng") or 0},
+            "drop": {"lat": addr.get("lat") or 0, "lng": addr.get("lng") or 0},
+            "rider_assignment": item["assignment"],
+        })
+
+    batches = _compute_rider_batches(legs)
+    return {"active_legs": legs, "batches": batches}
 
 
 @api.post("/orders/{oid}/rate")
