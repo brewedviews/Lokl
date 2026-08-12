@@ -3658,6 +3658,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                "merchant_delivered_at": {},
                "merchant_otps": merchant_otps,
                "merchant_cancelled": {},
+               "rider_assignments": {},
                "is_multi_store": len(unique_mids) > 1,
                "otp": otp,
                "is_deleted": False,
@@ -3831,6 +3832,297 @@ async def get_order(order_id: str, request: Request):
             })
         o["store_breakdown"] = breakdown
     return o
+
+
+# ===== Rider order endpoints (Phase 1 rider delivery platform, Commit 3) =====
+# The core delivery loop. Every state transition here calls the SAME shared
+# helpers Commit 1 extracted from the merchant/admin/Twilio paths
+# (_mark_leg_handed_off, _mark_leg_delivered) — rider actions can never drift
+# from what the merchant dashboard or the WhatsApp fallback already do,
+# because they're literally the same function. The WhatsApp/Twilio path is
+# untouched and keeps running in parallel; both funnel through one place.
+
+async def _active_rider(user: dict) -> dict:
+    """Resolve+validate the calling rider's own doc from their JWT phone.
+    Raises 403 if suspended, or if the phone doesn't match any rider at all
+    (covers a still-valid JWT issued before a suspend — same re-check
+    rider_verify_otp does at login). rider_user allows role=='admin' tokens
+    too (for future support tooling), but an admin's `sub` is an admin id,
+    not a phone, so it naturally 403s here — Phase 1 doesn't build an
+    admin-acts-as-rider path, matching how /rider/status (Commit 2) already
+    behaves."""
+    phone = user.get("sub", "")
+    rider = await db.riders.find_one({"phone": phone, "status": "active"}, {"_id": 0})
+    if not rider:
+        raise HTTPException(403, "Rider account is not active")
+    return rider
+
+
+async def _rider_owned_leg(oid: str, mid: str, rider_id: str) -> dict:
+    """Fetch the order fresh and verify THIS rider owns leg `mid` via
+    rider_assignments — the ownership check every leg-acting endpoint below
+    needs. 404 if the order/leg doesn't exist, 403 if a different rider (or
+    no rider yet) owns it. Never trusts the client's claim of ownership."""
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Order not found")
+    if mid not in (o.get("merchant_ids") or []):
+        raise HTTPException(404, "Leg not found on this order")
+    assignment = (o.get("rider_assignments") or {}).get(mid)
+    if not assignment or assignment.get("rider_id") != rider_id:
+        raise HTTPException(403, "You are not assigned to this leg")
+    return o
+
+
+@api.get("/rider/orders/available")
+async def rider_available_orders(user: dict = Depends(rider_user)):
+    """Incoming-orders feed — unclaimed 'accepted' merchant legs. PII
+    REDACTION: this is a pre-claim view, so only non-identifying fields are
+    returned (store name/area, drop-off area/pincode/landmark — the SAME
+    'safe before a party is involved' field set merchant_orders already uses
+    for its own redaction, NOT the full `address`/`customer` objects). Full
+    customer detail only appears after a claim, via GET .../{oid} below.
+    An offline rider gets an explicit empty feed rather than silently
+    querying — the frontend should read `online: false` as a hint to toggle
+    on, not as 'no orders right now'."""
+    rider = await _active_rider(user)
+    if not rider.get("online"):
+        return {"online": False, "legs": []}
+
+    # merchant_states/rider_assignments are dicts keyed by merchant_id, not
+    # Mongo arrays — Mongo can't $elemMatch into them, so per-leg filtering
+    # happens in Python after a status-band pre-filter. Same tradeoff
+    # twilio_inbound's OTP scan already accepts for the identical shape
+    # reason. Pickup orders (order_type=='pickup') have no rider leg at all.
+    cands = await db.orders.find(
+        {"status": {"$in": ["accepted", "on_the_way"]}, "order_type": {"$ne": "pickup"}},
+        {"_id": 0},
+    ).to_list(500)
+
+    legs = []
+    for o in cands:
+        states = o.get("merchant_states") or {}
+        assignments = o.get("rider_assignments") or {}
+        addr = o.get("address") or {}
+        for mid, state in states.items():
+            if state != "accepted" or mid in assignments:
+                continue
+            items = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid]
+            store_name = (items[0].get("store_name") if items else None) or "Store"
+            store = await db.stores.find_one(
+                {"id": f"store-m-{mid}"}, {"_id": 0, "area_label": 1, "area": 1, "city": 1},
+            ) or {}
+            legs.append({
+                "order_id": o["id"],
+                "merchant_id": mid,
+                "store_name": store_name,
+                "pickup_area": store.get("area_label") or store.get("area") or store.get("city", "Bhilai"),
+                "drop_area": addr.get("landmark") or addr.get("city", "Bhilai"),
+                "drop_pincode": addr.get("pincode", ""),
+                "item_count": sum(int(it.get("qty", 1)) for it in items) or len(items),
+                "placed_at": o.get("created_at"),
+            })
+    legs.sort(key=lambda l: l["placed_at"] or "")
+    return {"online": True, "legs": legs}
+
+
+@api.post("/rider/orders/{oid}/{mid}/accept")
+async def rider_accept_leg(oid: str, mid: str, user: dict = Depends(rider_user)):
+    """Atomic first-to-accept claim. Two atomic conditional updates, in this
+    order, with rollback of the first if the second loses its race:
+
+      1. Claim THIS rider's one-active-leg slot (db.riders, conditional on
+         current_order_leg being None) — fails immediately, no order
+         touched, if they already have an active delivery.
+      2. Claim the order leg itself (db.orders, conditional on the merchant
+         already having accepted AND no existing rider_assignments[mid]) —
+         same "conditional filter = atomic claim" technique as create_order's
+         stock-decrement reservation. If this loses the race (another rider
+         got there first), step 1's claim is rolled back so this rider isn't
+         left falsely 'busy'.
+
+    No cross-collection transaction exists (this codebase uses none anywhere
+    — read-fresh-then-write with manual rollback is the established pattern,
+    e.g. _merchant_cancel_own_slice's stock restore). The net effect is still
+    correct: two different riders racing the same leg can each win their own
+    step 1, but only one wins step 2, and the loser's step 1 is undone."""
+    rider = await _active_rider(user)
+    now = datetime.now(timezone.utc).isoformat()
+
+    claimed_rider = await db.riders.find_one_and_update(
+        {"id": rider["id"], "current_order_leg": None},
+        {"$set": {"current_order_leg": {"order_id": oid, "merchant_id": mid}, "updated_at": now}},
+        projection={"_id": 0},
+        return_document=True,
+    )
+    if not claimed_rider:
+        raise HTTPException(409, "You already have an active delivery — finish it before accepting another")
+
+    updated = await db.orders.find_one_and_update(
+        {"id": oid, f"merchant_states.{mid}": "accepted",
+         f"rider_assignments.{mid}": {"$exists": False}},
+        {"$set": {f"rider_assignments.{mid}": {"rider_id": rider["id"], "accepted_at": now}}},
+        projection={"_id": 0, "rider_assignments": 1},
+        return_document=True,
+    )
+    if not updated:
+        await db.riders.update_one({"id": rider["id"]}, {"$set": {"current_order_leg": None}})
+        o = await db.orders.find_one({"id": oid}, {"_id": 0, "merchant_states": 1})
+        if not o or mid not in (o.get("merchant_states") or {}):
+            raise HTTPException(404, "Leg not found on this order")
+        if (o.get("merchant_states") or {}).get(mid) != "accepted":
+            raise HTTPException(400, "This leg is not ready for pickup yet")
+        raise HTTPException(409, "Another rider already accepted this leg")
+
+    return {"ok": True, "order_id": oid, "merchant_id": mid,
+            "rider_assignment": updated["rider_assignments"][mid]}
+
+
+@api.post("/rider/orders/{oid}/{mid}/reached-store")
+async def rider_reached_store(oid: str, mid: str, user: dict = Depends(rider_user)):
+    """Informational checkpoint only — no merchant_states/global-status
+    change (this checkpoint has no equivalent in the existing order FSM)."""
+    rider = await _active_rider(user)
+    o = await _rider_owned_leg(oid, mid, rider["id"])
+    if (o.get("merchant_states") or {}).get(mid) != "accepted":
+        raise HTTPException(400, "Leg is not in 'accepted' state")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.orders.update_one({"id": oid}, {"$set": {f"rider_assignments.{mid}.reached_store_at": now}})
+    return {"ok": True, "reached_store_at": now}
+
+
+@api.post("/rider/orders/{oid}/{mid}/picked-up")
+async def rider_picked_up(oid: str, mid: str, user: dict = Depends(rider_user)):
+    """The pickup/handoff step. Stamps rider_assignments[mid].picked_up_at,
+    then calls the SAME _mark_leg_handed_off helper (Commit 1) the merchant
+    handed-to-rider endpoint uses — the accepted->handed_off transition,
+    timeline stamp, global-status derive, write, and customer notification
+    all happen there. NOT reimplemented here."""
+    rider = await _active_rider(user)
+    o = await _rider_owned_leg(oid, mid, rider["id"])
+    if (o.get("merchant_states") or {}).get(mid) != "accepted":
+        raise HTTPException(400, "Leg is not in 'accepted' state")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.orders.update_one({"id": oid}, {"$set": {f"rider_assignments.{mid}.picked_up_at": now}})
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})  # re-fetch fresh before the shared transition
+    result = await _mark_leg_handed_off(o, mid)
+    return {"ok": True, "all_handed": result["all_handed"], "my_state": result["my_state"]}
+
+
+class RiderDeliverPayload(BaseModel):
+    otp: str
+    cash_collected: Optional[bool] = None
+
+
+@api.post("/rider/orders/{oid}/{mid}/deliver")
+async def rider_deliver_leg(oid: str, mid: str, payload: RiderDeliverPayload, user: dict = Depends(rider_user)):
+    """Delivery confirmation. VALIDATES the OTP structurally against
+    merchant_otps[mid] — STRICTER than the existing WhatsApp path's free-text
+    regex parse of an inbound message. On success, calls the SAME
+    _mark_leg_delivered helper (Commit 1) the Twilio webhook uses
+    (require_handed_off=True, delivered_via='rider-app') — NOT reimplemented
+    here — and frees the rider's current_order_leg for their next delivery."""
+    rider = await _active_rider(user)
+    o = await _rider_owned_leg(oid, mid, rider["id"])
+    if (o.get("merchant_states") or {}).get(mid) != "handed_off":
+        raise HTTPException(400, "Leg must be picked up (handed off) before it can be delivered")
+    expected_otp = (o.get("merchant_otps") or {}).get(mid)
+    if not expected_otp or payload.otp.strip() != expected_otp:
+        raise HTTPException(400, "Incorrect delivery OTP")
+
+    now = datetime.now(timezone.utc).isoformat()
+    rider_update: dict = {f"rider_assignments.{mid}.delivered_at": now}
+    if payload.cash_collected is not None:
+        rider_update[f"rider_assignments.{mid}.cash_collected"] = bool(payload.cash_collected)
+        rider_update[f"rider_assignments.{mid}.cash_collected_at"] = now
+    await db.orders.update_one({"id": oid}, {"$set": rider_update})
+
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})  # re-fetch fresh before the shared transition
+    new_global = await _mark_leg_delivered(o, mid, require_handed_off=True, delivered_via="rider-app")
+
+    await db.riders.update_one({"id": rider["id"]}, {"$set": {"current_order_leg": None, "updated_at": now}})
+    return {"ok": True, "status": new_global}
+
+
+@api.get("/rider/orders/{oid}")
+async def rider_order_detail(oid: str, user: dict = Depends(rider_user)):
+    """Rider-scoped order detail — mirrors get_order's role-branching with a
+    role=='rider' equivalent scoped to legs THIS rider is assigned to. Full
+    PII (customer name/phone/address) is justified here because ownership
+    was already verified. A rider must NEVER see another merchant's leg's
+    items or any leg they don't own — enforced by filtering to the single
+    owned mid server-side, never by trusting the client."""
+    rider = await _active_rider(user)
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Order not found")
+    assignments = o.get("rider_assignments") or {}
+    my_mid = next((mid for mid, a in assignments.items() if a.get("rider_id") == rider["id"]), None)
+    if not my_mid:
+        raise HTTPException(403, "You are not assigned to any leg of this order")
+
+    addr = o.get("address") or {}
+    cust = o.get("customer") or {}
+    items = [it for it in (o.get("items") or []) if it.get("merchant_id") == my_mid]
+    m = await db.merchants.find_one({"id": my_mid}, {"_id": 0, "store_name": 1, "business_address": 1})
+    store = await db.stores.find_one(
+        {"id": f"store-m-{my_mid}"}, {"_id": 0, "upi_qr_url": 1, "lat": 1, "lng": 1},
+    ) or {}
+    drop_parts = [addr.get("line1", ""), addr.get("landmark", ""), addr.get("city", "Bhilai"), addr.get("pincode", "")]
+
+    return {
+        "order_id": oid,
+        "merchant_id": my_mid,
+        "status": (o.get("merchant_states") or {}).get(my_mid),
+        "pickup": {
+            "store_name": (m or {}).get("store_name", "Store"),
+            "address": (m or {}).get("business_address", ""),
+            "lat": store.get("lat") or 0,
+            "lng": store.get("lng") or 0,
+        },
+        "drop": {
+            "customer_name": cust.get("name") or addr.get("name", "Customer"),
+            "customer_phone": cust.get("phone") or addr.get("phone", ""),
+            "address": ", ".join(p for p in drop_parts if p),
+            "lat": o.get("customer_lat") or addr.get("lat") or 0,
+            "lng": o.get("customer_lng") or addr.get("lng") or 0,
+        },
+        "items": items,
+        "otp": (o.get("merchant_otps") or {}).get(my_mid, ""),
+        "otp_note": "Ask the customer for this code at drop-off to confirm delivery",
+        "payment": {
+            "method": o.get("payment_method"),
+            "upi_qr_url": store.get("upi_qr_url") or "",
+            "note": ("Show the store's UPI QR" if store.get("upi_qr_url")
+                     else "Collect cash on delivery" if o.get("payment_method") == "cod"
+                     else "Already paid online"),
+        },
+        "rider_assignment": assignments.get(my_mid),
+    }
+
+
+@api.get("/rider/me/active")
+async def rider_me_active(user: dict = Depends(rider_user)):
+    """'Do I have an active leg right now' — for reopening the app
+    mid-delivery. Returns the rider's current_order_leg + a minimal status
+    snapshot, or null if they have none."""
+    rider = await _active_rider(user)
+    leg = rider.get("current_order_leg")
+    if not leg:
+        return {"active": None}
+    o = await db.orders.find_one(
+        {"id": leg["order_id"]}, {"_id": 0, "merchant_states": 1, "rider_assignments": 1},
+    )
+    my_state = (o.get("merchant_states") or {}).get(leg["merchant_id"]) if o else None
+    return {
+        "active": {
+            "order_id": leg["order_id"],
+            "merchant_id": leg["merchant_id"],
+            "status": my_state,
+            "rider_assignment": ((o or {}).get("rider_assignments") or {}).get(leg["merchant_id"]),
+        }
+    }
+
 
 @api.post("/orders/{oid}/rate")
 async def rate_order_product(oid: str, payload: dict, user: dict = Depends(customer_user)):
