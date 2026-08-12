@@ -134,6 +134,15 @@ class NotificationProvider(ABC):
     vendor SDK/HTTP API directly from server.py or from the notify_*
     templates below — go through get_provider()."""
 
+    def __init__(self) -> None:
+        # Diagnostic detail from the MOST RECENT method call — not part of
+        # the interface's return-value contract (that stays bool/str/None
+        # for zero-behavior-change reasons), just an extra channel for
+        # callers that want the raw provider response, e.g. the admin
+        # notification-test endpoint (Commit 3) surfacing DLT/template
+        # errors directly instead of only a log line.
+        self.last_result: dict = {}
+
     @abstractmethod
     def send_sms(self, to: str, message: str, *, message_type: Optional[str] = None) -> bool:
         """Plain SMS. `message_type` identifies which of the app's message
@@ -231,21 +240,27 @@ class TwilioProvider(NotificationProvider):
         cli = self._get_client()
         if cli is None:
             log.info("[SMS mock] %s -> %s", to, message[:80])
+            self.last_result = {"ok": False, "provider": "twilio", "channel": "sms",
+                                 "error": "Twilio client not configured (missing TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN)"}
             return False
         to_e164 = _to_e164(to)
         if not to_e164:
             log.warning("[SMS] invalid phone: %r", to)
+            self.last_result = {"ok": False, "provider": "twilio", "channel": "sms", "error": f"invalid phone: {to!r}"}
             return False
         sender = (os.environ.get("TWILIO_SMS_FROM") or "").strip()
         if not sender:
             log.warning("[SMS] TWILIO_SMS_FROM is not configured — skipping fallback")
+            self.last_result = {"ok": False, "provider": "twilio", "channel": "sms", "error": "TWILIO_SMS_FROM not configured"}
             return False
         try:
             msg = cli.messages.create(from_=sender, to=to_e164, body=message)
             log.info("[SMS] %s sent (sid=%s)", to_e164, msg.sid)
+            self.last_result = {"ok": True, "provider": "twilio", "channel": "sms", "sid": msg.sid}
             return True
         except Exception as e:
             log.warning("[SMS] send to %s failed: %s", to_e164, e)
+            self.last_result = {"ok": False, "provider": "twilio", "channel": "sms", "error": str(e)}
             return False
 
     def send_whatsapp(self, to: str, message: str, *,
@@ -255,10 +270,13 @@ class TwilioProvider(NotificationProvider):
         cli = self._get_client()
         if cli is None:
             log.info("[WA mock] %s -> %s", to, message[:80])
+            self.last_result = {"ok": False, "provider": "twilio", "channel": "whatsapp",
+                                 "error": "Twilio client not configured (missing TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN)"}
             return None
         to_addr = _to_whatsapp_addr(to)
         if not to_addr:
             log.warning("[WA] invalid phone: %r", to)
+            self.last_result = {"ok": False, "provider": "twilio", "channel": "whatsapp", "error": f"invalid phone: {to!r}"}
             return None
         try:
             if template_id:
@@ -270,9 +288,11 @@ class TwilioProvider(NotificationProvider):
             else:
                 msg = cli.messages.create(from_=self._whatsapp_sender(), to=to_addr, body=message)
             log.info("[WA] %s sent (sid=%s)", to_addr, msg.sid)
+            self.last_result = {"ok": True, "provider": "twilio", "channel": "whatsapp", "sid": msg.sid}
             return msg.sid
         except Exception as e:
             log.warning("[WA] send to %s failed: %s", to_addr, e)
+            self.last_result = {"ok": False, "provider": "twilio", "channel": "whatsapp", "error": str(e)}
             return None
 
     def _poll_message_status(self, sid: str, budget_sec: float = _POLL_BUDGET_SEC) -> str:
@@ -302,6 +322,7 @@ class TwilioProvider(NotificationProvider):
             # Twilio has no OTP-generation product of its own — the caller
             # (server.py's local-generate path) must always supply the code.
             log.warning("[twilio] send_otp called without an otp value for %s — Twilio cannot generate its own", to)
+            self.last_result = {"ok": False, "provider": "twilio", "channel": "otp", "error": "no otp value supplied"}
             return "none"
         content_sid = (os.environ.get("TWILIO_OTP_CONTENT_SID") or "").strip()
         plain_body = f"Your Lokl verification code is {otp}. Valid for 10 minutes."
@@ -315,13 +336,16 @@ class TwilioProvider(NotificationProvider):
             status = self._poll_message_status(wa_sid)
             if status in _TERMINAL_OK:
                 log.info("[OTP] delivered via=whatsapp to=%s status=%s", to, status)
+                self.last_result = {"ok": True, "provider": "twilio", "channel": "otp", "via": "whatsapp", "status": status}
                 return "whatsapp"
             log.info("[OTP] WA status=%s — falling back to SMS for %s", status, to)
 
         if self.send_sms(to, plain_body):
             log.info("[OTP] delivered via=sms to=%s", to)
+            self.last_result = {"ok": True, "provider": "twilio", "channel": "otp", "via": "sms"}
             return "sms"
         log.warning("[OTP] ALL channels failed for %s", to)
+        self.last_result = {"ok": False, "provider": "twilio", "channel": "otp", "error": "all channels failed"}
         return "none"
 
     def verify_otp(self, to: str, otp: str) -> bool:
@@ -329,6 +353,8 @@ class TwilioProvider(NotificationProvider):
         section. Twilio never verifies anything itself; server.py's
         bcrypt-hash check against the local OTP collection is the real
         verification and is completely unaffected by this migration."""
+        self.last_result = {"ok": True, "provider": "twilio", "channel": "verify_otp",
+                             "note": "no-op passthrough — Twilio never verifies; local bcrypt check is authoritative"}
         return True
 
 
@@ -397,6 +423,8 @@ class MSG91Provider(NotificationProvider):
         "store_back_online": "MSG91_SMS_TEMPLATE_STORE_BACK_ONLINE",
         "pickup_reservation_expired": "MSG91_SMS_TEMPLATE_PICKUP_RESERVATION_EXPIRED",
         "order_auto_cancelled": "MSG91_SMS_TEMPLATE_ORDER_AUTO_CANCELLED",
+        # Commit 3: the admin parallel-test endpoint's own test message.
+        "admin_notification_test": "MSG91_SMS_TEMPLATE_ADMIN_NOTIFICATION_TEST",
         # order_accepted is dead code (zero call sites, see notify_order_accepted's
         # docstring) — deliberately NOT mapped; no Railway var needed for it.
     }
@@ -415,20 +443,26 @@ class MSG91Provider(NotificationProvider):
     def send_sms(self, to: str, message: str, *, message_type: Optional[str] = None) -> bool:
         auth_key = self._auth_key()
         if not auth_key:
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "sms",
+                                 "error": "MSG91_AUTH_KEY not configured"}
             return False
         mobile = _to_msg91_mobile(to)
         if not mobile:
             log.warning("[msg91-sms] invalid phone: %r", to)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "sms", "error": f"invalid phone: {to!r}"}
             return False
         env_name = self._SMS_TEMPLATE_ENV.get(message_type or "")
         template_id = (os.environ.get(env_name) if env_name else None) or ""
         if not template_id:
-            log.warning(
-                "[msg91-sms] no DLT template configured for message_type=%r (env %s) "
-                "— skipping SMS to %s (India DLT requires a registered template; "
-                "there is no safe generic fallback)",
-                message_type, env_name or "<unmapped message_type>", to,
+            err = (
+                f"no DLT template configured for message_type={message_type!r} "
+                f"(env {env_name or '<unmapped message_type>'})"
             )
+            log.warning(
+                "[msg91-sms] %s — skipping SMS to %s (India DLT requires a "
+                "registered template; there is no safe generic fallback)", err, to,
+            )
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "sms", "error": err}
             return False
         try:
             import requests
@@ -441,11 +475,14 @@ class MSG91Provider(NotificationProvider):
             data = resp.json()
             if str(data.get("type", "")).lower() == "success":
                 log.info("[msg91-sms] %s sent (message_type=%s)", mobile, message_type)
+                self.last_result = {"ok": True, "provider": "msg91", "channel": "sms", "response": data}
                 return True
             log.warning("[msg91-sms] send to %s failed: %s", mobile, data)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "sms", "response": data}
             return False
         except Exception as e:
             log.warning("[msg91-sms] send to %s failed: %s", mobile, e)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "sms", "error": str(e)}
             return False
 
     def send_whatsapp(self, to: str, message: str, *,
@@ -454,14 +491,19 @@ class MSG91Provider(NotificationProvider):
                        message_type: Optional[str] = None) -> Optional[str]:
         auth_key = self._auth_key()
         if not auth_key:
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp",
+                                 "error": "MSG91_AUTH_KEY not configured"}
             return None
         mobile = _to_msg91_mobile(to)
         if not mobile:
             log.warning("[msg91-wa] invalid phone: %r", to)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp", "error": f"invalid phone: {to!r}"}
             return None
         integrated_number = (os.environ.get("MSG91_WHATSAPP_INTEGRATED_NUMBER") or "").strip()
         if not integrated_number:
             log.warning("[msg91-wa] MSG91_WHATSAPP_INTEGRATED_NUMBER not configured — skipping WhatsApp to %s", to)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp",
+                                 "error": "MSG91_WHATSAPP_INTEGRATED_NUMBER not configured"}
             return None
         try:
             import requests
@@ -496,11 +538,14 @@ class MSG91Provider(NotificationProvider):
             msg_id = data.get("message_id") or data.get("request_id")
             if not msg_id:
                 log.warning("[msg91-wa] send to %s failed: %s", mobile, data)
+                self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp", "response": data}
                 return None
             log.info("[msg91-wa] %s sent (id=%s message_type=%s)", mobile, msg_id, message_type)
+            self.last_result = {"ok": True, "provider": "msg91", "channel": "whatsapp", "message_id": msg_id, "response": data}
             return str(msg_id)
         except Exception as e:
             log.warning("[msg91-wa] send to %s failed: %s", mobile, e)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp", "error": str(e)}
             return None
 
     def send_otp(self, to: str, otp: Optional[str] = None) -> str:
@@ -510,14 +555,17 @@ class MSG91Provider(NotificationProvider):
         unused by server.py today; kept for interface completeness."""
         auth_key = self._auth_key()
         if not auth_key:
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "otp", "error": "MSG91_AUTH_KEY not configured"}
             return "none"
         mobile = _to_msg91_mobile(to)
         if not mobile:
             log.warning("[msg91-otp] invalid phone: %r", to)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "otp", "error": f"invalid phone: {to!r}"}
             return "none"
         template_id = (os.environ.get("MSG91_OTP_TEMPLATE_ID") or "").strip()
         if not template_id:
             log.warning("[msg91-otp] MSG91_OTP_TEMPLATE_ID not configured — skipping OTP send to %s", to)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "otp", "error": "MSG91_OTP_TEMPLATE_ID not configured"}
             return "none"
         try:
             import requests
@@ -528,24 +576,30 @@ class MSG91Provider(NotificationProvider):
             data = resp.json()
             if str(data.get("type", "")).lower() == "success":
                 log.info("[msg91-otp] delivered to=%s (request_id=%s)", to, data.get("request_id"))
+                self.last_result = {"ok": True, "provider": "msg91", "channel": "otp", "response": data}
                 # MSG91's OTP template controls actual channel fallback
                 # order (WhatsApp -> SMS -> voice, configured in the MSG91
                 # dashboard) — this response doesn't tell us which channel
                 # was actually used, unlike Twilio's poll-confirmed result.
                 return "whatsapp"
             log.warning("[msg91-otp] send to %s failed: %s", to, data)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "otp", "response": data}
             return "none"
         except Exception as e:
             log.warning("[msg91-otp] send to %s failed: %s", to, e)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "otp", "error": str(e)}
             return "none"
 
     def verify_otp(self, to: str, otp: str) -> bool:
         auth_key = self._auth_key()
         if not auth_key:
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "verify_otp",
+                                 "error": "MSG91_AUTH_KEY not configured"}
             return False
         mobile = _to_msg91_mobile(to)
         if not mobile:
             log.warning("[msg91-otp] invalid phone for verify: %r", to)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "verify_otp", "error": f"invalid phone: {to!r}"}
             return False
         try:
             import requests
@@ -564,9 +618,11 @@ class MSG91Provider(NotificationProvider):
                 log.info("[msg91-otp] verify OK for %s", to)
             else:
                 log.warning("[msg91-otp] verify FAILED for %s: %s", to, data.get("message"))
+            self.last_result = {"ok": ok, "provider": "msg91", "channel": "verify_otp", "response": data}
             return ok
         except Exception as e:
             log.warning("[msg91-otp] verify request failed for %s: %s", to, e)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "verify_otp", "error": str(e)}
             return False
 
 
@@ -574,25 +630,31 @@ class MSG91Provider(NotificationProvider):
 # Provider factory / selector
 # ============================================================================
 
-_provider_instance: Optional[NotificationProvider] = None
+_provider_instances: dict[str, NotificationProvider] = {}
 
 
 def get_provider() -> NotificationProvider:
-    """Returns the active NotificationProvider, selected once (cached) via
-    NOTIFICATION_PROVIDER (default "twilio"). An unrecognized value logs a
-    warning and falls back to Twilio rather than breaking every send path."""
-    global _provider_instance
-    if _provider_instance is not None:
-        return _provider_instance
+    """Returns the active NotificationProvider for NOTIFICATION_PROVIDER
+    (default "twilio"), read FRESH on every call — not cached behind a
+    single global that would need a process restart to pick up a changed
+    env var. Provider instances themselves ARE cached, one per provider
+    name, so flipping NOTIFICATION_PROVIDER back and forth (e.g. during a
+    cutover/rollback) doesn't pay vendor-client re-init cost and takes
+    effect on the very next call, no restart required. (Railway also
+    restarts on env var changes by default, so this matters most for
+    same-process testing, but it's a correctness property either way.)
+
+    An unrecognized value logs a warning and falls back to Twilio rather
+    than breaking every send path."""
     name = active_provider_name()
-    if name == "msg91":
-        _provider_instance = MSG91Provider()
-    elif name == "twilio":
-        _provider_instance = TwilioProvider()
-    else:
+    if name not in ("twilio", "msg91"):
         log.warning("[notify] NOTIFICATION_PROVIDER=%r is not implemented — using twilio", name)
-        _provider_instance = TwilioProvider()
-    return _provider_instance
+        name = "twilio"
+    inst = _provider_instances.get(name)
+    if inst is None:
+        inst = MSG91Provider() if name == "msg91" else TwilioProvider()
+        _provider_instances[name] = inst
+    return inst
 
 
 # ============================================================================
@@ -640,17 +702,20 @@ def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = N
 
     Returns `"whatsapp"`, `"sms"`, or `"none"`.
     """
-    log.info("[NOTIFY] %s <- %.80s", phone, body.replace("\n", " "))
     provider = get_provider()
+    provider_name = type(provider).__name__.replace("Provider", "").lower()
+    log.info("[NOTIFY] provider=%s %s <- %.80s", provider_name, phone, body.replace("\n", " "))
     sid = provider.send_whatsapp(phone, body, message_type=message_type)
     if sid:
-        log.info("[NOTIFY] WhatsApp OK sid=%s to=%s", sid, phone)
+        log.info("[NOTIFY] provider=%s WhatsApp OK sid=%s to=%s", provider_name, sid, phone)
         return "whatsapp"
-    log.warning("[NOTIFY] WhatsApp failed for %s — falling back to SMS", phone)
+    log.warning("[NOTIFY] provider=%s WhatsApp failed for %s (%s) — falling back to SMS",
+                provider_name, phone, provider.last_result.get("error", "see prior log line"))
     if provider.send_sms(phone, body, message_type=message_type):
-        log.info("[NOTIFY] SMS fallback delivered to %s", phone)
+        log.info("[NOTIFY] provider=%s SMS fallback delivered to %s", provider_name, phone)
         return "sms"
-    log.warning("[NOTIFY] all channels failed for %s", phone)
+    log.warning("[NOTIFY] provider=%s all channels failed for %s (%s)",
+                provider_name, phone, provider.last_result.get("error", "see prior log line"))
     return "none"
 
 
@@ -674,9 +739,14 @@ def notify_customer_otp(customer_phone: str, otp: str) -> None:
     """
     if os.environ.get("CUSTOMER_OTP_DEBUG", "").strip().lower() in ("1", "true", "yes"):
         log.warning("[OTP-DEBUG] phone=%s otp=%s", customer_phone, otp)
-    result = get_provider().send_otp(customer_phone, otp)
+    provider = get_provider()
+    provider_name = type(provider).__name__.replace("Provider", "").lower()
+    result = provider.send_otp(customer_phone, otp)
     if result == "none":
-        log.warning("[OTP] customer OTP delivery FAILED for %s (all channels)", customer_phone)
+        log.warning("[OTP] provider=%s customer OTP delivery FAILED for %s (%s)",
+                    provider_name, customer_phone, provider.last_result.get("error", "all channels"))
+    else:
+        log.info("[OTP] provider=%s customer OTP delivered via=%s to=%s", provider_name, result, customer_phone)
 
 
 def notify_merchant_otp(merchant_phone: str, otp: str) -> None:

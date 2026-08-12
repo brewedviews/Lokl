@@ -36,7 +36,7 @@ from notifications import (
     notify_pickup_reserved, notify_merchant_pickup_reserved,
     notify_pickup_pending, notify_merchant_pickup_pending,
     notify_merchant_approved, notify_merchant_first_order,
-    get_provider, active_provider_name,
+    get_provider, active_provider_name, TwilioProvider, MSG91Provider,
 )
 from ai_enhance import enhance_product_images
 from observability import init_sentry
@@ -1514,6 +1514,86 @@ async def require_admin(authorization: Optional[str] = Header(None)) -> dict:
     if not admin or not admin.get("active", True):
         raise HTTPException(403, "Admin account inactive or not found")
     return admin
+
+
+# ===== Notification provider parallel-test endpoint (Twilio -> MSG91
+# migration, Commit 3) =====
+# Lets an admin validate a SPECIFIC provider against a SPECIFIC number
+# WITHOUT touching NOTIFICATION_PROVIDER — every other request on the
+# platform keeps going through get_provider() untouched. This is how MSG91
+# gets validated end-to-end (SMS/WhatsApp/OTP, DLT template errors visible
+# in the response) against a real phone before the global cutover.
+
+class NotificationTestRequest(BaseModel):
+    provider: str  # "twilio" | "msg91"
+    phone: str
+    channels: list[str] = ["sms", "whatsapp", "otp"]
+    otp_to_verify: Optional[str] = None  # optional 2nd call: verify a code you actually received
+
+
+@api.post("/admin/notifications/test")
+async def admin_test_notification(payload: NotificationTestRequest, admin: dict = Depends(require_admin)):
+    """Admin-only. Sends one-off test message(s) via the SPECIFIED provider
+    to the SPECIFIED phone, bypassing get_provider()/NOTIFICATION_PROVIDER
+    entirely — a fresh provider instance is constructed just for this call,
+    so this can never affect what any other user's notification uses.
+
+    Each requested channel ("sms", "whatsapp", "otp") is sent independently
+    so you can isolate exactly which one fails. The response includes each
+    provider's raw result (provider.last_result) — for MSG91 this surfaces
+    the actual API response/error (e.g. a DLT template mismatch or missing
+    WABA config) instead of only a log line.
+
+    Pass `otp_to_verify` to also call verify_otp() with a code you actually
+    received on your phone from the "otp" channel test above — useful for
+    confirming MSG91's OTP API round-trips correctly before cutover.
+    """
+    phone = _normalize_customer_phone(payload.phone)
+    if not phone:
+        raise HTTPException(400, "Invalid phone number")
+
+    provider_name = (payload.provider or "").strip().lower()
+    if provider_name == "msg91":
+        test_provider = MSG91Provider()
+    elif provider_name == "twilio":
+        test_provider = TwilioProvider()
+    else:
+        raise HTTPException(400, f"Unknown provider {provider_name!r} — must be 'twilio' or 'msg91'")
+
+    channels = [c.strip().lower() for c in (payload.channels or [])] or ["sms", "whatsapp", "otp"]
+    results: dict = {}
+
+    for ch in channels:
+        if ch == "sms":
+            ok = test_provider.send_sms(
+                phone, "Lokl test SMS — provider parallel test. Ignore if unexpected.",
+                message_type="admin_notification_test",
+            )
+            results["sms"] = {"ok": ok, **test_provider.last_result}
+        elif ch == "whatsapp":
+            wa_id = test_provider.send_whatsapp(
+                phone, "Lokl test WhatsApp — provider parallel test. Ignore if unexpected.",
+            )
+            results["whatsapp"] = {"ok": wa_id is not None, **test_provider.last_result}
+        elif ch == "otp":
+            # Twilio has no self-generation — give it a synthetic code to
+            # deliver. MSG91 generates its own; we pass nothing.
+            test_otp = "482913" if provider_name == "twilio" else None
+            channel_used = test_provider.send_otp(phone, test_otp)
+            results["otp"] = {"ok": channel_used != "none", "delivered_via": channel_used, **test_provider.last_result}
+        else:
+            results[ch] = {"ok": False, "error": f"unknown channel {ch!r} — must be sms/whatsapp/otp"}
+            continue
+        log.info("[ADMIN-NOTIFY-TEST] provider=%s channel=%s to=%s result=%s",
+                  provider_name, ch, phone, results[ch])
+
+    if payload.otp_to_verify:
+        verified = test_provider.verify_otp(phone, payload.otp_to_verify)
+        results["verify_otp"] = {"ok": verified, **test_provider.last_result}
+        log.info("[ADMIN-NOTIFY-TEST] provider=%s channel=verify_otp to=%s result=%s",
+                  provider_name, phone, results["verify_otp"])
+
+    return {"ok": True, "provider": provider_name, "phone": phone, "results": results}
 
 
 @api.post("/webhooks/payment")
@@ -6808,10 +6888,11 @@ async def fix_paused_products(database):
 
 @app.on_event("startup")
 async def startup_seed():
-    log.info("[startup] RIDER_PHONE=%s APP_URL=%s TWILIO_FROM=%s",
+    log.info("[startup] RIDER_PHONE=%s APP_URL=%s TWILIO_FROM=%s NOTIFICATION_PROVIDER=%s",
         bool(os.environ.get("RIDER_PHONE")),
         os.environ.get("APP_URL", "NOT SET"),
         bool(os.environ.get("TWILIO_WHATSAPP_FROM")),
+        active_provider_name(),
     )
     # ----- MongoDB version + geo support check -----
     try:
