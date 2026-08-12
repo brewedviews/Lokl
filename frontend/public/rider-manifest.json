@@ -1,0 +1,14 @@
+{
+  "name": "Lokl Rider",
+  "short_name": "Lokl Rider",
+  "description": "Delivery workflow app for Lokl riders",
+  "start_url": "/rider",
+  "scope": "/rider",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FDFBF7",
+  "theme_color": "#0A1F5C",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

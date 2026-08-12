@@ -46,6 +46,8 @@ export const CUSTOMER_TOKEN_KEY = "bf_customer_token";
 export const CUSTOMER_PHONE_KEY = "bf_customer_phone";
 export const MERCHANT_TOKEN_KEY = "lokl_merchant_auth";
 export const ADMIN_TOKEN_KEY = "bf_admin_token";
+export const RIDER_TOKEN_KEY = "bf_rider_token";
+export const RIDER_PHONE_KEY = "bf_rider_phone";
 
 // Cross-tab events the legacy app dispatches. Preserved verbatim — Session B
 // will replace the localStorage reads with Zustand selectors, but these events
@@ -53,6 +55,7 @@ export const ADMIN_TOKEN_KEY = "bf_admin_token";
 export const CUSTOMER_AUTH_EVENT = "customer-auth:change";
 export const MERCHANT_AUTH_EVENT = "merchant-auth:change";
 export const ADMIN_AUTH_EVENT = "admin-auth:change";
+export const RIDER_AUTH_EVENT = "rider-auth:change";
 
 // ============================================================================
 // URL classification — which token to attach
@@ -79,12 +82,22 @@ const MERCHANT_ROUTE_PATTERNS: RegExp[] = [
 
 const ADMIN_ROUTE_PATTERNS: RegExp[] = [/^\/api\/admin\//];
 
-type Scope = "customer" | "merchant" | "admin" | "public";
+// Rider delivery-platform routes (Phase 1, Commit 2/3). Rider tokens are
+// long-lived (see auth.py's role in ("customer", "rider") TTL branch) and,
+// unlike customer/merchant, have NO refresh-token flow — rider_verify_otp
+// only ever issues an access token. A 401 here still triggers the generic
+// refresh-once-and-retry below, but that refresh call has no rider cookie to
+// use and simply fails fast, falling through to the same clear+redirect path
+// admin already takes (see the catch block).
+const RIDER_ROUTE_PATTERNS: RegExp[] = [/^\/api\/rider\//, /^\/api\/auth\/rider\//];
+
+type Scope = "customer" | "merchant" | "admin" | "rider" | "public";
 
 function classify(url: string): Scope {
   // Strip the base URL prefix so we match on the path portion only.
   const path = url.replace(/^https?:\/\/[^/]+/, "").split("?")[0] ?? url;
   if (ADMIN_ROUTE_PATTERNS.some((re) => re.test(path))) return "admin";
+  if (RIDER_ROUTE_PATTERNS.some((re) => re.test(path))) return "rider";
   if (CUSTOMER_ROUTE_PATTERNS.some((re) => re.test(path))) return "customer";
   if (MERCHANT_ROUTE_PATTERNS.some((re) => re.test(path))) return "merchant";
   return "public";
@@ -94,6 +107,7 @@ function tokenKeyFor(scope: Scope): string | null {
   if (scope === "customer") return CUSTOMER_TOKEN_KEY;
   if (scope === "merchant") return MERCHANT_TOKEN_KEY;
   if (scope === "admin") return ADMIN_TOKEN_KEY;
+  if (scope === "rider") return RIDER_TOKEN_KEY;
   return null;
 }
 
@@ -101,6 +115,7 @@ function authEventFor(scope: Scope): string | null {
   if (scope === "customer") return CUSTOMER_AUTH_EVENT;
   if (scope === "merchant") return MERCHANT_AUTH_EVENT;
   if (scope === "admin") return ADMIN_AUTH_EVENT;
+  if (scope === "rider") return RIDER_AUTH_EVENT;
   return null;
 }
 
@@ -159,6 +174,7 @@ export function clearToken(scope: Scope): void {
   if (!key) return;
   localStorage.removeItem(key);
   if (scope === "customer") localStorage.removeItem(CUSTOMER_PHONE_KEY);
+  if (scope === "rider") localStorage.removeItem(RIDER_PHONE_KEY);
   const evt = authEventFor(scope);
   if (evt) window.dispatchEvent(new Event(evt));
 }
@@ -248,7 +264,7 @@ function createApiClient(): AxiosInstance {
           const parts = newToken.split(".");
           if (parts.length < 3 || !parts[1]) { clearToken(scope); return Promise.reject(new Error("Invalid token")); }
           const payload = JSON.parse(atob(parts[1])) as { role?: string };
-          const expectedRole = scope === "admin" ? "admin" : scope === "merchant" ? "merchant" : "customer";
+          const expectedRole = scope === "admin" ? "admin" : scope === "merchant" ? "merchant" : scope === "rider" ? "rider" : "customer";
           if (payload.role !== expectedRole) {
             clearToken(scope);
             return Promise.reject(error);
@@ -280,10 +296,13 @@ function createApiClient(): AxiosInstance {
         if (typeof window !== "undefined") {
           const onAdminPath = window.location.pathname.startsWith("/admin");
           const onMerchantPath = window.location.pathname.startsWith("/merchant");
+          const onRiderPath = window.location.pathname.startsWith("/rider");
           if (scope === "admin" && onAdminPath && window.location.pathname !== "/admin") {
             window.location.assign("/admin");
           } else if (scope === "merchant" && onMerchantPath && !window.location.pathname.endsWith("/login")) {
             window.location.assign("/merchant/login");
+          } else if (scope === "rider" && onRiderPath && window.location.pathname !== "/rider/login") {
+            window.location.assign("/rider/login");
           }
         }
         return Promise.reject(refreshErr);

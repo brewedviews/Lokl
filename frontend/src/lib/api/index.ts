@@ -119,6 +119,7 @@ export { merchantApi } from "./merchant";
 export { adminApi } from "./admin";
 export { authApi } from "./auth";
 export { deliveryApi } from "./delivery";
+export { riderApi } from "./rider";
 
 // Aliased imports so consumers can grab a single bundle.
 import { storesApi as _storesApi } from "./stores";
@@ -129,6 +130,7 @@ import { merchantApi as _merchantApi } from "./merchant";
 import { adminApi as _adminApi } from "./admin";
 import { authApi as _authApi } from "./auth";
 import { deliveryApi as _deliveryApi } from "./delivery";
+import { riderApi as _riderApi } from "./rider";
 
 export const api = {
   auth: _authApi,
@@ -143,4 +145,5 @@ export const api = {
   search: searchApi,
   misc: miscApi,
   delivery: _deliveryApi,
+  rider: _riderApi,
 };

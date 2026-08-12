@@ -24,6 +24,13 @@ export {
 } from "./admin-auth.store";
 
 export {
+  useRiderAuthStore,
+  RIDER_TOKEN_KEY,
+  RIDER_PHONE_KEY,
+  RIDER_AUTH_EVENT,
+} from "./rider-auth.store";
+
+export {
   useCartStore,
   CART_KEY,
 } from "./cart.store";

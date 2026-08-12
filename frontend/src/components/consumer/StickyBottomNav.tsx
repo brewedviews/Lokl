@@ -1,7 +1,11 @@
 "use client";
 
 /**
- * Mobile-only sticky bottom navigation. Hidden on /merchant + /admin routes.
+ * Mobile-only sticky bottom navigation. Hidden on /merchant + /admin + /rider
+ * routes (the rider PWA has its own minimal top-bar chrome, see
+ * app/rider/layout.tsx — this check is redundant with /rider living outside
+ * the (consumer) route group, but kept explicit for the same belt-and-braces
+ * reason /merchant and /admin already are).
  *
  *   [ Home ] [ Categories ] [ All ] [ Stores ] [ Profile ]
  *
@@ -20,7 +24,7 @@ import { trackNavClick } from "@/lib/analytics";
 export function StickyBottomNav() {
   const pathname = usePathname();
 
-  if (pathname.startsWith("/merchant") || pathname.startsWith("/admin")) return null;
+  if (pathname.startsWith("/merchant") || pathname.startsWith("/admin") || pathname.startsWith("/rider")) return null;
 
   const isActive = (href: string) => href === "/" ? pathname === "/" : pathname.startsWith(href);
 

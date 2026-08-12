@@ -85,7 +85,8 @@ export function ActiveOrderPill() {
     || pathname.startsWith("/account/orders/")
     || pathname.startsWith("/product/")
     || pathname.startsWith("/merchant")
-    || pathname.startsWith("/admin");
+    || pathname.startsWith("/admin")
+    || pathname.startsWith("/rider");
 
   if (!order || hideOnRoute) return null;
 
