@@ -8,6 +8,17 @@ import type {
   PriceBentoResponse, SearchResults, Testimonial,
 } from "@/types";
 
+export interface ActiveCoupon {
+  id: string;
+  code: string;
+  discount_type: "percent" | "flat";
+  discount_value: number;
+  min_order_value: number;
+  max_uses: number | null;
+  used_count: number;
+  expires_at: string | null;
+}
+
 export const siteApi = {
   homepageConfig: async (): Promise<HomepageConfig> => {
     const r = await apiClient.get<HomepageConfig>("/api/site/homepage-config");
@@ -63,6 +74,15 @@ export const catalogApi = {
    *  catalog has nothing in that range yet. */
   priceBento: async (): Promise<PriceBentoResponse> => {
     const r = await apiClient.get<PriceBentoResponse>("/api/feed/price-bento");
+    return r.data;
+  },
+
+  /** GET /api/coupons/active — public, read-only listing of currently
+   *  redeemable coupons (no code needed in advance). Used by the PDP
+   *  offers card. Order-level, not product-specific — the backend has no
+   *  per-product/category coupon targeting today. */
+  activeCoupons: async (limit = 5): Promise<ActiveCoupon[]> => {
+    const r = await apiClient.get<ActiveCoupon[]>("/api/coupons/active", { params: { limit } });
     return r.data;
   },
 };

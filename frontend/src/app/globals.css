@@ -82,6 +82,25 @@
    * Rule to hold to: tight WITHIN a component uses 2/3 (8-12px), loose
    * BETWEEN sections uses 8 (32px). Adding parallel named tokens here
    * would just duplicate what already exists — see the demo page. */
+
+  /* ============================================================
+   * PDP spec tokens (product detail page redesign) — additive only.
+   * These do NOT replace/rename brand-primary (#0A1F5C) or any other
+   * existing token; ink-navy is a deliberately separate, slightly
+   * warmer navy used specifically by the new PDP components below.
+   * ============================================================ */
+  --color-ink-navy:         #1A2B4C; /* PDP text/icons — distinct from brand-primary */
+  --color-near-black:       #16130F; /* size-selector selected state, solid CTA */
+  --color-slate-gray:       #6B7280; /* strikethrough MRP */
+  --color-warm-gray-border: #E7E1D3; /* offers-card / hairline borders */
+  --color-cream-warm:       #F7F1E6; /* offers-card bg, trust-icon chip bg */
+  --color-moss-green:       #1E5631; /* %-off pill text, "TOP STEAL" pill text */
+  --color-moss-green-tint:  #E6EFE7; /* %-off pill bg, "TOP STEAL" pill bg */
+  --color-orange-200:       #F3C887; /* offers-card dashed promo-code chip border */
+
+  /* DM Sans (next/font, layout.tsx) — bold uppercase ribbon-tag text only;
+   * everything else on the PDP keeps the existing --font-sans (Satoshi). */
+  --font-dm-sans: var(--font-dm-sans-raw), "Satoshi", system-ui, sans-serif;
 }
 
 /* === Base layer — body bg + font binding === */

@@ -1,7 +1,17 @@
 import type { Metadata } from "next";
+import { DM_Sans } from "next/font/google";
 import Script from "next/script";
 import { Providers } from "./providers";
 import "./globals.css";
+
+// DM Sans — PDP ribbon-tag bold uppercase text only (spec-mandated font for
+// that one element); everything else keeps the existing Fontshare Satoshi.
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  weight: ["700"],
+  variable: "--font-dm-sans-raw",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -45,7 +55,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={dmSans.variable}>
       <head>
         {/* Fontshare — Clash Display (h1-h4) + Satoshi (body). Loaded via
             <link> not @import because the Tailwind v4 entry expands inline

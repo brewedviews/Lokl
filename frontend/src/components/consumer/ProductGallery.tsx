@@ -3,32 +3,69 @@
 import { useRef, useState } from "react";
 import Image from "next/image";
 import { ChevronLeft, ChevronRight, ShoppingBag, Sparkles } from "lucide-react";
+import { RibbonTag } from "./RibbonTag";
+
+interface ProductGalleryProps {
+  name: string;
+  images: string[];
+  aiEnhanced?: boolean;
+  /** Discount %, if any — drives the top-left status ribbon ("SALE") on the
+   *  first image. 0/undefined renders no ribbon (never fabricated). */
+  discount?: number;
+  /** Real try_at_doorstep flag — drives the bottom-left "try & buy" banner
+   *  on the first image. */
+  tryAndBuy?: boolean;
+  /** Optional fit attribute (oversized/regular/slim) — not on the current
+   *  product data model yet, so this is undefined today and the overlay
+   *  simply never renders. Wired ahead of that field landing. */
+  fit?: string | null;
+  /** Only overlay `fit` text when the shot is a plain/light studio
+   *  background — never on lifestyle/busy photography. Also not on the
+   *  data model yet; defaults to false (never render) until a merchant/
+   *  admin flag for this exists. */
+  isCleanBackground?: boolean;
+}
 
 export function ProductGallery({
   name,
   images,
   aiEnhanced,
-}: { name: string; images: string[]; aiEnhanced?: boolean }) {
+  discount = 0,
+  tryAndBuy = false,
+  fit = null,
+  isCleanBackground = false,
+}: ProductGalleryProps) {
   const [imgIdx, setImgIdx] = useState(0);
-  const touchStartX = useRef(0);
-  const touchEndX = useRef(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const prev = () => setImgIdx((i) => (i - 1 + images.length) % images.length);
-  const next = () => setImgIdx((i) => (i + 1) % images.length);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0]?.clientX ?? touchStartX.current;
+  const goTo = (i: number) => {
+    const el = scrollRef.current;
+    if (!el) { setImgIdx(i); return; }
+    const item = el.children[i] as HTMLElement | undefined;
+    item?.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
   };
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    touchEndX.current = e.changedTouches[0]?.clientX ?? touchEndX.current;
-    const diff = touchStartX.current - touchEndX.current;
-    if (Math.abs(diff) > 40) {
-      if (diff > 0) next();
-      else prev();
-    }
+  const prev = () => goTo((imgIdx - 1 + images.length) % images.length);
+  const next = () => goTo((imgIdx + 1) % images.length);
+
+  // Native scroll-snap drives the carousel (see the flex/snap classes
+  // below) instead of a JS transform — this is what makes the "peek" of
+  // the next image at the right edge fall out for free: each slide is
+  // 90% of the container width, so 10% of its right-hand neighbor is
+  // always visible except on the LAST slide, which naturally ends flush
+  // with no trailing peek since there's nothing after it.
+  const handleScroll = () => {
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      const el = scrollRef.current;
+      if (!el || !el.children[0]) return;
+      const itemWidth = (el.children[0] as HTMLElement).offsetWidth + 8; // + gap
+      setImgIdx(Math.round(el.scrollLeft / itemWidth));
+    }, 80);
   };
 
   const mainImage = images[imgIdx] ?? images[0] ?? "";
+  const showFitOverlay = !!fit && isCleanBackground;
 
   if (images.length === 0) {
     return (
@@ -45,30 +82,41 @@ export function ProductGallery({
   return (
     <div data-testid="pdp-image" className="relative">
 
-      {/* ── MOBILE: horizontal swipe carousel ── */}
+      {/* ── MOBILE: scroll-snap carousel with a right-edge peek ── */}
       <div
-        className="relative w-full overflow-hidden bg-slate-100 md:hidden"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory bg-slate-100 md:hidden"
       >
-        <div
-          className="flex transition-transform duration-300 ease-in-out"
-          style={{ transform: `translateX(-${imgIdx * 100}%)` }}
-        >
-          {images.map((img, i) => (
-            <div key={i} className="flex-shrink-0 w-full aspect-[4/5] relative">
-              <Image
-                src={img}
-                alt={`${name} ${i + 1}`}
-                fill
-                sizes="100vw"
-                priority={i === 0}
-                className="object-cover"
-              />
-            </div>
-          ))}
-        </div>
+        {images.map((img, i) => (
+          <div key={i} className="relative snap-start shrink-0 w-[90%] aspect-[4/5]">
+            <Image
+              src={img}
+              alt={`${name} ${i + 1}`}
+              fill
+              sizes="90vw"
+              priority={i === 0}
+              className="object-cover"
+            />
+            {i === 0 && discount > 0 && (
+              <RibbonTag text={`${discount}% off`} position="top-left" />
+            )}
+            {i === 0 && tryAndBuy && (
+              <RibbonTag text="try & buy" variant="banner" position="bottom-left" />
+            )}
+            {i === 0 && showFitOverlay && (
+              <span
+                data-testid="pdp-fit-overlay"
+                className="absolute top-11 left-3 text-ink-navy font-bold text-sm uppercase tracking-wide"
+              >
+                {fit}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
 
+      <div className="md:hidden">
         {images.length > 1 && (
           <>
             <button
@@ -93,7 +141,7 @@ export function ProductGallery({
             {images.map((_, i) => (
               <button
                 key={i}
-                onClick={() => setImgIdx(i)}
+                onClick={() => goTo(i)}
                 className={`h-2 rounded-full transition-all ${
                   i === imgIdx ? "bg-[#0A1F5C] w-5" : "bg-white/80 border border-[#0A1F5C]/30 w-2"
                 }`}
@@ -141,13 +189,27 @@ export function ProductGallery({
               priority
               className="object-cover"
             />
+            {imgIdx === 0 && discount > 0 && (
+              <RibbonTag text={`${discount}% off`} position="top-left" />
+            )}
+            {imgIdx === 0 && tryAndBuy && (
+              <RibbonTag text="try & buy" variant="banner" position="bottom-left" />
+            )}
+            {imgIdx === 0 && showFitOverlay && (
+              <span
+                data-testid="pdp-fit-overlay-desktop"
+                className="absolute top-11 left-3 text-ink-navy font-bold text-sm uppercase tracking-wide"
+              >
+                {fit}
+              </span>
+            )}
           </div>
         )}
       </div>
 
       {/* AI Enhanced badge — overlays both layouts */}
       {aiEnhanced && (
-        <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full bg-[#0A1F5C] text-white text-[11px] font-semibold flex items-center gap-1.5 pointer-events-none">
+        <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-full bg-[#0A1F5C] text-white text-[11px] font-semibold flex items-center gap-1.5 pointer-events-none">
           <Sparkles size={11} className="text-[#E68910]" /> AI Enhanced
         </div>
       )}

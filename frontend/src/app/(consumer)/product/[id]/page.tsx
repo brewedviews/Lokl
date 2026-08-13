@@ -5,6 +5,9 @@ import { serverFetch } from "@/lib/server-fetch";
 import { ProductGallery } from "@/components/consumer/ProductGallery";
 import { ProductActions } from "@/components/consumer/ProductActions";
 import { ProductCard } from "@/components/consumer/ProductCard";
+import { OffersCard } from "@/components/consumer/OffersCard";
+import { TrustIconsRow } from "@/components/consumer/TrustIconsRow";
+import { SpecsTabs, type SpecRow } from "@/components/consumer/SpecsTabs";
 import type { Product, ProductCard as ProductCardType } from "@/types";
 
 interface ProductDetailResponse {
@@ -46,6 +49,18 @@ export default async function ProductDetailPage(
     ? product.images
     : ([product.image].filter(Boolean) as string[]);
 
+  // Specs grid — assembled only from fields that actually exist on the
+  // product model. No fabricated attributes (fabric/material/etc. aren't
+  // in the data model, so they're not listed here).
+  const specs: SpecRow[] = [
+    ...((product as any).gender ? [{ label: "Gender", value: String((product as any).gender) }] : []),
+    { label: "Sizes", value: product.sizes && product.sizes.length > 0 ? product.sizes.join(", ") : "Free size" },
+    { label: "Delivery", value: `${product.store_eta_min || 45} min` },
+    { label: "Returns", value: product.return_eligible ? "Eligible · 24h window" : "Not eligible" },
+    { label: "Try & Buy", value: product.try_at_doorstep ? "Available" : "Not available" },
+    { label: "Store", value: product.store_name || "Lokl Store" },
+  ];
+
   return (
     // pb-24 (mobile only): the global bottom-nav-safe clearance from
     // (consumer)/layout.tsx is sized for StickyBottomNav alone — this page
@@ -65,7 +80,15 @@ export default async function ProductDetailPage(
 
           {/* Left — gallery scrolls normally; buy box (right) is the sticky one */}
           <div>
-            <ProductGallery name={product.name} images={images} aiEnhanced={product.ai_enhanced} />
+            <ProductGallery
+              name={product.name}
+              images={images}
+              aiEnhanced={product.ai_enhanced}
+              discount={discount}
+              tryAndBuy={product.try_at_doorstep}
+              fit={(product as any).fit ?? null}
+              isCleanBackground={(product as any).is_clean_background ?? false}
+            />
           </div>
 
           {/* Right — sticky buy box */}
@@ -99,18 +122,18 @@ export default async function ProductDetailPage(
                 )
               )}
 
-              <h1 className="font-display text-xl font-bold text-[#0A1F5C] mt-2 leading-snug">{product.name}</h1>
+              <h1 className="font-display text-xl font-bold text-ink-navy mt-2 leading-snug">{product.name}</h1>
 
               <div className="flex items-baseline gap-2 mt-2">
-                <span className="text-2xl font-bold text-[#0A1F5C]">₹{Number(product.price).toLocaleString("en-IN")}</span>
+                <span className="text-2xl font-bold text-ink-navy">₹{Number(product.price).toLocaleString("en-IN")}</span>
                 {product.mrp && product.mrp > product.price && (
                   <>
-                    <span className="text-sm text-[#64748B] line-through">₹{Number(product.mrp).toLocaleString("en-IN")}</span>
-                    <span className="text-sm font-bold text-[#4F7363]">{discount}% off</span>
+                    <span className="text-xl text-slate-gray line-through">₹{Number(product.mrp).toLocaleString("en-IN")}</span>
+                    <span className="inline-flex items-center rounded-full bg-moss-green-tint text-moss-green text-xs font-bold px-2 py-0.5">{discount}% off</span>
                   </>
                 )}
               </div>
-              <p className="text-[11px] text-[#64748B] mt-0.5">Inclusive of all taxes</p>
+              <p className="text-xs text-slate-gray mt-1">(Inclusive of all taxes)</p>
 
               {(product as any).review_count > 0 && (
                 <div className="flex items-center gap-1.5 mt-2">
@@ -135,12 +158,18 @@ export default async function ProductDetailPage(
               storeId={product.store_id}
             />
 
-            {product.description && (
-              <div className="px-4 py-4 border-t border-[#F5F5F5] mt-4 md:px-0">
-                <h3 className="text-sm font-bold text-[#0A1F5C] mb-2">Product details</h3>
-                <p className="text-sm text-[#595959] leading-relaxed">{product.description}</p>
-              </div>
-            )}
+            {/* Offers, trust icons, specs/description — all optional/
+                data-driven; each renders nothing if it has nothing real
+                to show (no fabricated offers, specs or claims). */}
+            <div className="px-4 mt-4 md:px-0">
+              <OffersCard price={product.price} />
+            </div>
+
+            <div className="px-4 mt-4 md:px-0">
+              <TrustIconsRow />
+            </div>
+
+            <SpecsTabs specs={specs} description={product.description} />
 
             {/* Store link strip — ETA/serviceability now lives in
                 ProductActions' DeliveryServiceability line, right below the

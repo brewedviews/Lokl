@@ -206,10 +206,10 @@ export function ProductActions({
             <div className="flex items-center justify-between mb-2.5">
               <h4 className="text-sm font-semibold text-[#0A1F5C]">Select size</h4>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2 overflow-x-auto no-scrollbar">
               {product.sizes.map((s) => (
                 <button key={s} onClick={() => setSize(s)} data-testid={`size-${s}`}
-                  className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-[#E5E2DC] hover:border-[#0A1F5C]"}`}>
+                  className={`shrink-0 min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition whitespace-nowrap ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
                   {s}
                 </button>
               ))}
@@ -218,13 +218,10 @@ export function ProductActions({
         )}
 
         {/* ── 2. Primary action bar — inline on all breakpoints ──
-             Add to bag is a SOLID ORANGE pill — matches ProductCard's own
-             "Add to Bag" button exactly (the same action must look the same
-             everywhere, including a few hundred px below this on the same
-             page, in the cross-sell rails). Buy now moves to solid NAVY so
-             the two primary actions stay visually distinct now that orange
-             is taken — previously Add was a navy outline and Buy was solid
-             orange; this is that pairing flipped, not a new third color. */}
+             Buy now is an outline pill (ink-navy border/text, cream fill);
+             Add to bag is the solid pill (near-black fill, white text) —
+             same pairing the sticky mobile bar below uses, so the CTA
+             styling never flips between inline and sticky as you scroll. */}
         <div className="px-4 md:px-0 mt-4 md:mt-4 flex gap-2 md:order-2">
           {isOffline ? (
             <>
@@ -241,15 +238,15 @@ export function ProductActions({
             </>
           ) : storeCanOrder ? (
             <>
+              <button onClick={() => handleAdd(() => router.push("/checkout"))} data-testid="buy-now"
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-brand-bg border border-ink-navy text-ink-navy text-sm font-bold hover:bg-ink-navy/5 transition whitespace-nowrap">
+                Buy now
+              </button>
               <button
                 onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
                 data-testid="add-to-bag"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#E68910] text-white text-sm font-bold hover:bg-[#c4780f] transition whitespace-nowrap shadow-[0_4px_12px_rgba(230,137,16,0.28)]">
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-near-black text-white text-sm font-bold hover:bg-near-black/90 transition whitespace-nowrap">
                 <ShoppingBag size={16} /> Add to bag
-              </button>
-              <button onClick={() => handleAdd(() => router.push("/checkout"))} data-testid="buy-now"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#0A1F5C] text-white text-sm font-bold hover:bg-[#0F1F3D] transition whitespace-nowrap">
-                Buy now
               </button>
             </>
           ) : (
@@ -395,38 +392,39 @@ export function ProductActions({
           COLUMN (page.tsx's md:sticky wrapper) instead — this bar is
           mobile-only. */}
       <div
-        className="md:hidden fixed inset-x-0 z-40 bg-white border-t border-[#E5E2DC] shadow-[0_-4px_16px_rgba(10,31,92,0.08)] px-4 py-2.5 flex items-center gap-3"
-        style={{ bottom: "calc(4.75rem + env(safe-area-inset-bottom))" }}
+        className="md:hidden fixed inset-x-0 z-40 bg-white border-t border-[#E5E2DC] shadow-[0_-4px_16px_rgba(10,31,92,0.08)] flex items-stretch"
+        style={{ bottom: "calc(4.75rem + env(safe-area-inset-bottom))", paddingBottom: "env(safe-area-inset-bottom)" }}
         data-testid="sticky-add-to-bag-bar"
       >
-        <div className="min-w-0 shrink-0">
-          <div className="font-display text-lg font-bold text-[#0A1F5C] leading-none">₹{Number(product.price).toLocaleString("en-IN")}</div>
-          {product.mrp && product.mrp > product.price && (
-            <div className="text-[11px] text-[#94A3B8] line-through mt-0.5">₹{Number(product.mrp).toLocaleString("en-IN")}</div>
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          {isOffline ? (
+        {isOffline ? (
+          <button
+            onClick={() => setNotifyOpen(true)}
+            className="w-full inline-flex items-center justify-center gap-1.5 py-3.5 bg-ink-navy text-white text-sm font-bold"
+          >
+            <Bell size={15} /> Notify Me
+          </button>
+        ) : storeCanOrder ? (
+          <>
             <button
-              onClick={() => setNotifyOpen(true)}
-              className="w-full inline-flex items-center justify-center gap-1.5 py-3 rounded-full bg-[#0A1F5C] text-white text-sm font-bold"
+              onClick={() => handleAdd(() => router.push("/checkout"))}
+              data-testid="sticky-buy-now"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 py-3.5 bg-brand-bg border-r border-ink-navy text-ink-navy text-sm font-bold"
             >
-              <Bell size={15} /> Notify Me
+              Buy now
             </button>
-          ) : storeCanOrder ? (
             <button
               onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
               data-testid="sticky-add-to-bag"
-              className="w-full inline-flex items-center justify-center gap-1.5 py-3 rounded-full bg-[#E68910] text-white text-sm font-bold active:scale-[0.98] transition shadow-[0_4px_12px_rgba(230,137,16,0.28)]"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 py-3.5 bg-near-black text-white text-sm font-bold active:scale-[0.98] transition"
             >
               <ShoppingBag size={16} /> {isClosed ? "Pre-order" : "Add to bag"}
             </button>
-          ) : (
-            <div className="w-full text-center py-3 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold">
-              Unavailable
-            </div>
-          )}
-        </div>
+          </>
+        ) : (
+          <div className="w-full text-center py-3.5 bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold">
+            Unavailable
+          </div>
+        )}
       </div>
 
       {/* ── Pickup sheet (fixed, always last in DOM) ── */}
@@ -461,7 +459,7 @@ export function ProductActions({
                       <div className="flex flex-wrap gap-2">
                         {product.sizes.map((s) => (
                           <button key={s} onClick={() => setSize(s)}
-                            className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white border-[#E5E2DC] hover:border-[#0A1F5C]"}`}>
+                            className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
                             {s}
                           </button>
                         ))}

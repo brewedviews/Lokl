@@ -1567,6 +1567,23 @@ async def offer_products(offer_id: str, limit: int = 12):
     return items[:limit]
 
 
+@api.get("/coupons/active")
+async def list_active_coupons(limit: int = 5):
+    """Public, read-only listing of currently-redeemable coupons (active,
+    not expired, under their max-uses cap) — no code needs to be known in
+    advance. Used by the PDP offers card so customers can discover a real
+    code instead of a fabricated one. Unlike /coupons/validate this never
+    takes a subtotal, so it can't compute discount_amount for a specific
+    cart — callers show discount_type/discount_value instead."""
+    now = datetime.now(timezone.utc).isoformat()
+    rows = await db.coupons.find(
+        {"active": True, "$or": [{"expires_at": None}, {"expires_at": {"$gt": now}}]},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(50)
+    rows = [c for c in rows if c.get("max_uses") is None or int(c.get("used_count") or 0) < int(c["max_uses"])]
+    return rows[:limit]
+
+
 @api.post("/coupons/validate")
 @_limit("30/minute")
 async def validate_coupon(request: Request, payload: dict):

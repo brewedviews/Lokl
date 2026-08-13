@@ -21,6 +21,9 @@ type AnyProduct = ProductCardType & {
   badge?: string;
   low_stock_size?: string;
   social_proof?: string;
+  /** Close-up of a print/embroidery/patch — not on the data model yet.
+   *  Optional: only renders the circular detail-crop overlay when present. */
+  detail_image?: string | null;
 };
 
 interface Props {
@@ -110,7 +113,7 @@ export function ProductCard({ p, size = "default" }: Props) {
 
   return (
     <div
-      className={`group relative bg-white rounded-2xl overflow-hidden transition ${
+      className={`group relative bg-white rounded-2xl transition ${
         isCompact
           ? "shadow-[0_1px_4px_rgba(26,43,76,0.08)] hover:shadow-[0_4px_12px_rgba(26,43,76,0.12)]"
           : "shadow-[0_2px_8px_rgba(26,43,76,0.06)] hover:shadow-[0_8px_24px_rgba(26,43,76,0.12)]"
@@ -119,7 +122,7 @@ export function ProductCard({ p, size = "default" }: Props) {
     >
       <Link href={`/product/${p.id}`} className="block active:scale-[0.98] transition">
         {/* Image */}
-        <div className={`relative bg-slate-100 overflow-hidden ${isCompact ? "aspect-[4/5]" : "aspect-[3/4]"}`}>
+        <div className={`relative bg-slate-100 overflow-hidden rounded-t-2xl ${isCompact ? "aspect-[4/5]" : "aspect-[3/4]"}`}>
           {p.image ? (
             <Image
               src={p.image}
@@ -140,12 +143,16 @@ export function ProductCard({ p, size = "default" }: Props) {
             </span>
           )}
 
-          {/* Wishlist heart — top-right */}
+          {/* Wishlist heart — top-right normally; moves to bottom-right when
+              the detail-crop overlay (also top-right, bleeding past the
+              corner) is present, so the two never collide. */}
           <button
             type="button"
             aria-label="Wishlist"
             onClick={handleHeart}
-            className={`absolute top-1.5 right-1.5 rounded-full grid place-items-center backdrop-blur-md transition active:scale-90 ${
+            className={`absolute rounded-full grid place-items-center backdrop-blur-md transition active:scale-90 ${
+              p.detail_image ? "bottom-1.5 right-1.5" : "top-1.5 right-1.5"
+            } ${
               wished ? "bg-[#E68910] text-white" : "bg-white/85 text-[#0A1F5C]"
             } ${isCompact ? "w-7 h-7" : "w-9 h-9"}`}
           >
@@ -156,6 +163,28 @@ export function ProductCard({ p, size = "default" }: Props) {
             />
           </button>
         </div>
+
+        {/* Optional detail-crop overlay — a close-up of a print/embroidery/
+            patch, clipped to a circle, overlapping the card's top-right
+            corner ~50% in/out. Sits OUTSIDE the image's own clipped box
+            (the outer card has no overflow-hidden of its own, precisely so
+            this can bleed past the corner instead of being cut off) — only
+            renders when the product actually has a secondary image;
+            never forced. */}
+        {p.detail_image && (
+          <div
+            data-testid={`p-card-detail-${p.id}`}
+            className={`absolute -top-1.5 -right-1.5 rounded-full overflow-hidden border-2 border-white ${isCompact ? "w-10 h-10" : "w-14 h-14"}`}
+          >
+            <Image
+              src={p.detail_image}
+              alt=""
+              fill
+              sizes="64px"
+              className="object-cover"
+            />
+          </div>
+        )}
 
         {/* Text content */}
         <div className={isCompact ? "px-1.5 pt-1.5 pb-0 space-y-0.5" : "p-2 pb-1 space-y-0.5"}>
