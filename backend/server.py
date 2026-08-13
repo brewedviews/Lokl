@@ -2923,9 +2923,20 @@ async def feed_delivery_status():
 
 
 @api.get("/delivery/check-serviceability")
-async def check_serviceability(lat: float, lng: float):
-    """Check if a location is within the Bhilai delivery zone."""
-    in_zone = _is_in_bhilai_delivery_zone(lat, lng)
+async def check_serviceability(lat: Optional[float] = None, lng: Optional[float] = None, pincode: Optional[str] = None):
+    """Check if a DELIVERY ADDRESS is serviceable — polygon-with-pincode
+    fallback, see _address_is_serviceable (Group C1).
+
+    `lat`/`lng`, IF PROVIDED, MUST be the delivery address's own pin
+    coordinates — the point the customer dropped on a map for THIS address.
+    NEVER pass the shopper's live device GPS here. This isn't a style
+    preference: we've shipped and had to revert this exact substitution
+    three times (a shopper physically outside Bhilai got an otherwise-valid
+    Bhilai delivery address rejected). If you don't have a delivery-pin
+    coordinate for the address, omit lat/lng and pass `pincode` instead."""
+    if lat is None and lng is None and not pincode:
+        raise HTTPException(400, "Provide lat & lng (the delivery address's own pin) or pincode to check serviceability.")
+    in_zone = _address_is_serviceable({"lat": lat, "lng": lng, "pincode": pincode})
     return {
         "serviceable": in_zone,
         "message": "We deliver here!" if in_zone else "Sorry, we don't deliver to this location yet. We're expanding soon!",
@@ -3248,6 +3259,56 @@ def _point_in_polygon(lat: float, lng: float, polygon: list) -> bool:
 
 def _is_in_bhilai_delivery_zone(lat: float, lng: float) -> bool:
     return _point_in_polygon(lat, lng, BHILAI_DELIVERY_POLYGON)
+
+
+def _to_optional_float(v) -> Optional[float]:
+    """Best-effort float coercion for optional numeric fields coming out of
+    loosely-typed dict payloads (address lat/lng here). None — not 0 — when
+    absent/invalid, so "no pin provided" stays distinguishable from "pin at
+    exactly (0, 0)"."""
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _address_is_serviceable(address: dict) -> bool:
+    """THE serviceability check for a DELIVERY ADDRESS — polygon-with-
+    pincode-fallback (Group C1).
+
+    Takes the address's OWN pin coordinates (`address["lat"]`/`["lng"]` —
+    the point the customer dropped on a map for THIS address) and/or its
+    pincode. NEVER pass the shopper's device GPS (payload.customer_lat/
+    customer_lng) into this function — that substitution is the exact root
+    cause of three separate shipped-and-reverted bugs: a shopper physically
+    outside Bhilai (real device GPS, or none at all) got an otherwise-valid
+    Bhilai delivery address rejected, because the polygon check was
+    validating "where is the shopper right now" instead of "where does
+    this order deliver to." Those are different questions with different
+    correct answers, and only the second one determines serviceability.
+
+    - Pin coordinates present (both lat AND lng truthy) -> polygon check
+      (_is_in_bhilai_delivery_zone). More precise than a pincode, so a pin
+      that falls outside the polygon is NOT serviceable even if the
+      address's own pincode is in BHILAI_PINCODES — the pin wins.
+    - No pin coordinates -> fall back to the pincode whitelist
+      (BHILAI_PINCODES), i.e. the pre-C1 behavior, unchanged.
+    - No pin AND no pincode -> serviceable (fail-open). Matches the exact
+      pre-C1 behavior in create_order, which only rejected when a pincode
+      was actually PROVIDED and didn't match — a request with no pincode
+      at all was never blocked by this gate. Preserved here rather than
+      "fixed" so this refactor stays a pure behavior-preserving move for
+      every address that doesn't have a pin yet.
+    """
+    lat, lng = address.get("lat"), address.get("lng")
+    if lat and lng:
+        return _is_in_bhilai_delivery_zone(lat, lng)
+    pincode = str(address.get("pincode") or "").strip()
+    if not pincode:
+        return True
+    return pincode in BHILAI_PINCODES
 
 # ---------- Multi-merchant state helpers ----------
 _STATE_RANK = {"pending": 0, "accepted": 1, "handed_off": 2, "delivered": 3}
@@ -3623,19 +3684,20 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         addr_city = (payload.address.get("city") or "").strip().lower()
         if addr_city not in SERVICEABLE_CITIES:
             raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
-        addr_pincode = str(payload.address.get("pincode") or "").strip()
-        if addr_pincode and addr_pincode not in BHILAI_PINCODES:
+        if not _address_is_serviceable(payload.address):
             raise HTTPException(400, "We only deliver to Bhilai pincodes (490xxx). Please check your pincode.")
-        # NOTE: deliberately no check against payload.customer_lat/customer_lng here.
-        # Serviceability is about the DELIVERY ADDRESS, not the shopper's physical
-        # GPS — the pincode check above is the authoritative gate. A prior version
-        # additionally rejected orders whose customer_lat/lng fell outside
-        # _is_in_bhilai_delivery_zone()'s polygon, which disagreed with this pincode
-        # check and false-rejected valid Bhilai-address orders whenever the shopper
-        # was physically outside Bhilai (e.g. a tester's real device). customer_lat/
-        # customer_lng are still accepted and stored on the order (see below) as
-        # informational metadata/for rider routing — just never used to block
-        # placement.
+        # NOTE: _address_is_serviceable checks the DELIVERY ADDRESS — its own
+        # pin coordinates if the customer dropped one for this address, else
+        # its pincode (see that function's docstring) — deliberately NEVER
+        # payload.customer_lat/customer_lng (the shopper's device GPS at
+        # order time). A prior version checked shopper GPS against
+        # _is_in_bhilai_delivery_zone() directly and false-rejected valid
+        # Bhilai-address orders whenever the shopper was physically outside
+        # Bhilai (e.g. a tester's real device) — that bug shipped and was
+        # reverted three times. customer_lat/customer_lng are still accepted
+        # and stored on the order (see below) as informational metadata/for
+        # rider routing — just never read by this or any other serviceability
+        # gate.
 
     # Pre-check store availability before any stock reservations.
     # Pickup: block Away (rank 2) and Offline (rank≥4); compute dynamic window.
@@ -6360,6 +6422,9 @@ async def _upsert_customer(customer: dict, address: dict | None = None):
                 "city": address.get("city", "Bhilai"),
                 "pincode": str(address.get("pincode", "")),
                 "label": address.get("label", "Home"),
+                # Group C1 — see add_customer_address's identical fields.
+                "lat": _to_optional_float(address.get("lat")),
+                "lng": _to_optional_float(address.get("lng")),
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
             addresses = addresses + [new_addr]
@@ -6402,6 +6467,12 @@ async def add_customer_address(phone: str, payload: dict, user: dict = Depends(c
         "city": payload.get("city", "Bhilai"),
         "pincode": str(payload.get("pincode", "")).strip(),
         "label": payload.get("label", "Home"),
+        # Group C1: optional delivery-pin coordinates — the point the
+        # customer dropped on a map for THIS address, NOT their device GPS.
+        # None for existing/pin-skipped addresses; _address_is_serviceable
+        # falls back to pincode whenever either is missing.
+        "lat": _to_optional_float(payload.get("lat")),
+        "lng": _to_optional_float(payload.get("lng")),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.customers.update_one(
