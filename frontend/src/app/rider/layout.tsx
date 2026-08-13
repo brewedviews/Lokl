@@ -24,6 +24,8 @@ import { LogOut, Bike } from "lucide-react";
 import { useRiderAuthStore } from "@/stores";
 import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/api-error";
+import { registerRiderServiceWorker, unsubscribeRiderPush } from "@/lib/push";
+import { RiderNotificationPrompt } from "@/components/rider/RiderNotificationPrompt";
 
 const PUBLIC = ["/rider/login"];
 
@@ -47,6 +49,16 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
     if (!hydrated || isPublic) return;
     if (!isAuthed) router.replace("/rider/login");
   }, [hydrated, isPublic, isAuthed, router]);
+
+  // Group D2: register the push service worker as soon as the rider is
+  // authenticated — separate from asking for notification permission
+  // (RiderNotificationPrompt handles that, gated on an explicit tap).
+  // Registration alone doesn't show any browser prompt, so it's safe to
+  // do unconditionally on every authenticated page load.
+  useEffect(() => {
+    if (!hydrated || isPublic || !isAuthed) return;
+    void registerRiderServiceWorker();
+  }, [hydrated, isPublic, isAuthed]);
 
   // Scoped PWA manifest — installable "Lokl Rider" home-screen shortcut.
   // Deliberately lightweight: no service worker / offline caching build-out,
@@ -82,6 +94,10 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
   };
 
   const signOut = () => {
+    // Fire-and-forget — a shared/public device shouldn't keep receiving
+    // this rider's order pings after they've signed out. Never block sign
+    // out on it (matches every other fire-and-forget send in this app).
+    void unsubscribeRiderPush();
     clearAuth();
     router.replace("/rider/login");
   };
@@ -133,6 +149,7 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
           </button>
         </div>
       </header>
+      <RiderNotificationPrompt />
       <main className="flex-1 flex flex-col" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         {children}
       </main>

@@ -24,6 +24,7 @@ import type {
   RiderDeliverResponse,
   RiderOrderLegDetail,
   RiderMeActiveResponse,
+  RiderPushSubscriptionPayload,
 } from "@/types";
 
 export const riderApi = {
@@ -84,6 +85,19 @@ export const riderApi = {
 
   meActive: async (): Promise<RiderMeActiveResponse> => {
     const r = await apiClient.get<RiderMeActiveResponse>("/api/rider/me/active");
+    return r.data;
+  },
+
+  // ---------------- Web push (Group D2) ----------------
+  /** Body is the browser's PushSubscription, as-is (endpoint + keys) —
+   *  matches backend/server.py's PushSubscriptionPayload exactly. */
+  pushSubscribe: async (payload: RiderPushSubscriptionPayload): Promise<{ ok: boolean }> => {
+    const r = await apiClient.post<{ ok: boolean }>("/api/rider/push/subscribe", payload);
+    return r.data;
+  },
+
+  pushUnsubscribe: async (endpoint: string): Promise<{ ok: boolean }> => {
+    const r = await apiClient.post<{ ok: boolean }>("/api/rider/push/unsubscribe", { endpoint });
     return r.data;
   },
 };

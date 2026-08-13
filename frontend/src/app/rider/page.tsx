@@ -29,6 +29,7 @@ import { api } from "@/lib/api";
 import { getErrorMessage, getErrorStatus } from "@/lib/api-error";
 import { useRiderAuthStore } from "@/stores";
 import { riderLegStatusLabel, shortOrderRef } from "@/lib/rider-status";
+import { playNewOrderPing } from "@/lib/audio-ping";
 import type { RiderAvailableLeg, RiderMeActiveLeg, RiderBatchSummary } from "@/types";
 
 const AVAILABLE_POLL_MS = 6000;
@@ -47,6 +48,13 @@ export default function RiderFeedPage() {
   const [loadingFeed, setLoadingFeed] = useState(true);
   const [acceptingKey, setAcceptingKey] = useState<string | null>(null);
   const firstActiveLoad = useRef(true);
+  // Group D2: foreground "new order" ping — the service worker's push
+  // notification sound is suppressed while this tab is focused (Chrome
+  // behavior), so a genuinely NEW leg appearing between polls needs its
+  // own audible/vibration alert here. null until the first successful
+  // poll resolves, so the very first page load (which is full of
+  // "pre-existing" orders, not new ones) never pings.
+  const knownLegKeys = useRef<Set<string> | null>(null);
 
   const loadActive = useCallback(() => {
     api.rider.meActive()
@@ -63,7 +71,18 @@ export default function RiderFeedPage() {
 
   const loadFeed = useCallback(() => {
     api.rider.available()
-      .then((r) => setLegs(r.legs))
+      .then((r) => {
+        setLegs(r.legs);
+        const nextKeys = new Set(r.legs.map((l) => `${l.order_id}:${l.merchant_id}`));
+        if (knownLegKeys.current) {
+          const isNew = [...nextKeys].some((k) => !knownLegKeys.current!.has(k));
+          if (isNew) {
+            playNewOrderPing();
+            toast.message("New order available", { description: "Check the list below" });
+          }
+        }
+        knownLegKeys.current = nextKeys;
+      })
       .catch(() => { /* transient poll failure — keep the last-known list */ })
       .finally(() => setLoadingFeed(false));
   }, []);

@@ -195,3 +195,14 @@ export interface RiderMeActiveResponse {
   active_legs: RiderMeActiveLeg[];
   batches: RiderBatchSummary[];
 }
+
+// ============================================================================
+// Web push (Group D2 frontend for D1 backend, 8e8d507). Standard W3C
+// PushSubscription shape — sent to the backend exactly as the browser
+// produces it via pushManager.subscribe().toJSON().
+// ============================================================================
+
+export interface RiderPushSubscriptionPayload {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
