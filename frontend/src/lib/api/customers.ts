@@ -24,6 +24,11 @@ export interface CustomerAddressDraft {
   city?: string;
   pincode: string;
   label?: string;
+  /** Group C1/C2 — the delivery pin, if the customer dropped one. Omit or
+   *  leave undefined/null to save the address without a pin (pincode
+   *  fallback still applies server-side). */
+  lat?: number | null;
+  lng?: number | null;
 }
 
 export interface CustomerUpsertPayload {

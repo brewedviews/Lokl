@@ -71,6 +71,11 @@ export interface OrderAddress {
   city: string;
   pincode: string;
   label?: string;
+  /** Group C1/C2 — the delivery pin dropped for this address, if any. Never
+   *  the shopper's device GPS (see order.customer_lat/customer_lng, a
+   *  separate field entirely). */
+  lat?: number | null;
+  lng?: number | null;
 }
 
 /** Timeline entry — a single FSM transition recorded for audit/UI replay. */

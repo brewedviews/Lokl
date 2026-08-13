@@ -16,6 +16,7 @@ import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { useLocationStore } from "@/stores/location.store";
 import { CustomerOtpLogin } from "@/components/consumer/CustomerOtpLogin";
 import { ProductCard } from "@/components/consumer/ProductCard";
+import { AddressPinPicker } from "@/components/consumer/AddressPinPicker";
 import { useRazorpay } from "@/hooks/useRazorpay";
 import { isServiceablePincode } from "@/lib/serviceability";
 import type { CustomerAddress, ProductCard as ProductCardType } from "@/types";
@@ -29,7 +30,16 @@ interface StoreAvailInfo {
   opens_at_label?: string | null;
 }
 
-const BLANK_ADDR = { name: "", phone: "", line1: "", landmark: "", city: "Bhilai", pincode: "", label: "Home" };
+// Group C2 — lat/lng typed explicitly (not inferred from a `null` literal)
+// so the pin picker's onChange can assign real numbers to them.
+type CheckoutAddr = {
+  name: string; phone: string; line1: string; landmark: string; city: string;
+  pincode: string; label: string; lat: number | null; lng: number | null;
+};
+const BLANK_ADDR: CheckoutAddr = {
+  name: "", phone: "", line1: "", landmark: "", city: "Bhilai", pincode: "", label: "Home",
+  lat: null, lng: null,
+};
 // Pilot is Bhilai-only; centroid is good enough until we wire geolocation.
 const BHILAI_LAT = 21.1938;
 const BHILAI_LNG = 81.3509;
@@ -176,6 +186,8 @@ export default function CheckoutPage() {
           city: first.city || "Bhilai",
           pincode: first.pincode || "",
           label: first.label || "Home",
+          lat: first.lat ?? null,
+          lng: first.lng ?? null,
         });
       } else if (customer?.name) {
         setAddr((a) => ({ ...a, name: customer.name ?? "" }));
@@ -226,6 +238,7 @@ export default function CheckoutPage() {
       name: a.name || "", phone: a.phone || phone?.slice(-10) || "",
       line1: a.line1 || "", landmark: a.landmark || "",
       city: a.city || "Bhilai", pincode: a.pincode || "", label: a.label || "Home",
+      lat: a.lat ?? null, lng: a.lng ?? null,
     });
   };
 
@@ -374,6 +387,9 @@ export default function CheckoutPage() {
                 <input data-testid="addr-landmark" value={addr.landmark} onChange={(e) => setAddr({ ...addr, landmark: e.target.value })} placeholder="Landmark (e.g. opposite SBI / near Globe Chowk)" className="md:col-span-2 px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
                 <input data-testid="addr-city" value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} placeholder="City (Bhilai only)" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
                 <input data-testid="addr-pin" value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="Pincode" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                <div className="md:col-span-2">
+                  <AddressPinPicker lat={addr.lat} lng={addr.lng} onChange={(lat, lng) => setAddr({ ...addr, lat, lng })} />
+                </div>
               </div>
             </div>
           )}

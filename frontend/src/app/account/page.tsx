@@ -14,11 +14,21 @@ import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { useCustomerAuthStore, useWishlistStore } from "@/stores";
+import { AddressPinPicker } from "@/components/consumer/AddressPinPicker";
 import type {
   Customer, CustomerAddress, Order, ProductCard,
 } from "@/types";
 
-const BLANK_ADDR = { name: "", phone: "", label: "Home", line1: "", landmark: "", city: "Bhilai", pincode: "" };
+// Group C2 — lat/lng typed explicitly (not inferred from a `null` literal)
+// so AddressModal's onChange can assign real numbers to them.
+type AddressForm = {
+  name: string; phone: string; label: string; line1: string; landmark: string;
+  city: string; pincode: string; lat: number | null; lng: number | null;
+};
+const BLANK_ADDR: AddressForm = {
+  name: "", phone: "", label: "Home", line1: "", landmark: "", city: "Bhilai", pincode: "",
+  lat: null, lng: null,
+};
 
 function statusTone(s: string) {
   const x = (s || "").toLowerCase();
@@ -55,7 +65,7 @@ export default function CustomerAccountPage() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [form, setForm] = useState({ name: "", gender: "", dob: "", email: "" });
-  const [addrModal, setAddrModal] = useState<(typeof BLANK_ADDR & { id?: string }) | null>(null);
+  const [addrModal, setAddrModal] = useState<(AddressForm & { id?: string }) | null>(null);
   const [activeTile, setActiveTile] = useState<TileKey>(VALID_TILES.includes(tabParam as TileKey) ? (tabParam as TileKey) : "orders");
   const [busy, setBusy] = useState(false);
   // True until the FIRST real fetch resolves (success or fail) — not until
@@ -100,7 +110,7 @@ export default function CustomerAccountPage() {
     finally { setBusy(false); }
   };
 
-  const saveAddress = async (a: typeof BLANK_ADDR) => {
+  const saveAddress = async (a: AddressForm) => {
     const token = typeof window !== "undefined" ? localStorage.getItem("bf_customer_token") : null;
     if (!phone || !token) {
       toast.error("Please log in to add an address");
@@ -496,9 +506,9 @@ function ComingSoon({ title, copy, cta, to }: { title: string; copy: string; cta
   return <><PanelHeader title={title} subtitle="Coming soon" /><EmptyState title={title} body={copy} ctaTo={to} ctaLabel={cta} /></>;
 }
 
-function AddressModal({ address, onCancel, onSave }: { address: typeof BLANK_ADDR; onCancel: () => void; onSave: (a: typeof BLANK_ADDR) => void }) {
+function AddressModal({ address, onCancel, onSave }: { address: AddressForm; onCancel: () => void; onSave: (a: AddressForm) => void }) {
   const [a, setA] = useState(address);
-  const set = (k: keyof typeof BLANK_ADDR, v: string) => setA((p) => ({ ...p, [k]: v }));
+  const set = (k: keyof Omit<AddressForm, "lat" | "lng">, v: string) => setA((p) => ({ ...p, [k]: v }));
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-4" onClick={onCancel}>
       <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" data-testid="address-modal">
@@ -519,6 +529,7 @@ function AddressModal({ address, onCancel, onSave }: { address: typeof BLANK_ADD
             <Field label="Pincode"><input data-testid="addr-pin" value={a.pincode} onChange={(e) => set("pincode", e.target.value.replace(/\D/g, "").slice(0, 6))} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
           </div>
           <Field label="Phone"><input data-testid="addr-phone" value={a.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
+          <AddressPinPicker lat={a.lat} lng={a.lng} onChange={(lat, lng) => setA((p) => ({ ...p, lat, lng }))} />
         </div>
         <div className="flex gap-2 pt-5">
           <button onClick={onCancel} className="flex-1 px-5 py-2.5 rounded-full border border-[#E5E2DC] text-[#0A1F5C]">Cancel</button>

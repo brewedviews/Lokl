@@ -33,6 +33,21 @@ export interface DeliveryEstimateResponse {
   tier?: string;
 }
 
+export interface CheckServiceabilityRequest {
+  /** MUST be a delivery address's own pin coordinates (the point the
+   *  customer dropped on a map for THAT address) — never the shopper's
+   *  live device GPS. Pass `pincode` instead when there's no pin. */
+  lat?: number | null;
+  lng?: number | null;
+  pincode?: string | null;
+}
+
+export interface CheckServiceabilityResponse {
+  serviceable: boolean;
+  message: string;
+  zone: string | null;
+}
+
 export const deliveryApi = {
   estimate: async (
     payload: DeliveryEstimateRequest,
@@ -40,6 +55,23 @@ export const deliveryApi = {
     const r = await apiClient.post<DeliveryEstimateResponse>(
       "/api/v1/delivery/estimate",
       { city_slug: "bhilai", ...payload },
+    );
+    return r.data;
+  },
+
+  /** GET /api/delivery/check-serviceability — polygon-with-pincode-fallback
+   *  (backend Group C1: _address_is_serviceable). Used by the address
+   *  pin-picker (Group C2) to give live feedback on a dropped pin. */
+  checkServiceability: async (
+    payload: CheckServiceabilityRequest,
+  ): Promise<CheckServiceabilityResponse> => {
+    const params: Record<string, string | number> = {};
+    if (payload.lat != null) params.lat = payload.lat;
+    if (payload.lng != null) params.lng = payload.lng;
+    if (payload.pincode) params.pincode = payload.pincode;
+    const r = await apiClient.get<CheckServiceabilityResponse>(
+      "/api/delivery/check-serviceability",
+      { params },
     );
     return r.data;
   },

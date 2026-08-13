@@ -35,6 +35,13 @@ export interface CustomerAddress {
   city: string;
   pincode: string;
   label: "Home" | "Work" | string;
+  /** Group C1/C2 — the delivery PIN the customer dropped on a map for this
+   *  address (never the shopper's device GPS). null/undefined for
+   *  addresses saved before this existed, or where the customer skipped
+   *  pinning — those still work fine via pincode fallback
+   *  (see backend server.py's _address_is_serviceable). */
+  lat?: number | null;
+  lng?: number | null;
   created_at: IsoDateTime;
 }
 
