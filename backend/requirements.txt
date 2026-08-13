@@ -24,6 +24,7 @@ filelock==3.29.0
 frozenlist==1.8.0
 h11==0.16.0
 hiredis==3.3.1
+http-ece==1.2.1
 httpcore==1.0.9
 httplib2==0.31.2
 httpx==0.28.1
@@ -60,7 +61,9 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 python-jose==3.5.0
 python-multipart==0.0.28
+py-vapid==1.9.4
 PyYAML==6.0.3
+pywebpush==2.4.0
 razorpay==1.4.2
 redis==8.0.0
 referencing==0.37.0

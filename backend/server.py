@@ -39,6 +39,7 @@ from notifications import (
     get_provider, active_provider_name, TwilioProvider, MSG91Provider,
 )
 from ai_enhance import enhance_product_images
+import rider_push
 from observability import init_sentry
 from services import cloudinary_service
 
@@ -862,6 +863,106 @@ async def rider_update_status(payload: dict, user: dict = Depends(rider_user)):
     if not r:
         raise HTTPException(404, "Rider not found")
     return {"ok": True, "online": online}
+
+
+# ===== Web push subscriptions (Group D1) =====
+# Standard W3C Push API PushSubscription shape — {endpoint, keys:{p256dh,
+# auth}} — stored as-is (no reshaping) since that's exactly what
+# pywebpush.webpush(subscription_info=...) expects when sending. Android/
+# Chrome only; iOS is explicitly out of scope (see rider_push.py).
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscriptionPayload(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeys
+
+
+class PushUnsubscribePayload(BaseModel):
+    endpoint: str
+
+
+@api.post("/rider/push/subscribe")
+async def rider_push_subscribe(payload: PushSubscriptionPayload, user: dict = Depends(rider_user)):
+    """Store (or refresh) a rider's push subscription. A rider can have
+    several — one per device/browser — deduped by endpoint (the same
+    endpoint re-subscribing, e.g. after a service-worker update, replaces
+    the stored keys rather than accumulating duplicates)."""
+    rider = await _active_rider(user)
+    sub = {
+        "endpoint": payload.endpoint,
+        "keys": {"p256dh": payload.keys.p256dh, "auth": payload.keys.auth},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.riders.update_one({"id": rider["id"]}, {"$pull": {"push_subscriptions": {"endpoint": payload.endpoint}}})
+    await db.riders.update_one({"id": rider["id"]}, {"$push": {"push_subscriptions": sub}})
+    return {"ok": True}
+
+
+@api.post("/rider/push/unsubscribe")
+async def rider_push_unsubscribe(payload: PushUnsubscribePayload, user: dict = Depends(rider_user)):
+    """Remove one subscription by endpoint — called on logout or when the
+    browser reports the permission was revoked. Silently succeeds even if
+    the endpoint was never stored (idempotent)."""
+    rider = await _active_rider(user)
+    await db.riders.update_one({"id": rider["id"]}, {"$pull": {"push_subscriptions": {"endpoint": payload.endpoint}}})
+    return {"ok": True}
+
+
+async def _push_new_order_to_riders(pickup_area: str, order_id: str) -> None:
+    """Fire-and-forget web push to eligible riders when a merchant leg
+    becomes available (Group D1). Called once per leg, at ORDER PLACEMENT
+    — NOT again at merchant-accept — because rider_available_orders has
+    surfaced 'pending' legs (not just 'accepted' ones) to riders since the
+    simultaneous-dispatch redesign (Group A1); the leg is already visible/
+    claimable the moment it's created, so a second push on accept would
+    just be a duplicate ping for the same leg.
+
+    Eligible riders = status='active' AND online=True (matches
+    rider_available_orders' own online gate — an offline rider gets an
+    empty feed and, symmetrically, shouldn't get pushed either) AND has at
+    least one stored push_subscriptions entry.
+
+    Each send runs in a worker thread (asyncio.to_thread) since pywebpush
+    is a blocking call with no async API — this keeps a slow push provider
+    or a large batch of online riders from stalling the event loop. This
+    whole function is scheduled via asyncio.create_task from create_order,
+    never awaited inline, so push latency/failure can never delay or fail
+    the customer's order-placement response."""
+    try:
+        riders = await db.riders.find(
+            {"status": "active", "online": True, "push_subscriptions.0": {"$exists": True}},
+            {"_id": 0, "id": 1, "push_subscriptions": 1},
+        ).to_list(500)
+    except Exception as e:
+        log.warning("[push] failed to query eligible riders for order %s: %s", order_id, e)
+        return
+    if not riders:
+        return
+
+    title = "New order available"
+    body = f"Pickup from {pickup_area}" if pickup_area else "A new delivery is ready to claim"
+    tag = f"lokl-order-{order_id}"
+
+    for rider in riders:
+        subs = rider.get("push_subscriptions") or []
+        expired_endpoints = []
+        for sub in subs:
+            result = await asyncio.to_thread(rider_push.send_to_subscription, sub, title, body, tag=tag, url="/rider")
+            if result.get("expired"):
+                expired_endpoints.append(sub.get("endpoint"))
+        if expired_endpoints:
+            try:
+                await db.riders.update_one(
+                    {"id": rider["id"]},
+                    {"$pull": {"push_subscriptions": {"endpoint": {"$in": expired_endpoints}}}},
+                )
+                log.info("[push] cleaned up %d expired subscription(s) for rider=%s", len(expired_endpoints), rider["id"])
+            except Exception as e:
+                log.warning("[push] cleanup failed for rider=%s: %s", rider["id"], e)
 
 
 async def _merchant_next_route(merchant_id: str) -> str:
@@ -3951,6 +4052,23 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
     # Notify merchants for COD and Razorpay (payment verified at order creation time).
     if doc.get("payment_method") in ("COD", "razorpay"):
         for mid in unique_mids:
+            # Group D1: push eligible riders the moment this leg becomes
+            # available. Pickup orders have no rider leg (rider_available_orders
+            # excludes order_type='pickup' entirely) — skip those. Runs as a
+            # background task (never awaited here) so a slow/failing push
+            # provider can never delay or fail order placement — see
+            # _push_new_order_to_riders' docstring for why this fires once,
+            # here, and not again at merchant-accept.
+            if order_type != "pickup":
+                try:
+                    store = await db.stores.find_one(
+                        {"id": f"store-m-{mid}"}, {"_id": 0, "area_label": 1, "area": 1, "city": 1},
+                    ) or {}
+                    pickup_area = store.get("area_label") or store.get("area") or store.get("city", "Bhilai")
+                    asyncio.create_task(_push_new_order_to_riders(pickup_area, order_id))
+                except Exception as e:
+                    log.warning("[push] failed to schedule push for order %s mid=%s: %s", order_id, mid, e)
+
             m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1, "store_name": 1})
             if m and m.get("phone"):
                 their_items = [it for it in items_snap if it.get("merchant_id") == mid]
