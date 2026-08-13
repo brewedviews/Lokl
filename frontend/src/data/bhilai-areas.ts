@@ -47,3 +47,17 @@ export function findBhilaiArea(slug: string | undefined | null): BhilaiArea | nu
   if (!slug) return null;
   return BHILAI_AREAS.find((a) => a.slug === slug) ?? null;
 }
+
+/**
+ * Group C3 — the customer address form has no area-slug picker (unlike
+ * /merchant/storefront, which does), only a typed pincode. Same table,
+ * different key: returns the first area whose pincode matches, as an
+ * APPROXIMATE seed for the delivery-pin picker — several areas can share a
+ * pincode, so this is a starting point for the customer to confirm/adjust
+ * via "use current location," never treated as a precise pin on its own.
+ */
+export function findBhilaiAreaByPincode(pincode: string | undefined | null): BhilaiArea | null {
+  const p = (pincode || "").trim();
+  if (p.length !== 6) return null;
+  return BHILAI_AREAS.find((a) => a.pincode === p) ?? null;
+}

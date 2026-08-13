@@ -388,7 +388,7 @@ export default function CheckoutPage() {
                 <input data-testid="addr-city" value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} placeholder="City (Bhilai only)" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
                 <input data-testid="addr-pin" value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="Pincode" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
                 <div className="md:col-span-2">
-                  <AddressPinPicker lat={addr.lat} lng={addr.lng} onChange={(lat, lng) => setAddr({ ...addr, lat, lng })} />
+                  <AddressPinPicker lat={addr.lat} lng={addr.lng} pincode={addr.pincode} onChange={(lat, lng) => setAddr({ ...addr, lat, lng })} />
                 </div>
               </div>
             </div>

@@ -529,7 +529,7 @@ function AddressModal({ address, onCancel, onSave }: { address: AddressForm; onC
             <Field label="Pincode"><input data-testid="addr-pin" value={a.pincode} onChange={(e) => set("pincode", e.target.value.replace(/\D/g, "").slice(0, 6))} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
           </div>
           <Field label="Phone"><input data-testid="addr-phone" value={a.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
-          <AddressPinPicker lat={a.lat} lng={a.lng} onChange={(lat, lng) => setA((p) => ({ ...p, lat, lng }))} />
+          <AddressPinPicker lat={a.lat} lng={a.lng} pincode={a.pincode} onChange={(lat, lng) => setA((p) => ({ ...p, lat, lng }))} />
         </div>
         <div className="flex gap-2 pt-5">
           <button onClick={onCancel} className="flex-1 px-5 py-2.5 rounded-full border border-[#E5E2DC] text-[#0A1F5C]">Cancel</button>
