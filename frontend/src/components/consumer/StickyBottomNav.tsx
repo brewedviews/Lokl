@@ -5,7 +5,11 @@
  * routes (the rider PWA has its own minimal top-bar chrome, see
  * app/rider/layout.tsx — this check is redundant with /rider living outside
  * the (consumer) route group, but kept explicit for the same belt-and-braces
- * reason /merchant and /admin already are).
+ * reason /merchant and /admin already are). Also hidden on /product — the
+ * PDP is a "pushed" detail screen with its own sticky header (back button,
+ * not a tab switcher) and no other fixed/floating chrome; showing the main
+ * tab bar there would compete with that screen's own navigation model and
+ * eat into the vertical space the product image needs.
  *
  *   [ Home ] [ Categories ] [ All ] [ Stores ] [ Profile ]
  *
@@ -24,7 +28,7 @@ import { trackNavClick } from "@/lib/analytics";
 export function StickyBottomNav() {
   const pathname = usePathname();
 
-  if (pathname.startsWith("/merchant") || pathname.startsWith("/admin") || pathname.startsWith("/rider")) return null;
+  if (pathname.startsWith("/merchant") || pathname.startsWith("/admin") || pathname.startsWith("/rider") || pathname.startsWith("/product/")) return null;
 
   const isActive = (href: string) => href === "/" ? pathname === "/" : pathname.startsWith(href);
 

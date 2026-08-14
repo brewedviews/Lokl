@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { serverFetch } from "@/lib/server-fetch";
+import { ProductPdpHeader } from "@/components/consumer/ProductPdpHeader";
 import { ProductGallery } from "@/components/consumer/ProductGallery";
-import { ProductActions } from "@/components/consumer/ProductActions";
+import { ProductDetailPanel } from "@/components/consumer/ProductDetailPanel";
 import { ProductCard } from "@/components/consumer/ProductCard";
-import { ProductTopActions } from "@/components/consumer/ProductTopActions";
 import { OffersCard } from "@/components/consumer/OffersCard";
 import { TrustIconsRow } from "@/components/consumer/TrustIconsRow";
 import { SpecsTabs, type SpecRow } from "@/components/consumer/SpecsTabs";
@@ -61,9 +61,9 @@ export default async function ProductDetailPage(
   // try & buy and the store name are all shown elsewhere on this page
   // already (the delivery box, the returnable badge, the try-and-buy
   // callout, the price-block store link) — repeating them here was the
-  // duplication this pass removes. Fabric/material and fit aren't on the
-  // product data model yet, so those rows are simply omitted rather than
-  // shown empty — they'll appear automatically once that data exists.
+  // duplication a previous pass removed. Fabric/material and fit aren't on
+  // the product data model yet, so those rows are simply omitted rather
+  // than shown empty — they'll appear automatically once that data exists.
   const specs: SpecRow[] = [
     { label: "Sizes", value: product.sizes && product.sizes.length > 0 ? product.sizes.join(", ") : "Free size" },
     ...(categoryLabel ? [{ label: "Category", value: categoryLabel }] : []),
@@ -72,32 +72,29 @@ export default async function ProductDetailPage(
   ];
 
   return (
-    // pb-24 (mobile only): the global bottom-nav-safe clearance from
-    // (consumer)/layout.tsx is sized for StickyBottomNav alone — this page
-    // also has its own sticky mobile add-to-bag bar (ProductActions)
-    // sitting just above the nav, so the last rail item needs extra
-    // clearance on top of that global padding or it ends up tucked behind
-    // the bar. Desktop has no sticky bar (the right column IS the sticky
-    // element), so no extra padding there.
-    <div className="flex-1 flex flex-col bg-[#FDFBF7] pb-24 md:pb-0">
-      <div className="flex-1 w-full max-w-[1200px] mx-auto">
+    // No pb-24 here — the old mobile sticky CTA bar (and its clearance
+    // padding) is gone, and StickyBottomNav/ConsumerHeader are both hidden
+    // on this route (see their own pathname guards) in favour of
+    // ProductPdpHeader, so there's no fixed bottom-nav to clear either.
+    <div className="flex-1 flex flex-col bg-brand-bg">
+      <ProductPdpHeader />
 
-        {/* Wishlist + share — top of the PDP content, right-aligned like a
-            header action row, not inside the mid-page CTA row (see
-            ProductActions' own note on why they moved). Sits above the
-            two-column grid so it reads as page-level chrome on both
-            breakpoints, not scoped to just the gallery column. */}
-        <ProductTopActions product={product} />
+      <div className="flex-1 w-full max-w-[1200px] mx-auto md:pt-6">
 
         {/*
-          Mobile: single column, gallery full-bleed, content padded inside ProductActions.
-          Desktop: two columns — flexible gallery left, 440px sticky buy box right.
+          Mobile: single column — image card, then a rounded-top content
+          sheet that overlaps the image's bottom edge (negative margin) so
+          it reads as sliding up over it.
+          Desktop: two columns — flexible gallery left, 440px sticky buy
+          box right (unchanged side-by-side layout; the overlap treatment
+          is a stacked-mobile-only effect).
         */}
-        <div className="md:grid md:grid-cols-[minmax(0,1fr)_440px] md:gap-10 md:pt-6 md:px-8 md:items-start">
+        <div className="md:grid md:grid-cols-[minmax(0,1fr)_440px] md:gap-10 md:px-8 md:items-start">
 
           {/* Left — gallery scrolls normally; buy box (right) is the sticky one */}
           <div>
             <ProductGallery
+              product={product}
               name={product.name}
               images={images}
               aiEnhanced={product.ai_enhanced}
@@ -108,65 +105,14 @@ export default async function ProductDetailPage(
             />
           </div>
 
-          {/* Right — sticky buy box */}
-          <div className="md:sticky md:top-24 md:self-start">
-
-            {/* Store name, badges, title, price, ratings */}
-            <div className="px-4 pt-4 pb-2 md:px-0 md:pt-0">
-              {product.store_id ? (
-                <Link href={`/store/${product.store_id}`} data-testid="store-name-link"
-                  className="text-xs text-[#E68910] font-semibold uppercase tracking-wide hover:underline">
-                  {product.store_name}
-                </Link>
-              ) : (
-                <span className="text-xs text-[#64748B] uppercase tracking-wide">{product.store_name}</span>
-              )}
-
-              {/* "Closed" intentionally renders nothing here — that status
-                  (and its "opens at X") now lives solely in
-                  DeliveryServiceability, below the CTA. Away/Offline/other
-                  statuses aren't restated anywhere else, so they keep
-                  their own badge here. */}
-              {product.store_badge && product.store_badge !== "LIVE" && product.store_badge !== "Closed" && (
-                <div className={`inline-flex items-center mt-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                  product.store_badge === "Store Offline" ? "bg-[#F4F1E9] text-[#64748B]" :
-                  product.store_badge === "Away" ? "bg-[#E68910]/10 text-[#E68910]" : "bg-[#F4F1E9] text-[#595959]"
-                }`}>
-                  {product.store_badge === "Away" ? "Back soon" :
-                   product.store_badge === "Store Offline" ? "Currently unavailable" :
-                   (product as any).store_eta_message || product.store_badge}
-                </div>
-              )}
-
-              <h1 className="font-display text-xl font-bold text-ink-navy mt-2 leading-snug">{product.name}</h1>
-
-              <div className="flex items-baseline gap-2 mt-2">
-                <span className="text-2xl font-bold text-ink-navy">₹{Number(product.price).toLocaleString("en-IN")}</span>
-                {product.mrp && product.mrp > product.price && (
-                  <>
-                    <span className="text-xl text-slate-gray line-through">₹{Number(product.mrp).toLocaleString("en-IN")}</span>
-                    <span className="inline-flex items-center rounded-full bg-moss-green-tint text-moss-green text-xs font-bold px-2 py-0.5">{discount}% off</span>
-                  </>
-                )}
-              </div>
-              <p className="text-xs text-slate-gray mt-1">(Inclusive of all taxes)</p>
-
-              {(product as any).review_count > 0 && (
-                <div className="flex items-center gap-1.5 mt-2">
-                  <div className="flex items-center gap-1 bg-[#4F7363] text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                    <span>{product.rating?.toFixed(1)}</span>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
-                  </div>
-                  <span className="text-xs text-[#64748B]">{(product as any).review_count} reviews</span>
-                </div>
-              )}
-            </div>
-
-            <div className="h-px bg-[#F5F5F5] mx-4 my-2 md:mx-0" />
-
-            {/* Size picker, action bar, pickup button */}
-            <ProductActions
+          {/* Right — sticky buy box on desktop; on mobile this is the
+              content sheet sliding up over the image (rounded top,
+              negative margin-top so it overlaps the image's rounded
+              bottom corners). */}
+          <div className="-mt-5 rounded-t-[24px] bg-brand-bg relative z-10 md:mt-0 md:rounded-none md:sticky md:top-24 md:self-start">
+            <ProductDetailPanel
               product={product}
+              discount={discount}
               storeCanOrder={product.store_can_order !== false}
               storeBadge={product.store_badge ?? "LIVE"}
               storeOpensAtLabel={product.store_opens_at_label ?? null}
@@ -186,25 +132,24 @@ export default async function ProductDetailPage(
             </div>
 
             <SpecsTabs specs={specs} description={product.description} />
+          </div>
+        </div>
 
-            {/* Store link strip — ETA/serviceability now lives in
-                ProductActions' DeliveryServiceability line, right below the
-                CTA, so this doesn't repeat it; just the store name + a way
-                back to the full storefront. */}
+        {/* Below-fold rails — full width within max-w-[1200px]. Header
+            stays sticky/visible through all of this (ProductPdpHeader is
+            mounted once, above, outside the scroll — it never re-mounts
+            or gets pushed off as the page scrolls). */}
+        {fromStore.length > 0 && (
+          <section className="px-4 mt-8 md:px-8" data-testid="from-store-rail">
+            {/* View Store row, directly above the rail it belongs to. */}
             {product.store_id && (
-              <div className="mx-4 my-3 p-3 bg-white border border-[#E5E2DC] rounded-xl flex items-center gap-3 md:mx-0">
+              <div className="mb-3 p-3 bg-white border border-[#E5E2DC] rounded-xl flex items-center gap-3">
                 <p className="flex-1 text-xs font-bold text-[#0A1F5C]">{product.store_name}</p>
                 <Link href={`/store/${product.store_id}`} className="text-xs font-semibold text-[#E68910]">
                   View store →
                 </Link>
               </div>
             )}
-          </div>
-        </div>
-
-        {/* Below-fold rails — full width within max-w-[1200px] */}
-        {fromStore.length > 0 && (
-          <section className="px-4 mt-8 md:px-8" data-testid="from-store-rail">
             <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-4">More from {product.store_name}</h2>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
               {fromStore.slice(0, 8).map((p) => (
@@ -215,7 +160,7 @@ export default async function ProductDetailPage(
         )}
 
         {similar.length > 0 && (
-          <section id="similar-products" className="px-4 mt-8 md:px-8" data-testid="similar-products">
+          <section id="similar-products" className="px-4 mt-8 md:px-8 pb-8" data-testid="similar-products">
             <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-4">You might also like</h2>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
               {similar.slice(0, 8).map((p) => (
