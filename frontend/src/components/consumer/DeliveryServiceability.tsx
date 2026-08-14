@@ -10,6 +10,15 @@
  * Guests, and customers with no saved address yet, get a generic Bhilai-wide
  * line instead of a false "unserviceable" — a negative result only ever
  * shows once a real saved pincode has actually failed the check.
+ *
+ * THE single delivery/opening-time element for the whole PDP — there used
+ * to be four separate places restating this (a near-price "Available from
+ * X" pill, this box, a "Closed" orange pill, and a specs-grid row). All the
+ * others were removed; this box now owns both the open-store message
+ * ("delivers to X in ~N min") and the closed-store message ("opens at X ·
+ * delivers after"), toggled by `isClosed` — never both at once, never
+ * orange (that read as an alert; this is routine status, so it stays the
+ * same neutral cream/gray as the open-store state).
  */
 import { useEffect, useState } from "react";
 import { Bike, MapPin } from "lucide-react";
@@ -17,7 +26,15 @@ import { api } from "@/lib/api";
 import { useCustomerAuthStore } from "@/stores";
 import { isServiceablePincode } from "@/lib/serviceability";
 
-export function DeliveryServiceability({ etaMin }: { etaMin: number }) {
+export function DeliveryServiceability({
+  etaMin,
+  isClosed = false,
+  opensAtLabel,
+}: {
+  etaMin: number;
+  isClosed?: boolean;
+  opensAtLabel?: string | null;
+}) {
   const phone = useCustomerAuthStore((s) => s.phone);
   const [area, setArea] = useState<string | null>(null);
   const [pincode, setPincode] = useState<string | null>(null);
@@ -59,9 +76,15 @@ export function DeliveryServiceability({ etaMin }: { etaMin: number }) {
       <div className="w-8 h-8 rounded-full bg-[#0A1F5C]/8 flex items-center justify-center shrink-0">
         <Bike size={15} className="text-[#0A1F5C]" />
       </div>
-      <span className="text-xs text-[#0A1F5C]">
-        delivers to <span className="font-bold">{areaLabel}</span> in ~{etaMin} min
-      </span>
+      {isClosed ? (
+        <span className="text-xs text-[#0A1F5C]">
+          opens at <span className="font-bold">{opensAtLabel || "soon"}</span> · delivers after
+        </span>
+      ) : (
+        <span className="text-xs text-[#0A1F5C]">
+          delivers to <span className="font-bold">{areaLabel}</span> in ~{etaMin} min
+        </span>
+      )}
     </div>
   );
 }

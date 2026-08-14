@@ -3,9 +3,16 @@
 /**
  * SpecsTabs — segmented Specifications / Description control. Specs are
  * assembled by the caller from real product fields (see product/[id]/page.tsx)
- * — no fabricated attributes (fabric, material, etc.) that aren't in the
- * data model. 3-column grid, 2 rows visible by default with a "View more"
- * expand once there are more than 6 rows.
+ * — trimmed to only genuinely new data (sizes, category, and fabric/fit
+ * when those fields exist) since delivery/returns/try-and-buy/store are
+ * already shown elsewhere on the page. 3-column grid, 2 rows visible by
+ * default with a "View more" expand once there are more than 6 rows.
+ *
+ * The segmented control only renders when there's genuinely a CHOICE to
+ * make (both specs and a description exist) — a product with, say, specs
+ * but no description skips the tab chrome entirely and just shows the
+ * specs grid directly, rather than a single orphaned "Specifications" pill
+ * with nothing to switch to.
  */
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
@@ -19,47 +26,49 @@ const VISIBLE_ROWS = 2;
 const COLS = 3;
 
 export function SpecsTabs({ specs, description }: { specs: SpecRow[]; description?: string | null }) {
-  const [tab, setTab] = useState<"specs" | "description">(specs.length > 0 ? "specs" : "description");
+  const hasSpecs = specs.length > 0;
+  const hasDescription = !!description;
+  const showTabs = hasSpecs && hasDescription;
+  const [tab, setTab] = useState<"specs" | "description">(hasSpecs ? "specs" : "description");
   const [expanded, setExpanded] = useState(false);
 
-  if (specs.length === 0 && !description) return null;
+  if (!hasSpecs && !hasDescription) return null;
 
   const visibleCount = VISIBLE_ROWS * COLS;
   const shownSpecs = expanded ? specs : specs.slice(0, visibleCount);
   const hasMore = specs.length > visibleCount;
+  const showSpecsPanel = (!showTabs || tab === "specs") && hasSpecs;
+  const showDescriptionPanel = (!showTabs || tab === "description") && hasDescription;
 
   return (
     <div data-testid="specs-tabs" className="px-4 md:px-0 mt-4">
-      {/* Segmented control */}
-      <div className="inline-flex p-1 rounded-xl bg-[#F1EEE7] gap-1">
-        {specs.length > 0 && (
+      {showTabs && (
+        <div className="inline-flex p-1 rounded-xl bg-[#F1EEE7] gap-1">
           <button
             type="button"
             onClick={() => setTab("specs")}
             data-testid="specs-tab-specifications"
-            className={`px-4 py-1.5 rounded-t-lg rounded-b-lg text-xs font-bold transition ${
-              tab === "specs" ? "bg-white text-ink-navy rounded-t-xl" : "text-slate-gray"
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${
+              tab === "specs" ? "bg-white text-ink-navy" : "text-slate-gray"
             }`}
           >
             Specifications
           </button>
-        )}
-        {description && (
           <button
             type="button"
             onClick={() => setTab("description")}
             data-testid="specs-tab-description"
-            className={`px-4 py-1.5 rounded-t-lg rounded-b-lg text-xs font-bold transition ${
-              tab === "description" ? "bg-white text-ink-navy rounded-t-xl" : "text-slate-gray"
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition ${
+              tab === "description" ? "bg-white text-ink-navy" : "text-slate-gray"
             }`}
           >
             Description
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
-      {tab === "specs" && specs.length > 0 && (
-        <div className="mt-4">
+      {showSpecsPanel && (
+        <div className={showTabs ? "mt-4" : ""}>
           <div className="grid grid-cols-3 gap-x-3 gap-y-4">
             {shownSpecs.map((s) => (
               <div key={s.label} data-testid={`spec-row-${s.label}`}>
@@ -82,8 +91,8 @@ export function SpecsTabs({ specs, description }: { specs: SpecRow[]; descriptio
         </div>
       )}
 
-      {tab === "description" && description && (
-        <p className="mt-4 text-sm text-[#595959] leading-relaxed">{description}</p>
+      {showDescriptionPanel && (
+        <p className={`text-sm text-[#595959] leading-relaxed ${showTabs ? "mt-4" : ""}`}>{description}</p>
       )}
     </div>
   );

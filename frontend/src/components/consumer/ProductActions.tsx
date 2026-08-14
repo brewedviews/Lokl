@@ -1,12 +1,15 @@
 "use client";
 
-/** Size picker + add-to-bag + buy-now + share + wishlist + notify-me + schedule interactions. */
+/** Size picker + add-to-bag + buy-now + notify-me + schedule interactions.
+ *  Wishlist/share moved to ProductTopActions (rendered near the top of the
+ *  page, not here) — this component owns exactly one thing: the purchase
+ *  flow. */
 import { useState, useEffect } from "react";
 import { trackAddToCart, trackPickupStart, trackPickupComplete, trackProductView } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
-import { Heart, ShoppingBag, Share2, Bell, CheckCircle2, Store, RotateCcw, ShieldCheck } from "lucide-react";
+import { ShoppingBag, Bell, CheckCircle2, Store, RotateCcw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
-import { useCartStore, useCustomerAuthStore, useWishlistStore } from "@/stores";
+import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { useStoreConflict } from "@/hooks/useStoreConflict";
@@ -35,20 +38,6 @@ export function ProductActions({
   const customerUser = useCustomerAuthStore((s) => s.user);
   const isCustomerAuth = useCustomerAuthStore((s) => s.isAuthenticated);
   const [size, setSize] = useState<string | null>(product.sizes?.[0] || null);
-
-  // Wishlist — same store + toggle pattern as ProductCard's own heart
-  // button (that one already works; this one previously had no onClick
-  // at all).
-  const isWishlisted = useWishlistStore((s) => s.isWishlisted(product.id));
-  const toggleWishlist = useWishlistStore((s) => s.toggle);
-  const [wished, setWished] = useState(false);
-  useEffect(() => { setWished(isWishlisted); }, [isWishlisted]);
-  const handleWishlist = () => {
-    const next = toggleWishlist(product);
-    const justAdded = next.some((x) => x.id === product.id);
-    setWished(justAdded);
-    toast.success(justAdded ? "Saved to wishlist" : "Removed from wishlist");
-  };
 
   useEffect(() => {
     try {
@@ -164,30 +153,58 @@ export function ProductActions({
     }
   };
 
-  const handleShare = async () => {
-    if (typeof window === "undefined") return;
-    const url = window.location.href;
-    const shareData = {
-      title: product.name,
-      text: `Check out ${product.name} for ₹${Number(product.price).toLocaleString()} on Lokl — local fashion in Bhilai`,
-      url,
-    };
-    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
-      try { await navigator.share(shareData); return; }
-      catch (err) {
-        const e = err as { name?: string };
-        if (e?.name === "AbortError" || e?.name === "NotAllowedError") return;
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success("Link copied!");
-    } catch {
-      toast.error("Could not copy link");
-    }
-  };
-
   const etaMin = product.store_eta_min || 45;
+
+  // The ONE CTA state machine — rendered twice (fixed sticky bar on mobile,
+  // inline in the sticky right column on desktop) but from this single
+  // function, so the two can never show different/conflicting states. Never
+  // both Add-to-Bag AND Pre-order: isClosed picks exactly one label.
+  const renderCtaButtons = (variant: "sticky" | "inline") => {
+    const sticky = variant === "sticky";
+    const pillBtn = sticky
+      ? "flex-1 inline-flex items-center justify-center gap-1.5 py-3.5 text-sm font-bold"
+      : "flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full text-sm font-bold transition whitespace-nowrap";
+
+    if (isOffline) {
+      return (
+        <button
+          onClick={() => setNotifyOpen(true)}
+          data-testid={sticky ? "sticky-notify-me-btn" : "notify-me-btn"}
+          className={sticky ? "w-full inline-flex items-center justify-center gap-1.5 py-3.5 bg-ink-navy text-white text-sm font-bold" : "w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-ink-navy text-white text-sm font-bold whitespace-nowrap"}
+        >
+          <Bell size={15} /> Notify Me
+        </button>
+      );
+    }
+    if (!storeCanOrder) {
+      return (
+        <div
+          data-testid={sticky ? "sticky-store-unavailable" : "store-unavailable-btn"}
+          className={sticky ? "w-full text-center py-3.5 bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold" : "w-full text-center py-3 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold"}
+        >
+          Store Unavailable
+        </div>
+      );
+    }
+    return (
+      <div className={sticky ? "flex items-stretch w-full" : "flex gap-2 w-full"}>
+        <button
+          onClick={() => handleAdd(() => router.push("/checkout"))}
+          data-testid={sticky ? "sticky-buy-now" : "buy-now"}
+          className={`${pillBtn} bg-brand-bg text-ink-navy ${sticky ? "border-r border-ink-navy" : "border border-ink-navy hover:bg-ink-navy/5"}`}
+        >
+          Buy now
+        </button>
+        <button
+          onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
+          data-testid={sticky ? "sticky-add-to-bag" : "add-to-bag"}
+          className={`${pillBtn} bg-near-black text-white ${sticky ? "active:scale-[0.98] transition" : "hover:bg-near-black/90"}`}
+        >
+          <ShoppingBag size={16} /> {isClosed ? "Pre-order" : "Add to bag"}
+        </button>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -196,7 +213,7 @@ export function ProductActions({
         On mobile (normal block flow) the DOM order already gives the right sequence.
 
         Both mobile and desktop render order:
-          order-1: Size selector  order-2: Action bar (inline)  order-3: below-fold trust/logistics + pickup
+          order-1: Size selector  order-2: Action bar (desktop-inline only — mobile uses the fixed sticky bar below instead)  order-3: below-fold trust/logistics + pickup
       */}
       <div className="md:flex md:flex-col">
 
@@ -204,12 +221,14 @@ export function ProductActions({
         {product.sizes && product.sizes.length > 0 && (
           <div className="px-4 md:px-0 mt-4 md:order-1">
             <div className="flex items-center justify-between mb-2.5">
-              <h4 className="text-sm font-semibold text-[#0A1F5C]">Select size</h4>
+              <h4 className="text-sm font-bold text-ink-navy">SIZE:</h4>
+              {/* No "Size Chart" link — no size-chart data exists on the
+                  product model yet; omitted rather than a dead link. */}
             </div>
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
               {product.sizes.map((s) => (
                 <button key={s} onClick={() => setSize(s)} data-testid={`size-${s}`}
-                  className={`shrink-0 min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition whitespace-nowrap ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
+                  className={`shrink-0 min-w-[48px] min-h-[48px] px-3 rounded-md text-sm font-semibold border transition whitespace-nowrap ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
                   {s}
                 </button>
               ))}
@@ -217,64 +236,24 @@ export function ProductActions({
           </div>
         )}
 
-        {/* ── 2. Primary action bar — inline on all breakpoints ──
-             Buy now is an outline pill (ink-navy border/text, cream fill);
-             Add to bag is the solid pill (near-black fill, white text) —
-             same pairing the sticky mobile bar below uses, so the CTA
-             styling never flips between inline and sticky as you scroll. */}
-        <div className="px-4 md:px-0 mt-4 md:mt-4 flex gap-2 md:order-2">
-          {isOffline ? (
-            <>
-              <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-offline-label">
-                Store Offline
-              </div>
-              <button
-                onClick={() => setNotifyOpen((v) => !v)}
-                data-testid="notify-me-btn"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#0A1F5C] text-white text-sm font-bold hover:bg-[#0F1F3D] transition whitespace-nowrap"
-              >
-                <Bell size={16} /> Notify Me
-              </button>
-            </>
-          ) : storeCanOrder ? (
-            <>
-              <button onClick={() => handleAdd(() => router.push("/checkout"))} data-testid="buy-now"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-brand-bg border border-ink-navy text-ink-navy text-sm font-bold hover:bg-ink-navy/5 transition whitespace-nowrap">
-                Buy now
-              </button>
-              <button
-                onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
-                data-testid="add-to-bag"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-near-black text-white text-sm font-bold hover:bg-near-black/90 transition whitespace-nowrap">
-                <ShoppingBag size={16} /> Add to bag
-              </button>
-            </>
-          ) : (
-            <div className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold cursor-not-allowed whitespace-nowrap" data-testid="store-unavailable-btn">
-              Store Unavailable
-            </div>
-          )}
-          <button
-            aria-label="Wishlist"
-            aria-pressed={wished}
-            data-testid="wishlist-btn"
-            onClick={handleWishlist}
-            className={`w-12 h-12 rounded-full border flex items-center justify-center transition shrink-0 ${wished ? "bg-[#E68910] border-[#E68910] text-white" : "bg-white border-[#E5E2DC] text-[#0A1F5C] hover:border-[#0A1F5C]"}`}
-          >
-            <Heart size={16} fill={wished ? "currentColor" : "none"} />
-          </button>
-          <button aria-label="Share" data-testid="share-btn" onClick={handleShare} className="w-12 h-12 rounded-full bg-white border border-[#E5E2DC] text-[#0A1F5C] flex items-center justify-center hover:border-[#0A1F5C] transition shrink-0">
-            <Share2 size={16} />
-          </button>
+        {/* ── 2. Primary action bar — DESKTOP ONLY, inline in the sticky
+             right column. Mobile relies solely on the fixed sticky bar
+             below (see the JSX after this closing </div>) — having both
+             here AND there was the duplicate-CTA bug this consolidates. */}
+        <div className="hidden md:block px-4 md:px-0 mt-4 md:order-2">
+          {renderCtaButtons("inline")}
         </div>
 
         {/* ── 3. Below-fold trust/logistics signals + pickup + banners ── */}
         <div className="md:order-3">
 
           {/* Delivery + serviceability — pincode-based (not GPS), see
-              DeliveryServiceability's own doc comment. */}
+              DeliveryServiceability's own doc comment. THE single delivery/
+              opening-time element for the page — it owns both the
+              open-store and closed-store ("opens at X") messaging now, so
+              there's nowhere else on the page restating it. */}
           <div className="mt-3 px-4 md:px-0">
-            <DeliveryServiceability etaMin={etaMin} />
+            <DeliveryServiceability etaMin={etaMin} isClosed={isClosed} opensAtLabel={storeOpensAtLabel} />
           </div>
 
           {/* Try & Buy — now gated on the real try_at_doorstep flag (was
@@ -299,7 +278,9 @@ export function ProductActions({
 
           {/* Returnable — return_eligible is fully wired (merchants set it,
               checkout/orders already read it) but was never shown to
-              shoppers on the PDP itself. */}
+              shoppers on the PDP itself. Product-specific (this exact
+              product qualifies), distinct from TrustIconsRow's generic
+              platform-wide returns claim below it — not a duplicate. */}
           {product.return_eligible && (
             <div className="mt-2.5 px-4 md:px-0">
               <span
@@ -331,12 +312,6 @@ export function ProductActions({
           {isAway && (
             <div className="mt-3 mx-4 md:mx-0 px-4 py-2 rounded-full bg-[#E68910]/10 border border-[#E68910]/20 text-[#E68910] text-xs font-semibold text-center">
               Store is away · Delivery may take longer
-            </div>
-          )}
-
-          {isClosed && (
-            <div className="mt-3 mx-4 md:mx-0 px-4 py-2 rounded-full bg-[#E68910]/10 border border-[#E68910]/20 text-[#0A1F5C] text-xs font-semibold text-center" data-testid="preorder-note">
-              {(storeOpensAtLabel || "Store opens soon")} · delivered after it opens
             </div>
           )}
 
@@ -381,50 +356,20 @@ export function ProductActions({
 
       </div>
 
-      {/* ── Sticky mobile add-to-bag bar ── price + one primary action,
-          fixed just above StickyBottomNav (same offset ActiveOrderPill
-          uses — see its own comment — rather than the bottom-nav-safe
-          PADDING utility, which is meant for scrollable page content
-          reserving space below itself, not for positioning a fixed
-          element's own top/bottom edge). Mirrors the inline action bar's
-          state/handlers exactly, so pre-order/closed/offline framing never
-          drifts between the two. Desktop keeps the existing sticky RIGHT
-          COLUMN (page.tsx's md:sticky wrapper) instead — this bar is
-          mobile-only. */}
+      {/* ── Sticky mobile CTA bar — the ONLY CTA on mobile (the inline bar
+          above is desktop-only, hidden md:block) — fixed just above
+          StickyBottomNav (same offset ActiveOrderPill uses — see its own
+          comment — rather than the bottom-nav-safe PADDING utility, which
+          is meant for scrollable page content reserving space below
+          itself, not for positioning a fixed element's own top/bottom
+          edge). Renders from the exact same renderCtaButtons() function as
+          the desktop inline bar, so the two can never disagree. */}
       <div
         className="md:hidden fixed inset-x-0 z-40 bg-white border-t border-[#E5E2DC] shadow-[0_-4px_16px_rgba(10,31,92,0.08)] flex items-stretch"
         style={{ bottom: "calc(4.75rem + env(safe-area-inset-bottom))", paddingBottom: "env(safe-area-inset-bottom)" }}
         data-testid="sticky-add-to-bag-bar"
       >
-        {isOffline ? (
-          <button
-            onClick={() => setNotifyOpen(true)}
-            className="w-full inline-flex items-center justify-center gap-1.5 py-3.5 bg-ink-navy text-white text-sm font-bold"
-          >
-            <Bell size={15} /> Notify Me
-          </button>
-        ) : storeCanOrder ? (
-          <>
-            <button
-              onClick={() => handleAdd(() => router.push("/checkout"))}
-              data-testid="sticky-buy-now"
-              className="flex-1 inline-flex items-center justify-center gap-1.5 py-3.5 bg-brand-bg border-r border-ink-navy text-ink-navy text-sm font-bold"
-            >
-              Buy now
-            </button>
-            <button
-              onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
-              data-testid="sticky-add-to-bag"
-              className="flex-1 inline-flex items-center justify-center gap-1.5 py-3.5 bg-near-black text-white text-sm font-bold active:scale-[0.98] transition"
-            >
-              <ShoppingBag size={16} /> {isClosed ? "Pre-order" : "Add to bag"}
-            </button>
-          </>
-        ) : (
-          <div className="w-full text-center py-3.5 bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold">
-            Unavailable
-          </div>
-        )}
+        {renderCtaButtons("sticky")}
       </div>
 
       {/* ── Pickup sheet (fixed, always last in DOM) ── */}
@@ -459,7 +404,7 @@ export function ProductActions({
                       <div className="flex flex-wrap gap-2">
                         {product.sizes.map((s) => (
                           <button key={s} onClick={() => setSize(s)}
-                            className={`min-w-11 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
+                            className={`min-w-[48px] min-h-[48px] px-3 rounded-md text-sm font-semibold border transition ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
                             {s}
                           </button>
                         ))}

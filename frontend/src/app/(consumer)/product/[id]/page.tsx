@@ -5,10 +5,11 @@ import { serverFetch } from "@/lib/server-fetch";
 import { ProductGallery } from "@/components/consumer/ProductGallery";
 import { ProductActions } from "@/components/consumer/ProductActions";
 import { ProductCard } from "@/components/consumer/ProductCard";
+import { ProductTopActions } from "@/components/consumer/ProductTopActions";
 import { OffersCard } from "@/components/consumer/OffersCard";
 import { TrustIconsRow } from "@/components/consumer/TrustIconsRow";
 import { SpecsTabs, type SpecRow } from "@/components/consumer/SpecsTabs";
-import type { Product, ProductCard as ProductCardType } from "@/types";
+import type { Product, ProductCard as ProductCardType, CategoryNode } from "@/types";
 
 interface ProductDetailResponse {
   product: Product;
@@ -35,9 +36,10 @@ export default async function ProductDetailPage(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const [data, relatedRaw] = await Promise.all([
+  const [data, relatedRaw, categories] = await Promise.all([
     serverFetch<ProductDetailResponse>(`/api/products/${id}`),
     serverFetch<{ from_store: ProductCardType[]; similar: ProductCardType[] }>(`/api/products/${id}/related`),
+    serverFetch<CategoryNode[]>("/api/categories"),
   ]);
   if (!data?.product) notFound();
 
@@ -49,16 +51,24 @@ export default async function ProductDetailPage(
     ? product.images
     : ([product.image].filter(Boolean) as string[]);
 
-  // Specs grid — assembled only from fields that actually exist on the
-  // product model. No fabricated attributes (fabric/material/etc. aren't
-  // in the data model, so they're not listed here).
+  // Category — resolved from the taxonomy tree rather than exposing the
+  // raw l1_id/l2_id. l2 wins when present (more specific).
+  const l1 = categories?.find((c) => c.id === product.l1_id);
+  const l2 = l1?.l2?.find((s) => s.id === product.l2_id);
+  const categoryLabel = l2?.name || l1?.name || null;
+
+  // Specs grid — trimmed to genuinely NEW data only. Delivery, returns,
+  // try & buy and the store name are all shown elsewhere on this page
+  // already (the delivery box, the returnable badge, the try-and-buy
+  // callout, the price-block store link) — repeating them here was the
+  // duplication this pass removes. Fabric/material and fit aren't on the
+  // product data model yet, so those rows are simply omitted rather than
+  // shown empty — they'll appear automatically once that data exists.
   const specs: SpecRow[] = [
-    ...((product as any).gender ? [{ label: "Gender", value: String((product as any).gender) }] : []),
     { label: "Sizes", value: product.sizes && product.sizes.length > 0 ? product.sizes.join(", ") : "Free size" },
-    { label: "Delivery", value: `${product.store_eta_min || 45} min` },
-    { label: "Returns", value: product.return_eligible ? "Eligible · 24h window" : "Not eligible" },
-    { label: "Try & Buy", value: product.try_at_doorstep ? "Available" : "Not available" },
-    { label: "Store", value: product.store_name || "Lokl Store" },
+    ...(categoryLabel ? [{ label: "Category", value: categoryLabel }] : []),
+    ...((product as any).fabric ? [{ label: "Fabric", value: String((product as any).fabric) }] : []),
+    ...((product as any).fit ? [{ label: "Fit", value: String((product as any).fit) }] : []),
   ];
 
   return (
@@ -72,11 +82,18 @@ export default async function ProductDetailPage(
     <div className="flex-1 flex flex-col bg-[#FDFBF7] pb-24 md:pb-0">
       <div className="flex-1 w-full max-w-[1200px] mx-auto">
 
+        {/* Wishlist + share — top of the PDP content, right-aligned like a
+            header action row, not inside the mid-page CTA row (see
+            ProductActions' own note on why they moved). Sits above the
+            two-column grid so it reads as page-level chrome on both
+            breakpoints, not scoped to just the gallery column. */}
+        <ProductTopActions product={product} />
+
         {/*
           Mobile: single column, gallery full-bleed, content padded inside ProductActions.
           Desktop: two columns — flexible gallery left, 440px sticky buy box right.
         */}
-        <div className="md:grid md:grid-cols-[minmax(0,1fr)_440px] md:gap-10 md:pt-10 md:px-8 md:items-start">
+        <div className="md:grid md:grid-cols-[minmax(0,1fr)_440px] md:gap-10 md:pt-6 md:px-8 md:items-start">
 
           {/* Left — gallery scrolls normally; buy box (right) is the sticky one */}
           <div>
@@ -105,21 +122,20 @@ export default async function ProductDetailPage(
                 <span className="text-xs text-[#64748B] uppercase tracking-wide">{product.store_name}</span>
               )}
 
-              {product.store_badge && product.store_badge !== "LIVE" && (
-                product.store_badge === "Closed" ? (
-                  <span className="ml-2 inline-flex items-center text-xs text-[#E68910] bg-[#E68910]/10 px-2 py-0.5 rounded-full">
-                    {`Available from ${(product.store_opens_at_label || "").replace(/^Opens\s+(at\s+)?/i, "") || "soon"}`}
-                  </span>
-                ) : (
-                  <div className={`inline-flex items-center mt-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                    product.store_badge === "Store Offline" ? "bg-[#F4F1E9] text-[#64748B]" :
-                    product.store_badge === "Away" ? "bg-[#E68910]/10 text-[#E68910]" : "bg-[#F4F1E9] text-[#595959]"
-                  }`}>
-                    {product.store_badge === "Away" ? "Back soon" :
-                     product.store_badge === "Store Offline" ? "Currently unavailable" :
-                     (product as any).store_eta_message || product.store_badge}
-                  </div>
-                )
+              {/* "Closed" intentionally renders nothing here — that status
+                  (and its "opens at X") now lives solely in
+                  DeliveryServiceability, below the CTA. Away/Offline/other
+                  statuses aren't restated anywhere else, so they keep
+                  their own badge here. */}
+              {product.store_badge && product.store_badge !== "LIVE" && product.store_badge !== "Closed" && (
+                <div className={`inline-flex items-center mt-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                  product.store_badge === "Store Offline" ? "bg-[#F4F1E9] text-[#64748B]" :
+                  product.store_badge === "Away" ? "bg-[#E68910]/10 text-[#E68910]" : "bg-[#F4F1E9] text-[#595959]"
+                }`}>
+                  {product.store_badge === "Away" ? "Back soon" :
+                   product.store_badge === "Store Offline" ? "Currently unavailable" :
+                   (product as any).store_eta_message || product.store_badge}
+                </div>
               )}
 
               <h1 className="font-display text-xl font-bold text-ink-navy mt-2 leading-snug">{product.name}</h1>
