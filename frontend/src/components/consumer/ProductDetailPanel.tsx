@@ -13,8 +13,8 @@
  *
  * NO sticky/fixed CTA bar — the price+button row is the last thing in this
  * component's normal document flow, and scrolls away like everything else.
- * The PDP's persistent chrome is ProductPdpHeader (sticky top), not
- * anything pinned to the bottom.
+ * The PDP's persistent chrome is the global ConsumerHeader (sticky top,
+ * same as every other consumer page), not anything pinned to the bottom.
  */
 import { useState, useEffect } from "react";
 import { trackAddToCart, trackPickupStart, trackPickupComplete, trackProductView } from "@/lib/analytics";

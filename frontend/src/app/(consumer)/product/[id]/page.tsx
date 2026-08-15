@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { serverFetch } from "@/lib/server-fetch";
-import { ProductPdpHeader } from "@/components/consumer/ProductPdpHeader";
 import { ProductGallery } from "@/components/consumer/ProductGallery";
 import { ProductDetailPanel } from "@/components/consumer/ProductDetailPanel";
 import { ProductCard } from "@/components/consumer/ProductCard";
@@ -73,12 +72,11 @@ export default async function ProductDetailPage(
 
   return (
     // No pb-24 here — the old mobile sticky CTA bar (and its clearance
-    // padding) is gone, and StickyBottomNav/ConsumerHeader are both hidden
-    // on this route (see their own pathname guards) in favour of
-    // ProductPdpHeader, so there's no fixed bottom-nav to clear either.
+    // padding) is gone, and StickyBottomNav is still hidden on this route
+    // (see its own pathname guard) so there's no fixed bottom-nav to clear.
+    // ConsumerHeader now renders here like everywhere else in the app (the
+    // PDP no longer has its own header) — see (consumer)/layout.tsx.
     <div className="flex-1 flex flex-col bg-brand-bg">
-      <ProductPdpHeader />
-
       <div className="flex-1 w-full max-w-[1200px] mx-auto md:pt-6">
 
         {/*
@@ -108,8 +106,17 @@ export default async function ProductDetailPage(
           {/* Right — sticky buy box on desktop; on mobile this is the
               content sheet sliding up over the image (rounded top,
               negative margin-top so it overlaps the image's rounded
-              bottom corners). */}
-          <div className="-mt-5 rounded-t-[24px] bg-brand-bg relative z-10 md:mt-0 md:rounded-none md:sticky md:top-24 md:self-start">
+              bottom corners).
+
+              Sticky top offset is two values, not one, because
+              ConsumerHeader's own mobile/desktop split is at `lg:` (1024px)
+              while this grid goes two-column at `md:` (768px) — in that
+              768-1023px gap ConsumerHeader is still its taller 2-row
+              mobile layout (~109px measured), which top-24 (96px) sits
+              inside of. md:top-[124px] clears that; lg:top-24 keeps the
+              original, already-correct offset once the header drops to
+              its single-row ~68px desktop form. */}
+          <div className="-mt-5 rounded-t-[24px] bg-brand-bg relative z-10 md:mt-0 md:rounded-none md:sticky md:top-[124px] lg:top-24 md:self-start">
             <ProductDetailPanel
               product={product}
               discount={discount}
@@ -135,10 +142,10 @@ export default async function ProductDetailPage(
           </div>
         </div>
 
-        {/* Below-fold rails — full width within max-w-[1200px]. Header
-            stays sticky/visible through all of this (ProductPdpHeader is
-            mounted once, above, outside the scroll — it never re-mounts
-            or gets pushed off as the page scrolls). */}
+        {/* Below-fold rails — full width within max-w-[1200px]. The global
+            ConsumerHeader (mounted once, in the route-group layout, outside
+            this scroll) stays sticky/visible through all of this — it never
+            re-mounts or gets pushed off as the page scrolls. */}
         {fromStore.length > 0 && (
           <section className="px-4 mt-8 md:px-8" data-testid="from-store-rail">
             {/* View Store row, directly above the rail it belongs to. */}

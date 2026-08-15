@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, ShoppingBag, Sparkles, Heart } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, ShoppingBag, Sparkles, Heart } from "lucide-react";
 import { RibbonTag } from "./RibbonTag";
 import { useWishlistStore } from "@/stores";
 import type { Product } from "@/types";
@@ -43,6 +44,7 @@ export function ProductGallery({
   isCleanBackground = false,
   product,
 }: ProductGalleryProps) {
+  const router = useRouter();
   const [imgIdx, setImgIdx] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -86,6 +88,23 @@ export function ProductGallery({
   const mainImage = images[imgIdx] ?? images[0] ?? "";
   const showFitOverlay = !!fit && isCleanBackground;
 
+  // Back button — was ProductPdpHeader's sticky-top affordance; that header
+  // is retired in favour of the global ConsumerHeader (which has no "back"
+  // concept), so this lives on the image itself now. Same visual treatment
+  // (filled near-black circle, white chevron, w-10 h-10) as the old header's
+  // unscrolled state, but always visible — no scroll-conditional styling.
+  const backBtn = (testId: string) => (
+    <button
+      type="button"
+      aria-label="Back"
+      data-testid={testId}
+      onClick={() => router.back()}
+      className="absolute top-3 left-3 z-20 w-10 h-10 rounded-full flex items-center justify-center bg-near-black text-white shadow-sm active:scale-90 transition"
+    >
+      <ArrowLeft size={19} />
+    </button>
+  );
+
   const wishlistBtn = (testId: string) => (
     <button
       type="button"
@@ -103,8 +122,9 @@ export function ProductGallery({
     return (
       <div
         data-testid="pdp-image"
-        className="w-full aspect-[4/5] bg-cream-warm flex flex-col items-center justify-center text-[#94A3B8] text-sm"
+        className="relative w-full aspect-[4/5] bg-cream-warm flex flex-col items-center justify-center text-[#94A3B8] text-sm"
       >
+        {backBtn("pdp-back-btn")}
         <ShoppingBag size={36} className="mb-2 opacity-50" />
         <span>Image coming soon</span>
       </div>
@@ -135,7 +155,7 @@ export function ProductGallery({
                 className="object-cover"
               />
               {i === 0 && discount > 0 && (
-                <RibbonTag text={`${discount}% off`} position="top-left" />
+                <RibbonTag text={`${discount}% off`} position="top-left-inset" />
               )}
               {i === 0 && tryAndBuy && (
                 <RibbonTag text="try & buy" variant="banner" position="bottom-left" />
@@ -152,6 +172,7 @@ export function ProductGallery({
           ))}
         </div>
         {wishlistBtn("wishlist-btn")}
+        {backBtn("pdp-back-btn")}
 
         {images.length > 1 && (
           <>
@@ -225,7 +246,7 @@ export function ProductGallery({
               className="object-cover"
             />
             {imgIdx === 0 && discount > 0 && (
-              <RibbonTag text={`${discount}% off`} position="top-left" />
+              <RibbonTag text={`${discount}% off`} position="top-left-inset" />
             )}
             {imgIdx === 0 && tryAndBuy && (
               <RibbonTag text="try & buy" variant="banner" position="bottom-left" />
@@ -239,6 +260,7 @@ export function ProductGallery({
               </span>
             )}
             {wishlistBtn("wishlist-btn-desktop")}
+            {backBtn("pdp-back-btn-desktop")}
           </div>
         )}
       </div>

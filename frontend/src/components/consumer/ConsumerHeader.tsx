@@ -28,7 +28,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Loader2, MapPin, Search, ShoppingBag, Store as StoreIcon, User, X, Crosshair, Home as HomeIcon, Clock, TrendingUp, Check } from "lucide-react";
 import {
   useCartStore, useLocationStore, useCustomerAuthStore, useSearchOverlay,
@@ -75,7 +75,6 @@ interface SavedAddress {
 
 export function ConsumerHeader() {
   const router = useRouter();
-  const pathname = usePathname();
   const mounted = useMounted();
   const cartCount = useCartStore((s) => s.getItemCount());
   const customerPhone = useCustomerAuthStore((s) => s.phone);
@@ -226,14 +225,6 @@ export function ConsumerHeader() {
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
   }, [suggOpen]);
-
-  // The PDP has its own sticky header (back button + search/cart/wishlist,
-  // transparent-over-image transitioning to solid on scroll) — showing
-  // this generic site header there too would stack two sticky bars, and
-  // "back" only makes sense as a product-detail-screen affordance, not a
-  // site-wide one. All hooks above still run unconditionally every render;
-  // this early return only skips the JSX.
-  if (pathname.startsWith("/product/")) return null;
 
   return (
     <>
