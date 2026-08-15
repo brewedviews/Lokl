@@ -281,7 +281,7 @@ export function ProductDetailPanel({
       <div className="flex items-start justify-between gap-4 px-4 md:px-0 mt-4 flex-wrap">
         {product.sizes && product.sizes.length > 0 && (
           <div>
-            <h4 className="text-sm font-bold text-ink-navy mb-2.5">SIZE:</h4>
+            <div className="text-sm font-bold text-ink-navy mb-2.5">SIZE:</div>
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
               {product.sizes.map((s) => (
                 <button key={s} onClick={() => setSize(s)} data-testid={`size-${s}`}
@@ -295,7 +295,7 @@ export function ProductDetailPanel({
 
         {colors && colors.length > 0 && (
           <div data-testid="color-selector">
-            <h4 className="text-sm font-bold text-ink-navy mb-2.5">COLOR:</h4>
+            <div className="text-sm font-bold text-ink-navy mb-2.5">COLOR:</div>
             <div className="inline-flex items-center gap-2 px-2.5 py-2 rounded-full bg-white border border-warm-gray-border">
               {colors.map((c) => (
                 <button

@@ -253,7 +253,7 @@ export default function RiderOrderDetailPage() {
         <section className="bg-brand-primary text-white rounded-card-lg p-4" data-testid="rider-handoff-otp-card">
           <div className="flex items-center gap-2 mb-1">
             <KeyRound size={16} className="text-brand-accent-alt" />
-            <h3 className="text-xs font-bold uppercase tracking-wide text-white/70">Merchant handoff code</h3>
+            <div className="text-xs font-bold uppercase tracking-wide text-white/70">Merchant handoff code</div>
           </div>
           <div className="font-display text-3xl font-bold tracking-[0.3em]" data-testid="rider-handoff-otp-value">
             {detail.handoff_otp || "----"}
@@ -265,7 +265,7 @@ export default function RiderOrderDetailPage() {
         <section className="bg-card-surface border border-card-border rounded-card-lg p-4" data-testid="rider-pickup-block">
           <div className="flex items-center gap-2 mb-2">
             <Store size={16} className="text-brand-accent" />
-            <h3 className="text-xs font-bold uppercase tracking-wide text-text-muted">Pickup</h3>
+            <div className="text-xs font-bold uppercase tracking-wide text-text-muted">Pickup</div>
           </div>
           <p className="font-bold text-brand-primary">{detail.pickup.store_name}</p>
           <p className="text-sm text-text-secondary mt-0.5">{detail.pickup.address}</p>
@@ -291,7 +291,7 @@ export default function RiderOrderDetailPage() {
         <section className="bg-card-surface border border-card-border rounded-card-lg p-4" data-testid="rider-drop-block">
           <div className="flex items-center gap-2 mb-2">
             <MapPin size={16} className="text-brand-accent" />
-            <h3 className="text-xs font-bold uppercase tracking-wide text-text-muted">Drop-off</h3>
+            <div className="text-xs font-bold uppercase tracking-wide text-text-muted">Drop-off</div>
           </div>
           <p className="font-bold text-brand-primary">{detail.drop.customer_name}</p>
           <p className="text-sm text-text-secondary mt-0.5">{detail.drop.address}</p>
@@ -321,7 +321,7 @@ export default function RiderOrderDetailPage() {
         <section className="bg-card-surface border border-card-border rounded-card-lg p-4" data-testid="rider-payment-block">
           <div className="flex items-center gap-2 mb-1">
             {detail.payment.upi_qr_url ? <QrCode size={16} className="text-brand-accent" /> : <Wallet size={16} className="text-brand-accent" />}
-            <h3 className="text-xs font-bold uppercase tracking-wide text-text-muted">Payment</h3>
+            <div className="text-xs font-bold uppercase tracking-wide text-text-muted">Payment</div>
           </div>
           <p className="text-sm text-text-secondary">{detail.payment.note}</p>
           {detail.payment.upi_qr_url && (

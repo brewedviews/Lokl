@@ -352,7 +352,7 @@ export default function CheckoutPage() {
           )}
           {savedAddresses.length > 0 && (
             <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="saved-addresses">
-              <h3 className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">Deliver to</h3>
+              <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">Deliver to</div>
               <div className="space-y-2">
                 {savedAddresses.map((a) => (
                   <button key={a.id} type="button" data-testid={`pick-addr-${a.id}`} onClick={() => pickSaved(a.id)}
@@ -567,9 +567,9 @@ export default function CheckoutPage() {
 
           {impulseProducts.length > 0 && (
             <div className="border-t border-[#E5E2DC] mt-3 pt-3" data-testid="checkout-impulse-rail">
-              <h4 className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">
+              <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">
                 Add more from {storeAvailMap[cartStoreId ?? ""]?.name ?? items[0]?.store_name ?? "this store"}
-              </h4>
+              </div>
               <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
                 {impulseProducts.map((p) => (
                   <div key={p.id} className="w-[128px] shrink-0" data-testid={`impulse-item-${p.id}`}>

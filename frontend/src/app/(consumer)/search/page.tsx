@@ -44,7 +44,7 @@ export default function SearchPage() {
 
         {!busy && data.stores.length > 0 && (
           <section className="mb-10">
-            <h2 className="text-[11px] uppercase tracking-widest text-[#595959] mb-3">Stores</h2>
+            <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-3">Stores</div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {data.stores.map((s) => (
                 <Link key={s.id} href={`/store/${s.id}`} data-testid={`search-store-${s.id}`} className="bg-white rounded-2xl overflow-hidden border border-[#E5E2DC] hover:border-[#0A1F5C] transition">
@@ -63,7 +63,7 @@ export default function SearchPage() {
 
         {!busy && data.products.length > 0 && (
           <section className="mb-10">
-            <h2 className="text-[11px] uppercase tracking-widest text-[#595959] mb-3">Products ({data.products.length})</h2>
+            <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-3">Products ({data.products.length})</div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5">
               {data.products.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
             </div>

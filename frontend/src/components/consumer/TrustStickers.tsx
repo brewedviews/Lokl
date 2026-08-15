@@ -27,7 +27,7 @@ export function TrustStickers() {
       data-testid="trust-stickers"
     >
       <div className="text-center mb-5">
-        <p className="font-display italic text-[20px] text-brand-primary leading-tight">
+        <p className="font-display text-[20px] text-brand-primary leading-tight">
           Bhilai&apos;s own
         </p>
         <p className="text-[12px] text-text-muted mt-0.5">

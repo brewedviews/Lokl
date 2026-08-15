@@ -226,7 +226,7 @@ function GenderBentoSection({ id, title, tiles }: { id: string; title: string; t
                 </span>
               )}
             </div>
-            <span className="text-[12.5px] font-display font-bold text-brand-primary text-center leading-tight line-clamp-1">{t.label}</span>
+            <span className="text-[12.5px] font-bold text-brand-primary text-center leading-tight line-clamp-1">{t.label}</span>
           </Link>
         ))}
       </div>
@@ -278,7 +278,7 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
                 {a.store_count} {a.store_count === 1 ? "store" : "stores"}
               </span>
             </div>
-            <span className="text-[12.5px] font-display font-bold text-brand-primary text-center leading-tight line-clamp-1">{a.name}</span>
+            <span className="text-[12.5px] font-bold text-brand-primary text-center leading-tight line-clamp-1">{a.name}</span>
           </Link>
         ))}
       </div>
@@ -340,7 +340,7 @@ function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel }
           />
           <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
           <div className="absolute bottom-2.5 left-2.5 right-2.5">
-            <div className="font-display font-bold text-white text-[13px] sm:text-sm leading-tight line-clamp-1">{s.name}</div>
+            <div className="font-bold text-white text-[13px] sm:text-sm leading-tight line-clamp-1">{s.name}</div>
             <div className="text-[10px] font-semibold text-[#F0E9DD]/90 mt-0.5 leading-tight">{area}</div>
           </div>
         </>
@@ -352,7 +352,7 @@ function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel }
             <Sparkles size={15} className="text-[#E68910]" />
           </div>
           <div>
-            <div className="font-display font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight line-clamp-1">{s.name}</div>
+            <div className="font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight line-clamp-1">{s.name}</div>
             <div className="text-[10px] font-semibold text-[#0A1F5C]/55 mt-0.5 leading-tight">{area}</div>
           </div>
         </div>
@@ -454,7 +454,7 @@ function TryAndBuySection({ image }: { image: string }) {
           </div>
           <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center">
             <p className="text-[10px] font-bold text-[#E68910] uppercase tracking-wide">Try &amp; Buy</p>
-            <p className="font-display font-bold text-[#0A1F5C] text-sm sm:text-base leading-tight mt-0.5">try before you pay.</p>
+            <p className="font-bold text-[#0A1F5C] text-sm sm:text-base leading-tight mt-0.5">try before you pay.</p>
             <p className="text-[10px] sm:text-[11px] text-[#595959] mt-1 leading-snug">
               order it <span className="text-[#E68910] font-bold">·</span> rider waits while you try <span className="text-[#E68910] font-bold">·</span> keep what you love
             </p>
@@ -721,7 +721,7 @@ export function HomeClient() {
                         shows through instead of everything reading as navy. */}
                     <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
                     <div className="absolute bottom-2.5 left-2.5 right-2.5">
-                      <div className="font-display font-bold text-white text-[13px] sm:text-sm leading-tight">{hero}</div>
+                      <div className="font-bold text-white text-[13px] sm:text-sm leading-tight">{hero}</div>
                       <div className="text-[10px] font-semibold text-[#F0E9DD]/90 mt-0.5 leading-tight">{sub}</div>
                     </div>
                   </>
@@ -736,7 +736,7 @@ export function HomeClient() {
                       <Sparkles size={15} className="text-[#E68910]" />
                     </div>
                     <div>
-                      <div className="font-display font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight">{hero}</div>
+                      <div className="font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight">{hero}</div>
                       <div className="text-[10px] font-semibold text-[#0A1F5C]/55 mt-0.5 leading-tight">{sub}</div>
                     </div>
                   </div>
@@ -819,7 +819,7 @@ export function HomeClient() {
                   <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
                   <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
                 </svg>
-                <span className="font-display font-bold text-white text-sm">All</span>
+                <span className="font-bold text-white text-sm">All</span>
               </Link>
               {(categories as any[]).slice(0, 9).map((cat, catIdx) => (
                 <Link key={cat.id} href={`/c/${cat.slug}`}
@@ -839,7 +839,7 @@ export function HomeClient() {
                     <div className="w-full h-full bg-[#E5E2DC]" />
                   )}
                   <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/75 via-black/15 to-transparent pointer-events-none" />
-                  <span className="absolute bottom-3 left-3 right-3 font-display font-bold text-white text-sm leading-tight line-clamp-2 break-words">
+                  <span className="absolute bottom-3 left-3 right-3 font-bold text-white text-sm leading-tight line-clamp-2 break-words">
                     {cat.name === "Lingerie & Innerwear" ? "Lingerie" : cat.name}
                   </span>
                 </Link>
