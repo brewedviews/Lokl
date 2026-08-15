@@ -10,7 +10,6 @@ import { useMounted } from "@/hooks/useMounted";
 import { useDeliveryEta } from "@/hooks/useDeliveryEta";
 import { useStoreConflict } from "@/hooks/useStoreConflict";
 import { StoreConflictDialog } from "./StoreConflictDialog";
-import { RibbonTag } from "./RibbonTag";
 import type { ProductCard as ProductCardType } from "@/types";
 
 type AnyProduct = ProductCardType & {
@@ -22,9 +21,6 @@ type AnyProduct = ProductCardType & {
   badge?: string;
   low_stock_size?: string;
   social_proof?: string;
-  /** Close-up of a print/embroidery/patch — not on the data model yet.
-   *  Optional: only renders the circular detail-crop overlay when present. */
-  detail_image?: string | null;
 };
 
 interface Props {
@@ -62,14 +58,10 @@ export function ProductCard({ p, size = "default" }: Props) {
 
   const storeBadge = (p as any).store_badge as string | undefined;
   const storeOpensAt = (p as any).store_opens_at_label as string | undefined;
-  // Offline (paused/inactive) genuinely blocks adding; Closed is just a
-  // scheduled reopening, so it stays purchasable as a pre-order — same
-  // distinction the PDP's own sticky CTA bar makes.
-  const isOffline = storeBadge === "Store Offline";
-  const isClosed = storeBadge === "Closed";
+  const unavailable = storeBadge === "Closed" || storeBadge === "Store Offline";
 
   const doAdd = (chosenSize: string) => {
-    if (isOffline) {
+    if (unavailable) {
       toast.error("This store is currently unavailable");
       return;
     }
@@ -118,7 +110,7 @@ export function ProductCard({ p, size = "default" }: Props) {
 
   return (
     <div
-      className={`group relative bg-white rounded-2xl transition ${
+      className={`group relative bg-white rounded-2xl overflow-hidden transition ${
         isCompact
           ? "shadow-[0_1px_4px_rgba(26,43,76,0.08)] hover:shadow-[0_4px_12px_rgba(26,43,76,0.12)]"
           : "shadow-[0_2px_8px_rgba(26,43,76,0.06)] hover:shadow-[0_8px_24px_rgba(26,43,76,0.12)]"
@@ -127,7 +119,7 @@ export function ProductCard({ p, size = "default" }: Props) {
     >
       <Link href={`/product/${p.id}`} className="block active:scale-[0.98] transition">
         {/* Image */}
-        <div className={`relative bg-slate-100 overflow-hidden rounded-t-2xl ${isCompact ? "aspect-[4/5]" : "aspect-[3/4]"}`}>
+        <div className={`relative bg-slate-100 overflow-hidden ${isCompact ? "aspect-[4/5]" : "aspect-[3/4]"}`}>
           {p.image ? (
             <Image
               src={p.image}
@@ -141,18 +133,14 @@ export function ProductCard({ p, size = "default" }: Props) {
             <div className="w-full h-full v2-shimmer" />
           )}
 
-          {/* Discount badge — the ONE badge style used everywhere (PDP hero
-              + every ProductCard): solid orange RibbonTag, flush top-left.
-              Previously this was a separate white-pill/orange-text style
-              that didn't match the PDP's badge; now it's the same component. */}
-          {discount > 0 && <RibbonTag text={`${discount}% off`} position="top-left" />}
+          {/* Discount badge — top-left */}
+          {discount > 0 && (
+            <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-white/90 text-[#E68910] text-[9px] font-bold uppercase leading-none">
+              {discount}% off
+            </span>
+          )}
 
-          {/* Wishlist heart — always top-right, white circle, consistent
-              across every card (previously this shifted to bottom-right
-              whenever a detail-crop overlay was present, which read as
-              inconsistent placement across cards in the same rail — the
-              detail-crop moved to bottom-right instead, see below, so the
-              two never collide and the heart never has to move). */}
+          {/* Wishlist heart — top-right */}
           <button
             type="button"
             aria-label="Wishlist"
@@ -168,29 +156,6 @@ export function ProductCard({ p, size = "default" }: Props) {
             />
           </button>
         </div>
-
-        {/* Optional detail-crop overlay — a close-up of a print/embroidery/
-            patch, clipped to a circle, overlapping the card's bottom-right
-            corner ~50% in/out (bottom, not top, so it never competes with
-            the discount ribbon at top-left or the wishlist heart at
-            top-right). Sits OUTSIDE the image's own clipped box (the outer
-            card has no overflow-hidden of its own, precisely so this can
-            bleed past the corner instead of being cut off) — only renders
-            when the product actually has a secondary image; never forced. */}
-        {p.detail_image && (
-          <div
-            data-testid={`p-card-detail-${p.id}`}
-            className={`absolute -bottom-1.5 -right-1.5 rounded-full overflow-hidden border-2 border-white ${isCompact ? "w-10 h-10" : "w-14 h-14"}`}
-          >
-            <Image
-              src={p.detail_image}
-              alt=""
-              fill
-              sizes="64px"
-              className="object-cover"
-            />
-          </div>
-        )}
 
         {/* Text content */}
         <div className={isCompact ? "px-1.5 pt-1.5 pb-0 space-y-0.5" : "p-2 pb-1 space-y-0.5"}>
@@ -272,7 +237,7 @@ export function ProductCard({ p, size = "default" }: Props) {
               </button>
             ))}
           </div>
-        ) : qty === 0 && isOffline ? (
+        ) : qty === 0 && unavailable ? (
           <div
             data-testid={`p-card-add-${p.id}`}
             className={`w-full inline-flex items-center justify-center rounded-full bg-slate-100 text-slate-400 font-bold cursor-not-allowed ${
@@ -281,17 +246,6 @@ export function ProductCard({ p, size = "default" }: Props) {
           >
             Unavailable
           </div>
-        ) : qty === 0 && isClosed ? (
-          <button
-            onClick={handleAdd}
-            data-testid={`p-card-add-${p.id}`}
-            className={`w-full inline-flex items-center justify-center gap-1 rounded-full bg-near-black text-white font-bold active:scale-95 transition ${
-              isCompact ? "py-1 text-[10px]" : "py-1.5 gap-1.5 text-[12px]"
-            }`}
-          >
-            <ShoppingBag size={isCompact ? 11 : 13} />
-            Pre-order
-          </button>
         ) : qty === 0 ? (
           <button
             onClick={handleAdd}
