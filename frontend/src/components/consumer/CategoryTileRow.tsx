@@ -45,7 +45,16 @@ export function CategoryTileRow({
   activeSlug?: string;
 }) {
   return (
-    <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2" data-testid="category-tile-row">
+    // w-full: an explicit width, not an implicit one — this div sizes
+    // itself to its parent rather than to its own (wider, overflowing)
+    // flex children, which is what actually makes overflow-x-auto clip
+    // and scroll internally instead of the parent silently growing to fit.
+    // touch-pan-x scopes the touch gesture to horizontal panning WITHIN
+    // this element specifically (doesn't affect ancestors) — paired with
+    // the global overflow-x: hidden on html/body (globals.css), a swipe
+    // that starts on a tile now always resolves to this row's own scroll,
+    // never the page's.
+    <div className="w-full flex gap-4 overflow-x-auto no-scrollbar touch-pan-x pb-2" data-testid="category-tile-row">
       {categories.length === 0 ? (
         Array.from({ length: 8 }).map((_, i) => (
           <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1.5">

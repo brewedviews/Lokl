@@ -110,6 +110,16 @@
     color: var(--color-text-primary);
     font-family: var(--font-sans);
     font-feature-settings: "ss01", "ss02";
+    /* Without this, any element with content wider than the viewport —
+       even one that's correctly overflow-x:auto and meant to scroll only
+       internally, like the horizontal category tile strip or product
+       rails — can drag the whole document sideways on touch instead of
+       confining the scroll gesture to itself. This is the standard fix:
+       clip horizontal overflow at the document root so touch panning
+       always resolves to the nearest INTERNAL scroll container, never the
+       page itself. Vertical scrolling (overflow-y, left at its default)
+       is unaffected. */
+    overflow-x: hidden;
   }
   h1, h2, h3, h4, .display {
     font-family: var(--font-display);

@@ -198,10 +198,27 @@ export function CategoryClient() {
   if (!l1) {
     return (
       <div className="flex-1 flex flex-col bg-[#FDFBF7]">
-        <div className="max-w-7xl mx-auto px-4 md:px-8 pt-3">
-          <CategoryTileRow categories={cats} activeSlug={slug} />
-        </div>
         <main className="flex-1">
+          {/* Tab strip lives inside <main>, same as Home's own
+              category_pills/CategoryTileRow — see CategoryTileRow's own
+              doc comment for why. An earlier version of this page put an
+              equivalent wrapper OUTSIDE <main>, directly as a flex item of
+              this root flex-col div; that div has no explicit width, so
+              under flex's default align-items:stretch its cross-axis size
+              should come from the container — except mx-auto (needed to
+              center the max-w-7xl column) overrides stretch per the
+              flexbox spec, falling back to the item's own CONTENT width
+              instead. With flex-shrink-0 tiles inside, that content width
+              is the tile row's full unscrolled size, so the wrapper (and
+              therefore the page) silently grew to fit it — the tile row's
+              own overflow-x-auto never got a chance to clip/scroll, and a
+              swipe dragged the whole page instead. <main> isn't
+              display:flex, so none of this applies to a plain block
+              child of it — moving the wrapper here removes the problem
+              at its source instead of patching around it. */}
+          <div className="max-w-7xl mx-auto px-4 md:px-8 pt-3">
+            <CategoryTileRow categories={cats} activeSlug={slug} />
+          </div>
           <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
             <div className="h-8 w-40 bg-[#E5E2DC] rounded-lg animate-pulse mb-3" />
             <SkeletonGrid />
@@ -213,14 +230,16 @@ export function CategoryClient() {
 
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
-      {/* 1. Tab strip — same always-on nav chrome as Home (see
-          CategoryTileRow's own doc comment) — activeSlug highlights this
-          page's own L1. */}
-      <div className="max-w-7xl mx-auto px-4 md:px-8 pt-3">
-        <CategoryTileRow categories={cats} activeSlug={slug} />
-      </div>
-
       <main className="flex-1">
+        {/* 1. Tab strip — inside <main>, same as Home's own
+            category_pills/CategoryTileRow (see CategoryTileRow's own doc
+            comment, and this file's loading-skeleton return above for why
+            it lives here and not as a flex-col-root sibling of <main>) —
+            activeSlug highlights this page's own L1. */}
+        <div className="max-w-7xl mx-auto px-4 md:px-8 pt-3">
+          <CategoryTileRow categories={cats} activeSlug={slug} />
+        </div>
+
         {/* 2. L1-scoped hero — a single-slide HeroCarousel (renders static,
             no autoplay/dots, since HeroCarousel no-ops both once
             slides.length <= 1) driven by l1HeroConfig's per-L1 copy. Falls
