@@ -1,24 +1,36 @@
 /**
- * TrustSignalsCompact — tier 1 of the PDP's two-tier trust signal split.
- * Replaces the old single-row 3-icon strip (Secure payments / Try & buy /
- * 24h returns, all inline) with a stacked list: small icon (left) + bold
- * headline + one-line description below it, near the delivery info this
- * quick-scan logistics content already lives next to.
+ * TrustSignalsCompact — the PDP's full trust-signal list, one consistent
+ * style for all four items: small left-aligned icon + bold headline + one-
+ * line gray description, stacked. Used to be split across two visually
+ * different tiers (this compact list for Secure payments/24h returns, plus
+ * a separate large-centered-circle-icon TrustBadgesLarge component near
+ * specs/description for Verified Seller/Made in Bhilai) — user testing
+ * called that inconsistent, reading as two different treatments rather
+ * than one trust block. TrustBadgesLarge is deleted; all four items render
+ * here now, together, near the delivery/store info area.
  *
- * Tier 2 — larger illustrated badges ("Verified Seller" / "Made in
- * Bhilai") — lives separately, near the specs/description section (see
- * page.tsx's TrustBadgesLarge), doing reassurance work at the point of
- * deepest consideration rather than quick-scan logistics.
- *
- * Copy is checked against the real policy, same discipline as the old
- * strip: the return window is 24 HOURS (RETURN_WINDOW_HOURS in
- * backend/server.py — return_eligible items only), never a fabricated
- * "7 days". Try & Buy was dropped from this pair — it's already its own
- * dedicated callout above (try_at_doorstep, per-product) when the product
- * actually has it, so restating it here as a platform-wide claim would be
- * true for some products and misleading for others.
+ * Copy is checked against the real policy, same discipline throughout this
+ * file's history:
+ *   - the return window is 24 HOURS (RETURN_WINDOW_HOURS in
+ *     backend/server.py — return_eligible items only), never a fabricated
+ *     "7 days".
+ *   - "Quality checked" was never used — no per-product inspection or QC
+ *     workflow exists anywhere in this codebase, and fabricating it would
+ *     break this app's established never-fabricate copy discipline.
+ *   - "Verified Seller" is backed by a real, always-true platform rule:
+ *     every store's kyc_status must be "approved" before it's
+ *     published/visible at all (see _visible_store_filter() in
+ *     backend/server.py) — every product a shopper can see already comes
+ *     from a KYC-checked merchant.
+ *   - "Made in Bhilai" reuses the same real, platform-wide claim already
+ *     established on the homepage (TrustStickers), for brand consistency
+ *     rather than inventing a new one.
+ *   - Try & Buy is intentionally NOT in this list — it's already its own
+ *     dedicated callout above (try_at_doorstep, per-product) when the
+ *     product actually has it, so restating it here as a platform-wide
+ *     claim would be true for some products and misleading for others.
  */
-import { ShieldCheck, PackageCheck } from "lucide-react";
+import { ShieldCheck, PackageCheck, BadgeCheck, MapPin } from "lucide-react";
 
 const ITEMS = [
   {
@@ -30,6 +42,16 @@ const ITEMS = [
     icon: PackageCheck,
     headline: "24-hour returns",
     description: "Free exchange if it doesn't fit — return within 24h of delivery",
+  },
+  {
+    icon: BadgeCheck,
+    headline: "Verified Seller",
+    description: "Every Lokl store passes KYC verification before going live",
+  },
+  {
+    icon: MapPin,
+    headline: "Made in Bhilai",
+    description: "Real shops in your neighbourhood, not a faraway warehouse",
   },
 ] as const;
 

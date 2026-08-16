@@ -7,7 +7,6 @@ import { ProductCard } from "@/components/consumer/ProductCard";
 import { OffersCard } from "@/components/consumer/OffersCard";
 import { SpecsTabs, type SpecRow } from "@/components/consumer/SpecsTabs";
 import { MerchantMicroCard } from "@/components/consumer/MerchantMicroCard";
-import { TrustBadgesLarge } from "@/components/consumer/TrustBadgesLarge";
 import type { Product, ProductCard as ProductCardType, Store } from "@/types";
 
 interface ProductDetailResponse {
@@ -81,12 +80,12 @@ export default async function ProductDetailPage(
     // ConsumerHeader renders here like everywhere else in the app (see
     // (consumer)/layout.tsx) — the PDP has no header of its own.
     //
-    // No fixed/sticky bottom chrome on this route at all — StickyBottomNav
-    // is hidden here (see its own /product/ exclusion) and there's no
-    // fixed CTA bar either; PdpCtaRow appears twice inline instead (see
-    // ProductDetailPanel). No extra bottom clearance needed beyond the
-    // layout's own bottom-nav-safe padding, since nothing fixed competes
-    // for space on this page.
+    // StickyBottomNav is back on this route (no more /product/ exclusion)
+    // — it's the ONLY persistent chrome here; PdpCtaRow (Buy now/Add to
+    // bag) stays in normal document flow, not fixed, so there's no second
+    // fixed bar competing with the nav. The layout's own bottom-nav-safe
+    // padding already accounts for the nav's height, same as every other
+    // consumer page.
     <div className="flex-1 flex flex-col bg-brand-bg">
       <div className="flex-1 w-full max-w-[1200px] mx-auto md:pt-6">
 
@@ -136,21 +135,19 @@ export default async function ProductDetailPage(
               storeOpensAtLabel={product.store_opens_at_label ?? null}
               storeName={product.store_name}
               storeId={product.store_id}
+              storeAreaLabel={storeInfo?.area_label}
             />
 
             {/* Offers + specs/description — optional/data-driven; each
                 renders nothing if it has nothing real to show (no
-                fabricated offers, specs or claims). TrustBadgesLarge is
-                tier 2 of the two-tier trust split — tier 1 (compact rows)
-                already rendered near delivery info inside
-                ProductDetailPanel; this pair of larger illustrated badges
-                sits just above specs/description instead, since a shopper
-                reading this far is closer to deciding, not skimming. */}
+                fabricated offers, specs or claims). All four trust signals
+                (Secure payments/24h returns/Verified Seller/Made in
+                Bhilai) now render together as one consistent list inside
+                ProductDetailPanel, near delivery/store info — no separate
+                large-badge tier here anymore. */}
             <div className="px-4 mt-4 md:px-0">
               <OffersCard price={product.price} />
             </div>
-
-            <TrustBadgesLarge />
 
             <SpecsTabs specs={specs} description={product.description} />
           </div>

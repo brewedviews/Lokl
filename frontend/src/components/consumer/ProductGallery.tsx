@@ -119,39 +119,33 @@ export function ProductGallery({
   return (
     <div data-testid="pdp-image" className="relative">
 
-      {/* ── MOBILE: warm-gray card, square top (flush with the sticky
-          header above), rounded-bottom only, padding around the product
-          instead of full-bleed. Scroll-snap carousel with a right-edge
-          peek.
-
-          Height is a CAPPED viewport fraction (h-[22vh]), not aspect-[4/5]
-          at full width — on a narrow-but-tall phone, aspect-[4/5] let the
-          image alone eat 60-70%+ of the viewport, pushing title/price/qty/
-          size below the first fold. object-cover crops to fill this
-          shorter box instead of letter-boxing. Desktop keeps aspect-[4/5]
-          unchanged (see below) — this constraint is mobile-only.
-
-          22vh, not the ~42-45vh a plain image-only budget would allow —
-          measured empirically on iPhone SE (3rd gen, 375x667, the shortest
-          common current viewport) against the two FIXED bars now stacked
-          at the bottom (price+CTA bar + StickyBottomNav, ~130px combined —
-          see ProductDetailPanel's price-cta-bar-mobile), which eat into
-          the same first-fold budget an image-only calculation wouldn't
-          have accounted for. Re-measure and adjust this value if either
-          fixed bar's height changes. ── */}
-      <div className="md:hidden relative bg-cream-warm rounded-b-[20px] pt-2 pb-4 px-4">
+      {/* ── MOBILE: near-full-bleed — a user report that the previous short
+          h-[22vh] crop only showed the upper chest of a garment (object-cover
+          on a too-short box crops aggressively) is why this is now a real
+          aspect ratio (aspect-[3/4], taller than desktop's 4/5) at full
+          width with no inset padding, instead of a padded tray at a capped
+          viewport-height fraction. object-cover still crops to fill the
+          box, but a proper portrait aspect ratio needs far less cropping to
+          show a full top-to-hem garment shot than a squat 22vh strip did.
+          bg-cream-warm is now just a loading-state fallback color, not a
+          visible tray — the image fills the box edge to edge. Rounded only
+          at the bottom (rounded-b-[20px]), matching the "sheet slides up
+          over the image" effect the content panel below still does.
+          Desktop keeps its own unchanged aspect-[4/5] two-column layout
+          (see below) — this is mobile-only. ── */}
+      <div className="md:hidden relative bg-cream-warm rounded-b-[20px] overflow-hidden">
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="flex gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory rounded-2xl"
+          className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory"
         >
           {images.map((img, i) => (
-            <div key={i} className="relative snap-start shrink-0 w-full h-[22vh] rounded-2xl overflow-hidden bg-white">
+            <div key={i} className="relative snap-start shrink-0 w-full aspect-[3/4] bg-white">
               <Image
                 src={img}
                 alt={`${name} ${i + 1}`}
                 fill
-                sizes="90vw"
+                sizes="100vw"
                 priority={i === 0}
                 className="object-cover"
               />
@@ -189,7 +183,7 @@ export function ProductGallery({
             >
               <ChevronRight size={18} />
             </button>
-            <div className="flex justify-center gap-1.5 mt-3">
+            <div className="flex justify-center gap-1.5 py-3">
               {images.map((_, i) => (
                 <button
                   key={i}
@@ -281,6 +275,11 @@ export function ProductGallery({
           icon is a plain nav link to /wishlist, not a per-product toggle,
           so the two don't duplicate the same job.
 
+          Right-aligned (justify-end) — was left-aligned, sitting directly
+          above ProductDetailPanel's store-name row and reading as if it
+          collided with/sat on top of it. Right-aligning puts it in its own
+          clear corner of that horizontal band instead.
+
           relative z-20: page.tsx's ProductDetailPanel wrapper pulls itself
           up with a negative margin (-mt-5) to slide its rounded top corner
           over the image card's own rounded bottom corners — that effect
@@ -288,7 +287,7 @@ export function ProductGallery({
           rendered. Now this icon row renders after it, in the same
           -mt-5 overlap zone, so without a higher z-index than that
           wrapper's z-10 it would render UNDER the panel and disappear. ── */}
-      <div className="relative z-20 flex items-center gap-5 px-4 md:px-0 mt-3">
+      <div className="relative z-20 flex items-center justify-end gap-5 px-4 md:px-0 mt-3">
         <button
           type="button"
           aria-label="Wishlist"

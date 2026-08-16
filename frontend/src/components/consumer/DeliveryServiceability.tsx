@@ -11,23 +11,21 @@
  * line instead of a false "unserviceable" — a negative result only ever
  * shows once a real saved pincode has actually failed the check.
  *
- * THE single delivery/opening-time element for the whole PDP — there used
- * to be four separate places restating this (a near-price "Available from
- * X" pill, this box, a "Closed" orange pill, and a specs-grid row). All the
- * others were removed; this box now owns both the open-store message and
- * the closed-store message, toggled by `isClosed` — never both at once,
- * never orange (that read as an alert; this is routine status).
+ * Handles the unserviceable-pincode alert and the closed-store "Opens X"
+ * message. The open-store happy-path ETA ("~45 min") used to render here
+ * too, but moved into the store info row at the top of the page instead
+ * (ProductDetailPanel's store-name line — "{store} · {area} · ~45 min")
+ * so it reads as a continuation of the store's own identity rather than a
+ * separate box; this component now renders NOTHING in the normal
+ * open+serviceable case; only for the two states that actually need their
+ * own callout.
  *
- * Compressed to icon + short bold text only ("~45 min" / "Opens 9:30 AM")
- * — "delivers to [address label] in" was dropped entirely, it's implied by
- * context (this box only ever appears on a page about ordering one
- * product to one address). The closed-state duplicated-string bug fix
- * ("opens at Opens at 9:30 AM") stays exactly as it was; this only
- * shortens the surrounding phrasing, not the underlying label parsing.
+ * The closed-state duplicated-string bug fix ("opens at Opens at 9:30 AM")
+ * is unchanged — see the comment on opensAtTime below.
  *
  * Styled as a compact ambient status line (hairline border, white bg, small
  * bare icon, single line) rather than a filled pill — it's secondary
- * context near the CTA, not something that should compete visually with it.
+ * context, not something that should compete visually with the CTA.
  */
 import { useEffect, useState } from "react";
 import { Bike, MapPin } from "lucide-react";
@@ -36,11 +34,9 @@ import { useCustomerAuthStore } from "@/stores";
 import { isServiceablePincode } from "@/lib/serviceability";
 
 export function DeliveryServiceability({
-  etaMin,
   isClosed = false,
   opensAtLabel,
 }: {
-  etaMin: number;
   isClosed?: boolean;
   opensAtLabel?: string | null;
 }) {
@@ -75,6 +71,11 @@ export function DeliveryServiceability({
     );
   }
 
+  // Open + serviceable — the happy path. Nothing to show here anymore; the
+  // ETA lives in the store info row instead (see this file's own doc
+  // comment).
+  if (!isClosed) return null;
+
   // `opensAtLabel` arrives from the backend already as a full phrase
   // ("Opens at 9:30 AM" / "Opens tomorrow at 9:30 AM") — prefixing another
   // "opens at" in front of it was the duplicated-string bug ("opens at
@@ -89,11 +90,7 @@ export function DeliveryServiceability({
       data-testid="pdp-delivery-line"
     >
       <Bike size={14} className="text-slate-gray shrink-0" />
-      {isClosed ? (
-        <span className="text-xs font-bold text-ink-navy">Opens {opensAtTime || "soon"}</span>
-      ) : (
-        <span className="text-xs font-bold text-ink-navy">~{etaMin} min</span>
-      )}
+      <span className="text-xs font-bold text-ink-navy">Opens {opensAtTime || "soon"}</span>
     </div>
   );
 }

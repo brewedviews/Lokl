@@ -33,6 +33,7 @@ export {
 export {
   useCartStore,
   CART_KEY,
+  cartKeyFor,
 } from "./cart.store";
 
 export {

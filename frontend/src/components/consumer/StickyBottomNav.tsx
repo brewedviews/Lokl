@@ -5,14 +5,15 @@
  * routes (the rider PWA has its own minimal top-bar chrome, see
  * app/rider/layout.tsx — this check is redundant with /rider living outside
  * the (consumer) route group, but kept explicit for the same belt-and-braces
- * reason /merchant and /admin already are). Also hidden on /product — the
- * PDP has NO fixed/sticky bottom chrome at all (no nav, no CTA bar); a
- * prior pass briefly brought this nav back on the PDP with a merged fixed
- * price+CTA bar stacked above it, but that read as a second, competing
- * fixed-chrome model on a screen that's otherwise plain document flow, and
- * user testing against the Myntra reference called for reverting it — CTAs
- * on the PDP are inline, repeated at two points in normal scroll (see
- * ProductDetailPanel's PdpCtaRow), not pinned.
+ * reason /merchant and /admin already are).
+ *
+ * `/product/` routes ARE shown again — this went back and forth: originally
+ * excluded, briefly re-enabled with a merged fixed price+CTA bar stacked
+ * above it (reverted — read as two competing fixed-chrome models), then
+ * excluded again. It's back now on its own, without any fixed CTA bar
+ * alongside it — the PDP's Buy now/Add to bag row (see ProductDetailPanel's
+ * PdpCtaRow) stays in normal document flow, not fixed. This nav is the
+ * only persistent chrome on the PDP.
  *
  *   [ Home ] [ Categories ] [ All ] [ Stores ] [ Profile ]
  *
@@ -31,7 +32,7 @@ import { trackNavClick } from "@/lib/analytics";
 export function StickyBottomNav() {
   const pathname = usePathname();
 
-  if (pathname.startsWith("/merchant") || pathname.startsWith("/admin") || pathname.startsWith("/rider") || pathname.startsWith("/product/")) return null;
+  if (pathname.startsWith("/merchant") || pathname.startsWith("/admin") || pathname.startsWith("/rider")) return null;
 
   const isActive = (href: string) => href === "/" ? pathname === "/" : pathname.startsWith(href);
 

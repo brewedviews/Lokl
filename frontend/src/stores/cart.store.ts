@@ -62,7 +62,12 @@ type CartStore = CartState & CartActions;
 
 const INITIAL: CartState = { items: [], _hasHydrated: false };
 
-const cartKeyFor = (productId: string, size: string) =>
+// Exported so callers that need to read live cart state for a specific
+// product+size (e.g. the PDP's Add-to-bag-becomes-a-stepper button) can
+// derive the exact same key this store uses internally, instead of
+// re-deriving their own "id + size" matching logic that could drift from
+// this store's actual key format.
+export const cartKeyFor = (productId: string, size: string) =>
   `${productId}-${size || "free"}`;
 
 // Returns the [id, name] pairs of every distinct store currently in the bag.

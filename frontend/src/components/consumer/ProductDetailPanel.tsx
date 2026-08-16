@@ -1,36 +1,34 @@
 "use client";
 
 /**
- * ProductDetailPanel — everything below the gallery on the PDP: title/
- * price block, size + color selectors, delivery/trust/try-and-buy/returns/
- * pickup signals, and two repeated CTA rows.
+ * ProductDetailPanel — everything below the gallery on the PDP: store
+ * info/title/price block, availability status, size + color selectors,
+ * one CTA row, and delivery/trust/try-and-buy/returns/pickup signals.
  *
  * Replaces the old split between page.tsx's inline title-block JSX and the
  * separate ProductActions component.
  *
- * NO fixed/sticky bottom chrome on this page at all — no nav bar (see
- * StickyBottomNav's own /product/ exclusion), no fixed CTA bar. A prior
- * pass tried a merged fixed price+CTA bar stacked above a re-enabled nav
- * bar; user testing against the Myntra reference reverted that — it read
- * as a second, competing fixed-chrome model bolted onto a page that's
- * otherwise plain document flow. Instead, PdpCtaRow (Buy now / Add to bag)
- * appears twice, inline, in normal scroll: once directly below the price
- * block, once directly below the size selector — close enough to the
- * decision point either time that a shopper is rarely more than one
- * scroll-screen away from a buy button, without permanently pinning
- * anything.
+ * NO fixed/sticky bottom chrome on THIS component at all — the page's only
+ * persistent chrome is StickyBottomNav (re-enabled on /product/ routes;
+ * see its own doc comment for the back-and-forth on that). PdpCtaRow (Buy
+ * now / Add to bag) renders ONCE, directly below the size selector, in
+ * normal document flow — an earlier version repeated it below the price
+ * block too, which user testing called a duplicate CTA; that instance is
+ * gone.
  *
- * No qty stepper — fashion is purchased per size unit here, not variable
- * quantity, so add-to-bag/reserve-pickup always add exactly 1 (see
- * useCartStore.addItem's own qty=1 default). Quantity adjustment still
- * lives on the cart page, unaffected by this — that's a different screen
- * with a different job.
+ * Add-to-bag adds exactly 1 unit per tap (fashion is purchased per size
+ * unit, not variable quantity) — but the button itself becomes a −/qty/+
+ * stepper once the item is in the bag, reading live cart state, so
+ * quantity IS adjustable right from the PDP now without a separate
+ * always-visible control cluttering the page before anything's been added.
+ * See PdpCtaRow's own doc comment. Quantity adjustment also still works
+ * from the cart page, unaffected by this — same cart, two entry points.
  */
 import { useState, useEffect } from "react";
 import { trackAddToCart, trackPickupStart, trackPickupComplete, trackProductView } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CheckCircle2, Store, RotateCcw, ShieldCheck, Check } from "lucide-react";
+import { AlertCircle, Bike, CheckCircle2, Store, RotateCcw, ShieldCheck, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
@@ -58,6 +56,7 @@ export function ProductDetailPanel({
   storeOpensAtLabel,
   storeName,
   storeId,
+  storeAreaLabel,
 }: {
   product: Product;
   discount: number;
@@ -66,6 +65,12 @@ export function ProductDetailPanel({
   storeOpensAtLabel?: string | null;
   storeName?: string;
   storeId?: string;
+  /** Store's own registered locality (stores.area_label) — same field
+   *  MerchantMicroCard already shows, threaded here too so the store info
+   *  row at the top of the page can read "{store} · {area} · ~N min"
+   *  instead of just the bare store name. Omitted from the row entirely
+   *  when absent, never a fabricated placeholder. */
+  storeAreaLabel?: string | null;
 }) {
   const router = useRouter();
   const addItem = useCartStore((s) => s.addItem);
@@ -217,41 +222,42 @@ export function ProductDetailPanel({
 
   return (
     <>
-      {/* ── Store name, badge, title ── */}
+      {/* ── Store info row: name + area + ETA, title, price, availability ── */}
       <div className="px-4 pt-4 pb-2 md:px-0 md:pt-0">
-        {product.store_id ? (
-          <Link href={`/store/${product.store_id}`} data-testid="store-name-link"
-            className="text-[11px] text-brand-accent font-medium uppercase tracking-[0.02em] hover:underline">
-            {product.store_name}
-          </Link>
-        ) : (
-          <span className="text-[11px] text-slate-gray font-medium uppercase tracking-[0.02em]">{product.store_name}</span>
-        )}
+        {/* Store identity row — name, then locality, then the delivery ETA
+            as a third fact, all in one line ("continuation of the store's
+            identity" rather than a separate bordered ETA box). ETA only
+            shows in the normal open+serviceable case (!isClosed &&
+            !isOffline) — showing "~45 min" on a store that's currently
+            closed or offline would contradict the very state that's
+            blocking orders. Area is omitted entirely (not a placeholder)
+            when the store predates that field. */}
+        <div className="flex items-center flex-wrap gap-x-1.5" data-testid="store-info-row">
+          {product.store_id ? (
+            <Link href={`/store/${product.store_id}`} data-testid="store-name-link"
+              className="text-[11px] text-brand-accent font-medium uppercase tracking-[0.02em] hover:underline">
+              {product.store_name}
+            </Link>
+          ) : (
+            <span className="text-[11px] text-slate-gray font-medium uppercase tracking-[0.02em]">{product.store_name}</span>
+          )}
+          {storeAreaLabel && (
+            <span className="text-[11px] text-slate-gray">· {storeAreaLabel}</span>
+          )}
+          {!isClosed && !isOffline && (
+            <span className="text-[11px] text-slate-gray inline-flex items-center gap-1" data-testid="store-row-eta">
+              · <Bike size={12} className="text-slate-gray shrink-0" /> delivers in ~{etaMin} min
+            </span>
+          )}
+        </div>
 
-        {/* "Closed" intentionally renders nothing here — that status (and
-            its "opens at X") lives solely in DeliveryServiceability below.
-            Away/Offline/other statuses aren't restated anywhere else, so
-            they keep their own badge here. */}
-        {product.store_badge && product.store_badge !== "LIVE" && product.store_badge !== "Closed" && (
-          <div className={`inline-flex items-center mt-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-            product.store_badge === "Store Offline" ? "bg-[#F4F1E9] text-[#64748B]" :
-            product.store_badge === "Away" ? "bg-[#E68910]/10 text-[#E68910]" : "bg-[#F4F1E9] text-[#595959]"
-          }`}>
-            {product.store_badge === "Away" ? "Back soon" :
-             product.store_badge === "Store Offline" ? "Currently unavailable" :
-             (product as any).store_eta_message || product.store_badge}
-          </div>
-        )}
-
-        {/* Title alone — no adjacent action cluster now that qty is gone
-            and wishlist lives in the header + the icon row below the
-            gallery instead (see ProductGallery / ConsumerHeader). */}
+        {/* Title alone — no adjacent action cluster; wishlist lives in the
+            header + the icon row below the gallery instead (see
+            ProductGallery / ConsumerHeader). */}
         <h1 className="font-display text-[20px] font-medium text-ink-navy leading-snug mt-2">{product.name}</h1>
 
         {/* ── Price — the ONE price display on the page (current / struck
-            MRP / %-off pill). No qty-adjusted "Total" anymore: add-to-bag
-            is always exactly 1 unit, so a second qty-multiplied price
-            would just restate this one. ── */}
+            MRP / %-off pill). ── */}
         <div className="flex items-baseline gap-2 mt-2">
           <span className="text-[20px] font-bold text-ink-navy">₹{Number(product.price).toLocaleString("en-IN")}</span>
           {product.mrp && product.mrp > product.price && (
@@ -273,20 +279,29 @@ export function ProductDetailPanel({
           </div>
         )}
 
-        {/* ── First CTA row — directly below the price block, tight
-            vertical rhythm, no qty stepper in between. Repeated again
-            below the size selector (same PdpCtaRow component both
-            times). ── */}
-        <div className="mt-3">
-          <PdpCtaRow
-            isOffline={isOffline}
-            storeCanOrder={storeCanOrder}
-            isClosed={isClosed}
-            onNotify={handleNotify}
-            onBuyNow={handleBuyNow}
-            onAddToBag={handleAddToBag}
-          />
-        </div>
+        {/* Unavailable-store callout — replaces the old flat gray pill
+            that used to sit inline next to the store name. This is the
+            one place on the page that says "this is why you're seeing
+            Notify Me below" — positioned here, between price and Size, so
+            it reads as availability status rather than metadata stuck to
+            the brand name. Amber/orange-tinted (the same bg-[#E68910]/10
+            border-[#E68910]/20 treatment already used for the "Away" and
+            try-and-buy callouts elsewhere in this file), not gray — gray
+            read as inert metadata; this needs enough presence that a
+            shopper actually registers why the CTA below says Notify Me
+            instead of Add to bag. Away/Closed each already have their own
+            existing callout elsewhere on the page (isAway below,
+            DeliveryServiceability's "Opens X"), so this is Store-Offline
+            only, not a generic multi-status pill anymore. */}
+        {isOffline && (
+          <div
+            className="mt-3 flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-[#E68910]/10 border border-[#E68910]/20"
+            data-testid="store-unavailable-callout"
+          >
+            <AlertCircle size={16} className="text-[#E68910] shrink-0" />
+            <p className="text-xs text-[#E68910] font-semibold">Currently unavailable — we&apos;ll notify you when this store is back.</p>
+          </div>
+        )}
       </div>
 
       <div className="h-px bg-[#F5F5F5] mx-4 my-1.5 md:mx-0" />
@@ -343,20 +358,20 @@ export function ProductDetailPanel({
           </div>
         )}
 
-        {/* Second CTA row — directly below the size selector, same
-            component/handlers as the one below the price block. By the
-            time a shopper reaches this point they've usually picked a
-            size, so this is the more likely of the two to actually get
-            tapped. */}
+        {/* The only CTA row on the page — directly below the size
+            selector. An earlier version also had one directly below the
+            price block; user testing called that a duplicate and it's
+            gone now. */}
         <div className="w-full mt-3 px-4 md:px-0">
           <PdpCtaRow
             isOffline={isOffline}
             storeCanOrder={storeCanOrder}
             isClosed={isClosed}
+            productId={product.id}
+            size={size ?? ""}
             onNotify={handleNotify}
             onBuyNow={handleBuyNow}
             onAddToBag={handleAddToBag}
-            testIdSuffix="-below-size"
           />
         </div>
       </div>
@@ -365,18 +380,18 @@ export function ProductDetailPanel({
       <div className="mt-4">
 
         {/* Delivery + serviceability — pincode-based (not GPS), see
-            DeliveryServiceability's own doc comment. THE single delivery/
-            opening-time element for the page. */}
+            DeliveryServiceability's own doc comment. The open+serviceable
+            happy path renders nothing here now (ETA moved to the store
+            info row above); this only ever shows for the closed-store
+            "Opens X" message or the unserviceable-pincode alert. */}
         <div className="px-4 md:px-0">
-          <DeliveryServiceability etaMin={etaMin} isClosed={isClosed} opensAtLabel={storeOpensAtLabel} />
+          <DeliveryServiceability isClosed={isClosed} opensAtLabel={storeOpensAtLabel} />
         </div>
 
-        {/* Two-tier trust signals, tier 1 — compact icon+headline+
-            description rows, near delivery info (see TrustSignalsCompact's
-            own doc comment). Replaces the old single-row 3-icon strip that
-            used to sit near the top of the page. Tier 2 (larger illustrated
-            badges) lives near the specs/description section instead — see
-            page.tsx. */}
+        {/* All four trust signals, one consistent list style (see
+            TrustSignalsCompact's own doc comment) — used to be split
+            across two different visual treatments; unified into one block
+            near delivery/store info. */}
         <div className="mt-2.5 px-4 md:px-0">
           <TrustSignalsCompact />
         </div>
