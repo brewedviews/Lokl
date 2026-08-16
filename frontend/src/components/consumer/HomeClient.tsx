@@ -182,23 +182,27 @@ function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[])
 // category_pills' own mobile tile strip above (w-16 h-16 circle, label
 // centered below), reused here instead of the large aspect-[3/4]
 // rectangular cards this section used to render. Those rectangular cards
-// (roughly half-width each) made this a tall, heavy section; a horizontal-
-// scroll row of small circles reads as "quick filters within For Her/Him"
-// rather than a second full product-card-scale grid competing with the
-// actual product rails below it. No price pill overlay anymore either —
-// a price badge doesn't sit well on a circular crop, and category_pills'
-// own avatars don't carry one, so dropping it keeps the two patterns
-// actually consistent rather than just visually similar.
+// (roughly half-width each) made this a tall, heavy section. No price
+// pill overlay — a price badge doesn't sit well on a circular crop, and
+// category_pills' own avatars don't carry one, so dropping it keeps the
+// two patterns actually consistent rather than just visually similar.
+//
+// Static 4-column grid, NOT a horizontal scroll — an earlier pass made
+// this a horizontal-scroll row, but with ~7-8 tiles per section that
+// hides most of them behind a swipe a user has no visual cue to try.
+// grid-cols-4 shows all of them up front, wrapping to a second
+// (partially-filled) row rather than scrolling — every category is
+// visible on load, not just the first 4-5.
 function GenderBentoSection({ id, title, tiles }: { id: string; title: string; tiles: ResolvedGenderTile[] }) {
   if (tiles.length === 0) return null;
   return (
     <div key={id} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid={`home-${id}`}>
       <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">{title}</h2>
 
-      <div className="flex gap-4 overflow-x-auto no-scrollbar pb-1">
+      <div className="grid grid-cols-4 gap-x-2 gap-y-4">
         {tiles.map((t) => (
           <Link key={t.key} href={t.href} data-testid={`${id}-tile-${t.key}`}
-            className="flex-shrink-0 w-16 flex flex-col items-center gap-1.5 active:scale-95 transition">
+            className="flex flex-col items-center gap-1.5 active:scale-95 transition">
             <div className="relative w-16 h-16 rounded-full overflow-hidden bg-surface-tint border border-[#E5E2DC]">
               {t.image ? (
                 <img
@@ -233,17 +237,23 @@ function GenderBentoSection({ id, title, tiles }: { id: string; title: string; t
 // always exactly 6. The count pill ALWAYS renders, including "0 stores" —
 // a missing count isn't a reason to hide it, an area with no stores yet is
 // still real information ("expanding here").
+//
+// aspect-[4/3] (was aspect-[3/4]) + gap-1.5 (was gap-2) — this is 6 EXISTING
+// areas rendered denser, not a 3rd row of new areas: still exactly 3
+// columns × 2 rows, just each card and the gaps between them shrunk.
+// Badge/label font sizes scaled down to match (9px→8px badge, 12.5px→11px
+// label) so neither looks oversized against the smaller photo.
 function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
   if (areas.length === 0) return null;
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_area">
       <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">Shop by Area</h2>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-1.5">
         {areas.map((a) => (
           <Link key={a.slug} href={`/stores?area=${a.slug}`} data-testid={`shop-by-area-tile-${a.slug}`}
-            className="group flex flex-col gap-1.5 active:scale-95 transition">
-            <div className="relative aspect-[3/4] rounded-card overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] bg-surface-tint">
+            className="group flex flex-col gap-1 active:scale-95 transition">
+            <div className="relative aspect-[4/3] rounded-card overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] bg-surface-tint">
               {a.image ? (
                 <img
                   src={cloudinaryOptimize(a.image, "w_400,q_auto,f_auto")}
@@ -258,16 +268,16 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
                 // pinned on the image respectively) — an empty photo isn't
                 // a reason to hide either.
                 <div className="absolute inset-0 flex items-center justify-center" data-testid={`shop-by-area-blank-${a.slug}`}>
-                  <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center">
-                    <Sparkles size={15} className="text-brand-accent" />
+                  <div className="w-7 h-7 rounded-full bg-brand-accent/15 flex items-center justify-center">
+                    <Sparkles size={13} className="text-brand-accent" />
                   </div>
                 </div>
               )}
-              <span className="absolute bottom-2 left-2 inline-flex items-center rounded-pill bg-white px-1.5 py-0.5 text-[9px] font-bold leading-none text-brand-primary shadow-[0_1px_4px_rgba(0,0,0,0.3)]" data-testid={`shop-by-area-count-${a.slug}`}>
+              <span className="absolute bottom-1.5 left-1.5 inline-flex items-center rounded-pill bg-white px-1.5 py-0.5 text-[8px] font-bold leading-none text-brand-primary shadow-[0_1px_4px_rgba(0,0,0,0.3)]" data-testid={`shop-by-area-count-${a.slug}`}>
                 {a.store_count} {a.store_count === 1 ? "store" : "stores"}
               </span>
             </div>
-            <span className="text-[12.5px] font-bold text-brand-primary text-center leading-tight line-clamp-1">{a.name}</span>
+            <span className="text-[11px] font-bold text-brand-primary text-center leading-tight line-clamp-1">{a.name}</span>
           </Link>
         ))}
       </div>
@@ -694,8 +704,16 @@ export function HomeClient() {
           ].map(({ href, hero, sub, filter, bentoKey }, i) => {
             const image = priceBento?.[bentoKey] ?? null;
             return (
+              // aspect-[6/5] — was aspect-[3/4] (height = 1.333× width).
+              // 6/5 brings height down to 0.833× width, ~62.5% of the old
+              // height (inside the requested 60-70% range), while all 3
+              // cards still fill the row in one line same as before — only
+              // the height changed, not the column count. Internal text
+              // inset trimmed from 2.5 to 2 to match the shorter card
+              // (was starting to feel like it ate too much of the
+              // remaining image at the new height); font sizes untouched.
               <Link key={href} href={href} onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
-                className="group relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
+                className="group relative aspect-[6/5] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
                 {image ? (
                   <>
                     <img
@@ -709,7 +727,7 @@ export function HomeClient() {
                         white text legible so the product photo's own color
                         shows through instead of everything reading as navy. */}
                     <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
-                    <div className="absolute bottom-2.5 left-2.5 right-2.5">
+                    <div className="absolute bottom-2 left-2 right-2">
                       <div className="font-bold text-white text-[13px] sm:text-sm leading-tight">{hero}</div>
                       <div className="text-[10px] font-semibold text-[#F0E9DD]/90 mt-0.5 leading-tight">{sub}</div>
                     </div>
@@ -720,9 +738,9 @@ export function HomeClient() {
                   // small orange accent mark. An empty tile should read as
                   // quiet, not the heaviest, darkest element on the page.
                   // Fills in automatically once inventory lands in range.
-                  <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-2 px-2 text-center">
-                    <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
-                      <Sparkles size={15} className="text-[#E68910]" />
+                  <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-1.5 px-2 text-center">
+                    <div className="w-8 h-8 rounded-full bg-[#E68910]/15 flex items-center justify-center">
+                      <Sparkles size={14} className="text-[#E68910]" />
                     </div>
                     <div>
                       <div className="font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight">{hero}</div>
