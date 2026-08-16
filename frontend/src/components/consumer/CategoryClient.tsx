@@ -5,6 +5,10 @@ import { useParams, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { ProductCard } from "@/components/consumer/ProductCard";
+import { CategoryTabBar } from "@/components/consumer/CategoryTabBar";
+import { HeroCarousel } from "@/components/consumer/HeroCarousel";
+import { getL1HeroSlides } from "@/components/consumer/l1HeroConfig";
+import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import type { ProductCard as ProductCardType, CategoryNode } from "@/types";
 
 type L2 = { id: string; name: string; slug: string; image?: string };
@@ -57,6 +61,11 @@ export function CategoryClient() {
   const [isLoading, setIsLoading] = useState(true);
   const [sort, setSort] = useState<SortKey>("nearest");
   const [l2Filter, setL2Filter] = useState(""); // slug
+  // Curated rails — see the fetch effect below for why these use
+  // /api/products directly (sort=rating / sort=price_desc) rather than
+  // the home-products aggregated feed (which has no l1 filter at all).
+  const [bestsellers, setBestsellers] = useState<ProductCardType[]>([]);
+  const [premiumPicks, setPremiumPicks] = useState<ProductCardType[]>([]);
 
   const l1 = useMemo(() => cats.find((c) => c.slug === slug), [cats, slug]);
 
@@ -81,6 +90,8 @@ export function CategoryClient() {
     setIsLoading(true);
     setAllProducts([]);
     setSubcategories([]);
+    setBestsellers([]);
+    setPremiumPicks([]);
   }
 
   useEffect(() => { setL2Filter(l2FromUrl); }, [slug, l2FromUrl]);
@@ -121,16 +132,44 @@ export function CategoryClient() {
       .finally(() => setIsLoading(false));
   }, [l1, l2FilterId, sort]);
 
+  // Curated rails, scoped to the whole L1 (never the L2 filter — these are
+  // meant to showcase the category broadly, same "editorial pick" role
+  // Home's Best deals / Premium picks rails play there). Both sort keys
+  // (rating, price_desc) are ones GET /api/products already supports (see
+  // the structural audit) — there is no created_at/"newest" sort on this
+  // endpoint today, so a "New in {L1}" rail was deliberately NOT built
+  // rather than mislabeling a sort this endpoint can't actually guarantee.
+  // "Premium picks" mirrors the exact sort Home's own Premium picks rail
+  // uses; "Bestsellers" uses rating as the closest available quality
+  // signal to Home's Best deals rail (which sorts by discount % — not
+  // exposed as a query param here).
+  useEffect(() => {
+    if (!l1) return;
+    apiClient.get<ProductCardType[]>(`/api/products?l1=${l1.id}&sort=rating&limit=8`)
+      .then((r) => setBestsellers(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setBestsellers([]));
+    apiClient.get<ProductCardType[]>(`/api/products?l1=${l1.id}&sort=price_desc&limit=8`)
+      .then((r) => setPremiumPicks(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setPremiumPicks([]));
+  }, [l1?.id]);
+
   const products = useMemo(() => sortProducts(allProducts, sort), [allProducts, sort]);
+
+  const l2List = subcategories.length > 0 ? subcategories : (l1?.l2 ?? []);
 
   // Cold load: `cats` (the L1 fetch) hasn't resolved yet, so `l1` can't be
   // found at all — same SkeletonGrid the products fetch uses below, not a
   // bare unstyled "Loading…" div, so a fresh visit to /c/[slug] shows a
   // skeleton immediately instead of two different loading treatments back
-  // to back.
+  // to back. The tab strip still mounts here (activeSlug is just the raw
+  // route param, known immediately, independent of whether `cats` has
+  // resolved) so nav chrome never blanks out during this window — matches
+  // Home, where CategoryTabBar is likewise always-mounted regardless of
+  // what else on the page is still loading.
   if (!l1) {
     return (
       <div className="flex-1 flex flex-col bg-[#FDFBF7]">
+        <CategoryTabBar categories={cats} activeSlug={slug} />
         <main className="flex-1">
           <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
             <div className="h-8 w-40 bg-[#E5E2DC] rounded-lg animate-pulse mb-3" />
@@ -141,13 +180,100 @@ export function CategoryClient() {
     );
   }
 
-  const l2List = subcategories.length > 0 ? subcategories : (l1.l2 ?? []);
-
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
+      {/* Same always-on nav chrome as Home (see CategoryTabBar's own doc
+          comment) — activeSlug highlights this page's own L1 instead of
+          "All". */}
+      <CategoryTabBar categories={cats} activeSlug={slug} />
+
       <main className="flex-1">
+        {/* L1-scoped hero — a single-slide HeroCarousel (renders static,
+            no autoplay/dots, since HeroCarousel no-ops both once
+            slides.length <= 1) driven by l1HeroConfig's per-L1 copy. Falls
+            back to a generic-but-honest hero for any L1 not yet in that
+            config — see getL1HeroSlides. */}
+        <HeroCarousel slides={getL1HeroSlides(slug, l1.name)} />
+
+        {/* "Shop by category" — L2 circle grid, same w-16 h-16 rounded-full
+            + label-below treatment the homepage's gender bento tiles use.
+            Tapping a tile sets l2Filter directly (same state the Browse-all
+            grid further down reads) rather than navigating — this REPLACES
+            the old horizontal L2 pill row that used to sit just above that
+            grid; keeping both would have been two filter UIs for the same
+            l2Filter state. The "All" tile clears it. */}
+        {l2List.length > 0 && (
+          <div className="max-w-7xl mx-auto px-4 md:px-8 pt-6" data-testid="cat-l2-grid">
+            <h2 className="text-lg sm:text-xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">
+              Shop by category
+            </h2>
+            <div className="grid grid-cols-4 gap-x-2 gap-y-4">
+              <button
+                type="button"
+                onClick={() => setL2Filter("")}
+                data-testid="l2-tile-all"
+                className="flex flex-col items-center gap-1.5 active:scale-95 transition"
+              >
+                <div className={`w-16 h-16 rounded-full flex items-center justify-center bg-white border-2 ${
+                  !l2Filter ? "border-[#0A1F5C]" : "border-[#E5E2DC]"
+                }`}>
+                  <span className="text-[12px] font-bold text-[#0A1F5C]">All</span>
+                </div>
+                <span className={`text-[11px] font-semibold text-center leading-tight ${!l2Filter ? "text-[#0A1F5C]" : "text-[#595959]"}`}>
+                  All
+                </span>
+              </button>
+              {l2List.map((sub) => {
+                const isActive = l2Filter === sub.slug;
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => setL2Filter(isActive ? "" : sub.slug)}
+                    data-testid={`l2-tile-${sub.slug}`}
+                    className="flex flex-col items-center gap-1.5 active:scale-95 transition"
+                  >
+                    <div className={`relative w-16 h-16 rounded-full overflow-hidden bg-[#FDFBF7] border-2 ${
+                      isActive ? "border-[#0A1F5C]" : "border-[#E5E2DC]"
+                    }`}>
+                      {sub.image ? (
+                        <img src={sub.image} alt="" loading="lazy" className="w-full h-full object-cover object-top" />
+                      ) : (
+                        <div className="w-full h-full bg-[#E5E2DC]" />
+                      )}
+                    </div>
+                    <span className={`text-[11px] font-semibold text-center leading-tight line-clamp-2 w-16 ${
+                      isActive ? "text-[#0A1F5C]" : "text-[#595959]"
+                    }`}>
+                      {sub.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Curated rails — reuse HCarousel + ProductCard exactly as Home's
+            own rails do, no new card component. */}
+        {bestsellers.length > 0 && (
+          <HCarousel title={`Bestsellers in ${l1.name}`} testid="cat-rail-bestsellers">
+            {bestsellers.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
+          </HCarousel>
+        )}
+        {premiumPicks.length > 0 && (
+          <HCarousel title={`Premium picks in ${l1.name}`} testid="cat-rail-premium">
+            {premiumPicks.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
+          </HCarousel>
+        )}
+
+        {/* Browse all {L1} — the original title/sort/grid section,
+            unchanged in behavior (still reads sort + l2Filter, same
+            /api/products fetch). Only the redundant L2 pill row that used
+            to sit directly above this grid is gone — see the L2 circle
+            grid above, which now owns that job. */}
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
-          {/* Header */}
+          <div className="text-[11px] font-bold uppercase tracking-widest text-[#E68910] mb-1">Browse all</div>
           <h1 data-testid="cat-title" className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">
             {l1.name}
             {!isLoading && (
@@ -155,7 +281,7 @@ export function CategoryClient() {
             )}
           </h1>
 
-          {/* ROW 1 — Sort options */}
+          {/* Sort options */}
           <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1 mt-3">
             {([
               { key: "nearest", label: "Nearest" },
@@ -174,32 +300,6 @@ export function CategoryClient() {
               </button>
             ))}
           </div>
-
-          {/* ROW 2 — L2 subcategory filters */}
-          {l2List.length > 0 && (
-            <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-2 mt-2">
-              <button
-                onClick={() => setL2Filter("")}
-                data-testid="l2-filter-all"
-                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
-                  !l2Filter ? "bg-[#E68910] text-white border-[#E68910]" : "bg-white text-[#595959] border-[#E5E2DC]"
-                }`}>
-                All
-              </button>
-              {l2List.map(sub => (
-                <button key={sub.id}
-                  onClick={() => setL2Filter(l2Filter === sub.slug ? "" : sub.slug)}
-                  data-testid={`l2-filter-${sub.slug}`}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
-                    l2Filter === sub.slug
-                      ? "bg-[#E68910] text-white border-[#E68910]"
-                      : "bg-white text-[#595959] border-[#E5E2DC]"
-                  }`}>
-                  {sub.name}
-                </button>
-              ))}
-            </div>
-          )}
 
           {/* Products */}
           {isLoading ? (
