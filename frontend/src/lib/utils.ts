@@ -86,3 +86,18 @@ export function isValidIndianPhone(phone: string): boolean {
   if (digits.length === 12) return /^91[6-9]\d{9}$/.test(digits);
   return false;
 }
+
+/**
+ * Injects a size/quality/format transform into a Cloudinary delivery URL
+ * (e.g. `.../upload/w_300,q_auto,f_auto/...`) so images don't ship as a
+ * full-resolution original. No-op for any other host — we don't control
+ * those images' transform syntax, so we never risk corrupting them.
+ * Moved here from HomeClient.tsx (its original, only caller) once
+ * SellerCard needed it too — a plain string-transform helper like this
+ * has no reason to live inside one specific page's component file.
+ */
+export function cloudinaryOptimize(url: string | undefined | null, transform = "w_300,q_auto,f_auto"): string {
+  if (!url) return "";
+  if (!url.includes("res.cloudinary.com") || !url.includes("/upload/")) return url;
+  return url.replace("/upload/", `/upload/${transform}/`);
+}

@@ -32,16 +32,19 @@ import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { HeroV2 } from "@/components/consumer/v2/HeroV2";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
+import { CategoryTileRow } from "@/components/consumer/CategoryTileRow";
 import { ProductCard } from "@/components/consumer/ProductCard";
+import { SellerCard } from "@/components/consumer/SellerCard";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
 import { JustInSection } from "@/components/consumer/JustInSection";
 import { TrustStickers } from "@/components/consumer/TrustStickers";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
+import { cloudinaryOptimize } from "@/lib/utils";
 import type { ProductCard as ProductCardType, StoreCard, CategoryNode, AreaTile, PriceBentoResponse } from "@/types";
 import {
   trackSectionImpression, trackCategoryTileClick, trackCategoryTileImpression,
-  trackPriceFilterClick, trackProductClick, trackStoreClick,
+  trackPriceFilterClick, trackProductClick,
   trackOfferClick, trackMerchantCTAClick, observeImpression,
 } from "@/lib/analytics";
 
@@ -94,17 +97,8 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 140 },
 ];
 
-/**
- * Injects a size/quality/format transform into a Cloudinary delivery URL
- * (e.g. `.../upload/w_300,q_auto,f_auto/...`) so category art doesn't ship
- * as a full-resolution original. No-op for any other host — we don't
- * control those images' transform syntax, so we never risk corrupting them.
- */
-function cloudinaryOptimize(url: string | undefined | null, transform = "w_300,q_auto,f_auto"): string {
-  if (!url) return "";
-  if (!url.includes("res.cloudinary.com") || !url.includes("/upload/")) return url;
-  return url.replace("/upload/", `/upload/${transform}/`);
-}
+// cloudinaryOptimize moved to @/lib/utils — SellerCard needed it too, see
+// that file's own comment.
 
 // ---------------------------------------------------------------------------
 // For Her / For Him bento — reuses category_pills' tile visual pattern
@@ -301,64 +295,9 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
 // light (cream/tint), consistent with the recent navy-restraint pass — no
 // dark slabs.
 // ---------------------------------------------------------------------------
-// Same overlay-tile pattern as ShopByAreaSection above (aspect-[3/4],
-// rounded-2xl, whisper shadow, neutral dark scrim, bold white name +
-// small cream area subtitle) — the single store-rail card family used
-// across the homepage. No overlapping avatar — the name on the image is
-// enough. Store's own tagline/story is intentionally left out to keep
-// the card as clean as an area tile: name + area is the priority.
-// `openNow` shows a small light-green "Open now" pill; otherwise
-// `closedLabel` (e.g. "Opens at 6:00 PM", or a generic "Closed" when no
-// specific reopen time is known) shows a muted pill instead — so every
-// card in the merged meet_sellers rail carries a status, not just the
-// open ones.
-function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel }: { s: StoreCard; source?: string; openNow?: boolean; closedLabel?: string }) {
-  const banner = (s as any).banner || (Array.isArray((s as any).banners) && (s as any).banners[0]) || s.image || null; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const area = (s as any).area_label || (s as any).area || s.locality || "Bhilai"; // eslint-disable-line @typescript-eslint/no-explicit-any
-  return (
-    <Link key={s.id} href={`/store/${(s as any).slug || s.id}`} // eslint-disable-line @typescript-eslint/no-explicit-any
-      onClick={() => { try { trackStoreClick(s.id, s.name, source); } catch {} }}
-      data-testid={`${source}-card-${s.id}`}
-      className="group flex-shrink-0 w-32 sm:w-36 relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
-      {openNow ? (
-        <span className="absolute top-2 left-2 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 text-[9px] font-bold text-[#0A1F5C]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" /> Open now
-        </span>
-      ) : closedLabel ? (
-        <span className="absolute top-2 left-2 z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/80 text-[9px] font-bold text-[#64748B]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#94A3B8]" /> {closedLabel}
-        </span>
-      ) : null}
-      {banner ? (
-        <>
-          <img
-            src={cloudinaryOptimize(banner, "w_320,q_auto,f_auto")}
-            alt={s.name}
-            loading="lazy"
-            className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
-          />
-          <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
-          <div className="absolute bottom-2.5 left-2.5 right-2.5">
-            <div className="font-bold text-white text-[13px] sm:text-sm leading-tight line-clamp-1">{s.name}</div>
-            <div className="text-[10px] font-semibold text-[#F0E9DD]/90 mt-0.5 leading-tight">{area}</div>
-          </div>
-        </>
-      ) : (
-        // No banner set for this store — same light cream/tint fallback the
-        // area tiles use, not a dark slab.
-        <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-2 px-2 text-center">
-          <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
-            <Sparkles size={15} className="text-[#E68910]" />
-          </div>
-          <div>
-            <div className="font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight line-clamp-1">{s.name}</div>
-            <div className="text-[10px] font-semibold text-[#0A1F5C]/55 mt-0.5 leading-tight">{area}</div>
-          </div>
-        </div>
-      )}
-    </Link>
-  );
-}
+// SellerCard moved to its own file (@/components/consumer/SellerCard) —
+// CategoryClient's "Stores in {L1}" rail needed the exact same card, not
+// a second similar-looking one. See that file's own doc comment.
 
 // Combined "why local" + real-sellers rail. Used to be two sections
 // (meet_sellers Part A/B, and a separate open_now rail) — merged into one
@@ -757,57 +696,21 @@ export function HomeClient() {
 
     category_pills: (
       <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
-        {/* Mobile — horizontal-scroll tile strip, unchanged */}
-        <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2 md:hidden">
-          {categories.length === 0 ? (
-            Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1.5">
-                <div className="w-16 h-16 rounded-2xl bg-[#E5E2DC] animate-pulse" />
-                <div className="w-12 h-3 bg-[#E5E2DC] rounded animate-pulse" />
-              </div>
-            ))
-          ) : (
-            <>
-              <Link href="/products" className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition">
-                <div className="w-16 h-16 rounded-2xl bg-[#0A1F5C] flex items-center justify-center">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-                    <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
-                  </svg>
-                </div>
-                <span className="text-[11px] font-semibold text-[#0A1F5C] text-center">All</span>
-              </Link>
-              {(categories as any[]).slice(0, 9).map((cat, catIdx) => (
-                <Link key={cat.id} href={`/c/${cat.slug}`}
-                  onClick={() => { try { trackCategoryTileClick(cat.name, catIdx); } catch {} }}
-                  ref={(el) => { if (el) { try { observeImpression(el, () => trackCategoryTileImpression(cat.name, catIdx)); } catch {} } }}
-                  className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition">
-                  <div className="w-16 h-16 rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC]">
-                    {cat.image ? (
-                      // category_pills is the very first homepage section — only the
-                      // first few tiles are actually visible without scrolling this
-                      // horizontal strip, so only those need eager loading; later
-                      // tiles are genuinely off-screen and stay lazy.
-                      <img src={cloudinaryOptimize(cat.image, "w_128,q_auto,f_auto")} alt={cat.name}
-                        loading={catIdx < 4 ? "eager" : "lazy"}
-                        fetchPriority={catIdx === 0 ? "high" : "auto"}
-                        className="w-full h-full object-cover object-top" />
-                    ) : (
-                      <div className="w-full h-full bg-[#E5E2DC] flex items-center justify-center">
-                        <span className="text-2xl">👗</span>
-                      </div>
-                    )}
-                  </div>
-                  <span className="text-[11px] font-semibold text-[#0A1F5C] text-center w-16 leading-tight line-clamp-2">
-                    {cat.name === "Lingerie & Innerwear" ? "Lingerie" : cat.name}
-                  </span>
-                </Link>
-              ))}
-            </>
-          )}
+        {/* Mobile — CategoryTileRow, the same shared circular-tile strip
+            /c/[slug] pages use (see that component's own doc comment for
+            why this is one component now, not two similar-looking ones).
+            No activeSlug — Home never highlights a tile. */}
+        <div className="md:hidden">
+          <CategoryTileRow categories={categories} />
         </div>
 
-        {/* Desktop — image-led portrait card grid, one column per category */}
+        {/* Desktop — image-led portrait card grid, one column per category.
+            Deliberately a different, older treatment from the mobile row
+            above — this predates the shared CategoryTileRow work and was
+            never part of what needed unifying (only the small circular
+            mobile-strip tiles were duplicated between Home and /c/[slug];
+            this large-card desktop grid has no /c/[slug] equivalent at
+            all), so it's untouched. */}
         <div
           className="hidden md:grid gap-4 pb-2"
           style={{ gridTemplateColumns: `repeat(${categories.length === 0 ? 8 : Math.min(categories.length, 9) + 1}, minmax(0, 1fr))` }}

@@ -2505,6 +2505,58 @@ async def list_l2(l1_id: str):
     return await db.subcategories.find({"l1_id": l1_id}, {"_id": 0}).to_list(50)
 
 
+@api.get("/categories/{l1_id}/stores")
+async def stores_in_category(l1_id: str, limit: int = 10):
+    """Stores with at least one visible product in this L1 — powers the
+    /c/[slug] "Stores in {L1}" rail. One products aggregation (grouped by
+    store_id, counting matches) rather than N+1 per-store product-count
+    queries, then a single db.stores lookup for display fields.
+
+    Sort priority: availability_rank first (open stores before closed —
+    the same priority _attach_store_avail/every other feed in this file
+    already uses), product_count in this category as the tiebreak within
+    each availability tier — a store that's currently closed still
+    shouldn't outrank an open one just because it happens to stock more
+    of this category.
+
+    Ships uncached. No endpoint in this codebase caches an aggregation
+    today (grep for lru_cache/TTLCache turns up nothing) — this one is no
+    more expensive than /categories/counts, which is also uncached, so
+    it's consistent to leave it that way for now. Flag as a follow-up if
+    this L1-scoped aggregation becomes a measured load concern.
+    """
+    avail_map = await _availability_map()
+    sids = list(avail_map.keys())
+    if not sids:
+        return []
+    pipeline = [
+        {"$match": {"l1_id": l1_id, "store_id": {"$in": sids}, **_visible_product_filter()}},
+        {"$group": {"_id": "$store_id", "product_count": {"$sum": 1}}},
+    ]
+    counts: dict[str, int] = {}
+    async for row in db.products.aggregate(pipeline):
+        counts[row["_id"]] = int(row["product_count"] or 0)
+    if not counts:
+        return []
+    store_ids = list(counts.keys())
+    stores = await db.stores.find(
+        {"id": {"$in": store_ids}, **_visible_store_filter()},
+        {"_id": 0, "id": 1, "slug": 1, "name": 1, "logo": 1, "banner": 1, "banners": 1,
+         "area_label": 1, "locality": 1, "tagline": 1},
+    ).to_list(len(store_ids))
+    for s in stores:
+        avail = avail_map.get(s["id"], {})
+        s["product_count"] = counts.get(s["id"], 0)
+        s["badge"] = avail.get("badge", "LIVE")
+        s["badge_color"] = avail.get("badge_color", "green")
+        s["is_open"] = avail.get("can_order", True)
+        s["availability_rank"] = avail.get("rank", 1)
+        if avail.get("opens_at_label"):
+            s["next_open_label"] = avail["opens_at_label"]
+    stores.sort(key=lambda s: (s.get("availability_rank", 4), -s.get("product_count", 0)))
+    return stores[:limit]
+
+
 # ============ Lokl V2 — Site CMS ============
 # Canonical homepage section list — MUST be kept in sync with
 # HomeClient.tsx's DEFAULT_SECTIONS (frontend), id-for-id, label-for-label,
