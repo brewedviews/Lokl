@@ -5,7 +5,6 @@ import { useParams, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { ProductCard } from "@/components/consumer/ProductCard";
-import { CategoryTileRow } from "@/components/consumer/CategoryTileRow";
 import { SellerCard } from "@/components/consumer/SellerCard";
 import { HeroCarousel } from "@/components/consumer/HeroCarousel";
 import { getL1HeroSlides } from "@/components/consumer/l1HeroConfig";
@@ -190,35 +189,15 @@ export function CategoryClient() {
   // found at all — same SkeletonGrid the products fetch uses below, not a
   // bare unstyled "Loading…" div, so a fresh visit to /c/[slug] shows a
   // skeleton immediately instead of two different loading treatments back
-  // to back. The tab strip still mounts here (activeSlug is just the raw
-  // route param, known immediately, independent of whether `cats` has
-  // resolved) so nav chrome never blanks out during this window — matches
-  // Home, where CategoryTileRow is likewise always-mounted regardless of
-  // what else on the page is still loading.
+  // to back. No tab-strip chrome to render here anymore — CategoryTileRow
+  // lives in (consumer)/(shop)/layout.tsx now (mounted once for both Home
+  // and every /c/[slug] page, never remounted by this component's own
+  // loading/navigation state) — see that file's and CategoryTileRow's own
+  // doc comments.
   if (!l1) {
     return (
       <div className="flex-1 flex flex-col bg-[#FDFBF7]">
         <main className="flex-1">
-          {/* Tab strip lives inside <main>, same as Home's own
-              category_pills/CategoryTileRow — see CategoryTileRow's own
-              doc comment for why. An earlier version of this page put an
-              equivalent wrapper OUTSIDE <main>, directly as a flex item of
-              this root flex-col div; that div has no explicit width, so
-              under flex's default align-items:stretch its cross-axis size
-              should come from the container — except mx-auto (needed to
-              center the max-w-7xl column) overrides stretch per the
-              flexbox spec, falling back to the item's own CONTENT width
-              instead. With flex-shrink-0 tiles inside, that content width
-              is the tile row's full unscrolled size, so the wrapper (and
-              therefore the page) silently grew to fit it — the tile row's
-              own overflow-x-auto never got a chance to clip/scroll, and a
-              swipe dragged the whole page instead. <main> isn't
-              display:flex, so none of this applies to a plain block
-              child of it — moving the wrapper here removes the problem
-              at its source instead of patching around it. */}
-          <div className="max-w-7xl mx-auto px-4 md:px-8 pt-3">
-            <CategoryTileRow categories={cats} activeSlug={slug} />
-          </div>
           <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
             <div className="h-8 w-40 bg-[#E5E2DC] rounded-lg animate-pulse mb-3" />
             <SkeletonGrid />
@@ -231,23 +210,14 @@ export function CategoryClient() {
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <main className="flex-1">
-        {/* 1. Tab strip — inside <main>, same as Home's own
-            category_pills/CategoryTileRow (see CategoryTileRow's own doc
-            comment, and this file's loading-skeleton return above for why
-            it lives here and not as a flex-col-root sibling of <main>) —
-            activeSlug highlights this page's own L1. */}
-        <div className="max-w-7xl mx-auto px-4 md:px-8 pt-3">
-          <CategoryTileRow categories={cats} activeSlug={slug} />
-        </div>
-
-        {/* 2. L1-scoped hero — a single-slide HeroCarousel (renders static,
+        {/* 1. L1-scoped hero — a single-slide HeroCarousel (renders static,
             no autoplay/dots, since HeroCarousel no-ops both once
             slides.length <= 1) driven by l1HeroConfig's per-L1 copy. Falls
             back to a generic-but-honest hero for any L1 not yet in that
             config — see getL1HeroSlides. */}
         <HeroCarousel slides={getL1HeroSlides(slug, l1.name)} />
 
-        {/* 3. "Bestsellers in {L1}" — reuses HCarousel + ProductCard exactly
+        {/* 2. "Bestsellers in {L1}" — reuses HCarousel + ProductCard exactly
             as Home's own rails do, no new card component. */}
         {bestsellers.length > 0 && (
           <HCarousel title={`Bestsellers in ${l1.name}`} testid="cat-rail-bestsellers">
@@ -255,7 +225,7 @@ export function CategoryClient() {
           </HCarousel>
         )}
 
-        {/* 4. "Stores in {L1}" — GET /api/categories/{l1_id}/stores (new
+        {/* 3. "Stores in {L1}" — GET /api/categories/{l1_id}/stores (new
             backend aggregation), rendered with SellerCard, the same store-
             rail card Home's "Meet your sellers" rail uses (now a shared
             component — see SellerCard's own doc comment). openNow/
@@ -280,7 +250,7 @@ export function CategoryClient() {
           </section>
         )}
 
-        {/* 5. "Shop by category" — L2 circle grid, same w-16 h-16
+        {/* 4. "Shop by category" — L2 circle grid, same w-16 h-16
             rounded-full + label-below treatment the homepage's gender
             bento tiles use. Tapping a tile sets l2Filter directly (same
             state the Browse-all grid further down reads) rather than
@@ -328,14 +298,14 @@ export function CategoryClient() {
           </div>
         )}
 
-        {/* 6. "Premium picks in {L1}" */}
+        {/* 5. "Premium picks in {L1}" */}
         {premiumPicks.length > 0 && (
           <HCarousel title={`Premium picks in ${l1.name}`} testid="cat-rail-premium">
             {premiumPicks.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
           </HCarousel>
         )}
 
-        {/* 7. Browse all {L1} — the original title/sort/grid section,
+        {/* 6. Browse all {L1} — the original title/sort/grid section,
             unchanged in behavior (still reads sort + l2Filter, same
             /api/products fetch). Only the redundant L2 pill row that used
             to sit directly above this grid is gone — see the L2 circle

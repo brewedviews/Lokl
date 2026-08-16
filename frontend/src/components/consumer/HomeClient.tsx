@@ -32,7 +32,6 @@ import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { HeroV2 } from "@/components/consumer/v2/HeroV2";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
-import { CategoryTileRow } from "@/components/consumer/CategoryTileRow";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { SellerCard } from "@/components/consumer/SellerCard";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
@@ -694,23 +693,18 @@ export function HomeClient() {
       </div>
     ),
 
+    // category_pills is now desktop-only — the mobile circular tile strip
+    // this section used to render (via CategoryTileRow) moved to the
+    // persistent (consumer)/(shop)/layout.tsx, which mounts CategoryTileRow
+    // ONCE for both Home and every /c/[slug] page so it never remounts on
+    // navigation between them. Home no longer renders its own copy at any
+    // breakpoint — see CategoryTileRow's own doc comment. The desktop
+    // portrait-card grid below is untouched: a deliberately different,
+    // older treatment that was never part of the tile-strip unification,
+    // and has no /c/[slug] equivalent to persist.
     category_pills: (
       <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
-        {/* Mobile — CategoryTileRow, the same shared circular-tile strip
-            /c/[slug] pages use (see that component's own doc comment for
-            why this is one component now, not two similar-looking ones).
-            No activeSlug — Home never highlights a tile. */}
-        <div className="md:hidden">
-          <CategoryTileRow categories={categories} />
-        </div>
-
-        {/* Desktop — image-led portrait card grid, one column per category.
-            Deliberately a different, older treatment from the mobile row
-            above — this predates the shared CategoryTileRow work and was
-            never part of what needed unifying (only the small circular
-            mobile-strip tiles were duplicated between Home and /c/[slug];
-            this large-card desktop grid has no /c/[slug] equivalent at
-            all), so it's untouched. */}
+        {/* Desktop — image-led portrait card grid, one column per category. */}
         <div
           className="hidden md:grid gap-4 pb-2"
           style={{ gridTemplateColumns: `repeat(${categories.length === 0 ? 8 : Math.min(categories.length, 9) + 1}, minmax(0, 1fr))` }}
