@@ -16,9 +16,12 @@
  * X" pill, this box, a "Closed" orange pill, and a specs-grid row). All the
  * others were removed; this box now owns both the open-store message
  * ("delivers to X in ~N min") and the closed-store message ("opens at X ·
- * delivers after"), toggled by `isClosed` — never both at once, never
- * orange (that read as an alert; this is routine status, so it stays the
- * same neutral cream/gray as the open-store state).
+ * delivers after it opens"), toggled by `isClosed` — never both at once,
+ * never orange (that read as an alert; this is routine status).
+ *
+ * Styled as a compact ambient status line (hairline border, white bg, small
+ * bare icon, single line) rather than a filled pill — it's secondary
+ * context near the CTA, not something that should compete visually with it.
  */
 import { useEffect, useState } from "react";
 import { Bike, MapPin } from "lucide-react";
@@ -68,21 +71,27 @@ export function DeliveryServiceability({
 
   const areaLabel = hasConfirmedAddress && area ? area : "Bhilai";
 
+  // `opensAtLabel` arrives from the backend already as a full phrase
+  // ("Opens at 9:30 AM" / "Opens tomorrow at 9:30 AM") — prefixing another
+  // "opens at" in front of it was the duplicated-string bug ("opens at
+  // Opens at 9:30 AM"). Strip the leading "Opens" so this component owns
+  // the single lowercase "opens" that opens the sentence, whichever form
+  // the backend sent.
+  const opensAtTime = opensAtLabel ? opensAtLabel.replace(/^Opens\s+/, "").trim() : null;
+
   return (
     <div
-      className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-[#F4F1E9]"
+      className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-warm-gray-border"
       data-testid="pdp-delivery-line"
     >
-      <div className="w-8 h-8 rounded-full bg-[#0A1F5C]/8 flex items-center justify-center shrink-0">
-        <Bike size={15} className="text-[#0A1F5C]" />
-      </div>
+      <Bike size={14} className="text-slate-gray shrink-0" />
       {isClosed ? (
-        <span className="text-xs text-[#0A1F5C]">
-          opens at <span className="font-bold">{opensAtLabel || "soon"}</span> · delivers after
+        <span className="text-xs text-slate-gray">
+          opens {opensAtTime || "soon"} · delivers after it opens
         </span>
       ) : (
-        <span className="text-xs text-[#0A1F5C]">
-          delivers to <span className="font-bold">{areaLabel}</span> in ~{etaMin} min
+        <span className="text-xs text-slate-gray">
+          delivers to <span className="font-semibold text-ink-navy">{areaLabel}</span> in ~{etaMin} min
         </span>
       )}
     </div>

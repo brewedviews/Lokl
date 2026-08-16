@@ -31,10 +31,16 @@ export interface Store {
   // Location (flat lat/lng on stores — NOT GeoJSON Point)
   city: string;
   area: string | null;
+  area_label?: string | null;
   locality: string | null;
   address: string | null;
   lat: number | null;
   lng: number | null;
+
+  // Real, computed at query time by GET /api/stores/{id} — never fabricated
+  // client-side. Omit the metric line entirely when this is 0/absent rather
+  // than showing "0 orders this month."
+  orders_this_month?: number;
 
   // Geo query results
   distance_km: number | null;

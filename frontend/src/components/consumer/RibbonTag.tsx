@@ -5,22 +5,16 @@
  *  - "banner": wider horizontal strip (~40% of image width) for "try & buy".
  * Both share the same fill/type treatment — orange bg, bold uppercase DM
  * Sans, white text.
- *
- * "top-left-inset" exists because ProductGallery's own back button is a
- * persistent w-10 h-10 circle flush at top-3/left-3 of the image — the
- * discount ribbon can't sit flush at true top-0/left-0 anymore without the
- * button covering half its text, so it drops below the button instead.
  */
 interface RibbonTagProps {
   text: string;
   variant?: "corner" | "banner";
-  position?: "top-left" | "top-left-inset" | "bottom-left";
+  position?: "top-left" | "bottom-left";
   className?: string;
 }
 
 const POSITION = {
   "top-left": "top-0 left-0",
-  "top-left-inset": "top-14 left-0",
   "bottom-left": "bottom-0 left-0",
 } as const;
 

@@ -1,13 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { ArrowLeft, ChevronLeft, ChevronRight, ShoppingBag, Sparkles, Heart } from "lucide-react";
+import { ChevronLeft, ChevronRight, ShoppingBag, Sparkles } from "lucide-react";
 import { RibbonTag } from "./RibbonTag";
-import { useWishlistStore } from "@/stores";
-import type { Product } from "@/types";
 
 interface ProductGalleryProps {
   name: string;
@@ -28,10 +24,6 @@ interface ProductGalleryProps {
    *  data model yet; defaults to false (never render) until a merchant/
    *  admin flag for this exists. */
   isCleanBackground?: boolean;
-  /** Wishlist toggle lives on the image itself (bottom-right, white circle)
-   *  now that ConsumerHeader/ProductTopActions no longer render on the PDP —
-   *  needs the full product for useWishlistStore.toggle(). */
-  product: Product;
 }
 
 export function ProductGallery({
@@ -42,23 +34,10 @@ export function ProductGallery({
   tryAndBuy = false,
   fit = null,
   isCleanBackground = false,
-  product,
 }: ProductGalleryProps) {
-  const router = useRouter();
   const [imgIdx, setImgIdx] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const isWishlisted = useWishlistStore((s) => s.isWishlisted(product.id));
-  const toggleWishlist = useWishlistStore((s) => s.toggle);
-  const [wished, setWished] = useState(false);
-  useEffect(() => { setWished(isWishlisted); }, [isWishlisted]);
-  const handleWishlist = () => {
-    const next = toggleWishlist(product);
-    const justAdded = next.some((x) => x.id === product.id);
-    setWished(justAdded);
-    toast.success(justAdded ? "Saved to wishlist" : "Removed from wishlist");
-  };
 
   const goTo = (i: number) => {
     const el = scrollRef.current;
@@ -88,43 +67,12 @@ export function ProductGallery({
   const mainImage = images[imgIdx] ?? images[0] ?? "";
   const showFitOverlay = !!fit && isCleanBackground;
 
-  // Back button — was ProductPdpHeader's sticky-top affordance; that header
-  // is retired in favour of the global ConsumerHeader (which has no "back"
-  // concept), so this lives on the image itself now. Same visual treatment
-  // (filled near-black circle, white chevron, w-10 h-10) as the old header's
-  // unscrolled state, but always visible — no scroll-conditional styling.
-  const backBtn = (testId: string) => (
-    <button
-      type="button"
-      aria-label="Back"
-      data-testid={testId}
-      onClick={() => router.back()}
-      className="absolute top-3 left-3 z-20 w-10 h-10 rounded-full flex items-center justify-center bg-near-black text-white shadow-sm active:scale-90 transition"
-    >
-      <ArrowLeft size={19} />
-    </button>
-  );
-
-  const wishlistBtn = (testId: string) => (
-    <button
-      type="button"
-      aria-label="Wishlist"
-      aria-pressed={wished}
-      data-testid={testId}
-      onClick={handleWishlist}
-      className="absolute bottom-3 right-3 z-10 w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm active:scale-90 transition"
-    >
-      <Heart size={18} className={wished ? "text-orange-500" : "text-ink-navy"} fill={wished ? "currentColor" : "none"} />
-    </button>
-  );
-
   if (images.length === 0) {
     return (
       <div
         data-testid="pdp-image"
         className="relative w-full aspect-[4/5] bg-cream-warm flex flex-col items-center justify-center text-[#94A3B8] text-sm"
       >
-        {backBtn("pdp-back-btn")}
         <ShoppingBag size={36} className="mb-2 opacity-50" />
         <span>Image coming soon</span>
       </div>
@@ -137,7 +85,23 @@ export function ProductGallery({
       {/* ── MOBILE: warm-gray card, square top (flush with the sticky
           header above), rounded-bottom only, padding around the product
           instead of full-bleed. Scroll-snap carousel with a right-edge
-          peek. ── */}
+          peek.
+
+          Height is a CAPPED viewport fraction (h-[22vh]), not aspect-[4/5]
+          at full width — on a narrow-but-tall phone, aspect-[4/5] let the
+          image alone eat 60-70%+ of the viewport, pushing title/price/qty/
+          size below the first fold. object-cover crops to fill this
+          shorter box instead of letter-boxing. Desktop keeps aspect-[4/5]
+          unchanged (see below) — this constraint is mobile-only.
+
+          22vh, not the ~42-45vh a plain image-only budget would allow —
+          measured empirically on iPhone SE (3rd gen, 375x667, the shortest
+          common current viewport) against the two FIXED bars now stacked
+          at the bottom (price+CTA bar + StickyBottomNav, ~130px combined —
+          see ProductDetailPanel's price-cta-bar-mobile), which eat into
+          the same first-fold budget an image-only calculation wouldn't
+          have accounted for. Re-measure and adjust this value if either
+          fixed bar's height changes. ── */}
       <div className="md:hidden relative bg-cream-warm rounded-b-[20px] pt-2 pb-4 px-4">
         <div
           ref={scrollRef}
@@ -145,7 +109,7 @@ export function ProductGallery({
           className="flex gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory rounded-2xl"
         >
           {images.map((img, i) => (
-            <div key={i} className="relative snap-start shrink-0 w-full aspect-[4/5] rounded-2xl overflow-hidden bg-white">
+            <div key={i} className="relative snap-start shrink-0 w-full h-[22vh] rounded-2xl overflow-hidden bg-white">
               <Image
                 src={img}
                 alt={`${name} ${i + 1}`}
@@ -155,7 +119,7 @@ export function ProductGallery({
                 className="object-cover"
               />
               {i === 0 && discount > 0 && (
-                <RibbonTag text={`${discount}% off`} position="top-left-inset" />
+                <RibbonTag text={`${discount}% off`} position="top-left" />
               )}
               {i === 0 && tryAndBuy && (
                 <RibbonTag text="try & buy" variant="banner" position="bottom-left" />
@@ -171,8 +135,6 @@ export function ProductGallery({
             </div>
           ))}
         </div>
-        {wishlistBtn("wishlist-btn")}
-        {backBtn("pdp-back-btn")}
 
         {images.length > 1 && (
           <>
@@ -246,7 +208,7 @@ export function ProductGallery({
               className="object-cover"
             />
             {imgIdx === 0 && discount > 0 && (
-              <RibbonTag text={`${discount}% off`} position="top-left-inset" />
+              <RibbonTag text={`${discount}% off`} position="top-left" />
             )}
             {imgIdx === 0 && tryAndBuy && (
               <RibbonTag text="try & buy" variant="banner" position="bottom-left" />
@@ -259,14 +221,14 @@ export function ProductGallery({
                 {fit}
               </span>
             )}
-            {wishlistBtn("wishlist-btn-desktop")}
-            {backBtn("pdp-back-btn-desktop")}
           </div>
         )}
       </div>
 
-      {/* AI Enhanced badge — overlays both layouts, top-right (clear of
-          both the top-left ribbon and the bottom-right wishlist heart). */}
+      {/* AI Enhanced badge — overlays both layouts, top-right. Wishlist
+          moved to the title block (next to the qty stepper) and the back
+          button was removed (bottom nav + OS back gesture are enough) — the
+          image itself now carries no persistent chrome except this badge. */}
       {aiEnhanced && (
         <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-full bg-[#0A1F5C] text-white text-[11px] font-semibold flex items-center gap-1.5 pointer-events-none">
           <Sparkles size={11} className="text-[#E68910]" /> AI Enhanced

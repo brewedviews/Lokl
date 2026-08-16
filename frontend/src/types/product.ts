@@ -52,6 +52,12 @@ export interface Product {
   return_eligible: boolean;
   paused: boolean;
 
+  /** Merchant-authored fit guidance ("runs slightly large, size down").
+   *  No merchant/admin UI writes this yet, so it's null/absent for every
+   *  product today — wired ahead of that UI existing, same pattern as the
+   *  dormant `colors` field on ProductDetailPanel. Render only when present. */
+  fit_note?: string | null;
+
   // Trust
   rating: number | null;
   reviews?: number;

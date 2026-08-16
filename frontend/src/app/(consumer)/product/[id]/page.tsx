@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { serverFetch } from "@/lib/server-fetch";
 import { ProductGallery } from "@/components/consumer/ProductGallery";
@@ -8,7 +7,8 @@ import { ProductCard } from "@/components/consumer/ProductCard";
 import { OffersCard } from "@/components/consumer/OffersCard";
 import { TrustIconsRow } from "@/components/consumer/TrustIconsRow";
 import { SpecsTabs, type SpecRow } from "@/components/consumer/SpecsTabs";
-import type { Product, ProductCard as ProductCardType, CategoryNode } from "@/types";
+import { MerchantMicroCard } from "@/components/consumer/MerchantMicroCard";
+import type { Product, ProductCard as ProductCardType, Store } from "@/types";
 
 interface ProductDetailResponse {
   product: Product;
@@ -35,10 +35,9 @@ export default async function ProductDetailPage(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const [data, relatedRaw, categories] = await Promise.all([
+  const [data, relatedRaw] = await Promise.all([
     serverFetch<ProductDetailResponse>(`/api/products/${id}`),
     serverFetch<{ from_store: ProductCardType[]; similar: ProductCardType[] }>(`/api/products/${id}/related`),
-    serverFetch<CategoryNode[]>("/api/categories"),
   ]);
   if (!data?.product) notFound();
 
@@ -50,33 +49,49 @@ export default async function ProductDetailPage(
     ? product.images
     : ([product.image].filter(Boolean) as string[]);
 
-  // Category — resolved from the taxonomy tree rather than exposing the
-  // raw l1_id/l2_id. l2 wins when present (more specific).
-  const l1 = categories?.find((c) => c.id === product.l1_id);
-  const l2 = l1?.l2?.find((s) => s.id === product.l2_id);
-  const categoryLabel = l2?.name || l1?.name || null;
+  // Merchant micro-card data — a second, small fetch rather than blocking
+  // the two above; a failed/missing store fetch just means the "More from
+  // {store}" section falls back to its old plain header (see storeInfo
+  // below), never a broken page.
+  const storeResp = product.store_id
+    ? await serverFetch<{ store: Store }>(`/api/stores/${product.store_id}`)
+    : null;
+  const storeInfo = storeResp?.store ?? null;
 
   // Specs grid — trimmed to genuinely NEW data only. Delivery, returns,
   // try & buy and the store name are all shown elsewhere on this page
   // already (the delivery box, the returnable badge, the try-and-buy
-  // callout, the price-block store link) — repeating them here was the
-  // duplication a previous pass removed. Fabric/material and fit aren't on
-  // the product data model yet, so those rows are simply omitted rather
-  // than shown empty — they'll appear automatically once that data exists.
+  // callout, the price-block store link). Sizes and Category were dropped
+  // too: sizes are already the interactive selector right below the title
+  // (restating them here as text was pure duplication), and category adds
+  // no decision-making value mid-page for a shopper who already clicked
+  // into this exact product. Fabric/material and fit aren't on the product
+  // data model yet, so those rows are simply omitted rather than shown
+  // empty — they'll appear automatically once that data exists. When specs
+  // ends up empty (true for every product today, since fabric/fit don't
+  // exist yet), SpecsTabs already degrades gracefully to a plain
+  // description block with no orphaned tab chip — see its own hasSpecs
+  // check — so there's nothing left to remove here, just less to show.
   const specs: SpecRow[] = [
-    { label: "Sizes", value: product.sizes && product.sizes.length > 0 ? product.sizes.join(", ") : "Free size" },
-    ...(categoryLabel ? [{ label: "Category", value: categoryLabel }] : []),
     ...((product as any).fabric ? [{ label: "Fabric", value: String((product as any).fabric) }] : []),
     ...((product as any).fit ? [{ label: "Fit", value: String((product as any).fit) }] : []),
   ];
 
   return (
-    // No pb-24 here — the old mobile sticky CTA bar (and its clearance
-    // padding) is gone, and StickyBottomNav is still hidden on this route
-    // (see its own pathname guard) so there's no fixed bottom-nav to clear.
-    // ConsumerHeader now renders here like everywhere else in the app (the
-    // PDP no longer has its own header) — see (consumer)/layout.tsx.
-    <div className="flex-1 flex flex-col bg-brand-bg">
+    // ConsumerHeader renders here like everywhere else in the app (see
+    // (consumer)/layout.tsx) — the PDP has no header of its own.
+    //
+    // StickyBottomNav is back on this route (below lg:) with a second,
+    // fixed price+CTA bar stacked directly above it — see
+    // ProductDetailPanel's price-cta-row for why that reverses an earlier
+    // "no fixed bar" decision. The layout's own bottom-nav-safe padding
+    // (6rem, applied to every consumer page) only clears the nav bar's own
+    // height; it doesn't know about this page's extra price+CTA bar on top
+    // of that, so pb-[88px] below adds exactly that bar's height as
+    // additional clearance so the last rail isn't hidden behind it.
+    // lg:pb-0 cancels it out once both fixed bars stop rendering (lg:+ —
+    // same breakpoint StickyBottomNav itself uses).
+    <div className="flex-1 flex flex-col bg-brand-bg pb-[88px] lg:pb-0">
       <div className="flex-1 w-full max-w-[1200px] mx-auto md:pt-6">
 
         {/*
@@ -92,7 +107,6 @@ export default async function ProductDetailPage(
           {/* Left — gallery scrolls normally; buy box (right) is the sticky one */}
           <div>
             <ProductGallery
-              product={product}
               name={product.name}
               images={images}
               aiEnhanced={product.ai_enhanced}
@@ -148,14 +162,19 @@ export default async function ProductDetailPage(
             re-mounts or gets pushed off as the page scrolls. */}
         {fromStore.length > 0 && (
           <section className="px-4 mt-8 md:px-8" data-testid="from-store-rail">
-            {/* View Store row, directly above the rail it belongs to. */}
+            {/* Merchant micro-card, directly above the rail it belongs to —
+                replaces the old plain bordered "name / View store →" row.
+                logo/area/order-count are each independently optional; see
+                MerchantMicroCard's own doc comment for what's real vs
+                omitted per field. */}
             {product.store_id && (
-              <div className="mb-3 p-3 bg-white border border-[#E5E2DC] rounded-xl flex items-center gap-3">
-                <p className="flex-1 text-xs font-bold text-[#0A1F5C]">{product.store_name}</p>
-                <Link href={`/store/${product.store_id}`} className="text-xs font-semibold text-[#E68910]">
-                  View store →
-                </Link>
-              </div>
+              <MerchantMicroCard
+                storeId={product.store_id}
+                storeName={product.store_name}
+                logo={storeInfo?.logo}
+                areaLabel={storeInfo?.area_label}
+                ordersThisMonth={storeInfo?.orders_this_month}
+              />
             )}
             <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-4">More from {product.store_name}</h2>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">

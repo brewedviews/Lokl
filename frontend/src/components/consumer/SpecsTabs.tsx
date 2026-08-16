@@ -92,7 +92,7 @@ export function SpecsTabs({ specs, description }: { specs: SpecRow[]; descriptio
       )}
 
       {showDescriptionPanel && (
-        <p className={`text-sm text-[#595959] leading-relaxed ${showTabs ? "mt-4" : ""}`}>{description}</p>
+        <p className={`text-[13px] text-slate-gray leading-[1.6] ${showTabs ? "mt-4" : ""}`}>{description}</p>
       )}
     </div>
   );

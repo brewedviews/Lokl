@@ -49,4 +49,15 @@ export const productsApi = {
     });
     return r.data;
   },
+
+  /** GET /api/products/{id}/local-proof?pincode — count of orders for this
+   *  product delivered to `pincode` in the last 14 days. Returns the real
+   *  count unconditionally; the caller (LocalSocialProof) is responsible
+   *  for the >=5 UI gate — see that component's doc comment for why. */
+  localProof: async (id: string, pincode: string): Promise<{ count: number }> => {
+    const r = await apiClient.get<{ count: number }>(`/api/products/${id}/local-proof`, {
+      params: { pincode },
+    });
+    return r.data;
+  },
 };

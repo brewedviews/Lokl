@@ -11,23 +11,31 @@
  * need one shared client component, not two components trying to share
  * state across a server-rendered page.tsx boundary.
  *
- * NO sticky/fixed CTA bar — the price+button row is the last thing in this
- * component's normal document flow, and scrolls away like everything else.
- * The PDP's persistent chrome is the global ConsumerHeader (sticky top,
- * same as every other consumer page), not anything pinned to the bottom.
+ * Below lg:, the price+CTA row is a FIXED bar, stacked directly above
+ * StickyBottomNav (also re-enabled on this route) rather than sitting in
+ * normal document flow — a shopper scrolling through specs/related-product
+ * rails should never have to scroll back up to find the buy button. This
+ * reverses an earlier "no fixed bar" decision from when the PDP had no
+ * bottom nav to stack above; now that the nav is back, a stranded
+ * in-flow CTA would mean two different fixed-chrome philosophies on the
+ * same screen (nav pinned, buy button not), which read as inconsistent
+ * more than intentional. At lg:+ (where StickyBottomNav itself is hidden
+ * — same breakpoint), this reverts to a normal in-flow row at the bottom
+ * of the sticky right-column panel, matching desktop's existing layout.
  */
 import { useState, useEffect } from "react";
 import { trackAddToCart, trackPickupStart, trackPickupComplete, trackProductView } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ShoppingBag, Bell, CheckCircle2, Store, RotateCcw, ShieldCheck, Minus, Plus, Check } from "lucide-react";
+import { ShoppingBag, Bell, CheckCircle2, Store, RotateCcw, ShieldCheck, Minus, Plus, Check, Heart } from "lucide-react";
 import { toast } from "sonner";
-import { useCartStore, useCustomerAuthStore } from "@/stores";
+import { useCartStore, useCustomerAuthStore, useWishlistStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { useStoreConflict } from "@/hooks/useStoreConflict";
 import { StoreConflictDialog } from "./StoreConflictDialog";
 import { DeliveryServiceability } from "./DeliveryServiceability";
+import { LocalSocialProof } from "./LocalSocialProof";
 import type { Product } from "@/types";
 
 const MAX_QTY_FALLBACK = 10;
@@ -56,6 +64,20 @@ export function ProductDetailPanel({
   const isCustomerAuth = useCustomerAuthStore((s) => s.isAuthenticated);
   const [size, setSize] = useState<string | null>(product.sizes?.[0] || null);
   const [qty, setQty] = useState(1);
+
+  // Wishlist — was an isolated heart icon floating on the gallery image;
+  // moved here so it reads as part of the same top-right action cluster as
+  // the qty stepper, not orphaned on the photo.
+  const isWishlisted = useWishlistStore((s) => s.isWishlisted(product.id));
+  const toggleWishlist = useWishlistStore((s) => s.toggle);
+  const [wished, setWished] = useState(false);
+  useEffect(() => { setWished(isWishlisted); }, [isWishlisted]);
+  const handleWishlist = () => {
+    const next = toggleWishlist(product);
+    const justAdded = next.some((x) => x.id === product.id);
+    setWished(justAdded);
+    toast.success(justAdded ? "Saved to wishlist" : "Removed from wishlist");
+  };
 
   // Colors — not on the product data model yet (no merchant/admin field
   // exists to set them), so `colors` is always undefined today and this
@@ -194,17 +216,71 @@ export function ProductDetailPanel({
   const etaMin = product.store_eta_min || 45;
   const totalPrice = product.price * qty;
 
+  // Shared between the mobile fixed bar (single CTA — "Total price + one
+  // button" per the fixed-bar spec) and the desktop in-flow row (keeps
+  // Buy now + Add to bag side by side, unchanged from before). Notify-me
+  // and store-unavailable states are identical in both — only the
+  // "storeCanOrder" success case differs by button count.
+  const ctaContent = (variant: "single" | "dual") => {
+    if (isOffline) {
+      return (
+        <button
+          onClick={() => setNotifyOpen(true)}
+          data-testid="notify-me-btn"
+          className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-ink-navy text-white text-sm font-bold whitespace-nowrap"
+        >
+          <Bell size={15} /> Notify Me
+        </button>
+      );
+    }
+    if (!storeCanOrder) {
+      return (
+        <div
+          data-testid="store-unavailable-btn"
+          className="w-full text-center py-3 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold"
+        >
+          Store Unavailable
+        </div>
+      );
+    }
+    if (variant === "single") {
+      return (
+        <button
+          onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
+          data-testid="add-to-bag-mobile"
+          className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full bg-near-black text-white text-sm font-bold hover:bg-near-black/90 transition whitespace-nowrap"
+        >
+          <ShoppingBag size={16} /> {isClosed ? "Pre-order" : "Add to bag"}
+        </button>
+      );
+    }
+    return (
+      <div className="flex gap-2 w-full">
+        <button onClick={() => handleAdd(() => router.push("/checkout"))} data-testid="buy-now"
+          className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-brand-bg border border-ink-navy text-ink-navy text-sm font-bold hover:bg-ink-navy/5 transition whitespace-nowrap">
+          Buy now
+        </button>
+        <button
+          onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
+          data-testid="add-to-bag"
+          className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-near-black text-white text-sm font-bold hover:bg-near-black/90 transition whitespace-nowrap">
+          <ShoppingBag size={16} /> {isClosed ? "Pre-order" : "Add to bag"}
+        </button>
+      </div>
+    );
+  };
+
   return (
     <>
       {/* ── Store name, badge, title ── */}
       <div className="px-4 pt-4 pb-2 md:px-0 md:pt-0">
         {product.store_id ? (
           <Link href={`/store/${product.store_id}`} data-testid="store-name-link"
-            className="text-xs text-[#E68910] font-semibold uppercase tracking-wide hover:underline">
+            className="text-[11px] text-brand-accent font-medium uppercase tracking-[0.02em] hover:underline">
             {product.store_name}
           </Link>
         ) : (
-          <span className="text-xs text-[#64748B] uppercase tracking-wide">{product.store_name}</span>
+          <span className="text-[11px] text-slate-gray font-medium uppercase tracking-[0.02em]">{product.store_name}</span>
         )}
 
         {/* "Closed" intentionally renders nothing here — that status (and
@@ -222,43 +298,74 @@ export function ProductDetailPanel({
           </div>
         )}
 
-        {/* Title row + qty stepper — the stepper sits top-right of the
-            title block, not down by the CTA, so quantity is chosen before
-            you even reach size/color. */}
+        {/* Title row + action cluster (wishlist + qty stepper) — this
+            cluster sits top-right of the title block, not scattered (the
+            heart used to float in isolation on the gallery image, orphaned
+            from qty/size), so wishlist and quantity are chosen together
+            before you even reach size/color.
+
+            Heart and qty stepper are ONE row, not stacked — stacking them
+            made this cluster taller than the title next to it, which was
+            the single biggest cost in the mobile first-fold budget once
+            the fixed price+CTA bar (below) started competing for the same
+            vertical space. Side by side, the row's height is just the
+            stepper's own (~34px) instead of heart+gap+stepper+stock-status
+            stacked (~90px+) — everything still reads as one cluster, just
+            denser.
+
+            The qty stepper is intentionally an OUTLINED pill (white bg,
+            ink-navy border/text) — visually the opposite of the FILLED
+            brand-primary cart icon/badge in ConsumerHeader (solid navy bg,
+            white text/icon) — so "how many I'm about to add" can never be
+            mistaken for "what's already in my bag" at a glance. The "qty"
+            label makes that pre-purchase-intent reading explicit too. */}
         <div className="flex items-start justify-between gap-3 mt-2">
-          <h1 className="font-display text-xl font-bold text-ink-navy leading-snug">{product.name}</h1>
-          <div className="shrink-0 text-right">
-            <div className="inline-flex items-center rounded-full border border-ink-navy overflow-hidden" data-testid="qty-stepper">
+          <h1 className="font-display text-[20px] font-medium text-ink-navy leading-snug">{product.name}</h1>
+          <div className="shrink-0 flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                aria-label="Decrease quantity"
-                onClick={() => setQty((q) => Math.max(1, q - 1))}
-                disabled={qty <= 1}
-                className="w-8 h-8 flex items-center justify-center text-ink-navy disabled:opacity-30"
+                aria-label="Wishlist"
+                aria-pressed={wished}
+                data-testid="wishlist-btn"
+                onClick={handleWishlist}
+                className="w-7 h-7 rounded-full bg-white border border-warm-gray-border flex items-center justify-center shadow-sm active:scale-90 transition shrink-0"
               >
-                <Minus size={13} />
+                <Heart size={14} className={wished ? "text-orange-500" : "text-ink-navy"} fill={wished ? "currentColor" : "none"} />
               </button>
-              <span className="w-6 text-center text-sm font-bold text-ink-navy" data-testid="qty-value">{qty}</span>
-              <button
-                type="button"
-                aria-label="Increase quantity"
-                onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
-                disabled={qty >= maxQty}
-                className="w-8 h-8 flex items-center justify-center text-ink-navy disabled:opacity-30"
-              >
-                <Plus size={13} />
-              </button>
+              <span className="text-[11px] text-slate-gray">qty</span>
+              <div className="inline-flex items-center rounded-full border border-ink-navy overflow-hidden" data-testid="qty-stepper">
+                <button
+                  type="button"
+                  aria-label="Decrease quantity"
+                  onClick={() => setQty((q) => Math.max(1, q - 1))}
+                  disabled={qty <= 1}
+                  className="w-7 h-7 flex items-center justify-center text-ink-navy disabled:opacity-30"
+                >
+                  <Minus size={13} />
+                </button>
+                <span className="w-6 text-center text-sm font-bold text-ink-navy" data-testid="qty-value">{qty}</span>
+                <button
+                  type="button"
+                  aria-label="Increase quantity"
+                  onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
+                  disabled={qty >= maxQty}
+                  className="w-7 h-7 flex items-center justify-center text-ink-navy disabled:opacity-30"
+                >
+                  <Plus size={13} />
+                </button>
+              </div>
             </div>
-            <p className="text-[11px] text-slate-gray mt-1" data-testid="stock-status">{stockLabel}</p>
+            <p className="text-[11px] text-slate-gray" data-testid="stock-status">{stockLabel}</p>
           </div>
         </div>
 
         <div className="flex items-baseline gap-2 mt-2">
-          <span className="text-2xl font-bold text-ink-navy">₹{Number(product.price).toLocaleString("en-IN")}</span>
+          <span className="text-[20px] font-bold text-ink-navy">₹{Number(product.price).toLocaleString("en-IN")}</span>
           {product.mrp && product.mrp > product.price && (
             <>
-              <span className="text-xl text-slate-gray line-through">₹{Number(product.mrp).toLocaleString("en-IN")}</span>
-              <span className="inline-flex items-center rounded-full bg-moss-green-tint text-moss-green text-xs font-bold px-2 py-0.5">{discount}% off</span>
+              <span className="text-[13px] text-slate-gray line-through">₹{Number(product.mrp).toLocaleString("en-IN")}</span>
+              <span className="inline-flex items-center rounded-full bg-moss-green-tint text-moss-green text-[11px] font-bold px-2 py-0.5">{discount}% off</span>
             </>
           )}
         </div>
@@ -270,22 +377,25 @@ export function ProductDetailPanel({
               <span>{product.rating?.toFixed(1)}</span>
               <svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
             </div>
-            <span className="text-xs text-[#64748B]">{(product as any).review_count} reviews</span>
+            <span className="text-[12px] text-slate-gray">{(product as any).review_count} reviews</span>
           </div>
         )}
       </div>
 
-      <div className="h-px bg-[#F5F5F5] mx-4 my-2 md:mx-0" />
+      <div className="h-px bg-[#F5F5F5] mx-4 my-1.5 md:mx-0" />
 
-      {/* ── Size (circular pills) + Color (dormant) ── */}
-      <div className="flex items-start justify-between gap-4 px-4 md:px-0 mt-4 flex-wrap">
+      {/* ── Size (circular pills) + Color (dormant). Tightened margins
+          (mt-2.5 not mt-4, mb-1.5 not mb-2.5, w-11/h-11 pills not
+          w-12/h-12 — still clears the 44px minimum tap target) — part of
+          the same first-fold budget as the action-cluster row above. ── */}
+      <div className="flex items-start justify-between gap-4 px-4 md:px-0 mt-2.5 flex-wrap">
         {product.sizes && product.sizes.length > 0 && (
           <div>
-            <div className="text-sm font-bold text-ink-navy mb-2.5">SIZE:</div>
+            <div className="text-[12px] font-medium text-ink-navy mb-1.5">Size</div>
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
               {product.sizes.map((s) => (
                 <button key={s} onClick={() => setSize(s)} data-testid={`size-${s}`}
-                  className={`shrink-0 w-12 h-12 rounded-full text-sm font-semibold border transition ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
+                  className={`shrink-0 w-11 h-11 rounded-full text-sm font-semibold border transition ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
                   {s}
                 </button>
               ))}
@@ -293,9 +403,15 @@ export function ProductDetailPanel({
           </div>
         )}
 
+        {product.fit_note && (
+          <p className="text-[11px] italic text-slate-gray w-full px-4 md:px-0 mt-1.5" data-testid="fit-note">
+            {product.fit_note}
+          </p>
+        )}
+
         {colors && colors.length > 0 && (
           <div data-testid="color-selector">
-            <div className="text-sm font-bold text-ink-navy mb-2.5">COLOR:</div>
+            <div className="text-[12px] font-medium text-ink-navy mb-2.5">Color</div>
             <div className="inline-flex items-center gap-2 px-2.5 py-2 rounded-full bg-white border border-warm-gray-border">
               {colors.map((c) => (
                 <button
@@ -326,6 +442,13 @@ export function ProductDetailPanel({
             opening-time element for the page. */}
         <div className="px-4 md:px-0">
           <DeliveryServiceability etaMin={etaMin} isClosed={isClosed} opensAtLabel={storeOpensAtLabel} />
+        </div>
+
+        {/* Hyperlocal social proof — renders nothing below the 5-order
+            threshold or when the shopper's area can't be resolved; see
+            LocalSocialProof's own doc comment. */}
+        <div className="mt-2.5 px-4 md:px-0">
+          <LocalSocialProof productId={product.id} />
         </div>
 
         {!isOffline && storeCanOrder && product.try_at_doorstep && (
@@ -415,47 +538,42 @@ export function ProductDetailPanel({
         )}
       </div>
 
-      {/* ── Price + CTA row — the LAST thing in this component, in normal
-          document flow. No position:fixed, no position:sticky — it
-          scrolls away like everything else. Price stacked left ("Total
-          Price" label + qty-adjusted bold total), CTA button(s) right. ── */}
-      <div className="mt-6 px-4 md:px-0 py-4 border-t border-warm-gray-border flex items-center justify-between gap-4" data-testid="price-cta-row">
+      {/* ── Price + CTA. This price is deliberately NOT the same thing as
+          the browsing price up in the title block: that one is the
+          per-unit price (for comparing/deciding), this one is the
+          qty-adjusted total (for checking out) — the "Total" label makes
+          that distinction explicit instead of the two numbers reading as
+          an accidental duplicate whenever qty is 1 and they happen to
+          match.
+
+          Two renders, not one: below lg: it's a FIXED bar stacked directly
+          above StickyBottomNav's own h-14 icon row — the 3.5rem in the
+          `bottom` calc IS that h-14 (56px), kept in sync manually since
+          the two components don't share a measured-height store; if
+          StickyBottomNav's icon-only height ever changes, this must move
+          with it. No safe-area padding here — the nav bar below is the
+          true bottom-most element now, so IT carries the safe-area inset
+          (see its own inline style); this bar only needs its own normal
+          vertical padding. At lg:+ (StickyBottomNav hidden), this reverts
+          to a normal in-flow row at the bottom of the sticky panel. ── */}
+      <div
+        className="lg:hidden fixed inset-x-0 z-40 bg-white border-t border-warm-gray-border px-4 py-2.5 flex items-center justify-between gap-4"
+        style={{ bottom: "calc(3.5rem + max(0.25rem, env(safe-area-inset-bottom)))" }}
+        data-testid="price-cta-bar-mobile"
+      >
         <div className="shrink-0">
-          <p className="text-xs text-slate-gray">Total Price</p>
+          <p className="text-xs text-slate-gray">Total</p>
+          <p className="text-xl font-bold text-ink-navy" data-testid="total-price-mobile">₹{totalPrice.toLocaleString("en-IN")}</p>
+        </div>
+        <div className="flex-1 max-w-[220px]">{ctaContent("single")}</div>
+      </div>
+
+      <div className="hidden lg:flex mt-6 py-4 border-t border-warm-gray-border items-center justify-between gap-4" data-testid="price-cta-row">
+        <div className="shrink-0">
+          <p className="text-xs text-slate-gray">Total</p>
           <p className="text-xl font-bold text-ink-navy" data-testid="total-price">₹{totalPrice.toLocaleString("en-IN")}</p>
         </div>
-
-        <div className="flex-1 max-w-[280px]">
-          {isOffline ? (
-            <button
-              onClick={() => setNotifyOpen(true)}
-              data-testid="notify-me-btn"
-              className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-ink-navy text-white text-sm font-bold whitespace-nowrap"
-            >
-              <Bell size={15} /> Notify Me
-            </button>
-          ) : !storeCanOrder ? (
-            <div
-              data-testid="store-unavailable-btn"
-              className="w-full text-center py-3 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold"
-            >
-              Store Unavailable
-            </div>
-          ) : (
-            <div className="flex gap-2 w-full">
-              <button onClick={() => handleAdd(() => router.push("/checkout"))} data-testid="buy-now"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-brand-bg border border-ink-navy text-ink-navy text-sm font-bold hover:bg-ink-navy/5 transition whitespace-nowrap">
-                Buy now
-              </button>
-              <button
-                onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
-                data-testid="add-to-bag"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-near-black text-white text-sm font-bold hover:bg-near-black/90 transition whitespace-nowrap">
-                <ShoppingBag size={16} /> {isClosed ? "Pre-order" : "Add to bag"}
-              </button>
-            </div>
-          )}
-        </div>
+        <div className="flex-1 max-w-[280px]">{ctaContent("dual")}</div>
       </div>
 
       {/* ── Pickup sheet (fixed, only while open — not persistent chrome) ── */}

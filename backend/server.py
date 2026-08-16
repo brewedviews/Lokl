@@ -207,6 +207,12 @@ class ProductCreate(BaseModel):
     return_eligible: bool = False  # if True, customer can return within 24h of delivery
     stock: Optional[dict] = None
     size_type: Optional[str] = ""  # alpha|numeric_shirt|numeric_bottom|numeric_shoe|free_size|custom
+    # Merchant-authored fit guidance ("runs slightly large, size down").
+    # No merchant/admin UI writes this field yet — it's landed on the schema
+    # ahead of that UI existing, same "wired ahead of the field landing"
+    # pattern as the frontend's dormant `colors` field. Always empty for
+    # every product created before that UI ships.
+    fit_note: Optional[str] = ""
 
 class OrderCreate(BaseModel):
     items: List[dict]; address: dict; total: float
@@ -3226,6 +3232,21 @@ async def get_store(store_id: str):
     s["eta_message"] = avail["eta_message"]
     if avail.get("opens_at_label"):
         s["next_open_label"] = avail["opens_at_label"]
+    # Real, computed order count — same merchant_ids/status-exclusion pattern
+    # already used for the merchant's own "first order" check above. Never
+    # fabricated: if merchant_id is missing (shouldn't happen for a
+    # published store, but defensive), this is simply 0, and the PDP's
+    # merchant micro-card treats 0 the same as "omit the metric line."
+    month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    mid = s.get("merchant_id")
+    s["orders_this_month"] = (
+        await db.orders.count_documents({
+            "merchant_ids": mid,
+            "created_at": {"$gte": month_start},
+            "status": {"$nin": ["cancelled", "rejected"]},
+        })
+        if mid else 0
+    )
     products = await db.products.find({"store_id": store_id, **_visible_product_filter()}, {"_id": 0, "images": 0}).to_list(200)
     for p in products:
         p["store_badge"] = avail["badge"]
@@ -3278,6 +3299,48 @@ async def related_products(pid: str):
     _attach_store_avail(from_store, avail_map)
     _attach_store_avail(similar, avail_map)
     return {"from_store": from_store, "similar": similar}
+
+
+LOCAL_PROOF_WINDOW_DAYS = 14
+
+@api.get("/products/{pid}/local-proof")
+async def product_local_proof(pid: str, pincode: str):
+    """Hyperlocal social proof — count of orders for this product delivered
+    to the shopper's own pincode in the last LOCAL_PROOF_WINDOW_DAYS days.
+    Pincode-level, not GPS, same unit checkout/DeliveryServiceability
+    already key off (see lib/serviceability.ts's BHILAI_PINCODES mirror).
+
+    The frontend gates rendering at count >= 5 — a low count shown as "1
+    person bought this" undermines trust more than it builds it — but that
+    threshold is a UI decision, not this endpoint's; it returns the real
+    number so the threshold can move without a backend change.
+
+    Cached (short TTL, degrades to a live query when Redis is unconfigured
+    — see services/cache_service.py) since this recomputes per pageview
+    otherwise. A real scheduled precompute (rather than a request-triggered
+    cache) would scale better under load; flagged as a follow-up rather
+    than blocking this feature, per cache_service's own "optional, graceful
+    degradation" design already established elsewhere in this file.
+    """
+    pin = (pincode or "").strip()
+    if len(pin) != 6 or not pin.isdigit():
+        return {"count": 0}
+
+    cache_key = f"local_proof:{pid}:{pin}"
+    cached = await cache_service.get(cache_key)
+    if cached is not None:
+        return cached
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=LOCAL_PROOF_WINDOW_DAYS)).isoformat()
+    count = await db.orders.count_documents({
+        "items.id": pid,
+        "address.pincode": pin,
+        "created_at": {"$gte": cutoff},
+        "status": {"$nin": ["cancelled", "rejected"]},
+    })
+    result = {"count": count}
+    await cache_service.set(cache_key, result, ttl=1800)
+    return result
 
 
 @api.get("/products/all")
