@@ -77,15 +77,15 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills", label: "Category pills",    enabled: true, rank: 10 },
   { id: "hero",           label: "Hero",              enabled: true, rank: 20 },
-  { id: "under_499",      label: "Under ₹499",        enabled: true, rank: 30 },
-  { id: "meet_sellers",   label: "Meet your sellers", enabled: true, rank: 40 },
-  { id: "best_deals",     label: "Best deals",        enabled: true, rank: 50 },
-  { id: "try_and_buy",    label: "Try & Buy",         enabled: true, rank: 60 },
-  { id: "for_her",        label: "For Her",           enabled: true, rank: 70 },
-  { id: "for_him",        label: "For Him",           enabled: true, rank: 72 },
-  { id: "merchant_cta",   label: "Open a store",      enabled: true, rank: 80 },
+  { id: "under_499",      label: "Under ₹499",        enabled: true, rank: 70 },
+  { id: "meet_sellers",   label: "Meet your sellers", enabled: true, rank: 50 },
+  { id: "best_deals",     label: "Best deals",        enabled: true, rank: 30 },
+  { id: "try_and_buy",    label: "Try & Buy",         enabled: true, rank: 40 },
+  { id: "for_her",        label: "For Her",           enabled: true, rank: 100 },
+  { id: "for_him",        label: "For Him",           enabled: true, rank: 105 },
+  { id: "merchant_cta",   label: "Open a store",      enabled: true, rank: 60 },
   { id: "premium_picks",  label: "Premium picks",     enabled: true, rank: 90 },
-  { id: "shop_by_area",   label: "Shop by Area",      enabled: true, rank: 100 },
+  { id: "shop_by_area",   label: "Shop by Area",      enabled: true, rank: 80 },
   { id: "offers",         label: "Offers for you",    enabled: true, rank: 110 },
 
   // Optional / Future
