@@ -17,27 +17,20 @@
  *
  * API calls on mount — critical (immediate):
  *   • /api/feed/home-products  — trending + best deals
- *   • /api/categories          — also feeds CategoryTabBar (top-of-page,
- *     always-on nav chrome, not a CMS section — see its own doc comment)
+ *   • /api/categories
  *   • /api/site/homepage-config
+ *   • /api/site/home-stats
  * Deferred 800 ms (non-critical):
  *   • /api/catalog/offers
  *   • /api/catalog/testimonials
  *   • /api/feed/popular-stores
- *
- * Hero is HeroCarousel now, not the old HeroV2 — it takes a static
- * placeholder `slides` array for this phase rather than any of the above
- * fetches (see HeroCarousel.tsx's own doc comment). /api/site/home-stats
- * and homepage-config's `hero` field, which used to feed HeroV2's
- * fastest-ETA badge and title/subtitle, are no longer fetched here at all.
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Sparkles, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
-import { HeroCarousel, DEFAULT_HERO_SLIDES } from "@/components/consumer/HeroCarousel";
-import { CategoryTabBar } from "@/components/consumer/CategoryTabBar";
+import { HeroV2 } from "@/components/consumer/v2/HeroV2";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
@@ -47,13 +40,15 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
 import type { ProductCard as ProductCardType, StoreCard, CategoryNode, AreaTile, PriceBentoResponse } from "@/types";
 import {
-  trackSectionImpression,
+  trackSectionImpression, trackCategoryTileClick, trackCategoryTileImpression,
   trackPriceFilterClick, trackProductClick, trackStoreClick,
   trackOfferClick, trackMerchantCTAClick, observeImpression,
 } from "@/lib/analytics";
 
 interface OfferDoc { id: string; title: string; subtitle?: string; description?: string; code?: string; image?: string; cta_label?: string; cta_link?: string; background?: string }
 interface TestimonialDoc { id: string; name: string; city: string; quote?: string; message?: string; rating?: number; avatar?: string }
+interface HomeStatsDoc { fastest_eta_min?: number }
+interface HeroConfigDoc { image?: string; eyebrow?: string; title_line1?: string; title_line2?: string; subtitle?: string }
 interface SectionDoc { id: string; label: string; enabled: boolean; rank: number }
 interface HomeProductsRail { store_id: string; store_name: string; store_slug: string; store_banner?: string; store_tagline?: string; products: ProductCardType[] }
 interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCardType[]; best_deals: ProductCardType[]; premium_picks: ProductCardType[] }
@@ -80,6 +75,7 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 // render after {orderedSections} unconditionally (see JSX below), which
 // always puts it last regardless of CMS order.
 const DEFAULT_SECTIONS: SectionDoc[] = [
+  { id: "category_pills", label: "Category pills",    enabled: true, rank: 10 },
   { id: "hero",           label: "Hero",              enabled: true, rank: 20 },
   { id: "under_499",      label: "Under ₹499",        enabled: true, rank: 50 },
   { id: "meet_sellers",   label: "Meet your sellers", enabled: true, rank: 60 },
@@ -111,14 +107,11 @@ function cloudinaryOptimize(url: string | undefined | null, transform = "w_300,q
 }
 
 // ---------------------------------------------------------------------------
-// For Her / For Him bento — visually descended from the old category_pills
-// section's tile pattern (mobile horizontal-scroll circles, desktop
-// image-led portrait grid) — category_pills itself has since been removed
-// in favor of CategoryTabBar (see that component's own doc comment) — but
-// this section still targets a curated list of L2s (+ a few standalone
-// L1s) rather than the full category set. Tiles resolve their image from
-// the same /api/categories response CategoryTabBar now consumes — no
-// extra request.
+// For Her / For Him bento — reuses category_pills' tile visual pattern
+// (mobile horizontal-scroll circles, desktop image-led portrait grid) against
+// a curated list of L2s (+ a few standalone L1s) rather than the full
+// category set. Tiles resolve their image from the same /api/categories
+// response category_pills already fetches — no extra request.
 // ---------------------------------------------------------------------------
 interface GenderTileSpec {
   label: string;
@@ -185,13 +178,14 @@ function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[])
   return out;
 }
 
-// Small circular category avatars — the same visual scale/shape the old
-// category_pills mobile tile strip used (w-16 h-16 circle, label
-// centered below; category_pills itself is gone now, see CategoryTabBar),
-// reused here instead of the large aspect-[3/4] rectangular cards this
-// section used to render. Those rectangular cards (roughly half-width
-// each) made this a tall, heavy section. No price pill overlay — a price
-// badge doesn't sit well on a circular crop.
+// Small circular category avatars — the same visual scale/shape as
+// category_pills' own mobile tile strip above (w-16 h-16 circle, label
+// centered below), reused here instead of the large aspect-[3/4]
+// rectangular cards this section used to render. Those rectangular cards
+// (roughly half-width each) made this a tall, heavy section. No price
+// pill overlay — a price badge doesn't sit well on a circular crop, and
+// category_pills' own avatars don't carry one, so dropping it keeps the
+// two patterns actually consistent rather than just visually similar.
 //
 // Static 4-column grid, NOT a horizontal scroll — an earlier pass made
 // this a horizontal-scroll row, but with ~7-8 tiles per section that
@@ -473,6 +467,8 @@ function TryAndBuySection({ image }: { image: string }) {
 export function HomeClient() {
   const lat = useLocationStore((s) => s.lat);
   const lng = useLocationStore((s) => s.lng);
+  const [stats, setStats] = useState<HomeStatsDoc | null>(null);
+  const [hero, setHero] = useState<HeroConfigDoc | null>(null);
   const [tryAndBuyImage, setTryAndBuyImage] = useState<string>("");
   const [sections, setSections] = useState<SectionDoc[]>(DEFAULT_SECTIONS);
   const [offers, setOffers] = useState<OfferDoc[]>([]);
@@ -507,13 +503,10 @@ export function HomeClient() {
     setErrors((prev) => { const next = new Set(prev); next.add(key); return next; });
 
   useEffect(() => {
-    // api.site.homeStats() / the hero-config's `hero` field used to feed
-    // HeroV2's fastest-ETA badge and title/subtitle — both dropped along
-    // with HeroV2 itself (see the hero renderer's own comment below);
-    // sections + try_and_buy_image are still read from the same config
-    // fetch, so the call stays, just narrower.
+    api.site.homeStats().then((r) => setStats(r as unknown as HomeStatsDoc)).catch(() => {});
     api.site.homepageConfig().then((cfg) => {
-      const c = cfg as unknown as { sections?: SectionDoc[]; try_and_buy_image?: string };
+      const c = cfg as unknown as { hero?: HeroConfigDoc; sections?: SectionDoc[]; try_and_buy_image?: string };
+      if (c.hero) setHero(c.hero);
       if (c.try_and_buy_image) setTryAndBuyImage(c.try_and_buy_image);
       if (Array.isArray(c.sections) && c.sections.length > 0) {
         // The DB config is now AUTHORITATIVE for order + enabled — this is
@@ -686,15 +679,9 @@ export function HomeClient() {
   );
 
   const sectionRenderers: Record<string, React.ReactNode> = {
-    // HeroV2 (single static banner, backed by site_config.hero) replaced
-    // with HeroCarousel — see that component's own doc comment. `hero`/
-    // `stats` (the old HeroV2 props) are no longer consumed here; the CMS
-    // hero-config fetch that populated them still runs (admin's Hero
-    // editor still previews/edits it via HeroV2 directly), it just isn't
-    // wired to the homepage anymore in this phase.
     hero: (
       <div key="hero" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("hero")); } catch {} } }}>
-        <HeroCarousel slides={DEFAULT_HERO_SLIDES} />
+        <HeroV2 stats={stats} hero={hero} />
       </div>
     ),
 
@@ -764,6 +751,108 @@ export function HomeClient() {
               </Link>
             );
           })}
+        </div>
+      </div>
+    ),
+
+    category_pills: (
+      <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
+        {/* Mobile — horizontal-scroll tile strip, unchanged */}
+        <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2 md:hidden">
+          {categories.length === 0 ? (
+            Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1.5">
+                <div className="w-16 h-16 rounded-2xl bg-[#E5E2DC] animate-pulse" />
+                <div className="w-12 h-3 bg-[#E5E2DC] rounded animate-pulse" />
+              </div>
+            ))
+          ) : (
+            <>
+              <Link href="/products" className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition">
+                <div className="w-16 h-16 rounded-2xl bg-[#0A1F5C] flex items-center justify-center">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                    <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+                  </svg>
+                </div>
+                <span className="text-[11px] font-semibold text-[#0A1F5C] text-center">All</span>
+              </Link>
+              {(categories as any[]).slice(0, 9).map((cat, catIdx) => (
+                <Link key={cat.id} href={`/c/${cat.slug}`}
+                  onClick={() => { try { trackCategoryTileClick(cat.name, catIdx); } catch {} }}
+                  ref={(el) => { if (el) { try { observeImpression(el, () => trackCategoryTileImpression(cat.name, catIdx)); } catch {} } }}
+                  className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition">
+                  <div className="w-16 h-16 rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC]">
+                    {cat.image ? (
+                      // category_pills is the very first homepage section — only the
+                      // first few tiles are actually visible without scrolling this
+                      // horizontal strip, so only those need eager loading; later
+                      // tiles are genuinely off-screen and stay lazy.
+                      <img src={cloudinaryOptimize(cat.image, "w_128,q_auto,f_auto")} alt={cat.name}
+                        loading={catIdx < 4 ? "eager" : "lazy"}
+                        fetchPriority={catIdx === 0 ? "high" : "auto"}
+                        className="w-full h-full object-cover object-top" />
+                    ) : (
+                      <div className="w-full h-full bg-[#E5E2DC] flex items-center justify-center">
+                        <span className="text-2xl">👗</span>
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[11px] font-semibold text-[#0A1F5C] text-center w-16 leading-tight line-clamp-2">
+                    {cat.name === "Lingerie & Innerwear" ? "Lingerie" : cat.name}
+                  </span>
+                </Link>
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Desktop — image-led portrait card grid, one column per category */}
+        <div
+          className="hidden md:grid gap-4 pb-2"
+          style={{ gridTemplateColumns: `repeat(${categories.length === 0 ? 8 : Math.min(categories.length, 9) + 1}, minmax(0, 1fr))` }}
+        >
+          {categories.length === 0 ? (
+            Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="aspect-[3/4] rounded-2xl bg-[#E5E2DC] animate-pulse" />
+            ))
+          ) : (
+            <>
+              <Link
+                href="/products"
+                className="group relative aspect-[3/4] rounded-2xl overflow-hidden bg-[#0A1F5C] flex flex-col items-center justify-center gap-2 transition hover:scale-[1.02]"
+              >
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                  <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+                </svg>
+                <span className="font-bold text-white text-sm">All</span>
+              </Link>
+              {(categories as any[]).slice(0, 9).map((cat, catIdx) => (
+                <Link key={cat.id} href={`/c/${cat.slug}`}
+                  onClick={() => { try { trackCategoryTileClick(cat.name, catIdx); } catch {} }}
+                  ref={(el) => { if (el) { try { observeImpression(el, () => trackCategoryTileImpression(cat.name, catIdx)); } catch {} } }}
+                  className="group relative aspect-[3/4] rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC] transition hover:border-[#0A1F5C]"
+                >
+                  {cat.image ? (
+                    // Whole row fits within one desktop viewport width (a
+                    // CSS grid, not a scroll strip like mobile) — the
+                    // entire above-the-fold row loads eager.
+                    <img src={cloudinaryOptimize(cat.image, "w_400,q_auto,f_auto")} alt={cat.name}
+                      loading="eager"
+                      fetchPriority={catIdx === 0 ? "high" : "auto"}
+                      className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
+                  ) : (
+                    <div className="w-full h-full bg-[#E5E2DC]" />
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/75 via-black/15 to-transparent pointer-events-none" />
+                  <span className="absolute bottom-3 left-3 right-3 font-bold text-white text-sm leading-tight line-clamp-2 break-words">
+                    {cat.name === "Lingerie & Innerwear" ? "Lingerie" : cat.name}
+                  </span>
+                </Link>
+              ))}
+            </>
+          )}
         </div>
       </div>
     ),
@@ -912,12 +1001,6 @@ export function HomeClient() {
 
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
-      {/* Always-on navigation chrome, not a CMS section — renders above
-          everything else on Home regardless of site_config.homepage-config
-          (no enabled/rank check, unlike orderedSections below). See
-          CategoryTabBar's own doc comment for why this replaced the old
-          category_pills CMS section instead of sitting alongside it. */}
-      <CategoryTabBar categories={categories} />
       <main className="flex-1">
         {orderedSections}
         <TrustStickers />
