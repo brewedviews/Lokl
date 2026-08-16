@@ -250,11 +250,11 @@ export function ProductCard({ p, size = "default" }: Props) {
           <button
             onClick={handleAdd}
             data-testid={`p-card-add-${p.id}`}
-            className={`w-full inline-flex items-center justify-center gap-1 rounded-full bg-[#E68910] text-white font-bold active:scale-95 transition shadow-[0_4px_12px_rgba(230,137,16,0.28)] ${
-              isCompact ? "py-1 text-[10px]" : "py-1.5 gap-1.5 text-[12px]"
+            className={`w-full inline-flex items-center justify-center gap-1 rounded-full bg-white border border-[#0A1F5C] text-[#0A1F5C] font-bold active:scale-95 transition ${
+              isCompact ? "py-1 text-[10px]" : "py-1 gap-1.5 text-[11px]"
             }`}
           >
-            <ShoppingBag size={isCompact ? 11 : 13} />
+            <ShoppingBag size={isCompact ? 11 : 12} />
             {isCompact ? "Add" : "Add to Bag"}
           </button>
         ) : (

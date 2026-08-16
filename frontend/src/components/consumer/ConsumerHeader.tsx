@@ -29,9 +29,9 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Loader2, MapPin, Search, ShoppingBag, Store as StoreIcon, User, X, Crosshair, Home as HomeIcon, Clock, TrendingUp, Check } from "lucide-react";
+import { Heart, Loader2, MapPin, Search, ShoppingBag, Store as StoreIcon, User, X, Crosshair, Home as HomeIcon, Clock, TrendingUp, Check } from "lucide-react";
 import {
-  useCartStore, useLocationStore, useCustomerAuthStore, useSearchOverlay,
+  useCartStore, useLocationStore, useCustomerAuthStore, useSearchOverlay, useWishlistStore,
 } from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { useMounted } from "@/hooks/useMounted";
@@ -77,6 +77,7 @@ export function ConsumerHeader() {
   const router = useRouter();
   const mounted = useMounted();
   const cartCount = useCartStore((s) => s.getItemCount());
+  const wishlistCount = useWishlistStore((s) => s.products.length);
   const customerPhone = useCustomerAuthStore((s) => s.phone);
   useHeartbeat(customerPhone ? "customer" : "guest", { phone: customerPhone });
   const mobileSearchOpen = useSearchOverlay((s) => s.open);
@@ -290,6 +291,26 @@ export function ConsumerHeader() {
           className="hidden lg:flex w-9 h-9 rounded-full bg-white border border-card-border items-center justify-center hover:border-brand-primary transition shrink-0"
         >
           <User size={16} />
+        </Link>
+        {/* Wishlist — a plain nav link to /wishlist, not a per-product
+            toggle (that lives in the icon row below the PDP gallery
+            instead — see ProductGallery). Always visible, same as cart,
+            not desktop-only like the plain Account circle above. */}
+        <Link
+          href="/wishlist"
+          data-testid="nav-wishlist"
+          aria-label="Wishlist"
+          className="relative flex w-9 h-9 rounded-full bg-white border border-card-border items-center justify-center hover:border-brand-primary transition shrink-0"
+        >
+          <Heart size={16} />
+          {mounted && wishlistCount > 0 && (
+            <span
+              data-testid="wishlist-badge"
+              className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-brand-accent text-white text-[9px] font-bold flex items-center justify-center"
+            >
+              {wishlistCount > 9 ? "9+" : wishlistCount}
+            </span>
+          )}
         </Link>
         <Link
           href="/cart"

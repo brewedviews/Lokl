@@ -5,9 +5,9 @@ import { ProductGallery } from "@/components/consumer/ProductGallery";
 import { ProductDetailPanel } from "@/components/consumer/ProductDetailPanel";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { OffersCard } from "@/components/consumer/OffersCard";
-import { TrustIconsRow } from "@/components/consumer/TrustIconsRow";
 import { SpecsTabs, type SpecRow } from "@/components/consumer/SpecsTabs";
 import { MerchantMicroCard } from "@/components/consumer/MerchantMicroCard";
+import { TrustBadgesLarge } from "@/components/consumer/TrustBadgesLarge";
 import type { Product, ProductCard as ProductCardType, Store } from "@/types";
 
 interface ProductDetailResponse {
@@ -81,17 +81,13 @@ export default async function ProductDetailPage(
     // ConsumerHeader renders here like everywhere else in the app (see
     // (consumer)/layout.tsx) — the PDP has no header of its own.
     //
-    // StickyBottomNav is back on this route (below lg:) with a second,
-    // fixed price+CTA bar stacked directly above it — see
-    // ProductDetailPanel's price-cta-row for why that reverses an earlier
-    // "no fixed bar" decision. The layout's own bottom-nav-safe padding
-    // (6rem, applied to every consumer page) only clears the nav bar's own
-    // height; it doesn't know about this page's extra price+CTA bar on top
-    // of that, so pb-[88px] below adds exactly that bar's height as
-    // additional clearance so the last rail isn't hidden behind it.
-    // lg:pb-0 cancels it out once both fixed bars stop rendering (lg:+ —
-    // same breakpoint StickyBottomNav itself uses).
-    <div className="flex-1 flex flex-col bg-brand-bg pb-[88px] lg:pb-0">
+    // No fixed/sticky bottom chrome on this route at all — StickyBottomNav
+    // is hidden here (see its own /product/ exclusion) and there's no
+    // fixed CTA bar either; PdpCtaRow appears twice inline instead (see
+    // ProductDetailPanel). No extra bottom clearance needed beyond the
+    // layout's own bottom-nav-safe padding, since nothing fixed competes
+    // for space on this page.
+    <div className="flex-1 flex flex-col bg-brand-bg">
       <div className="flex-1 w-full max-w-[1200px] mx-auto md:pt-6">
 
         {/*
@@ -107,6 +103,7 @@ export default async function ProductDetailPage(
           {/* Left — gallery scrolls normally; buy box (right) is the sticky one */}
           <div>
             <ProductGallery
+              product={product}
               name={product.name}
               images={images}
               aiEnhanced={product.ai_enhanced}
@@ -141,16 +138,19 @@ export default async function ProductDetailPage(
               storeId={product.store_id}
             />
 
-            {/* Offers, trust icons, specs/description — all optional/
-                data-driven; each renders nothing if it has nothing real
-                to show (no fabricated offers, specs or claims). */}
+            {/* Offers + specs/description — optional/data-driven; each
+                renders nothing if it has nothing real to show (no
+                fabricated offers, specs or claims). TrustBadgesLarge is
+                tier 2 of the two-tier trust split — tier 1 (compact rows)
+                already rendered near delivery info inside
+                ProductDetailPanel; this pair of larger illustrated badges
+                sits just above specs/description instead, since a shopper
+                reading this far is closer to deciding, not skimming. */}
             <div className="px-4 mt-4 md:px-0">
               <OffersCard price={product.price} />
             </div>
 
-            <div className="px-4 mt-4 md:px-0">
-              <TrustIconsRow />
-            </div>
+            <TrustBadgesLarge />
 
             <SpecsTabs specs={specs} description={product.description} />
           </div>
@@ -177,9 +177,20 @@ export default async function ProductDetailPage(
               />
             )}
             <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-4">More from {product.store_name}</h2>
+            {/* Card width is solved algebraically, not guessed: 2.2 cards +
+                1.2 gaps (gap-3 = 12px) should fill the row exactly, so the
+                3rd card's peek is always the same intentional ~0.2-card
+                sliver regardless of viewport width — 2.2W + 1.2(12px) =
+                100% → W = (100% - 14.4px) / 2.2 ≈ 45.5% - 7px. Percentage
+                is against the flex row's own content box, which already
+                excludes this section's own px-4/md:px-8 padding, so this
+                doesn't double-subtract it. Previously w-[38vw], which
+                ignored that padding entirely — however much of a 3rd card
+                showed at the edge was leftover-space arithmetic, not a
+                designed peek. */}
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
               {fromStore.slice(0, 8).map((p) => (
-                <div key={p.id} className="shrink-0 w-[38vw] sm:w-[180px]"><ProductCard p={p} size="default" /></div>
+                <div key={p.id} className="shrink-0 w-[calc(45.5%-7px)] sm:w-[180px]"><ProductCard p={p} size="default" /></div>
               ))}
             </div>
           </section>
@@ -190,7 +201,7 @@ export default async function ProductDetailPage(
             <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-4">You might also like</h2>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
               {similar.slice(0, 8).map((p) => (
-                <div key={p.id} className="shrink-0 w-[38vw] sm:w-[180px]"><ProductCard p={p} size="default" /></div>
+                <div key={p.id} className="shrink-0 w-[calc(45.5%-7px)] sm:w-[180px]"><ProductCard p={p} size="default" /></div>
               ))}
             </div>
           </section>

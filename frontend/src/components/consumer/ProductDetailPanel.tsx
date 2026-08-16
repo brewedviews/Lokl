@@ -2,43 +2,53 @@
 
 /**
  * ProductDetailPanel — everything below the gallery on the PDP: title/
- * price/rating block, qty stepper, size + color selectors, delivery/
- * try-and-buy/returns/pickup signals, and the price+CTA row.
+ * price block, size + color selectors, delivery/trust/try-and-buy/returns/
+ * pickup signals, and two repeated CTA rows.
  *
  * Replaces the old split between page.tsx's inline title-block JSX and the
- * separate ProductActions component — the qty stepper (near the title) and
- * the CTA row (at the bottom) both need the same qty/size state, so they
- * need one shared client component, not two components trying to share
- * state across a server-rendered page.tsx boundary.
+ * separate ProductActions component.
  *
- * Below lg:, the price+CTA row is a FIXED bar, stacked directly above
- * StickyBottomNav (also re-enabled on this route) rather than sitting in
- * normal document flow — a shopper scrolling through specs/related-product
- * rails should never have to scroll back up to find the buy button. This
- * reverses an earlier "no fixed bar" decision from when the PDP had no
- * bottom nav to stack above; now that the nav is back, a stranded
- * in-flow CTA would mean two different fixed-chrome philosophies on the
- * same screen (nav pinned, buy button not), which read as inconsistent
- * more than intentional. At lg:+ (where StickyBottomNav itself is hidden
- * — same breakpoint), this reverts to a normal in-flow row at the bottom
- * of the sticky right-column panel, matching desktop's existing layout.
+ * NO fixed/sticky bottom chrome on this page at all — no nav bar (see
+ * StickyBottomNav's own /product/ exclusion), no fixed CTA bar. A prior
+ * pass tried a merged fixed price+CTA bar stacked above a re-enabled nav
+ * bar; user testing against the Myntra reference reverted that — it read
+ * as a second, competing fixed-chrome model bolted onto a page that's
+ * otherwise plain document flow. Instead, PdpCtaRow (Buy now / Add to bag)
+ * appears twice, inline, in normal scroll: once directly below the price
+ * block, once directly below the size selector — close enough to the
+ * decision point either time that a shopper is rarely more than one
+ * scroll-screen away from a buy button, without permanently pinning
+ * anything.
+ *
+ * No qty stepper — fashion is purchased per size unit here, not variable
+ * quantity, so add-to-bag/reserve-pickup always add exactly 1 (see
+ * useCartStore.addItem's own qty=1 default). Quantity adjustment still
+ * lives on the cart page, unaffected by this — that's a different screen
+ * with a different job.
  */
 import { useState, useEffect } from "react";
 import { trackAddToCart, trackPickupStart, trackPickupComplete, trackProductView } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ShoppingBag, Bell, CheckCircle2, Store, RotateCcw, ShieldCheck, Minus, Plus, Check, Heart } from "lucide-react";
+import { CheckCircle2, Store, RotateCcw, ShieldCheck, Check } from "lucide-react";
 import { toast } from "sonner";
-import { useCartStore, useCustomerAuthStore, useWishlistStore } from "@/stores";
+import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { useStoreConflict } from "@/hooks/useStoreConflict";
 import { StoreConflictDialog } from "./StoreConflictDialog";
 import { DeliveryServiceability } from "./DeliveryServiceability";
 import { LocalSocialProof } from "./LocalSocialProof";
+import { PdpCtaRow } from "./PdpCtaRow";
+import { TrustSignalsCompact } from "./TrustSignalsCompact";
 import type { Product } from "@/types";
 
-const MAX_QTY_FALLBACK = 10;
+// Rounded-rectangle size pill — shared base classes for the main size
+// selector AND the pickup-reservation sheet's own duplicate size picker,
+// so the two can't visually drift apart. Auto-width (min-w, not a fixed
+// w-*) so a long label like "Free Size" grows the pill instead of
+// overflowing a fixed circle.
+const SIZE_PILL_BASE = "min-w-[48px] h-10 px-3.5 rounded-[10px] text-sm font-semibold border transition";
 
 export function ProductDetailPanel({
   product,
@@ -63,21 +73,6 @@ export function ProductDetailPanel({
   const customerUser = useCustomerAuthStore((s) => s.user);
   const isCustomerAuth = useCustomerAuthStore((s) => s.isAuthenticated);
   const [size, setSize] = useState<string | null>(product.sizes?.[0] || null);
-  const [qty, setQty] = useState(1);
-
-  // Wishlist — was an isolated heart icon floating on the gallery image;
-  // moved here so it reads as part of the same top-right action cluster as
-  // the qty stepper, not orphaned on the photo.
-  const isWishlisted = useWishlistStore((s) => s.isWishlisted(product.id));
-  const toggleWishlist = useWishlistStore((s) => s.toggle);
-  const [wished, setWished] = useState(false);
-  useEffect(() => { setWished(isWishlisted); }, [isWishlisted]);
-  const handleWishlist = () => {
-    const next = toggleWishlist(product);
-    const justAdded = next.some((x) => x.id === product.id);
-    setWished(justAdded);
-    toast.success(justAdded ? "Saved to wishlist" : "Removed from wishlist");
-  };
 
   // Colors — not on the product data model yet (no merchant/admin field
   // exists to set them), so `colors` is always undefined today and this
@@ -127,7 +122,6 @@ export function ProductDetailPanel({
       : stockForSize <= 5
         ? `Only ${stockForSize} left`
         : "In stock";
-  const maxQty = stockForSize != null && stockForSize > 0 ? Math.min(stockForSize, MAX_QTY_FALLBACK) : MAX_QTY_FALLBACK;
 
   // store_can_pickup is set explicitly by the backend; default false so the button never
   // appears when the field is absent (non-Pro stores, or responses that predate this field).
@@ -150,10 +144,10 @@ export function ProductDetailPanel({
   const handleAdd = (onSuccess: () => void) => {
     if (!storeCanOrder) { toast.error("This store is currently unavailable"); return; }
     if (product.sizes?.length && !size) { toast.error("Please pick a size"); return; }
-    const r = addItem(product, size ?? "", qty);
+    const r = addItem(product, size ?? "");
     if (!r.success && r.conflict) {
       promptConflict(r.conflict, () => {
-        addItem(product, size ?? "", qty);
+        addItem(product, size ?? "");
         try {
           trackAddToCart({ product_id: product.id, product_name: product.name, price: product.price, size: size ?? "", source: "product_page" });
         } catch {}
@@ -195,9 +189,9 @@ export function ProductDetailPanel({
       const r = await apiClient.post<{ id: string; pickup_code: string; pickup_expires_at: string }>(
         "/api/orders",
         {
-          items: [{ id: product.id, qty, size: size ?? "", price: product.price, name: product.name, store_id: sId, store_name: sName }],
+          items: [{ id: product.id, qty: 1, size: size ?? "", price: product.price, name: product.name, store_id: sId, store_name: sName }],
           address: {},
-          total: product.price * qty,
+          total: product.price,
           payment_method: "COD",
           customer: { name: customerUser?.name || "Customer", phone: customerPhone || "" },
           order_type: "pickup",
@@ -214,61 +208,12 @@ export function ProductDetailPanel({
   };
 
   const etaMin = product.store_eta_min || 45;
-  const totalPrice = product.price * qty;
 
-  // Shared between the mobile fixed bar (single CTA — "Total price + one
-  // button" per the fixed-bar spec) and the desktop in-flow row (keeps
-  // Buy now + Add to bag side by side, unchanged from before). Notify-me
-  // and store-unavailable states are identical in both — only the
-  // "storeCanOrder" success case differs by button count.
-  const ctaContent = (variant: "single" | "dual") => {
-    if (isOffline) {
-      return (
-        <button
-          onClick={() => setNotifyOpen(true)}
-          data-testid="notify-me-btn"
-          className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-ink-navy text-white text-sm font-bold whitespace-nowrap"
-        >
-          <Bell size={15} /> Notify Me
-        </button>
-      );
-    }
-    if (!storeCanOrder) {
-      return (
-        <div
-          data-testid="store-unavailable-btn"
-          className="w-full text-center py-3 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold"
-        >
-          Store Unavailable
-        </div>
-      );
-    }
-    if (variant === "single") {
-      return (
-        <button
-          onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
-          data-testid="add-to-bag-mobile"
-          className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full bg-near-black text-white text-sm font-bold hover:bg-near-black/90 transition whitespace-nowrap"
-        >
-          <ShoppingBag size={16} /> {isClosed ? "Pre-order" : "Add to bag"}
-        </button>
-      );
-    }
-    return (
-      <div className="flex gap-2 w-full">
-        <button onClick={() => handleAdd(() => router.push("/checkout"))} data-testid="buy-now"
-          className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-brand-bg border border-ink-navy text-ink-navy text-sm font-bold hover:bg-ink-navy/5 transition whitespace-nowrap">
-          Buy now
-        </button>
-        <button
-          onClick={() => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"))}
-          data-testid="add-to-bag"
-          className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-full bg-near-black text-white text-sm font-bold hover:bg-near-black/90 transition whitespace-nowrap">
-          <ShoppingBag size={16} /> {isClosed ? "Pre-order" : "Add to bag"}
-        </button>
-      </div>
-    );
-  };
+  // Handlers passed to both PdpCtaRow instances — identical behavior either
+  // time, only the surrounding position in the page differs.
+  const handleBuyNow = () => handleAdd(() => router.push("/checkout"));
+  const handleAddToBag = () => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"));
+  const handleNotify = () => setNotifyOpen(true);
 
   return (
     <>
@@ -298,68 +243,15 @@ export function ProductDetailPanel({
           </div>
         )}
 
-        {/* Title row + action cluster (wishlist + qty stepper) — this
-            cluster sits top-right of the title block, not scattered (the
-            heart used to float in isolation on the gallery image, orphaned
-            from qty/size), so wishlist and quantity are chosen together
-            before you even reach size/color.
+        {/* Title alone — no adjacent action cluster now that qty is gone
+            and wishlist lives in the header + the icon row below the
+            gallery instead (see ProductGallery / ConsumerHeader). */}
+        <h1 className="font-display text-[20px] font-medium text-ink-navy leading-snug mt-2">{product.name}</h1>
 
-            Heart and qty stepper are ONE row, not stacked — stacking them
-            made this cluster taller than the title next to it, which was
-            the single biggest cost in the mobile first-fold budget once
-            the fixed price+CTA bar (below) started competing for the same
-            vertical space. Side by side, the row's height is just the
-            stepper's own (~34px) instead of heart+gap+stepper+stock-status
-            stacked (~90px+) — everything still reads as one cluster, just
-            denser.
-
-            The qty stepper is intentionally an OUTLINED pill (white bg,
-            ink-navy border/text) — visually the opposite of the FILLED
-            brand-primary cart icon/badge in ConsumerHeader (solid navy bg,
-            white text/icon) — so "how many I'm about to add" can never be
-            mistaken for "what's already in my bag" at a glance. The "qty"
-            label makes that pre-purchase-intent reading explicit too. */}
-        <div className="flex items-start justify-between gap-3 mt-2">
-          <h1 className="font-display text-[20px] font-medium text-ink-navy leading-snug">{product.name}</h1>
-          <div className="shrink-0 flex flex-col items-end gap-1">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                aria-label="Wishlist"
-                aria-pressed={wished}
-                data-testid="wishlist-btn"
-                onClick={handleWishlist}
-                className="w-7 h-7 rounded-full bg-white border border-warm-gray-border flex items-center justify-center shadow-sm active:scale-90 transition shrink-0"
-              >
-                <Heart size={14} className={wished ? "text-orange-500" : "text-ink-navy"} fill={wished ? "currentColor" : "none"} />
-              </button>
-              <span className="text-[11px] text-slate-gray">qty</span>
-              <div className="inline-flex items-center rounded-full border border-ink-navy overflow-hidden" data-testid="qty-stepper">
-                <button
-                  type="button"
-                  aria-label="Decrease quantity"
-                  onClick={() => setQty((q) => Math.max(1, q - 1))}
-                  disabled={qty <= 1}
-                  className="w-7 h-7 flex items-center justify-center text-ink-navy disabled:opacity-30"
-                >
-                  <Minus size={13} />
-                </button>
-                <span className="w-6 text-center text-sm font-bold text-ink-navy" data-testid="qty-value">{qty}</span>
-                <button
-                  type="button"
-                  aria-label="Increase quantity"
-                  onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
-                  disabled={qty >= maxQty}
-                  className="w-7 h-7 flex items-center justify-center text-ink-navy disabled:opacity-30"
-                >
-                  <Plus size={13} />
-                </button>
-              </div>
-            </div>
-            <p className="text-[11px] text-slate-gray" data-testid="stock-status">{stockLabel}</p>
-          </div>
-        </div>
-
+        {/* ── Price — the ONE price display on the page (current / struck
+            MRP / %-off pill). No qty-adjusted "Total" anymore: add-to-bag
+            is always exactly 1 unit, so a second qty-multiplied price
+            would just restate this one. ── */}
         <div className="flex items-baseline gap-2 mt-2">
           <span className="text-[20px] font-bold text-ink-navy">₹{Number(product.price).toLocaleString("en-IN")}</span>
           {product.mrp && product.mrp > product.price && (
@@ -369,7 +261,7 @@ export function ProductDetailPanel({
             </>
           )}
         </div>
-        <p className="text-xs text-slate-gray mt-1">(Inclusive of all taxes)</p>
+        <p className="text-xs text-slate-gray mt-1">(Inclusive of all taxes) · <span data-testid="stock-status">{stockLabel}</span></p>
 
         {(product as any).review_count > 0 && (
           <div className="flex items-center gap-1.5 mt-2">
@@ -380,14 +272,32 @@ export function ProductDetailPanel({
             <span className="text-[12px] text-slate-gray">{(product as any).review_count} reviews</span>
           </div>
         )}
+
+        {/* ── First CTA row — directly below the price block, tight
+            vertical rhythm, no qty stepper in between. Repeated again
+            below the size selector (same PdpCtaRow component both
+            times). ── */}
+        <div className="mt-3">
+          <PdpCtaRow
+            isOffline={isOffline}
+            storeCanOrder={storeCanOrder}
+            isClosed={isClosed}
+            onNotify={handleNotify}
+            onBuyNow={handleBuyNow}
+            onAddToBag={handleAddToBag}
+          />
+        </div>
       </div>
 
       <div className="h-px bg-[#F5F5F5] mx-4 my-1.5 md:mx-0" />
 
-      {/* ── Size (circular pills) + Color (dormant). Tightened margins
-          (mt-2.5 not mt-4, mb-1.5 not mb-2.5, w-11/h-11 pills not
-          w-12/h-12 — still clears the 44px minimum tap target) — part of
-          the same first-fold budget as the action-cluster row above. ── */}
+      {/* ── Size (rounded-rectangle pills, not circles) + Color (dormant).
+          Rectangles are auto-width from their own padding, so a long label
+          like "Free Size" grows the pill instead of fighting a fixed-width
+          circle for room — the earlier circular shape needed to shrink
+          the font just to keep "Free Size" from overflowing; this fixes it
+          structurally instead. Same shape reused in the pickup-sheet's own
+          size picker below, kept in sync via SIZE_PILL_BASE. ── */}
       <div className="flex items-start justify-between gap-4 px-4 md:px-0 mt-2.5 flex-wrap">
         {product.sizes && product.sizes.length > 0 && (
           <div>
@@ -395,7 +305,7 @@ export function ProductDetailPanel({
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
               {product.sizes.map((s) => (
                 <button key={s} onClick={() => setSize(s)} data-testid={`size-${s}`}
-                  className={`shrink-0 w-11 h-11 rounded-full text-sm font-semibold border transition ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
+                  className={`shrink-0 ${SIZE_PILL_BASE} ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
                   {s}
                 </button>
               ))}
@@ -432,6 +342,23 @@ export function ProductDetailPanel({
             </div>
           </div>
         )}
+
+        {/* Second CTA row — directly below the size selector, same
+            component/handlers as the one below the price block. By the
+            time a shopper reaches this point they've usually picked a
+            size, so this is the more likely of the two to actually get
+            tapped. */}
+        <div className="w-full mt-3 px-4 md:px-0">
+          <PdpCtaRow
+            isOffline={isOffline}
+            storeCanOrder={storeCanOrder}
+            isClosed={isClosed}
+            onNotify={handleNotify}
+            onBuyNow={handleBuyNow}
+            onAddToBag={handleAddToBag}
+            testIdSuffix="-below-size"
+          />
+        </div>
       </div>
 
       {/* ── Below-fold trust/logistics signals + pickup + banners ── */}
@@ -442,6 +369,16 @@ export function ProductDetailPanel({
             opening-time element for the page. */}
         <div className="px-4 md:px-0">
           <DeliveryServiceability etaMin={etaMin} isClosed={isClosed} opensAtLabel={storeOpensAtLabel} />
+        </div>
+
+        {/* Two-tier trust signals, tier 1 — compact icon+headline+
+            description rows, near delivery info (see TrustSignalsCompact's
+            own doc comment). Replaces the old single-row 3-icon strip that
+            used to sit near the top of the page. Tier 2 (larger illustrated
+            badges) lives near the specs/description section instead — see
+            page.tsx. */}
+        <div className="mt-2.5 px-4 md:px-0">
+          <TrustSignalsCompact />
         </div>
 
         {/* Hyperlocal social proof — renders nothing below the 5-order
@@ -538,44 +475,6 @@ export function ProductDetailPanel({
         )}
       </div>
 
-      {/* ── Price + CTA. This price is deliberately NOT the same thing as
-          the browsing price up in the title block: that one is the
-          per-unit price (for comparing/deciding), this one is the
-          qty-adjusted total (for checking out) — the "Total" label makes
-          that distinction explicit instead of the two numbers reading as
-          an accidental duplicate whenever qty is 1 and they happen to
-          match.
-
-          Two renders, not one: below lg: it's a FIXED bar stacked directly
-          above StickyBottomNav's own h-14 icon row — the 3.5rem in the
-          `bottom` calc IS that h-14 (56px), kept in sync manually since
-          the two components don't share a measured-height store; if
-          StickyBottomNav's icon-only height ever changes, this must move
-          with it. No safe-area padding here — the nav bar below is the
-          true bottom-most element now, so IT carries the safe-area inset
-          (see its own inline style); this bar only needs its own normal
-          vertical padding. At lg:+ (StickyBottomNav hidden), this reverts
-          to a normal in-flow row at the bottom of the sticky panel. ── */}
-      <div
-        className="lg:hidden fixed inset-x-0 z-40 bg-white border-t border-warm-gray-border px-4 py-2.5 flex items-center justify-between gap-4"
-        style={{ bottom: "calc(3.5rem + max(0.25rem, env(safe-area-inset-bottom)))" }}
-        data-testid="price-cta-bar-mobile"
-      >
-        <div className="shrink-0">
-          <p className="text-xs text-slate-gray">Total</p>
-          <p className="text-xl font-bold text-ink-navy" data-testid="total-price-mobile">₹{totalPrice.toLocaleString("en-IN")}</p>
-        </div>
-        <div className="flex-1 max-w-[220px]">{ctaContent("single")}</div>
-      </div>
-
-      <div className="hidden lg:flex mt-6 py-4 border-t border-warm-gray-border items-center justify-between gap-4" data-testid="price-cta-row">
-        <div className="shrink-0">
-          <p className="text-xs text-slate-gray">Total</p>
-          <p className="text-xl font-bold text-ink-navy" data-testid="total-price">₹{totalPrice.toLocaleString("en-IN")}</p>
-        </div>
-        <div className="flex-1 max-w-[280px]">{ctaContent("dual")}</div>
-      </div>
-
       {/* ── Pickup sheet (fixed, only while open — not persistent chrome) ── */}
       {showPickupSheet && (
         <>
@@ -598,9 +497,9 @@ export function ProductDetailPanel({
                   <div className="flex gap-3 p-4 bg-[#FDFBF7] rounded-2xl border border-[#E5E2DC] mb-4">
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-[#0A1F5C] text-sm">{product.name}</div>
-                      <div className="text-[#595959] text-xs mt-0.5">Qty: {qty}{size ? ` · Size: ${size}` : ""}</div>
+                      {size && <div className="text-[#595959] text-xs mt-0.5">Size: {size}</div>}
                     </div>
-                    <div className="font-bold text-[#0A1F5C]">₹{totalPrice.toLocaleString()}</div>
+                    <div className="font-bold text-[#0A1F5C]">₹{product.price.toLocaleString()}</div>
                   </div>
                   {product.sizes && product.sizes.length > 0 && (
                     <div className="mb-4">
@@ -608,7 +507,7 @@ export function ProductDetailPanel({
                       <div className="flex flex-wrap gap-2">
                         {product.sizes.map((s) => (
                           <button key={s} onClick={() => setSize(s)}
-                            className={`w-12 h-12 rounded-full text-sm font-semibold border transition ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
+                            className={`${SIZE_PILL_BASE} ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
                             {s}
                           </button>
                         ))}

@@ -14,10 +14,16 @@
  * THE single delivery/opening-time element for the whole PDP — there used
  * to be four separate places restating this (a near-price "Available from
  * X" pill, this box, a "Closed" orange pill, and a specs-grid row). All the
- * others were removed; this box now owns both the open-store message
- * ("delivers to X in ~N min") and the closed-store message ("opens at X ·
- * delivers after it opens"), toggled by `isClosed` — never both at once,
+ * others were removed; this box now owns both the open-store message and
+ * the closed-store message, toggled by `isClosed` — never both at once,
  * never orange (that read as an alert; this is routine status).
+ *
+ * Compressed to icon + short bold text only ("~45 min" / "Opens 9:30 AM")
+ * — "delivers to [address label] in" was dropped entirely, it's implied by
+ * context (this box only ever appears on a page about ordering one
+ * product to one address). The closed-state duplicated-string bug fix
+ * ("opens at Opens at 9:30 AM") stays exactly as it was; this only
+ * shortens the surrounding phrasing, not the underlying label parsing.
  *
  * Styled as a compact ambient status line (hairline border, white bg, small
  * bare icon, single line) rather than a filled pill — it's secondary
@@ -69,13 +75,11 @@ export function DeliveryServiceability({
     );
   }
 
-  const areaLabel = hasConfirmedAddress && area ? area : "Bhilai";
-
   // `opensAtLabel` arrives from the backend already as a full phrase
   // ("Opens at 9:30 AM" / "Opens tomorrow at 9:30 AM") — prefixing another
   // "opens at" in front of it was the duplicated-string bug ("opens at
   // Opens at 9:30 AM"). Strip the leading "Opens" so this component owns
-  // the single lowercase "opens" that opens the sentence, whichever form
+  // the single "Opens" that starts the compressed label, whichever form
   // the backend sent.
   const opensAtTime = opensAtLabel ? opensAtLabel.replace(/^Opens\s+/, "").trim() : null;
 
@@ -86,13 +90,9 @@ export function DeliveryServiceability({
     >
       <Bike size={14} className="text-slate-gray shrink-0" />
       {isClosed ? (
-        <span className="text-xs text-slate-gray">
-          opens {opensAtTime || "soon"} · delivers after it opens
-        </span>
+        <span className="text-xs font-bold text-ink-navy">Opens {opensAtTime || "soon"}</span>
       ) : (
-        <span className="text-xs text-slate-gray">
-          delivers to <span className="font-semibold text-ink-navy">{areaLabel}</span> in ~{etaMin} min
-        </span>
+        <span className="text-xs font-bold text-ink-navy">~{etaMin} min</span>
       )}
     </div>
   );

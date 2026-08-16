@@ -1,9 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { ChevronLeft, ChevronRight, ShoppingBag, Sparkles } from "lucide-react";
+import { toast } from "sonner";
+import { ChevronLeft, ChevronRight, Heart, Share2, ShoppingBag, Sparkles } from "lucide-react";
 import { RibbonTag } from "./RibbonTag";
+import { useWishlistStore } from "@/stores";
+import type { Product } from "@/types";
 
 interface ProductGalleryProps {
   name: string;
@@ -24,6 +27,10 @@ interface ProductGalleryProps {
    *  data model yet; defaults to false (never render) until a merchant/
    *  admin flag for this exists. */
   isCleanBackground?: boolean;
+  /** Needed for the wishlist toggle in the icon row below the gallery —
+   *  see that row's own comment for why it lives here again instead of
+   *  overlaid on the image. */
+  product: Product;
 }
 
 export function ProductGallery({
@@ -34,10 +41,40 @@ export function ProductGallery({
   tryAndBuy = false,
   fit = null,
   isCleanBackground = false,
+  product,
 }: ProductGalleryProps) {
   const [imgIdx, setImgIdx] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isWishlisted = useWishlistStore((s) => s.isWishlisted(product.id));
+  const toggleWishlist = useWishlistStore((s) => s.toggle);
+  const [wished, setWished] = useState(false);
+  useEffect(() => { setWished(isWishlisted); }, [isWishlisted]);
+  const handleWishlist = () => {
+    const next = toggleWishlist(product);
+    const justAdded = next.some((x) => x.id === product.id);
+    setWished(justAdded);
+    toast.success(justAdded ? "Saved to wishlist" : "Removed from wishlist");
+  };
+
+  const handleShare = async () => {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: name, url });
+        return;
+      }
+    } catch {
+      return; // user cancelled the native share sheet — not an error
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copied");
+    } catch {
+      toast.error("Could not copy link");
+    }
+  };
 
   const goTo = (i: number) => {
     const el = scrollRef.current;
@@ -225,15 +262,55 @@ export function ProductGallery({
         )}
       </div>
 
-      {/* AI Enhanced badge — overlays both layouts, top-right. Wishlist
-          moved to the title block (next to the qty stepper) and the back
-          button was removed (bottom nav + OS back gesture are enough) — the
-          image itself now carries no persistent chrome except this badge. */}
+      {/* AI Enhanced badge — overlays both layouts, top-right. Wishlist and
+          the back button were both removed from the image itself (bottom
+          nav + OS back gesture cover "back"; wishlist moved to the icon
+          row below and to ConsumerHeader) — this badge is the only thing
+          still overlaid on the photo. */}
       {aiEnhanced && (
         <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-full bg-[#0A1F5C] text-white text-[11px] font-semibold flex items-center gap-1.5 pointer-events-none">
           <Sparkles size={11} className="text-[#E68910]" /> AI Enhanced
         </div>
       )}
+
+      {/* Icon row, below the gallery, in normal document flow — NOT
+          overlaid on the image. Plain icon buttons (no circle background),
+          minimal visual weight, matching the compact reference pattern
+          rather than a floating isolated button. This is the
+          product-specific wishlist toggle; ConsumerHeader's own wishlist
+          icon is a plain nav link to /wishlist, not a per-product toggle,
+          so the two don't duplicate the same job.
+
+          relative z-20: page.tsx's ProductDetailPanel wrapper pulls itself
+          up with a negative margin (-mt-5) to slide its rounded top corner
+          over the image card's own rounded bottom corners — that effect
+          was designed when the image card was the last thing ProductGallery
+          rendered. Now this icon row renders after it, in the same
+          -mt-5 overlap zone, so without a higher z-index than that
+          wrapper's z-10 it would render UNDER the panel and disappear. ── */}
+      <div className="relative z-20 flex items-center gap-5 px-4 md:px-0 mt-3">
+        <button
+          type="button"
+          aria-label="Wishlist"
+          aria-pressed={wished}
+          data-testid="wishlist-btn"
+          onClick={handleWishlist}
+          className="flex items-center gap-1.5 text-ink-navy active:scale-95 transition"
+        >
+          <Heart size={18} className={wished ? "text-orange-500" : "text-ink-navy"} fill={wished ? "currentColor" : "none"} />
+          <span className="text-xs font-medium">{wished ? "Saved" : "Save"}</span>
+        </button>
+        <button
+          type="button"
+          aria-label="Share"
+          data-testid="share-btn"
+          onClick={() => void handleShare()}
+          className="flex items-center gap-1.5 text-ink-navy active:scale-95 transition"
+        >
+          <Share2 size={17} />
+          <span className="text-xs font-medium">Share</span>
+        </button>
+      </div>
     </div>
   );
 }
