@@ -143,10 +143,6 @@ const FOR_HIM_TILES: GenderTileSpec[] = [
 
 interface ResolvedGenderTile { key: string; href: string; image: string | null; label: string; minPrice: number | null }
 
-function formatFromPrice(n: number): string {
-  return `from ₹${Math.round(n).toLocaleString("en-IN")}`;
-}
-
 // Ethnic/Footwear/Lingerie tiles target the L2s already nested under
 // l1-women / l1-men (l2-women-ethnic, l2-men-footwear, etc.) rather than
 // the standalone l1-ethnic/l1-footwear/l1-lingerie categories or the
@@ -182,51 +178,44 @@ function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[])
   return out;
 }
 
-// 4×2 shoppable grid (all 8 tiles always visible, no horizontal scroll) —
-// a LIGHT NAVIGATION card, not the dark promotional overlay used by the
-// price bentos: the photo stays clean (no gradient scrim), the "from ₹X"
-// price pill sits overlaid bottom-left directly ON the image (its own
-// solid orange fill + shadow so it stays legible over a light or busy
-// photo), and the category name sits below the image on the page's cream
-// background in bold navy. This is what distinguishes NAVIGATION tiles
-// (For Her/Him, Shop by Area) from PROMOTIONAL tiles (the price bentos,
-// which keep the dark-gradient overlay + white-on-image text) — light card
-// = "browse a category", dark overlay = "here's a deal".
+// Small circular category avatars — the same visual scale/shape as
+// category_pills' own mobile tile strip above (w-16 h-16 circle, label
+// centered below), reused here instead of the large aspect-[3/4]
+// rectangular cards this section used to render. Those rectangular cards
+// (roughly half-width each) made this a tall, heavy section; a horizontal-
+// scroll row of small circles reads as "quick filters within For Her/Him"
+// rather than a second full product-card-scale grid competing with the
+// actual product rails below it. No price pill overlay anymore either —
+// a price badge doesn't sit well on a circular crop, and category_pills'
+// own avatars don't carry one, so dropping it keeps the two patterns
+// actually consistent rather than just visually similar.
 function GenderBentoSection({ id, title, tiles }: { id: string; title: string; tiles: ResolvedGenderTile[] }) {
   if (tiles.length === 0) return null;
   return (
     <div key={id} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid={`home-${id}`}>
       <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">{title}</h2>
 
-      <div className="grid grid-cols-3 min-[360px]:grid-cols-4 gap-x-3 gap-y-4 sm:gap-x-4">
+      <div className="flex gap-4 overflow-x-auto no-scrollbar pb-1">
         {tiles.map((t) => (
           <Link key={t.key} href={t.href} data-testid={`${id}-tile-${t.key}`}
-            className="group flex flex-col gap-1.5 active:scale-95 transition">
-            <div className="relative aspect-[3/4] rounded-card overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] bg-surface-tint">
+            className="flex-shrink-0 w-16 flex flex-col items-center gap-1.5 active:scale-95 transition">
+            <div className="relative w-16 h-16 rounded-full overflow-hidden bg-surface-tint border border-[#E5E2DC]">
               {t.image ? (
                 <img
-                  src={cloudinaryOptimize(t.image, "w_300,q_auto,f_auto")}
+                  src={cloudinaryOptimize(t.image, "w_128,q_auto,f_auto")}
                   alt={t.label}
                   loading="lazy"
-                  className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+                  className="absolute inset-0 w-full h-full object-cover"
                 />
               ) : (
-                // No CMS/category image yet — a quiet cream placeholder, own
-                // orange accent mark, no label duplicated here (the name
-                // already lives below the image for every tile).
+                // No CMS/category image yet — a quiet cream placeholder,
+                // own orange accent mark. Name still renders below.
                 <div className="absolute inset-0 flex items-center justify-center" data-testid={`${id}-blank-${t.key}`}>
-                  <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center">
-                    <Sparkles size={15} className="text-brand-accent" />
-                  </div>
+                  <Sparkles size={15} className="text-brand-accent" />
                 </div>
               )}
-              {t.minPrice != null && (
-                <span className="absolute bottom-2 left-2 inline-flex items-center rounded-pill bg-brand-accent px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-[0_1px_4px_rgba(0,0,0,0.3)]" data-testid={`${id}-price-${t.key}`}>
-                  {formatFromPrice(t.minPrice)}
-                </span>
-              )}
             </div>
-            <span className="text-[12.5px] font-bold text-brand-primary text-center leading-tight line-clamp-1">{t.label}</span>
+            <span className="text-[11px] font-semibold text-brand-primary text-center w-16 leading-tight line-clamp-2">{t.label}</span>
           </Link>
         ))}
       </div>
@@ -948,15 +937,23 @@ export function HomeClient() {
           onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
           className="block"
         >
-          <div className="bg-[#0A1F5C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-white font-bold text-sm leading-tight">
-                Own a store in Bhilai?
-              </p>
-              <p className="text-white/60 text-xs mt-0.5">
-                Join Lokl — list your products for free
-              </p>
-            </div>
+          {/* Single line of copy, not a stacked title+subtitle — the old
+              two-line version ("Own a store in Bhilai?" / "Join Lokl —
+              list your products for free") made the subtitle wrap to a
+              third line on narrow phones, which is what made the banner
+              read as too thick. First attempt at a merged one-liner
+              ("Own a store in Bhilai? List free on Lokl") still measured
+              too long for the ~183px of text width actually left over
+              once the "Join free →" pill and its gap are accounted for at
+              375px — it truncated with an ellipsis instead of fitting.
+              Just the original headline reliably fits at that width; the
+              "free" part isn't lost, it's already carried by the Join
+              free button right next to it. Tighter vertical padding
+              (py-3, was py-4) now that there's only one line of text. */}
+          <div className="bg-[#0A1F5C] rounded-2xl px-5 py-3 flex items-center justify-between gap-4">
+            <p className="min-w-0 text-white font-bold text-sm leading-tight truncate">
+              Own a store in Bhilai?
+            </p>
             <div className="flex-shrink-0 flex items-center gap-2 bg-[#E68910] text-white text-xs font-bold px-3 py-2 rounded-xl">
               <span>Join free</span>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

@@ -1,12 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import Image from "next/image";
-import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Heart, Share2, ShoppingBag, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, ShoppingBag, Sparkles } from "lucide-react";
 import { RibbonTag } from "./RibbonTag";
-import { useWishlistStore } from "@/stores";
-import type { Product } from "@/types";
 
 interface ProductGalleryProps {
   name: string;
@@ -27,10 +24,6 @@ interface ProductGalleryProps {
    *  data model yet; defaults to false (never render) until a merchant/
    *  admin flag for this exists. */
   isCleanBackground?: boolean;
-  /** Needed for the wishlist toggle in the icon row below the gallery —
-   *  see that row's own comment for why it lives here again instead of
-   *  overlaid on the image. */
-  product: Product;
 }
 
 export function ProductGallery({
@@ -41,40 +34,10 @@ export function ProductGallery({
   tryAndBuy = false,
   fit = null,
   isCleanBackground = false,
-  product,
 }: ProductGalleryProps) {
   const [imgIdx, setImgIdx] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const isWishlisted = useWishlistStore((s) => s.isWishlisted(product.id));
-  const toggleWishlist = useWishlistStore((s) => s.toggle);
-  const [wished, setWished] = useState(false);
-  useEffect(() => { setWished(isWishlisted); }, [isWishlisted]);
-  const handleWishlist = () => {
-    const next = toggleWishlist(product);
-    const justAdded = next.some((x) => x.id === product.id);
-    setWished(justAdded);
-    toast.success(justAdded ? "Saved to wishlist" : "Removed from wishlist");
-  };
-
-  const handleShare = async () => {
-    const url = typeof window !== "undefined" ? window.location.href : "";
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: name, url });
-        return;
-      }
-    } catch {
-      return; // user cancelled the native share sheet — not an error
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success("Link copied");
-    } catch {
-      toast.error("Could not copy link");
-    }
-  };
 
   const goTo = (i: number) => {
     const el = scrollRef.current;
@@ -119,20 +82,32 @@ export function ProductGallery({
   return (
     <div data-testid="pdp-image" className="relative">
 
-      {/* ── MOBILE: near-full-bleed — a user report that the previous short
-          h-[22vh] crop only showed the upper chest of a garment (object-cover
-          on a too-short box crops aggressively) is why this is now a real
-          aspect ratio (aspect-[3/4], taller than desktop's 4/5) at full
-          width with no inset padding, instead of a padded tray at a capped
-          viewport-height fraction. object-cover still crops to fill the
-          box, but a proper portrait aspect ratio needs far less cropping to
-          show a full top-to-hem garment shot than a squat 22vh strip did.
-          bg-cream-warm is now just a loading-state fallback color, not a
-          visible tray — the image fills the box edge to edge. Rounded only
-          at the bottom (rounded-b-[20px]), matching the "sheet slides up
-          over the image" effect the content panel below still does.
-          Desktop keeps its own unchanged aspect-[4/5] two-column layout
-          (see below) — this is mobile-only. ── */}
+      {/* ── MOBILE: capped at ~46% of viewport height — went through three
+          passes before landing here. First was a short h-[22vh] padded tray
+          that cropped a full-length garment down to just the upper chest.
+          The fix for that swapped to a real portrait aspect ratio
+          (aspect-[3/4]) at full width with no height cap at all, which
+          fixed the crop but pushed title/price/size entirely below the
+          fold. h-[58vh] (the initial "roughly 55-60%" target) still wasn't
+          short enough once StickyBottomNav is factored in: that nav is
+          fixed at the true bottom of the viewport and covers its own ~64px
+          strip regardless of scroll position, so the effective visible
+          fold on a 667px-tall phone is really ~603px, not 667. Measured
+          against that real budget, h-[46vh] is what actually gets price
+          fully visible and the "Size" label peeking above the nav without
+          scrolling, while still showing enough of the photo that a full
+          flat-lay/full-length shot doesn't read as cropped (object-cover
+          on a ~46vh box crops far less than the old 22vh one did — verified
+          against both a torso-crop photo and a full garment-on-hanger
+          shot). No aspect-ratio class here — height is the fixed dimension,
+          width is always 100%, object-cover fills whatever crop that
+          implies for a given photo's own aspect ratio. bg-cream-warm is
+          just a loading-state fallback color, not a visible tray — the
+          image fills the box edge to edge. Rounded only at the bottom
+          (rounded-b-[20px]), matching the "sheet slides up over the image"
+          effect the content panel below still does. Desktop keeps its own
+          unchanged aspect-[4/5] two-column layout (see below) — this is
+          mobile-only. ── */}
       <div className="md:hidden relative bg-cream-warm rounded-b-[20px] overflow-hidden">
         <div
           ref={scrollRef}
@@ -140,7 +115,7 @@ export function ProductGallery({
           className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory"
         >
           {images.map((img, i) => (
-            <div key={i} className="relative snap-start shrink-0 w-full aspect-[3/4] bg-white">
+            <div key={i} className="relative snap-start shrink-0 w-full h-[46vh] bg-white">
               <Image
                 src={img}
                 alt={`${name} ${i + 1}`}
@@ -258,58 +233,14 @@ export function ProductGallery({
 
       {/* AI Enhanced badge — overlays both layouts, top-right. Wishlist and
           the back button were both removed from the image itself (bottom
-          nav + OS back gesture cover "back"; wishlist moved to the icon
-          row below and to ConsumerHeader) — this badge is the only thing
-          still overlaid on the photo. */}
+          nav + OS back gesture cover "back"; wishlist/share now live as
+          icon-only buttons in PdpCtaRow, beside Add to bag) — this badge is
+          the only thing still overlaid on the photo. */}
       {aiEnhanced && (
         <div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-full bg-[#0A1F5C] text-white text-[11px] font-semibold flex items-center gap-1.5 pointer-events-none">
           <Sparkles size={11} className="text-[#E68910]" /> AI Enhanced
         </div>
       )}
-
-      {/* Icon row, below the gallery, in normal document flow — NOT
-          overlaid on the image. Plain icon buttons (no circle background),
-          minimal visual weight, matching the compact reference pattern
-          rather than a floating isolated button. This is the
-          product-specific wishlist toggle; ConsumerHeader's own wishlist
-          icon is a plain nav link to /wishlist, not a per-product toggle,
-          so the two don't duplicate the same job.
-
-          Right-aligned (justify-end) — was left-aligned, sitting directly
-          above ProductDetailPanel's store-name row and reading as if it
-          collided with/sat on top of it. Right-aligning puts it in its own
-          clear corner of that horizontal band instead.
-
-          relative z-20: page.tsx's ProductDetailPanel wrapper pulls itself
-          up with a negative margin (-mt-5) to slide its rounded top corner
-          over the image card's own rounded bottom corners — that effect
-          was designed when the image card was the last thing ProductGallery
-          rendered. Now this icon row renders after it, in the same
-          -mt-5 overlap zone, so without a higher z-index than that
-          wrapper's z-10 it would render UNDER the panel and disappear. ── */}
-      <div className="relative z-20 flex items-center justify-end gap-5 px-4 md:px-0 mt-3">
-        <button
-          type="button"
-          aria-label="Wishlist"
-          aria-pressed={wished}
-          data-testid="wishlist-btn"
-          onClick={handleWishlist}
-          className="flex items-center gap-1.5 text-ink-navy active:scale-95 transition"
-        >
-          <Heart size={18} className={wished ? "text-orange-500" : "text-ink-navy"} fill={wished ? "currentColor" : "none"} />
-          <span className="text-xs font-medium">{wished ? "Saved" : "Save"}</span>
-        </button>
-        <button
-          type="button"
-          aria-label="Share"
-          data-testid="share-btn"
-          onClick={() => void handleShare()}
-          className="flex items-center gap-1.5 text-ink-navy active:scale-95 transition"
-        >
-          <Share2 size={17} />
-          <span className="text-xs font-medium">Share</span>
-        </button>
-      </div>
     </div>
   );
 }

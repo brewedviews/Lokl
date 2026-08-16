@@ -320,7 +320,7 @@ export function ProductDetailPanel({
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
               {product.sizes.map((s) => (
                 <button key={s} onClick={() => setSize(s)} data-testid={`size-${s}`}
-                  className={`shrink-0 ${SIZE_PILL_BASE} ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
+                  className={`shrink-0 ${SIZE_PILL_BASE} ${size === s ? "bg-brand-accent text-white border-brand-accent" : "bg-white text-ink-navy border-ink-navy"}`}>
                   {s}
                 </button>
               ))}
@@ -361,14 +361,22 @@ export function ProductDetailPanel({
         {/* The only CTA row on the page — directly below the size
             selector. An earlier version also had one directly below the
             price block; user testing called that a duplicate and it's
-            gone now. */}
-        <div className="w-full mt-3 px-4 md:px-0">
+            gone now.
+
+            No px-4 here — this div already lives inside the outer
+            `flex ... px-4 md:px-0` wrapper above, which pads Size/title/
+            price too. Adding a second px-4 on this div nested inside that
+            already-padded one double-applied the padding, so the row sat
+            ~16px further right than everything above it. w-full + mt-3
+            only; left edge now lines up exactly with Size/title/price. */}
+        <div className="w-full mt-3">
           <PdpCtaRow
             isOffline={isOffline}
             storeCanOrder={storeCanOrder}
             isClosed={isClosed}
             productId={product.id}
             size={size ?? ""}
+            product={product}
             onNotify={handleNotify}
             onBuyNow={handleBuyNow}
             onAddToBag={handleAddToBag}
@@ -522,7 +530,7 @@ export function ProductDetailPanel({
                       <div className="flex flex-wrap gap-2">
                         {product.sizes.map((s) => (
                           <button key={s} onClick={() => setSize(s)}
-                            className={`${SIZE_PILL_BASE} ${size === s ? "bg-near-black text-white border-near-black" : "bg-white text-ink-navy border-ink-navy"}`}>
+                            className={`${SIZE_PILL_BASE} ${size === s ? "bg-brand-accent text-white border-brand-accent" : "bg-white text-ink-navy border-ink-navy"}`}>
                             {s}
                           </button>
                         ))}

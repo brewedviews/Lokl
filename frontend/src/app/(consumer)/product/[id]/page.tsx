@@ -102,7 +102,6 @@ export default async function ProductDetailPage(
           {/* Left — gallery scrolls normally; buy box (right) is the sticky one */}
           <div>
             <ProductGallery
-              product={product}
               name={product.name}
               images={images}
               aiEnhanced={product.ai_enhanced}
