@@ -64,7 +64,7 @@ const PUBLIC = ["/merchant/login", "/merchant/register", "/"];
 const APPROVED_ONLY = [
   "/merchant/orders", "/merchant/storefront", "/merchant/bank",
   "/merchant/products", "/merchant/analytics", "/merchant/subscription",
-  "/merchant/vasyerp",
+  "/merchant/integrations",
 ];
 
 export default function MerchantLayout({ children }: { children: React.ReactNode }) {
@@ -218,7 +218,7 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
         { to: "/merchant/products",     label: "Products",        icon: Package },
         { to: "/merchant/analytics",    label: "Sales analytics", icon: BarChart3 },
         { to: "/merchant/storefront",   label: "Storefront",      icon: Store },
-        { to: "/merchant/vasyerp",      label: "VasyERP",         icon: Boxes },
+        { to: "/merchant/integrations", label: "Integrations",    icon: Boxes },
         { to: "/merchant/bank",         label: "Bank details",    icon: Landmark },
         { to: "/merchant/subscription", label: "Subscription",    icon: Crown, disabled: true },
       ]
