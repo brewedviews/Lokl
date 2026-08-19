@@ -2505,6 +2505,18 @@ async def list_l2(l1_id: str):
     return await db.subcategories.find({"l1_id": l1_id}, {"_id": 0}).to_list(50)
 
 
+# Simple in-memory TTL cache for stores_in_category — see that endpoint's
+# own doc comment for why this one specifically got a cache when nothing
+# else in this file has one. Keyed by (l1_id, limit); {expires_at, value}.
+# Deliberately NOT a general-purpose cache utility — this endpoint is the
+# one flagged as an actual measured navigation-speed contributor (three
+# sequential DB round-trips: _availability_map's own store scan, the
+# products aggregation, the stores lookup), not a speculative add-it-
+# everywhere pattern.
+_STORES_IN_CATEGORY_CACHE: dict[tuple[str, int], dict] = {}
+_STORES_IN_CATEGORY_TTL = timedelta(minutes=3)
+
+
 @api.get("/categories/{l1_id}/stores")
 async def stores_in_category(l1_id: str, limit: int = 10):
     """Stores with at least one visible product in this L1 — powers the
@@ -2519,12 +2531,22 @@ async def stores_in_category(l1_id: str, limit: int = 10):
     shouldn't outrank an open one just because it happens to stock more
     of this category.
 
-    Ships uncached. No endpoint in this codebase caches an aggregation
-    today (grep for lru_cache/TTLCache turns up nothing) — this one is no
-    more expensive than /categories/counts, which is also uncached, so
-    it's consistent to leave it that way for now. Flag as a follow-up if
-    this L1-scoped aggregation becomes a measured load concern.
+    3-minute in-memory TTL cache, keyed by (l1_id, limit) — this data
+    doesn't need to be real-time (a store's product count or open/closed
+    status shifting doesn't need to reflect within the same few minutes),
+    and this was the one endpoint the /c/[slug] navigation-speed audit
+    flagged as a real contributor: three sequential DB round-trips per
+    request (_availability_map's own store scan, the products
+    aggregation, the stores lookup) with no caching. No other endpoint in
+    this file caches anything — this is a targeted fix for a measured
+    cost, not a new general pattern being introduced everywhere.
     """
+    cache_key = (l1_id, limit)
+    cached = _STORES_IN_CATEGORY_CACHE.get(cache_key)
+    now = datetime.now(timezone.utc)
+    if cached and cached["expires_at"] > now:
+        return cached["value"]
+
     avail_map = await _availability_map()
     sids = list(avail_map.keys())
     if not sids:
@@ -2537,6 +2559,7 @@ async def stores_in_category(l1_id: str, limit: int = 10):
     async for row in db.products.aggregate(pipeline):
         counts[row["_id"]] = int(row["product_count"] or 0)
     if not counts:
+        _STORES_IN_CATEGORY_CACHE[cache_key] = {"value": [], "expires_at": now + _STORES_IN_CATEGORY_TTL}
         return []
     store_ids = list(counts.keys())
     stores = await db.stores.find(
@@ -2554,7 +2577,9 @@ async def stores_in_category(l1_id: str, limit: int = 10):
         if avail.get("opens_at_label"):
             s["next_open_label"] = avail["opens_at_label"]
     stores.sort(key=lambda s: (s.get("availability_rank", 4), -s.get("product_count", 0)))
-    return stores[:limit]
+    result = stores[:limit]
+    _STORES_IN_CATEGORY_CACHE[cache_key] = {"value": result, "expires_at": now + _STORES_IN_CATEGORY_TTL}
+    return result
 
 
 # ============ Lokl V2 — Site CMS ============

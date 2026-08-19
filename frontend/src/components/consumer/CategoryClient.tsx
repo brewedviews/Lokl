@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { ProductCard } from "@/components/consumer/ProductCard";
@@ -58,6 +59,41 @@ function SkeletonGrid() {
   );
 }
 
+// Product-rail skeleton — same card slot width HCarousel's own children
+// wrapper uses (w-[38vw] sm:w-[180px] md:w-[200px]) so the placeholder
+// cards don't jump in size once real ProductCards replace them.
+function RailSkeleton({ title }: { title: string }) {
+  return (
+    <section className="pt-8">
+      <div className="max-w-7xl mx-auto px-4 md:px-8 mb-3">
+        <div className="h-6 w-40 bg-[#E5E2DC] rounded animate-pulse" />
+      </div>
+      <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 md:px-8 max-w-7xl mx-auto" aria-label={title}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="shrink-0 w-[38vw] sm:w-[180px] md:w-[200px] aspect-[3/4] rounded-2xl bg-[#E5E2DC] animate-pulse" />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// Store-rail skeleton — same card slot SellerCard itself uses
+// (w-32 sm:w-36 aspect-[3/4]).
+function StoreRailSkeleton() {
+  return (
+    <section className="pt-8">
+      <div className="max-w-7xl mx-auto px-4 md:px-8 mb-3">
+        <div className="h-6 w-40 bg-[#E5E2DC] rounded animate-pulse" />
+      </div>
+      <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 md:px-8 max-w-7xl mx-auto">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="shrink-0 w-32 sm:w-36 aspect-[3/4] rounded-2xl bg-[#E5E2DC] animate-pulse" />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function CategoryClient() {
   // L2 deep-link: /c/{l1-slug}/{l2-slug} (route segment) OR /c/{l1-slug}?l2={l2-slug}
   // (query param) both pre-select the L2 filter on load — used by the
@@ -67,64 +103,42 @@ export function CategoryClient() {
   const slug = params.slug;
   const l2FromUrl = params.l2slug?.[0] || searchParams.get("l2") || "";
 
-  const [cats, setCats] = useState<Cat[]>([]);
-  const [subcategories, setSubcategories] = useState<L2[]>([]);
-  const [allProducts, setAllProducts] = useState<ProductCardType[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [sort, setSort] = useState<SortKey>("nearest");
   const [l2Filter, setL2Filter] = useState(""); // slug
-  // Curated rails — see the fetch effect below for why these use
-  // /api/products directly (sort=rating / sort=price_desc) rather than
-  // the home-products aggregated feed (which has no l1 filter at all).
-  const [bestsellers, setBestsellers] = useState<ProductCardType[]>([]);
-  const [premiumPicks, setPremiumPicks] = useState<ProductCardType[]>([]);
-  // Stores rail — see the fetch effect below for the new endpoint this reads.
-  const [l1Stores, setL1Stores] = useState<CategoryStore[]>([]);
+  useEffect(() => { setL2Filter(l2FromUrl); }, [slug, l2FromUrl]);
+
+  // Every fetch below is now a useQuery, keyed so that switching L1 (or
+  // L2 filter, or sort) is a query-KEY change, not a value mutated in
+  // place — React Query scopes `data` to its own key automatically, so
+  // there's no more "previous category's data paints under the new
+  // heading for a frame" risk to guard against by hand (an earlier
+  // version of this file had a whole "reset state during render" block
+  // for exactly that, now unnecessary and removed) — and switching BACK
+  // to an L1 visited earlier in the session serves its still-fresh
+  // cached data instantly instead of re-fetching, which is the real
+  // navigation-speed win here, not just parallelizing the first visit.
+  //
+  // ["categories"] is the SAME key CategoryTileRow's own useQuery uses
+  // (see that component's doc comment) — one shared cached request for
+  // data that "only admin uploads change" (per the earlier structural
+  // audit), not two independent fetches of it.
+  const { data: cats = [] } = useQuery({
+    queryKey: ["categories"],
+    queryFn: () => api.catalog.categories() as Promise<Cat[]>,
+    staleTime: 5 * 60_000,
+  });
 
   const l1 = useMemo(() => cats.find((c) => c.slug === slug), [cats, slug]);
 
-  // This component isn't remounted across /c/women -> /c/men navigations
-  // (same instance, `slug` just changes via useParams()) — so without this,
-  // the PREVIOUS category's allProducts/isLoading/subcategories would still
-  // be sitting in state and paint under the NEW category's heading for a
-  // frame, before the products-fetch effect below even gets a chance to
-  // re-fire (including showing "coming soon" if the previous category
-  // happened to be empty, or just the wrong product grid otherwise).
-  //
-  // Resetting via a plain `useEffect` wouldn't be enough — effects run
-  // AFTER React has already committed and the browser may have already
-  // painted the stale frame. Adjusting state directly during render (React's
-  // own documented pattern for "reset state when a prop changes") makes the
-  // reset part of the SAME render pass as the slug change, so the stale
-  // frame is never produced in the first place — see
-  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
-  const [prevSlug, setPrevSlug] = useState(slug);
-  if (slug !== prevSlug) {
-    setPrevSlug(slug);
-    setIsLoading(true);
-    setAllProducts([]);
-    setSubcategories([]);
-    setBestsellers([]);
-    setPremiumPicks([]);
-    setL1Stores([]);
-  }
-
-  useEffect(() => { setL2Filter(l2FromUrl); }, [slug, l2FromUrl]);
-
-  useEffect(() => {
-    api.catalog.categories().then((r) => setCats(r as Cat[])).catch(() => {});
-  }, []);
-
-  // Fetch L2 subcategories for this L1 — backend returns array directly from /l2
-  useEffect(() => {
-    if (!l1) return;
-    apiClient.get(`/api/categories/${l1.id}/l2`)
-      .then(r => {
-        const subs = Array.isArray(r.data) ? r.data : (r.data?.subcategories || []);
-        setSubcategories(subs.length > 0 ? subs : (l1.l2 ?? []));
-      })
-      .catch(() => setSubcategories(l1.l2 ?? []));
-  }, [l1?.id]);
+  const { data: subcategories = [] } = useQuery({
+    queryKey: ["category-l2", l1?.id],
+    queryFn: async () => {
+      const r = await apiClient.get(`/api/categories/${l1!.id}/l2`);
+      const subs = Array.isArray(r.data) ? r.data : (r.data?.subcategories || []);
+      return (subs.length > 0 ? subs : (l1!.l2 ?? [])) as L2[];
+    },
+    enabled: !!l1,
+  });
 
   // l2FilterId — converts slug to DB id for the products API
   const l2FilterId = useMemo(() => {
@@ -133,19 +147,18 @@ export function CategoryClient() {
     return sub?.id ?? "";
   }, [l2Filter, subcategories, l1]);
 
-  useEffect(() => {
-    if (!l1) return;
-    setIsLoading(true);
-    const p = new URLSearchParams({ l1: l1.id });
-    if (l2FilterId) p.set("l2", l2FilterId);
-    if (sort === "price_asc") p.set("sort", "price_asc");
-    if (sort === "price_desc") p.set("sort", "price_desc");
-    apiClient
-      .get<ProductCardType[]>(`/api/products?${p.toString()}`)
-      .then((r) => { setAllProducts(Array.isArray(r.data) ? r.data : []); })
-      .catch(() => setAllProducts([]))
-      .finally(() => setIsLoading(false));
-  }, [l1, l2FilterId, sort]);
+  const { data: allProducts = [], isPending: isLoading } = useQuery({
+    queryKey: ["category-products", l1?.id, l2FilterId, sort],
+    queryFn: async () => {
+      const p = new URLSearchParams({ l1: l1!.id });
+      if (l2FilterId) p.set("l2", l2FilterId);
+      if (sort === "price_asc") p.set("sort", "price_asc");
+      if (sort === "price_desc") p.set("sort", "price_desc");
+      const r = await apiClient.get<ProductCardType[]>(`/api/products?${p.toString()}`);
+      return Array.isArray(r.data) ? r.data : [];
+    },
+    enabled: !!l1,
+  });
 
   // Curated rails, scoped to the whole L1 (never the L2 filter — these are
   // meant to showcase the category broadly, same "editorial pick" role
@@ -157,29 +170,48 @@ export function CategoryClient() {
   // "Premium picks" mirrors the exact sort Home's own Premium picks rail
   // uses; "Bestsellers" uses rating as the closest available quality
   // signal to Home's Best deals rail (which sorts by discount % — not
-  // exposed as a query param here).
-  useEffect(() => {
-    if (!l1) return;
-    apiClient.get<ProductCardType[]>(`/api/products?l1=${l1.id}&sort=rating&limit=8`)
-      .then((r) => setBestsellers(Array.isArray(r.data) ? r.data : []))
-      .catch(() => setBestsellers([]));
-    apiClient.get<ProductCardType[]>(`/api/products?l1=${l1.id}&sort=price_desc&limit=8`)
-      .then((r) => setPremiumPicks(Array.isArray(r.data) ? r.data : []))
-      .catch(() => setPremiumPicks([]));
-  }, [l1?.id]);
+  // exposed as a query param here). All of these, plus the stores rail
+  // and the main product grid above, are independent useQuery calls with
+  // no dependency on each other's results, so React Query fires all of
+  // them concurrently the moment `l1` resolves — no explicit Promise.all
+  // needed, that's just how independent useQuery hooks behave.
+  const { data: bestsellers = [], isPending: bestsellersLoading } = useQuery({
+    queryKey: ["category-rail-bestsellers", l1?.id],
+    queryFn: async () => {
+      const r = await apiClient.get<ProductCardType[]>(`/api/products?l1=${l1!.id}&sort=rating&limit=8`);
+      return Array.isArray(r.data) ? r.data : [];
+    },
+    enabled: !!l1,
+  });
+
+  const { data: premiumPicks = [], isPending: premiumLoading } = useQuery({
+    queryKey: ["category-rail-premium", l1?.id],
+    queryFn: async () => {
+      const r = await apiClient.get<ProductCardType[]>(`/api/products?l1=${l1!.id}&sort=price_desc&limit=8`);
+      return Array.isArray(r.data) ? r.data : [];
+    },
+    enabled: !!l1,
+  });
 
   // Stores rail — GET /api/categories/{l1_id}/stores (new backend
   // aggregation, see server.py's own doc comment): stores with at least
   // one visible product in this L1, already sorted availability-first
   // then by product count. Separate request from the curated product
   // rails above since it's a genuinely different resource (stores, not
-  // products) off a different endpoint.
-  useEffect(() => {
-    if (!l1) return;
-    apiClient.get<CategoryStore[]>(`/api/categories/${l1.id}/stores`)
-      .then((r) => setL1Stores(Array.isArray(r.data) ? r.data : []))
-      .catch(() => setL1Stores([]));
-  }, [l1?.id]);
+  // products) off a different endpoint. The endpoint itself now carries
+  // a short server-side TTL cache too (see its own comment) — this
+  // client-side query cache and that server-side one solve different
+  // halves of the same problem: this one skips the network round-trip
+  // entirely on a cached revisit; that one keeps the round-trip cheap
+  // for everyone else hitting an L1 this client hasn't cached yet.
+  const { data: l1Stores = [], isPending: storesLoading } = useQuery({
+    queryKey: ["category-stores", l1?.id],
+    queryFn: async () => {
+      const r = await apiClient.get<CategoryStore[]>(`/api/categories/${l1!.id}/stores`);
+      return Array.isArray(r.data) ? r.data : [];
+    },
+    enabled: !!l1,
+  });
 
   const products = useMemo(() => sortProducts(allProducts, sort), [allProducts, sort]);
 
@@ -214,16 +246,20 @@ export function CategoryClient() {
             no autoplay/dots, since HeroCarousel no-ops both once
             slides.length <= 1) driven by l1HeroConfig's per-L1 copy. Falls
             back to a generic-but-honest hero for any L1 not yet in that
-            config — see getL1HeroSlides. */}
-        <HeroCarousel slides={getL1HeroSlides(slug, l1.name)} />
+            config — see getL1HeroSlides. `compact` shrinks it to ~45% of
+            Home's hero height, sized for l1HeroConfig's shorter
+            eyebrow + one-line copy — see both components' own comments. */}
+        <HeroCarousel slides={getL1HeroSlides(slug, l1.name)} compact />
 
         {/* 2. "Bestsellers in {L1}" — reuses HCarousel + ProductCard exactly
             as Home's own rails do, no new card component. */}
-        {bestsellers.length > 0 && (
+        {bestsellersLoading ? (
+          <RailSkeleton title={`Bestsellers in ${l1.name}`} />
+        ) : bestsellers.length > 0 ? (
           <HCarousel title={`Bestsellers in ${l1.name}`} testid="cat-rail-bestsellers">
             {bestsellers.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
           </HCarousel>
-        )}
+        ) : null}
 
         {/* 3. "Stores in {L1}" — GET /api/categories/{l1_id}/stores (new
             backend aggregation), rendered with SellerCard, the same store-
@@ -231,7 +267,9 @@ export function CategoryClient() {
             component — see SellerCard's own doc comment). openNow/
             closedLabel derive from availability_rank/next_open_label the
             same way MeetSellersSection does on Home. */}
-        {l1Stores.length > 0 && (
+        {storesLoading ? (
+          <StoreRailSkeleton />
+        ) : l1Stores.length > 0 ? (
           <section className="pt-8" data-testid="cat-rail-stores">
             <div className="max-w-7xl mx-auto px-4 md:px-8 mb-3">
               <h2 className="text-lg sm:text-xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">
@@ -248,7 +286,7 @@ export function CategoryClient() {
               </div>
             </div>
           </section>
-        )}
+        ) : null}
 
         {/* 4. "Shop by category" — L2 circle grid, same w-16 h-16
             rounded-full + label-below treatment the homepage's gender
@@ -299,11 +337,13 @@ export function CategoryClient() {
         )}
 
         {/* 5. "Premium picks in {L1}" */}
-        {premiumPicks.length > 0 && (
+        {premiumLoading ? (
+          <RailSkeleton title={`Premium picks in ${l1.name}`} />
+        ) : premiumPicks.length > 0 ? (
           <HCarousel title={`Premium picks in ${l1.name}`} testid="cat-rail-premium">
             {premiumPicks.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
           </HCarousel>
-        )}
+        ) : null}
 
         {/* 6. Browse all {L1} — the original title/sort/grid section,
             unchanged in behavior (still reads sort + l2Filter, same

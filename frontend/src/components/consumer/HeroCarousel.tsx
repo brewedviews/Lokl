@@ -31,6 +31,14 @@
  * Swapping in real backend-driven slides later (once the offers model's
  * ALLOWED_OFFER_FIELDS gap from the audit is fixed) is a data-source
  * change at the call site, not a change to this component.
+ *
+ * `compact` — CategoryClient's /c/[slug] hero opts into this; Home's own
+ * hero doesn't pass it at all, so its size is completely unaffected.
+ * ~45% of the default min-height (135px/145px vs. 300px/320px), a single
+ * smaller title line instead of the large multi-line headline scale, and
+ * a smaller CTA pill — sized for l1HeroConfig's own shorter eyebrow + one-
+ * line copy (no separate subtitle paragraph at that length), not the
+ * fuller marketing-banner copy Home's slides still carry.
  */
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
@@ -94,7 +102,7 @@ export const DEFAULT_HERO_SLIDES: HeroSlide[] = [
   },
 ];
 
-export function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
+export function HeroCarousel({ slides, compact = false }: { slides: HeroSlide[]; compact?: boolean }) {
   const [idx, setIdx] = useState(0);
   const idxRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -158,7 +166,7 @@ export function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
               <div
                 key={slide.id}
                 data-testid={`hero-carousel-slide-${i}`}
-                className="relative snap-start shrink-0 w-full min-h-[300px] md:min-h-[320px]"
+                className={`relative snap-start shrink-0 w-full ${compact ? "min-h-[135px] md:min-h-[145px]" : "min-h-[300px] md:min-h-[320px]"}`}
               >
                 <Image
                   src={slide.mobileImage || slide.image}
@@ -177,11 +185,19 @@ export function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
                   className="object-cover object-[60%_45%] md:object-center hidden md:block"
                 />
                 <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/95 via-[#FDFBF7]/80 to-[#FDFBF7]/30 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
-                <div className="relative px-5 md:px-10 lg:px-12 py-6 md:py-10 min-h-[300px] md:min-h-[320px] flex flex-col justify-center max-w-2xl">
+                <div className={`relative flex flex-col justify-center max-w-2xl ${
+                  compact
+                    ? "px-4 md:px-6 py-4 md:py-5 min-h-[135px] md:min-h-[145px]"
+                    : "px-5 md:px-10 lg:px-12 py-6 md:py-10 min-h-[300px] md:min-h-[320px]"
+                }`}>
                   {slide.eyebrow && (
                     <span className="text-[11px] font-bold uppercase tracking-wide text-[#E68910]">{slide.eyebrow}</span>
                   )}
-                  <h1 className="font-display text-[26px] leading-[1.1] md:text-4xl lg:text-5xl font-bold tracking-tight text-[#0A1F5C] mt-1">
+                  <h1 className={`font-display font-bold text-[#0A1F5C] mt-1 ${
+                    compact
+                      ? "text-[15px] md:text-lg leading-snug"
+                      : "text-[26px] leading-[1.1] md:text-4xl lg:text-5xl tracking-tight"
+                  }`}>
                     {slide.title}
                   </h1>
                   {slide.subtitle && (
@@ -193,7 +209,9 @@ export function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
                     <Link
                       href={slide.ctaHref}
                       data-testid={`hero-carousel-cta-${i}`}
-                      className="inline-flex items-center self-start mt-4 px-5 py-2.5 rounded-full bg-[#0A1F5C] text-white text-sm font-bold hover:bg-[#0A1F5C]/90 transition"
+                      className={`inline-flex items-center self-start rounded-full bg-[#0A1F5C] text-white font-bold hover:bg-[#0A1F5C]/90 transition ${
+                        compact ? "mt-2 px-3.5 py-1.5 text-[11px]" : "mt-4 px-5 py-2.5 text-sm"
+                      }`}
                     >
                       {slide.ctaLabel}
                     </Link>
