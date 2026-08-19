@@ -237,8 +237,15 @@ class VasyERPSelectBranchRequest(BaseModel):
     branch_name: Optional[str] = ""
 
 class ShopifyConnectRequest(BaseModel):
+    # Shopify's custom-app auth model changed 2026-01-01: newly-created apps
+    # no longer expose a static access token in the UI. Instead the app has
+    # a Client ID + Client Secret, and a real access token is obtained
+    # server-side via OAuth's Client Credentials Grant (see
+    # shopify_client.get_access_token). client_id/client_secret are the
+    # durable credential now, not a raw access_token.
     shop_domain: str
-    access_token: str
+    client_id: str
+    client_secret: str
 
 class OrderCreate(BaseModel):
     items: List[dict]; address: dict; total: float
@@ -6722,22 +6729,29 @@ async def shopify_connect(payload: ShopifyConnectRequest, user: dict = Depends(g
     if user.get("role") != "merchant":
         raise HTTPException(403, "Merchant access required")
     shop_domain = payload.shop_domain.strip()
-    token = payload.access_token.strip()
-    if not shop_domain or not token:
-        raise HTTPException(400, "Shop domain and access token are required")
+    client_id = payload.client_id.strip()
+    client_secret = payload.client_secret.strip()
+    if not shop_domain or not client_id or not client_secret:
+        raise HTTPException(400, "Shop domain, Client ID, and Client Secret are required")
     try:
-        shop_name = await shopify_client.get_shop_name(shop_domain, token)
+        token_data = await shopify_client.get_access_token(shop_domain, client_id, client_secret)
+        shop_name = await shopify_client.get_shop_name(shop_domain, token_data["access_token"])
     except ShopifyAuthError:
-        raise HTTPException(400, "Shopify rejected this access token — double-check it and try again")
+        raise HTTPException(400, "Shopify rejected this Client ID/Secret — double-check them and make sure the app is installed on this store")
     except ShopifyClientError as e:
         raise HTTPException(502, f"Could not reach Shopify: {e}")
-    # Only encrypt + store once the token has proven itself against a real
-    # Shopify call — an invalid token is never persisted, same rule as
-    # VasyERP. No branch-selection step here — Shopify has no multi-branch
-    # concept, so connect alone fully establishes the integration.
-    encrypted = encryption_service.encrypt_field(token)
+    # Only encrypt + store once the credentials have proven themselves via a
+    # real token exchange + Shopify call — invalid credentials are never
+    # persisted, same rule as VasyERP. client_id/client_secret (not the
+    # exchanged access token, which expires in ~24h) are the durable
+    # credential; a fresh token is re-exchanged at the start of every import
+    # run instead of caching one with an expiry to track. No branch-
+    # selection step here — Shopify has no multi-branch concept, so connect
+    # alone fully establishes the integration.
     await _upsert_integration(user["sub"], "shopify", {
-        "api_token": encrypted, "shop_domain": shop_domain, "shop_name": shop_name,
+        "client_id": encryption_service.encrypt_field(client_id),
+        "client_secret": encryption_service.encrypt_field(client_secret),
+        "shop_domain": shop_domain, "shop_name": shop_name,
         "connected_at": datetime.now(timezone.utc).isoformat(), "sync_status": "connected",
     })
     return {"ok": True, "shop_name": shop_name}
@@ -6746,9 +6760,9 @@ async def shopify_connect(payload: ShopifyConnectRequest, user: dict = Depends(g
 @api.get("/merchant/integrations/status")
 async def integrations_status(user: dict = Depends(get_current_user)):
     """Every connected integration for this merchant, across all
-    providers — never returns api_token, encrypted or not."""
+    providers — never returns credential fields, encrypted or not."""
     rows = await db.merchant_integrations.find(
-        {"merchant_id": user["sub"]}, {"_id": 0, "api_token": 0},
+        {"merchant_id": user["sub"]}, {"_id": 0, "api_token": 0, "client_id": 0, "client_secret": 0},
     ).to_list(20)
     return rows
 
@@ -6818,10 +6832,23 @@ async def shopify_import(user: dict = Depends(get_current_user)):
     integ = await _get_integration(user["sub"], "shopify")
     if not integ or integ.get("sync_status") not in ("connected", "synced"):
         raise HTTPException(400, "Connect Shopify first")
+    if not integ.get("client_id") or not integ.get("client_secret"):
+        raise HTTPException(400, "Stored Shopify credential is unusable — please reconnect")
     try:
-        token = encryption_service.decrypt_field(integ["api_token"])
+        client_id = encryption_service.decrypt_field(integ["client_id"])
+        client_secret = encryption_service.decrypt_field(integ["client_secret"])
     except ValueError:
         raise HTTPException(400, "Stored Shopify credential is unusable — please reconnect")
+    # CCG access tokens expire in ~24h and are never persisted (see
+    # shopify_connect) — exchange a fresh one at the start of every import
+    # run rather than caching one with an expiry to track.
+    try:
+        token_data = await shopify_client.get_access_token(integ["shop_domain"], client_id, client_secret)
+    except ShopifyAuthError:
+        raise HTTPException(400, "Shopify rejected the stored Client ID/Secret — please reconnect")
+    except ShopifyClientError as e:
+        raise HTTPException(502, f"Could not reach Shopify: {e}")
+    token = token_data["access_token"]
 
     store_id = f"store-m-{user['sub']}"
     l1_by_name, l2_by_name, l2_flat_by_name = _category_name_maps()
@@ -6834,7 +6861,7 @@ async def shopify_import(user: dict = Depends(get_current_user)):
         try:
             result = await shopify_client.fetch_products_page(integ["shop_domain"], token, first=50, after=cursor)
         except ShopifyAuthError:
-            raise HTTPException(400, "Shopify rejected the stored access token — please reconnect")
+            raise HTTPException(400, "Shopify rejected the exchanged access token — please reconnect")
         except ShopifyClientError as e:
             raise HTTPException(502, f"Could not reach Shopify: {e}")
         for item in result["items"]:

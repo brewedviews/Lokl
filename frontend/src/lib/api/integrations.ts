@@ -86,10 +86,13 @@ export const integrationsApi = {
     return r.data;
   },
 
-  // ---- Shopify (own auth shape: shop domain + access token, no branch step) ----
-  connectShopify: async (shopDomain: string, accessToken: string): Promise<{ ok: boolean; shop_name: string }> => {
+  // ---- Shopify (own auth shape: shop domain + Client ID/Secret, exchanged
+  // server-side for an access token via OAuth's Client Credentials Grant —
+  // Shopify custom apps stopped issuing a static token in the UI as of
+  // 2026-01-01. No branch step, same as before. ----
+  connectShopify: async (shopDomain: string, clientId: string, clientSecret: string): Promise<{ ok: boolean; shop_name: string }> => {
     const r = await apiClient.post<{ ok: boolean; shop_name: string }>(
-      "/api/merchant/integrations/shopify/connect", { shop_domain: shopDomain, access_token: accessToken },
+      "/api/merchant/integrations/shopify/connect", { shop_domain: shopDomain, client_id: clientId, client_secret: clientSecret },
     );
     return r.data;
   },

@@ -308,7 +308,8 @@ function VasyErpConnectCard({ status, onConnected, onImport }: { status?: Integr
 
 function ShopifyConnectCard({ status, onConnected, onImport }: { status?: IntegrationStatus; onConnected: () => void; onImport: () => void }) {
   const [shopDomain, setShopDomain] = useState("");
-  const [tokenInput, setTokenInput] = useState("");
+  const [clientIdInput, setClientIdInput] = useState("");
+  const [clientSecretInput, setClientSecretInput] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -316,13 +317,14 @@ function ShopifyConnectCard({ status, onConnected, onImport }: { status?: Integr
 
   const handleConnect = async () => {
     const domain = shopDomain.trim();
-    const token = tokenInput.trim();
-    if (!domain || !token) { toast.error("Enter your shop domain and access token"); return; }
+    const clientId = clientIdInput.trim();
+    const clientSecret = clientSecretInput.trim();
+    if (!domain || !clientId || !clientSecret) { toast.error("Enter your shop domain, Client ID, and Client Secret"); return; }
     setConnecting(true);
     try {
-      const r = await api.integrations.connectShopify(domain, token);
+      const r = await api.integrations.connectShopify(domain, clientId, clientSecret);
       toast.success(`Connected to ${r.shop_name}`);
-      setShopDomain(""); setTokenInput("");
+      setShopDomain(""); setClientIdInput(""); setClientSecretInput("");
       onConnected();
     } catch (e) {
       toast.error(getErrorMessage(e));
@@ -350,15 +352,25 @@ function ShopifyConnectCard({ status, onConnected, onImport }: { status?: Integr
         </>
       ) : (
         <>
-          <p className="text-xs text-[#595959] mb-3">Create a custom app in Settings → Apps → Develop apps in your Shopify admin, grant read_products/read_inventory, and paste the Admin API access token here.</p>
+          <p className="text-xs text-[#595959] mb-3">
+            In your Shopify Dev Dashboard, create an app, set its scopes to read_products and read_inventory,
+            and install it on your store — the app must belong to the same Shopify organization as this store.
+            Then copy the Client ID and Client Secret from the app&apos;s API credentials page and paste them below
+            (Shopify no longer issues a static access token here).
+          </p>
           <input
             type="text" value={shopDomain} onChange={(e) => setShopDomain(e.target.value)}
             placeholder="your-store.myshopify.com" data-testid="shopify-domain-input"
             className="w-full px-3 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-sm mb-2"
           />
           <input
-            type="password" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)}
-            placeholder="Admin API access token" data-testid="shopify-token-input"
+            type="text" value={clientIdInput} onChange={(e) => setClientIdInput(e.target.value)}
+            placeholder="Client ID" data-testid="shopify-client-id-input"
+            className="w-full px-3 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-sm mb-2"
+          />
+          <input
+            type="password" value={clientSecretInput} onChange={(e) => setClientSecretInput(e.target.value)}
+            placeholder="Client Secret" data-testid="shopify-client-secret-input"
             className="w-full px-3 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-sm mb-3"
           />
           <button onClick={() => void handleConnect()} disabled={connecting} data-testid="shopify-connect-btn"
