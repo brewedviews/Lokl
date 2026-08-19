@@ -120,7 +120,7 @@ Reserve a stamp/postage-border treatment exclusively for a future "new boutiques
 |---|---|---|
 | **0 — Discovery** | Full audit of cart/checkout, schema, components, search, PDP, tokens | Done |
 | **2 — Bag/Checkout merge + payment** | Real Razorpay, pickup/delivery selector, delivery-fee fix, guest gate, single-screen merge | Done |
-| **1 — Foundational data** | New `Brand` entity, `brand_id` on products, merchant-facing brand field, mood/occasion tags | Not started |
+| **1 — Foundational data** | New `Brand` entity, `brand_id` on products, merchant-facing brand field, mood/occasion tags | Done — pending Cloudinary brand-logo upload verification (untested locally, no creds in dev env) |
 | **3 — Component library** | Consolidate category tile (3.1), roll out `Button.tsx` cta variant everywhere (3.2), retrofit ETA header to Home/PDP (3.7), resolve wishlist scope (3.6), fix bottom-nav padding gap (Section 5) | Done |
 | **4 — New pages** | Store page, Brand page, Mood/Occasion landing pages | Depends on 1, 3 |
 | **5 — Search redesign** | Trending searches, visual category browsing, results spanning products + stores + brands | Depends on 1, 3 |
