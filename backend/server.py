@@ -5970,22 +5970,27 @@ async def _maybe_autopublish_store(merchant_id: str) -> bool:
     return True
 
 
-@api.post("/merchant/products")
-async def create_merchant_product(payload: ProductCreate, user: dict = Depends(get_current_user)):
-    m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
-    if m.get("kyc_status") != "approved": raise HTTPException(403, "KYC not approved")
+async def _create_product_for_merchant(payload: ProductCreate, merchant_id: str) -> dict:
+    """Canonical product-insert path — the ONLY place a new Product
+    document gets created. Every side effect (KYC gate, storefront-exists
+    check, plan product-limit check, product_count/brand-count recompute,
+    autopublish check) lives here exactly once. Both the merchant product
+    modal (create_merchant_product below) and the VasyERP publish flow
+    (_publish_staged_import) call this — neither duplicates it."""
+    m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0})
+    if not m or m.get("kyc_status") != "approved": raise HTTPException(403, "KYC not approved")
     _validate_l1_l2(payload.l1_id, payload.l2_id or "", payload.gender or "")
-    store_id = f"store-m-{user['sub']}"
+    store_id = f"store-m-{merchant_id}"
     store = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if not store: raise HTTPException(400, "Set up storefront first")
     merchant_plan = m.get("plan", "free")
     plan_config = PLAN_LIMITS.get(merchant_plan, PLAN_LIMITS["free"])
     product_limit = plan_config.get("products", 10)
-    existing_count = await db.products.count_documents({"merchant_id": user["sub"], "is_deleted": {"$ne": True}})
+    existing_count = await db.products.count_documents({"merchant_id": merchant_id, "is_deleted": {"$ne": True}})
     if existing_count >= product_limit:
         raise HTTPException(400, f"You have reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to add more products.")
     pid = f"prod-{uuid.uuid4().hex[:10]}"
-    doc = {"id": pid, "merchant_id": user["sub"], "store_id": store_id,
+    doc = {"id": pid, "merchant_id": merchant_id, "store_id": store_id,
         "store_name": m["store_name"], "store_city": m.get("city", ""),
         "rating": 4.5, "paused": False, **payload.model_dump(),
         "created_at": datetime.now(timezone.utc).isoformat()}
@@ -5995,8 +6000,14 @@ async def create_merchant_product(payload: ProductCreate, user: dict = Depends(g
     cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
     await _recompute_brand_product_count(doc.get("brand_id"))
-    await _maybe_autopublish_store(user["sub"])
-    doc.pop("_id", None); return doc
+    await _maybe_autopublish_store(merchant_id)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.post("/merchant/products")
+async def create_merchant_product(payload: ProductCreate, user: dict = Depends(get_current_user)):
+    return await _create_product_for_merchant(payload, user["sub"])
 
 @api.put("/merchant/products/{pid}")
 async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(get_current_user)):
@@ -6476,38 +6487,32 @@ def _staged_publish_blocker(row: dict) -> Optional[str]:
 
 
 async def _publish_staged_import(row: dict, merchant_id: str) -> dict:
+    """Converts a StagedImport row into a real Product by going through
+    _create_product_for_merchant — the same canonical insert path the
+    merchant product modal uses — rather than a second, separate
+    db.products.insert_one. This is what gives a published VasyERP item
+    the KYC gate, storefront-exists check, and plan product-limit check
+    the canonical path enforces (an earlier version of this function had
+    its own duplicate insert and was missing all three)."""
     blocker = _staged_publish_blocker(row)
     if blocker:
         raise HTTPException(400, blocker)
     # Same fallback bulk-upload's own gender resolution uses: an L1 with no
     # L2 children needs a gender, and VasyERP has no such field at all.
     gender = "Unisex" if row["l1_id"] not in L2_BY_L1 else ""
-    _validate_l1_l2(row["l1_id"], row.get("l2_id") or "", gender)
-    m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0})
-    pid = f"prod-{uuid.uuid4().hex[:10]}"
-    now = datetime.now(timezone.utc).isoformat()
-    doc = {
-        "id": pid, "merchant_id": merchant_id, "store_id": row["store_id"],
-        "store_name": (m or {}).get("store_name", ""), "store_city": (m or {}).get("city", ""),
-        "name": row["name"], "price": row.get("price") or 0, "mrp": row.get("mrp"),
-        "l1_id": row["l1_id"], "l2_id": row.get("l2_id") or "", "gender": gender,
-        "brand_id": row.get("brand_id"),
-        "description": "", "sizes": [], "stock": {"default": row.get("qty") or 0},
-        "total_stock": row.get("qty") or 0,
-        "image": row["image"], "image_public_id": row.get("image_public_id") or "",
-        "images": [row["image"]], "image_public_ids": [row.get("image_public_id") or ""],
-        "rating": 4.5, "paused": False, "ai_enhanced": False, "try_at_doorstep": False,
-        "return_eligible": False, "created_at": now,
-    }
-    await db.products.insert_one(doc)
-    await db.staged_imports.update_one(
-        {"id": row["id"]}, {"$set": {"status": "published", "product_id": pid, "updated_at": now}},
+    payload = ProductCreate(
+        name=row["name"], price=row.get("price") or 0, mrp=row.get("mrp"),
+        l1_id=row["l1_id"], l2_id=row.get("l2_id") or "", gender=gender,
+        brand_id=row.get("brand_id"),
+        description="", sizes=[], stock={"default": row.get("qty") or 0},
+        image=row["image"], image_public_id=row.get("image_public_id") or "",
+        images=[row["image"]], image_public_ids=[row.get("image_public_id") or ""],
     )
-    cnt = await db.products.count_documents({"store_id": row["store_id"], "paused": {"$ne": True}})
-    await db.stores.update_one({"id": row["store_id"]}, {"$set": {"product_count": cnt}})
-    if row.get("brand_id"):
-        await _recompute_brand_product_count(row["brand_id"])
-    doc.pop("_id", None)
+    doc = await _create_product_for_merchant(payload, merchant_id)
+    await db.staged_imports.update_one(
+        {"id": row["id"]},
+        {"$set": {"status": "published", "product_id": doc["id"], "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
     return doc
 
 
