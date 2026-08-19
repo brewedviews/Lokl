@@ -553,19 +553,22 @@ export default function CheckoutPage() {
     );
   }
 
-  // ===== Auth gate — unchanged from the old /checkout page =====
-  if (!hasAuth) {
-    return (
-      <div className="flex-1 flex flex-col bg-[#FDFBF7]">
-        <div className="flex-1 max-w-md w-full mx-auto px-4 sm:px-8 pt-10 pb-16">
-          <CustomerOtpLogin
-            title="Sign in to checkout"
-            subtitle="We use your number to deliver, send order updates, and process returns."
-          />
-        </div>
-      </div>
-    );
-  }
+  // Guest-checkout policy: browsing (items, ETA, delivery/pickup toggle,
+  // coupon, bill breakdown) needs no auth at all — every fetch/effect above
+  // that touches those already no-ops gracefully without a phone
+  // (saved-addresses effect: `if (!hasAuth || !phone) return;`; the
+  // delivery-estimate/coupon-validate endpoints are public). Only identity
+  // (address + payment) and the actual submit require signing in — see the
+  // `hasAuth` branches around the address/payment section and the sticky
+  // CTA below. `place()` itself is UNCHANGED and still independently
+  // refuses to create an order without a real customer token
+  // (`if (!hasAuth || !customerToken) { router.push("/account"); return; }`)
+  // — this is a second, real guard, not just a UI nicety the CTA branch
+  // happens to route around.
+  const promptGuestLogin = () => {
+    toast.error("Please sign in to continue");
+    document.getElementById("guest-login-gate")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   const uniqueStoreNames = Array.from(new Set(items.map((it) => it.store_name).filter(Boolean)));
   const anyUnavailable = items.some((it) => {
@@ -574,9 +577,11 @@ export default function CheckoutPage() {
     return status !== undefined && !status.can_order;
   });
 
-  const ctaLabel = placing
-    ? (payingOnline ? "Waiting for payment…" : "Placing…")
-    : payment === "RAZORPAY" ? "Pay online" : "Place order";
+  const ctaLabel = !hasAuth
+    ? "Sign in to continue"
+    : placing
+      ? (payingOnline ? "Waiting for payment…" : "Placing…")
+      : payment === "RAZORPAY" ? "Pay online" : "Place order";
 
   const etaTitle = orderType === "pickup"
     ? "Ready for pickup"
@@ -730,6 +735,13 @@ export default function CheckoutPage() {
           {couponError && <p className="text-xs text-red-500 mt-1" data-testid="coupon-error">{couponError}</p>}
         </div>
 
+        {/* e. Address + f. Payment — identity-gated. Browsing everything
+            above (items, ETA, delivery/pickup, coupon) needs no auth; these
+            two sections are where a guest actually needs to be a known
+            customer, so this is the one place the soft gate replaces real
+            content instead of just disabling a button. */}
+        {hasAuth ? (
+          <>
         {/* e. Address */}
         {savedAddresses.length > 0 && (
           <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="saved-addresses">
@@ -794,6 +806,14 @@ export default function CheckoutPage() {
             <p className="text-[11px] text-[#595959] mt-2">UPI, cards and netbanking via Razorpay.</p>
           )}
         </div>
+          </>
+        ) : (
+          <div id="guest-login-gate" className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="guest-login-gate">
+            <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-1">Sign in to add your address and pay</h2>
+            <p className="text-xs text-[#595959] mb-3">We use your number to deliver, send order updates, and process returns.</p>
+            <CustomerOtpLogin />
+          </div>
+        )}
 
         {/* Store availability context (multi-store per-store status, preorder
             notice, delivery ETA detail, non-deliverable reason) — unchanged
@@ -937,8 +957,8 @@ export default function CheckoutPage() {
           <Button
             variant="cta"
             size="lg"
-            onClick={place}
-            disabled={placing || !canPay || (orderType === "delivery" && unserviceable)}
+            onClick={hasAuth ? place : promptGuestLogin}
+            disabled={hasAuth && (placing || !canPay || (orderType === "delivery" && unserviceable))}
             data-testid="place-order-btn"
             className="shrink-0 gap-2"
           >
