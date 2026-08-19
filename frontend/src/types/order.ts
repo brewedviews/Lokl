@@ -110,6 +110,9 @@ export interface Order {
 
   items: OrderItem[];
   total: RupeeAmount;
+  /** Server-authoritative delivery fee already folded into `total` — never
+   *  charged on pickup orders. See backend/server.py's create_order. */
+  delivery_fee?: RupeeAmount;
 
   customer: OrderCustomer;
   address: OrderAddress | CustomerAddress;

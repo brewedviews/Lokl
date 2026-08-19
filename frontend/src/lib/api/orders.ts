@@ -26,6 +26,10 @@ export interface OrderCreatePayload {
   coupon_code?: string;
   customer_lat?: number | null;
   customer_lng?: number | null;
+  order_type?: "delivery" | "pickup";
+  razorpay_payment_id?: string;
+  razorpay_order_id?: string;
+  razorpay_signature?: string;
 }
 
 export const ordersApi = {

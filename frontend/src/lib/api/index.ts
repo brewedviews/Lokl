@@ -151,6 +151,7 @@ import { adminApi as _adminApi } from "./admin";
 import { authApi as _authApi } from "./auth";
 import { deliveryApi as _deliveryApi } from "./delivery";
 import { riderApi as _riderApi } from "./rider";
+import { paymentsApi as _paymentsApi } from "./payments";
 
 export const api = {
   auth: _authApi,
@@ -166,4 +167,5 @@ export const api = {
   misc: miscApi,
   delivery: _deliveryApi,
   rider: _riderApi,
+  payments: _paymentsApi,
 };
