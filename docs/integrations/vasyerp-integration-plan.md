@@ -49,10 +49,15 @@
 - Needs its own investigation pass before building: confirm exactly what `Order Create`'s request contract expects (does it require full customer/address data, or just line items + stock decrement?), and whether there's a lighter-weight "just decrement stock" endpoint rather than creating a full mirrored order in VasyERP.
 - Real risk surface: a failed or partial push here could cause stock drift between the two systems — needs the same rigor (idempotency, retry, reconciliation) as the Razorpay webhook work.
 
-## 7. Phasing
+## 8. Status
 
-| Phase | Scope |
-|---|---|
-| **A** | Connect flow, branch selection, one-way pull, draft staging, category/brand auto-match + review queue, manual publish |
-| **B** | Scheduled incremental sync for already-published products (price/stock only) |
-| **C** | Two-way push — Lokl sales decrement VasyERP stock |
+**Phase A: built, mock-verified, not live-verified.** Connect flow, branch selection, one-way pull, category/brand auto-match with self-healing mapping corrections, draft staging (pending_review/pending_photos/published/skipped), manual review UI, single + bulk publish — all implemented and tested end-to-end against a faithful local mock server matching VasyERP's confirmed API contract (envelope shape, field names, pagination params all reconciled against the real published docs, not a paraphrase).
+
+**Two known field-mapping bugs, deliberately left unfixed pending live testing** (found during client reconciliation, business-logic fix intentionally out of scope for that pass):
+- `_vasyerp_item_to_fields` reads `item.get("id")` — the real field is `productId`. Falls through to `itemCode` today, meaning a merchant-editable SKU stands in for VasyERP's stable product identity. Real risk: if a merchant edits an item code in VasyERP, re-import could lose track of an already-staged/published item and create a duplicate.
+- Same function reads `measurementUnit` — the real field is `measurement`. Will silently come back empty against a real account.
+Both are one-line fixes, sitting ready — fix before any real merchant connects.
+
+**Not yet possible: live verification.** Requires (1) the real VasyERP API base URL — not published anywhere in their docs, must come directly from a VasyERP account/dashboard or their support team, and (2) a real merchant `api-token`. Until both exist, this is mock-verified only, same category of gap as Razorpay had before real test credentials arrived.
+
+**Phase B (scheduled incremental sync) and Phase C (two-way push-back) not started.**
