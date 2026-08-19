@@ -6748,9 +6748,18 @@ async def shopify_connect(payload: ShopifyConnectRequest, user: dict = Depends(g
     # run instead of caching one with an expiry to track. No branch-
     # selection step here — Shopify has no multi-branch concept, so connect
     # alone fully establishes the integration.
+    try:
+        encrypted_client_id = encryption_service.encrypt_field(client_id)
+        encrypted_client_secret = encryption_service.encrypt_field(client_secret)
+    except RuntimeError:
+        # Server misconfiguration (e.g. FIELD_ENCRYPTION_KEY missing/invalid)
+        # — the credentials themselves are fine (they already passed a real
+        # Shopify exchange above), so don't blame the merchant for this.
+        log.exception("Shopify connect: encryption_service misconfigured, could not store credentials")
+        raise HTTPException(500, "Could not save your credentials due to a server configuration issue — please try again shortly or contact support")
     await _upsert_integration(user["sub"], "shopify", {
-        "client_id": encryption_service.encrypt_field(client_id),
-        "client_secret": encryption_service.encrypt_field(client_secret),
+        "client_id": encrypted_client_id,
+        "client_secret": encrypted_client_secret,
         "shop_domain": shop_domain, "shop_name": shop_name,
         "connected_at": datetime.now(timezone.utc).isoformat(), "sync_status": "connected",
     })
@@ -6839,6 +6848,9 @@ async def shopify_import(user: dict = Depends(get_current_user)):
         client_secret = encryption_service.decrypt_field(integ["client_secret"])
     except ValueError:
         raise HTTPException(400, "Stored Shopify credential is unusable — please reconnect")
+    except RuntimeError:
+        log.exception("Shopify import: encryption_service misconfigured, could not decrypt credentials")
+        raise HTTPException(500, "Could not read your stored credentials due to a server configuration issue — please try again shortly or contact support")
     # CCG access tokens expire in ~24h and are never persisted (see
     # shopify_connect) — exchange a fresh one at the start of every import
     # run rather than caching one with an expiry to track.
