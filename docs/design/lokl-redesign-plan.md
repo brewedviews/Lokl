@@ -75,8 +75,10 @@ Every major headline mixes exactly one contrasting type treatment. Not yet appli
 ### 3.5 Emoji/decorative marks — one designated moment app-wide
 Reserved exclusively for the savings-celebration line in the bill breakdown (e.g. "You're saving ₹X (Y%) ✨"). **Status: built and verified** on the merged checkout screen, confirmed unused anywhere else in the app.
 
-### 3.6 Wishlist scope
-**Correction from the original plan:** the original assumption was "wishlist is PDP-only, remove from all cards." Reality, confirmed in Phase 2: hearts are used broadly via `ProductCard`, including on rails inside checkout itself. Phase 2 added a `showWishlist={false}` opt-out prop to `ProductCard` and used it only on checkout's impulse rail — every other surface still shows the heart. **This is a real open decision, not yet resolved app-wide: does "PDP-only" become the actual target state (a larger Phase 3+ sweep across every rail/grid in the app), or was that original assumption wrong and hearts-everywhere is fine?** Needs an explicit call before Phase 3 touches ProductCard broadly.
+### 3.6 Wishlist scope — RESOLVED
+**The original "PDP-only" assumption was wrong. Decision: wishlist is available everywhere, no exceptions.** Users genuinely use it to save items to decide on later — hearts stay on every product card across Home rails, category grids, search results, store pages, and checkout's own impulse rail.
+- Action for Phase 3: revert the `showWishlist={false}` opt-out added in Phase 2 for checkout's impulse rail — that was scoped under the old assumption and is now inconsistent with the resolved rule. Restore the heart there too.
+- No further wishlist-scope work needed beyond this reversion — `ProductCard`'s default (heart visible) is already correct everywhere else.
 
 ### 3.7 ETA header
 **Correction from the original plan:** the original assumption was "a shared component already used on Home and PDP." Reality, confirmed in Phase 2: no such component existed — Home's ETA is inline markup inside `HeroV2.tsx`; PDP's `DeliveryServiceability.tsx` renders nothing in the common happy-path case. Phase 2 built `ETAHeaderCard.tsx` as a new, generic, reusable component, used so far only on the merged checkout screen. **Phase 3 should retrofit Home and PDP to use this same component**, retiring the inline/dormant versions — this is real, scoped work, not a quick copy-paste.
@@ -119,7 +121,7 @@ Reserve a stamp/postage-border treatment exclusively for a future "new boutiques
 | **0 — Discovery** | Full audit of cart/checkout, schema, components, search, PDP, tokens | Done |
 | **2 — Bag/Checkout merge + payment** | Real Razorpay, pickup/delivery selector, delivery-fee fix, guest gate, single-screen merge | Done |
 | **1 — Foundational data** | New `Brand` entity, `brand_id` on products, merchant-facing brand field, mood/occasion tags | Not started |
-| **3 — Component library** | Consolidate category tile (3.1), roll out `Button.tsx` cta variant everywhere (3.2), retrofit ETA header to Home/PDP (3.7), resolve wishlist scope (3.6), fix bottom-nav padding gap (Section 5) | Not started |
+| **3 — Component library** | Consolidate category tile (3.1), roll out `Button.tsx` cta variant everywhere (3.2), retrofit ETA header to Home/PDP (3.7), resolve wishlist scope (3.6), fix bottom-nav padding gap (Section 5) | Done |
 | **4 — New pages** | Store page, Brand page, Mood/Occasion landing pages | Depends on 1, 3 |
 | **5 — Search redesign** | Trending searches, visual category browsing, results spanning products + stores + brands | Depends on 1, 3 |
 | **6 — Homepage hyperlocal rails** | "Around You," "Popular in [City]," "Just Landed Nearby" | Depends on 3, 4 |
