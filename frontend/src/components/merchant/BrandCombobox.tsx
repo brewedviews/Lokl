@@ -1,17 +1,18 @@
 "use client";
 
 /**
- * Creatable Brand combobox — search existing brands or create a new one
- * inline. Styled to match the merchant product modal's form fields
- * (rounded-xl bordered inputs, uppercase micro-labels) since this is
- * net-new UI with no closer precedent to inherit from.
+ * Brand combobox — search-and-select against a CLOSED vocabulary. Brand is
+ * an admin-curated list (see BrandsEditor.tsx, the sole place brands are
+ * created and given logos) — merchants can only pick from what exists, no
+ * inline creation. Styled to match the merchant product modal's form
+ * fields (rounded-xl bordered inputs, uppercase micro-labels) since this
+ * is net-new UI with no closer precedent to inherit from.
  *
  * Wired into the product create/edit modal's step 1, alongside L1/L2.
  * Setting a brand is optional — the parent never blocks save on it.
  */
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Plus, Loader2, X } from "lucide-react";
-import { toast } from "sonner";
+import { Check, ChevronDown, X } from "lucide-react";
 import { brandsApi } from "@/lib/api/brands";
 import type { Brand } from "@/types";
 
@@ -27,7 +28,6 @@ export function BrandCombobox({ value, onChange, testid = "prod-brand" }: Props)
   const [open, setOpen] = useState(false);
   const [results, setResults] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
 
   // Resolve the display label whenever `value` changes from outside this
@@ -76,22 +76,6 @@ export function BrandCombobox({ value, onChange, testid = "prod-brand" }: Props)
   };
 
   const trimmed = query.trim();
-  const exactMatch = results.some((b) => b.name.toLowerCase() === trimmed.toLowerCase());
-  const canCreate = trimmed.length > 0 && !exactMatch;
-
-  const createAndPick = async () => {
-    if (!trimmed) return;
-    setCreating(true);
-    try {
-      const brand = await brandsApi.create(trimmed);
-      pick(brand);
-      toast.success(`Brand "${brand.name}" created`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not create brand");
-    } finally {
-      setCreating(false);
-    }
-  };
 
   return (
     <div ref={boxRef} className="relative">
@@ -118,7 +102,7 @@ export function BrandCombobox({ value, onChange, testid = "prod-brand" }: Props)
             value={query}
             onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
             onFocus={() => setOpen(true)}
-            placeholder="Search or type a new brand…"
+            placeholder="Search brands…"
             className="w-full px-4 py-3 pr-9 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-sm"
           />
           <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9CA3AF] pointer-events-none" />
@@ -143,17 +127,10 @@ export function BrandCombobox({ value, onChange, testid = "prod-brand" }: Props)
           {!loading && results.length === 0 && !trimmed && (
             <div className="p-3 text-center text-xs text-[#9CA3AF]">Start typing to search brands</div>
           )}
-          {canCreate && (
-            <button
-              type="button"
-              onClick={() => void createAndPick()}
-              disabled={creating}
-              data-testid={`${testid}-create`}
-              className="w-full flex items-center gap-2 px-4 py-2.5 border-t border-[#F1F5F9] hover:bg-[#FDF3E7] text-left text-sm font-semibold text-[#E68910] disabled:opacity-50"
-            >
-              {creating ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-              Create &ldquo;{trimmed}&rdquo;
-            </button>
+          {!loading && results.length === 0 && trimmed && (
+            <div data-testid={`${testid}-no-match`} className="p-3 text-center text-xs text-[#9CA3AF]">
+              Brand not found — contact support to add it
+            </div>
           )}
         </div>
       )}

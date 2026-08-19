@@ -92,8 +92,9 @@ def build_template_xlsx() -> bytes:
         "• sizes: comma or semicolon-separated, e.g.  S,M,L,XL  or  S;M;L;XL  or  7;8;9;10",
         "• stock_per_size: same count as sizes, e.g. 50,100,39,10 — quantity per size.",
         "• returnable: Yes / No. Defaults to No if blank. (Innerwear, perishables: keep No.)",
-        "• brand: optional, free text. Matches an existing brand by name (case-insensitive);",
-        "  if no match is found, a new brand is created automatically and listed in the upload summary.",
+        "• brand: optional. Matches an existing brand by name (case-insensitive) from Lokl's brand list.",
+        "  Brands can't be created from this sheet — an unrecognized name is noted in the upload summary",
+        "  and the product is still created, just without a brand tag. Check spelling or ask Lokl to add it.",
         "• mrp / price are in INR.",
         "• After upload, every row appears in Products as a draft — add images & tweak before go-live.",
     ]

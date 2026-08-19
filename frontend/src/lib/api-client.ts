@@ -79,10 +79,6 @@ const MERCHANT_ROUTE_PATTERNS: RegExp[] = [
   /^\/api\/auth\/me$/,
   /^\/api\/auth\/login$/,
   /^\/api\/auth\/register$/,
-  // POST /api/brands (inline brand creation from the product form's
-  // creatable combobox) needs a merchant JWT; the GET list/detail routes
-  // under the same path are public and ignore whatever token is attached.
-  /^\/api\/brands$/,
 ];
 
 const ADMIN_ROUTE_PATTERNS: RegExp[] = [/^\/api\/admin\//];

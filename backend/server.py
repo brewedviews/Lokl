@@ -3450,8 +3450,9 @@ async def get_my_tickets(request: Request):
 
 @api.get("/brands")
 async def list_brands(search: str = "", skip: int = 0, limit: int = 20):
-    """Public list — also powers the merchant product form's creatable
-    combobox typeahead (`?search=`)."""
+    """Public list — also powers the merchant product form's search-only
+    combobox typeahead (`?search=`). Brand is a closed, admin-curated
+    vocabulary — this route has no create counterpart."""
     limit = max(1, min(limit, 100))
     q: dict = {}
     if search.strip():
@@ -3463,13 +3464,14 @@ async def list_brands(search: str = "", skip: int = 0, limit: int = 20):
 
 @api.get("/brands/{slug_or_id}")
 async def get_brand(slug_or_id: str):
+    """Brand metadata only — the product grid for /brand/[slug] is fetched
+    separately via GET /api/products?brand_id=, the same shared,
+    availability-aware endpoint every other product grid uses, rather than
+    a bespoke inline query here that could drift out of sync with it."""
     b = await db.brands.find_one({"$or": [{"slug": slug_or_id}, {"id": slug_or_id}]}, {"_id": 0})
     if not b:
         raise HTTPException(404, "Brand not found")
-    products = await db.products.find(
-        {"brand_id": b["id"], "is_deleted": {"$ne": True}, "paused": {"$ne": True}}, {"_id": 0},
-    ).sort("created_at", -1).to_list(200)
-    return {"brand": b, "products": products}
+    return {"brand": b}
 
 
 async def _create_brand_doc(payload: BrandCreate, created_by: str) -> dict:
@@ -3499,16 +3501,6 @@ async def _create_brand_doc(payload: BrandCreate, created_by: str) -> dict:
     await db.brands.insert_one(doc)
     doc.pop("_id", None)
     return doc
-
-
-@api.post("/brands")
-async def create_brand(payload: BrandCreate, user: dict = Depends(get_current_user)):
-    """Merchant-or-admin creatable — this is the endpoint the product form's
-    inline "Create '{name}'" combobox option calls."""
-    if user.get("role") not in ("merchant", "admin"):
-        raise HTTPException(403, "Merchant access required")
-    created_by = user["sub"] if user.get("role") == "merchant" else "admin"
-    return await _create_brand_doc(payload, created_by)
 
 
 @api.get("/stores/{store_id}")
@@ -3566,6 +3558,7 @@ async def get_store(store_id: str):
 @api.get("/products")
 async def list_products(l1: Optional[str] = None, l2: Optional[str] = None,
                         gender: Optional[str] = None, store: Optional[str] = None,
+                        brand_id: Optional[str] = None,
                         sort: str = "trending", limit: int = 100):
     avail_map = await _availability_map()
     sids = list(avail_map.keys()) if avail_map else []
@@ -3577,6 +3570,7 @@ async def list_products(l1: Optional[str] = None, l2: Optional[str] = None,
     if l1: q["l1_id"] = l1
     if l2: q["l2_id"] = l2
     if gender: q["gender"] = gender
+    if brand_id: q["brand_id"] = brand_id
     cursor = db.products.find(q, {"_id": 0, "images": 0})
     if sort == "price_asc": cursor = cursor.sort("price", 1)
     elif sort == "price_desc": cursor = cursor.sort("price", -1)
@@ -3702,6 +3696,16 @@ async def get_product(pid: str):
         plan = store_doc.get("plan", "free")
         is_pro = plan == "pro"
         p["store_can_pickup"] = bool(is_pro and avail["rank"] in (1, 3) and avail["can_order"])
+    # Brand join — only attached when brand_id resolves to a real, still-
+    # existing brand doc (a deleted brand soft-unlinks brand_id to null on
+    # the product, but a stale reference should never surface a broken
+    # partial object to the PDP either way).
+    if p.get("brand_id"):
+        brand_doc = await db.brands.find_one(
+            {"id": p["brand_id"]}, {"_id": 0, "id": 1, "name": 1, "slug": 1, "logo": 1},
+        )
+        if brand_doc:
+            p["brand"] = brand_doc
     similar_q = {"id": {"$ne": pid}, **_visible_product_filter()}
     if p.get("l2_id"): similar_q["l2_id"] = p["l2_id"]
     elif p.get("l1_id"): similar_q["l1_id"] = p["l1_id"]
@@ -6190,40 +6194,33 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
     for lid, subs in L2_BY_L1.items():
         for s in subs: l2_by_name[(lid, s["name"].lower())] = s["id"]
 
-    # Brand column: name-matched lookup like L1/L2, but on a miss we
-    # AUTO-CREATE the brand (case-preserved) instead of skipping the row —
-    # deliberately different from category's skip-on-miss behavior, per
-    # product decision. `brand_cache` avoids re-querying/re-creating for
-    # repeated brand names within the same upload.
-    brand_cache: dict[str, dict] = {}
+    # Brand column: name-matched lookup like L1/L2 — but unlike L1/L2, a
+    # miss never skips or fails the row. Brand is a CLOSED, admin-curated
+    # vocabulary (no merchant- or bulk-upload-driven creation), so an
+    # unrecognized name just leaves brand_id unset on that product; the
+    # product itself always still gets created. `brand_cache` avoids
+    # re-querying for repeated names within the same upload.
+    brand_cache: dict[str, Optional[dict]] = {}
     brands_matched: set[str] = set()
-    brands_created: set[str] = set()
+    brands_unmatched: set[str] = set()
 
     async def _resolve_brand_id(row: dict) -> Optional[str]:
         raw = str(row.get("brand") or row.get("brand name") or row.get("brand_name") or "").strip()
         if not raw:
             return None
         key = raw.lower()
-        cached = brand_cache.get(key)
-        if cached:
-            return cached["id"]
+        if key in brand_cache:
+            cached = brand_cache[key]
+            return cached["id"] if cached else None
         existing = await db.brands.find_one(
             {"name": {"$regex": f"^{_re.escape(raw)}$", "$options": "i"}}, {"_id": 0},
         )
+        brand_cache[key] = existing
         if existing:
-            brand_cache[key] = existing
             brands_matched.add(existing["name"])
             return existing["id"]
-        slug = await _unique_brand_slug(_slugify(raw))
-        new_brand = {
-            "id": f"brand-{uuid.uuid4().hex[:10]}", "name": raw, "slug": slug,
-            "logo": "", "logo_public_id": "", "description": "", "product_count": 0,
-            "created_by": user["sub"], "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        await db.brands.insert_one(new_brand)
-        brand_cache[key] = new_brand
-        brands_created.add(raw)
-        return new_brand["id"]
+        brands_unmatched.add(raw)
+        return None
 
     created_ids: list[str] = []
     created_names: list[str] = []
@@ -6260,12 +6257,15 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
     cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
     for cached in brand_cache.values():
-        await _recompute_brand_product_count(cached["id"])
+        if cached:
+            await _recompute_brand_product_count(cached["id"])
     await _maybe_autopublish_store(user["sub"])
     result: dict = {"created": len(created_ids), "created_ids": created_ids,
                     "names": created_names[:50], "skipped": skipped[:50],
-                    "brands_created": sorted(brands_created),
-                    "brands_matched": sorted(brands_matched)}
+                    "brands_matched": sorted(brands_matched),
+                    "brands_unmatched": sorted(brands_unmatched)}
+    if brands_unmatched:
+        result["brands_unmatched_note"] = "Brand not recognized — product(s) created without a brand tag. Check spelling or ask an admin to add it."
     if limit_hit:
         result["warning"] = f"Some rows were skipped: you reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to upload more."
     return result

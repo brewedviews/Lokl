@@ -182,8 +182,16 @@ export const merchantApi = {
    *  the file under key `file`. */
   bulkCreateProducts: async (
     fd: FormData,
-  ): Promise<{ created: number; failed: number; errors: string[] }> => {
-    const r = await apiClient.post<{ created: number; failed: number; errors: string[] }>(
+  ): Promise<{
+    created: number; created_ids: string[]; names: string[]; skipped: string[];
+    brands_matched: string[]; brands_unmatched: string[]; brands_unmatched_note?: string;
+    warning?: string;
+  }> => {
+    const r = await apiClient.post<{
+      created: number; created_ids: string[]; names: string[]; skipped: string[];
+      brands_matched: string[]; brands_unmatched: string[]; brands_unmatched_note?: string;
+      warning?: string;
+    }>(
       "/api/merchant/products/bulk",
       fd,
       { headers: { "Content-Type": "multipart/form-data" } },

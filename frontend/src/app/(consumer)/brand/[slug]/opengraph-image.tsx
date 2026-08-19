@@ -12,7 +12,7 @@ const BRAND_PRIMARY = "#0A1F5C";
 const BRAND_ACCENT = "#E68910";
 const TEXT_MUTED = "#64748B";
 
-interface BrandResp { brand?: Brand; products?: unknown[] }
+interface BrandResp { brand?: Brand }
 
 export default async function BrandOG(
   { params }: { params: Promise<{ slug: string }> },
@@ -20,7 +20,9 @@ export default async function BrandOG(
   const { slug } = await params;
   const data = await serverFetch<BrandResp>(`/api/brands/${slug}`);
   const brand = data?.brand;
-  const productCount = data?.products?.length ?? 0;
+  // Denormalized field on the brand doc itself — no need for a second
+  // products fetch just to count them for a generated preview image.
+  const productCount = brand?.product_count ?? 0;
 
   if (!brand) {
     return new ImageResponse(

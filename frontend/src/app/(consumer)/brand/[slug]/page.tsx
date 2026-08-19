@@ -7,7 +7,6 @@ import type { Brand, ProductCard as ProductCardType } from "@/types";
 
 interface BrandDetailResponse {
   brand: Brand;
-  products: ProductCardType[];
 }
 
 export async function generateMetadata(
@@ -18,7 +17,7 @@ export async function generateMetadata(
   if (!data?.brand) return { title: "Brand not found", robots: { index: false } };
   const b = data.brand;
   const title = `${b.name} · Lokl`;
-  const desc = (b.description || `Shop ${b.name} on Lokl. ${data.products.length} products available.`).slice(0, 160);
+  const desc = (b.description || `Shop ${b.name} on Lokl. ${b.product_count} products available.`).slice(0, 160);
   return {
     title,
     description: desc,
@@ -35,7 +34,11 @@ export default async function BrandPage(
   if (!data?.brand) notFound();
 
   const brand = data.brand;
-  const products = data.products ?? [];
+  // Product grid comes from the shared, availability-aware GET /api/products
+  // endpoint (same one Home/Category/Store all use) filtered by brand_id,
+  // rather than a bespoke inline query — keeps store-visibility/pause
+  // filtering in exactly one place.
+  const products = (await serverFetch<ProductCardType[]>(`/api/products?brand_id=${brand.id}&limit=200`)) ?? [];
 
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">

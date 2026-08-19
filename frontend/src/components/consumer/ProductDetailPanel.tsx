@@ -246,6 +246,25 @@ export function ProductDetailPanel({
           )}
         </div>
 
+        {/* Brand line (Phase 1) — visually secondary to the store-info row
+            above (plain slate-gray, no accent color, smaller emphasis than
+            the store name link) since store identity is still primary on
+            this page. Only rendered when brand_id resolved server-side to
+            a real, still-existing brand — never a blank/broken state for
+            untagged products. */}
+        {product.brand && (
+          <Link href={`/brand/${product.brand.slug}`} data-testid="pdp-brand-link"
+            className="flex items-center gap-1.5 mt-1 group w-fit">
+            {product.brand.logo && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={product.brand.logo} alt="" className="w-4 h-4 rounded-full object-cover" />
+            )}
+            <span className="text-[11px] text-slate-gray group-hover:text-ink-navy group-hover:underline">
+              by {product.brand.name}
+            </span>
+          </Link>
+        )}
+
         {/* Title alone — no adjacent action cluster; wishlist lives in the
             header + the icon row below the gallery instead (see
             ProductGallery / ConsumerHeader). */}

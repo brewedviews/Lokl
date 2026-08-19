@@ -221,6 +221,12 @@ export default function MerchantProductsPage() {
       fd.append("file", file);
       const r = await api.merchant.bulkCreateProducts(fd);
       toast.success(`Imported ${r.created} products`);
+      if (r.brands_unmatched.length > 0) {
+        toast.warning(
+          `Brand not recognized for: ${r.brands_unmatched.join(", ")} — product(s) created without a brand tag. Check spelling or ask an admin to add it.`,
+          { duration: 8000 },
+        );
+      }
       void load();
     } catch (e) { toast.error(getErrorMessage(e)); }
     finally { setBulkUploadBusy(false); }

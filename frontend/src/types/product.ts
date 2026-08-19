@@ -49,6 +49,10 @@ export interface Product {
   // Brand (Phase 1) — optional; absent on every product created before
   // the Brand entity existed, and not every merchant sets one.
   brand_id?: string | null;
+  /** Lightweight embedded join, attached server-side by GET /api/products/{id}
+   *  only when brand_id resolves to a real (still-existing) brand — never a
+   *  broken/partial object for a stale or absent brand_id. */
+  brand?: { id: string; name: string; slug: string; logo: string } | null;
 
   // Flags
   ai_enhanced: boolean;
@@ -97,6 +101,7 @@ export interface ProductFilters {
   l1?: string;
   l2?: string;
   gender?: Gender;
+  brand_id?: string;
   min_price?: number;
   max_price?: number;
   sort?: "popular" | "newest" | "price_asc" | "price_desc";
