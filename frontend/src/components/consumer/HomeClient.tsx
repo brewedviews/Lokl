@@ -27,7 +27,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Sparkles, RotateCcw } from "lucide-react";
+import { Sparkles, RotateCcw, Tag } from "lucide-react";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { HeroV2 } from "@/components/consumer/v2/HeroV2";
@@ -41,7 +41,7 @@ import { CategoryTile } from "@/components/consumer/CategoryTile";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
 import { cloudinaryOptimize } from "@/lib/utils";
-import type { ProductCard as ProductCardType, StoreCard, CategoryNode, AreaTile, PriceBentoResponse } from "@/types";
+import type { ProductCard as ProductCardType, StoreCard, CategoryNode, AreaTile, PriceBentoResponse, Brand } from "@/types";
 import {
   trackSectionImpression, trackCategoryTileClick, trackCategoryTileImpression,
   trackPriceFilterClick, trackProductClick,
@@ -82,6 +82,11 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "hero",           label: "Hero",              enabled: true, rank: 20 },
   { id: "under_499",      label: "Under ₹499",        enabled: true, rank: 50 },
   { id: "meet_sellers",   label: "Meet your sellers", enabled: true, rank: 60 },
+  // Placed right after meet_sellers — both are discovery-by-identity
+  // rather than discovery-by-product, so grouping them reads as one
+  // "who's on Lokl" beat rather than two unrelated interruptions. See
+  // ShopByBrandSection's own comment for the fuller reasoning.
+  { id: "shop_by_brand",  label: "Shop by Brand",     enabled: true, rank: 65 },
   { id: "best_deals",     label: "Best deals",        enabled: true, rank: 30 },
   { id: "try_and_buy",    label: "Try & Buy",         enabled: true, rank: 40 },
   { id: "for_her",        label: "For Her",           enabled: true, rank: 100 },
@@ -349,6 +354,66 @@ function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boo
   );
 }
 
+// "Shop by Brand" (Phase 4, Part C) — same structural pattern as
+// MeetSellersSection just above (editorial intro + horizontal rail +
+// "See all →"), since both are discovery-by-identity rather than
+// discovery-by-product. Placed directly after meet_sellers in both
+// DEFAULT_SECTIONS and the backend's DEFAULT_HOMEPAGE_SECTIONS for that
+// reason — see this file's own rank comment at the top for the exact
+// value. Reuses CategoryTile's "dense" variant (circular image + label)
+// rather than a bespoke brand card — a brand's only real asset is a small
+// logo, which is exactly what that variant already renders well; a
+// banner-photo card like SellerCard would have nothing real to show.
+function ShopByBrandSection({ brands, ready }: { brands: Brand[]; ready: boolean }) {
+  return (
+    <div className="pt-8" data-testid="home-shop_by_brand">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-end justify-between gap-3">
+        <div>
+          <h3 className="text-lg sm:text-xl font-display font-bold text-[#0A1F5C] leading-tight">Shop by Brand</h3>
+          <p className="text-[13px] text-[#595959] mt-1">the labels your favourite local stores carry.</p>
+        </div>
+        <a href="/brands" className="text-xs font-bold text-[#0A1F5C] shrink-0 hover:underline">See all →</a>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+        {!ready ? (
+          <div className="flex gap-4 overflow-x-auto no-scrollbar pb-1">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1.5">
+                <div className="w-16 h-16 rounded-full bg-[#E5E2DC] animate-pulse" />
+                <div className="w-14 h-2.5 rounded bg-[#E5E2DC] animate-pulse" />
+              </div>
+            ))}
+          </div>
+        ) : brands.length === 0 ? (
+          <div className="bg-[#F4F1E9] rounded-2xl px-5 py-6 text-center flex flex-col items-center gap-2" data-testid="shop-by-brand-empty">
+            <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
+              <Tag size={16} className="text-[#E68910]" />
+            </div>
+            <p className="text-[12px] font-semibold text-[#0A1F5C] max-w-xs mx-auto">
+              Brands are being added as stores tag their products — check back soon.
+            </p>
+          </div>
+        ) : (
+          <div className="flex gap-4 overflow-x-auto no-scrollbar pb-1">
+            {brands.slice(0, 10).map((b) => (
+              <CategoryTile
+                key={b.id}
+                density="dense"
+                label={b.name}
+                image={b.logo || null}
+                href={`/brand/${b.slug}`}
+                fallback={<Tag size={18} className="text-[#94A3B8]" />}
+                testId={`shop-by-brand-${b.slug}`}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // "Try & Buy" — Lokl's differentiated wedge (rider waits while you try, keep
 // what you love, return the rest on the spot). A compact strip matching the
@@ -410,6 +475,7 @@ export function HomeClient() {
   const [priceBento, setPriceBento] = useState<PriceBentoResponse | null>(null);
   const [nearby, setNearby] = useState<StoreCard[]>([]);
   const [popularStores, setPopularStores] = useState<StoreCard[]>([]);
+  const [popularBrands, setPopularBrands] = useState<Brand[]>([]);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Set<string>>(new Set());
@@ -425,6 +491,12 @@ export function HomeClient() {
     () => DEFAULT_SECTIONS.find((s) => s.id === "meet_sellers")?.enabled ?? false
   );
   const storesEnabledRef = useRef(storesEnabled);
+  // Same gating pattern for the "Shop by Brand" rail — no point fetching
+  // brands unless that section is actually enabled.
+  const [brandsEnabled, setBrandsEnabled] = useState(
+    () => DEFAULT_SECTIONS.find((s) => s.id === "shop_by_brand")?.enabled ?? false
+  );
+  const brandsEnabledRef = useRef(brandsEnabled);
 
   const markLoaded = (key: string) =>
     setLoaded((prev) => { const next = new Set(prev); next.add(key); return next; });
@@ -470,6 +542,9 @@ export function HomeClient() {
         const resolvedStoresEnabled = deduped.find((s) => s.id === "meet_sellers")?.enabled ?? false;
         setStoresEnabled(resolvedStoresEnabled);
         storesEnabledRef.current = resolvedStoresEnabled;
+        const resolvedBrandsEnabled = deduped.find((s) => s.id === "shop_by_brand")?.enabled ?? false;
+        setBrandsEnabled(resolvedBrandsEnabled);
+        brandsEnabledRef.current = resolvedBrandsEnabled;
       }
       markLoaded("hero");
     }).catch(() => { markLoaded("hero"); });
@@ -481,9 +556,22 @@ export function HomeClient() {
       api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
       api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
       if (storesEnabledRef.current) {
-        api.stores.popular(10).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
+        // No lat/lng here deliberately — this effect is mount-only ([]),
+        // so it would always capture the pre-geolocation null value. The
+        // separate reactive effect below (keyed on [lat, lng, storesEnabled])
+        // already fetches the real-distance `nearby` list once location
+        // resolves, and storesRail below prefers `nearby` over this
+        // popular-stores fallback whenever it has data.
+        api.stores.popular({ limit: 10 }).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
       } else {
         markLoaded("popularStores");
+      }
+      if (brandsEnabledRef.current) {
+        api.brands.list({ limit: 10, sort: "popular" })
+          .then((r) => { setPopularBrands(r.brands.filter((b) => b.product_count > 0)); markLoaded("popularBrands"); })
+          .catch(() => { markLoaded("popularBrands"); markError("popularBrands"); });
+      } else {
+        markLoaded("popularBrands");
       }
     }, 800);
 
@@ -874,6 +962,8 @@ export function HomeClient() {
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
 
     meet_sellers: <MeetSellersSection key="meet-sellers" stores={sellersSorted} ready={storesReady} />,
+
+    shop_by_brand: <ShopByBrandSection key="shop-by-brand" brands={popularBrands} ready={loaded.has("popularBrands")} />,
 
     try_and_buy: <TryAndBuySection key="try-and-buy" image={tryAndBuyImage} />,
 

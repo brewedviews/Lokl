@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, BadgeCheck } from "lucide-react";
 import type { Store } from "@/types";
 
 const BADGE_STYLE: Record<string, { label: string; dot: string; text: string }> = {
@@ -14,13 +14,15 @@ const BADGE_STYLE: Record<string, { label: string; dot: string; text: string }> 
 
 /**
  * /stores row — full-width list row (not a narrow grid tile), one per
- * line. Deliberately does NOT fabricate a distance when none is available
- * (the previous StoreCardV2 defaulted to a fake "1.5 km"). The distance
- * row simply doesn't render unless `distance_km` is real.
+ * line. Deliberately does NOT fabricate a distance/ETA when none is
+ * available (the previous StoreCardV2 defaulted to a fake "1.5 km"). Those
+ * rows simply don't render unless the real value is present — same
+ * discipline now applied to product count and the Verified pill.
  */
 export function StoreListCard({ s }: { s: Store }) {
-  const image = s.banner || (Array.isArray(s.banners) && s.banners[0]) || s.image || s.logo;
+  const image = s.banner || (Array.isArray(s.banners) && s.banners[0]) || s.image;
   const badge = s.badge ? BADGE_STYLE[s.badge] : null;
+  const locality = s.area_label || s.area || s.locality;
 
   return (
     <Link
@@ -34,11 +36,28 @@ export function StoreListCard({ s }: { s: Store }) {
         ) : (
           <div className="w-full h-full v2-shimmer" />
         )}
+        {/* Logo — a distinct badge overlapping the cover image's corner,
+            not a last-resort fill for the image slot above. */}
+        {s.logo && (
+          <div className="absolute bottom-1 right-1 w-7 h-7 rounded-full overflow-hidden border-2 border-white shadow-sm bg-white">
+            <Image src={s.logo} alt="" fill sizes="28px" className="object-cover" />
+          </div>
+        )}
       </div>
       <div className="min-w-0 flex-1 space-y-1">
-        <h3 className="text-base font-display font-bold text-[#0A1F5C] leading-tight truncate">{s.name}</h3>
+        <div className="flex items-center gap-1 min-w-0">
+          <h3 className="text-base font-display font-bold text-[#0A1F5C] leading-tight truncate">{s.name}</h3>
+          {s.trusted && (
+            <span className="inline-flex items-center gap-0.5 shrink-0 text-[#3B82F6]" data-testid={`store-list-verified-${s.id}`}>
+              <BadgeCheck size={14} />
+            </span>
+          )}
+        </div>
+        {locality && <p className="text-[12px] text-[#595959] truncate">{locality}</p>}
         <div className="flex items-center gap-3 flex-wrap text-[12px] text-[#595959]">
           {s.distance_km != null && <span>{s.distance_km.toFixed(1)} km away</span>}
+          {s.eta_min != null && <span>{s.eta_min} min</span>}
+          {!!s.product_count && <span>{s.product_count} product{s.product_count === 1 ? "" : "s"}</span>}
           {badge && (
             <span className={`inline-flex items-center gap-1.5 font-semibold ${badge.text}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />

@@ -73,9 +73,10 @@ export interface Store {
 /** Lighter projection used for "nearby stores" feed cards and search hits. */
 export type StoreCard = Pick<
   Store,
-  | "id" | "slug" | "name" | "tagline" | "logo" | "image" | "city" | "locality"
+  | "id" | "slug" | "name" | "tagline" | "logo" | "image" | "banner" | "banners"
+  | "city" | "locality" | "area" | "area_label"
   | "distance_km" | "eta_min" | "rating" | "reviews" | "online" | "paused"
-  | "product_count" | "specialties"
+  | "product_count" | "specialties" | "trusted"
 >;
 
 /** A featured area tile for the homepage "Shop by Area" section —

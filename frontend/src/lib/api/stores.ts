@@ -39,10 +39,12 @@ export const storesApi = {
     return r.data;
   },
 
-  /** GET /api/feed/popular-stores?limit — non-geo, city-level popularity. */
-  popular: async (limit = 8): Promise<StoreCard[]> => {
+  /** GET /api/feed/popular-stores?limit&lat&lng — popularity ranking is
+   *  city-level regardless of location; lat/lng are optional and only
+   *  add real (never-fabricated) distance_km/eta_min to each result. */
+  popular: async (params?: { limit?: number; lat?: number; lng?: number }): Promise<StoreCard[]> => {
     const r = await apiClient.get<StoreCard[]>("/api/feed/popular-stores", {
-      params: { limit },
+      params: { limit: params?.limit ?? 8, lat: params?.lat, lng: params?.lng },
     });
     return r.data;
   },

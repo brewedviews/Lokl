@@ -8,9 +8,11 @@ import { apiClient } from "@/lib/api-client";
 import type { Brand, BrandListResponse } from "@/types";
 
 export const brandsApi = {
-  /** GET /api/brands?search=&skip=&limit= — powers the merchant product
-   *  form's search-only combobox as well as any future brand-browsing UI. */
-  list: async (params?: { search?: string; skip?: number; limit?: number }): Promise<BrandListResponse> => {
+  /** GET /api/brands?search=&skip=&limit=&sort= — powers the merchant
+   *  product form's search-only combobox, the /brands directory
+   *  (sort="name", the default), and Home's "Shop by Brand" rail
+   *  (sort="popular" = product_count desc). */
+  list: async (params?: { search?: string; skip?: number; limit?: number; sort?: "name" | "popular" }): Promise<BrandListResponse> => {
     const r = await apiClient.get<BrandListResponse>("/api/brands", { params });
     return r.data;
   },

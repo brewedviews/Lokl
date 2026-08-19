@@ -3,6 +3,8 @@
 /** Mobile info chips for the store cover area. Trigger story/delivery sheets. */
 import { useState } from "react";
 import { Bike, ShieldCheck, MapPin, Clock, ChevronRight } from "lucide-react";
+import { useLocationStore } from "@/stores";
+import { haversineKm } from "@/lib/geo";
 
 interface InfoChipProps {
   icon: typeof Bike;
@@ -39,14 +41,28 @@ interface Props {
   eta: string;
   city: string;
   timing?: string | null;
+  /** The store's own real coordinates (from GET /api/stores/{id}, which
+   *  doesn't compute distance server-side — it has no request-scoped user
+   *  location to compute it against). Combined client-side with the
+   *  shopper's browser-granted location (useLocationStore) to get a real
+   *  distance with no extra round-trip; simply omitted from the chip when
+   *  either half is unavailable — never fabricated. */
+  storeLat?: number | null;
+  storeLng?: number | null;
 }
 
-export function StoreInfoChips({ storyText, area, eta, city, timing }: Props) {
+export function StoreInfoChips({ storyText, area, eta, city, timing, storeLat, storeLng }: Props) {
   const [sheet, setSheet] = useState<"story" | "delivery" | null>(null);
+  const userLat = useLocationStore((s) => s.lat);
+  const userLng = useLocationStore((s) => s.lng);
+  const distanceKm = (userLat != null && userLng != null && storeLat != null && storeLng != null)
+    ? haversineKm(userLat, userLng, storeLat, storeLng)
+    : null;
   // Whitespace-only story ("" from a merchant who never wrote one, but also
   // possibly " ") shouldn't render a chip that opens a sheet with nothing
   // in it — treat it the same as no story at all.
   const hasStory = !!storyText?.trim();
+  const deliveryValue = [eta, area, distanceKm != null ? `${distanceKm.toFixed(1)} km` : null].filter(Boolean).join(" · ");
   return (
     <>
       <div className="md:hidden -mt-3 relative z-10 px-4">
@@ -63,7 +79,7 @@ export function StoreInfoChips({ storyText, area, eta, city, timing }: Props) {
           <InfoChip
             icon={Bike}
             label="Delivery"
-            value={`${eta} · ${area}`}
+            value={deliveryValue}
             accent
             onClick={() => setSheet("delivery")}
             testid="chip-delivery"
@@ -85,7 +101,7 @@ export function StoreInfoChips({ storyText, area, eta, city, timing }: Props) {
             {sheet === "delivery" && (
               <div className="space-y-3 text-sm text-[#595959]">
                 <div className="flex items-center gap-2"><Bike size={15} className="text-[#E68910]" /> Estimated arrival: <b className="text-[#0A1F5C]">{eta}</b></div>
-                <div className="flex items-center gap-2"><MapPin size={15} className="text-[#E68910]" /> {area} · {city}</div>
+                <div className="flex items-center gap-2"><MapPin size={15} className="text-[#E68910]" /> {area} · {city}{distanceKm != null ? ` · ${distanceKm.toFixed(1)} km away` : ""}</div>
                 <div className="flex items-center gap-2"><ShieldCheck size={15} className="text-[#4F7363]" /> Try-at-doorstep available</div>
                 {timing && <div className="flex items-center gap-2"><Clock size={15} className="text-[#E68910]" /> {timing}</div>}
               </div>

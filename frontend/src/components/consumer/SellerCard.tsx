@@ -7,26 +7,33 @@
  * the exact same card rather than a second, similar-looking one.
  *
  * aspect-[3/4], rounded-2xl, whisper shadow, neutral dark scrim, bold
- * white name + small cream area subtitle. No overlapping avatar — the
- * name on the image is enough. Store's own tagline/story is intentionally
- * left out to keep the card as clean as an area tile: name + area is the
- * priority.
+ * white name + small cream area/ETA/distance subtitle + product count.
+ * Store's own tagline/story is intentionally left out to keep the card
+ * focused — name + locality/logistics + count is the priority.
  *
  * `openNow` shows a small light-green "Open now" pill; otherwise
  * `closedLabel` (e.g. "Opens at 6:00 PM", or a generic "Closed" when no
  * specific reopen time is known) shows a muted pill instead — so every
  * card carries a status, not just the open ones.
+ *
+ * Field-set enrichment (Phase 4, Part B): logo, ETA, product count and a
+ * Verified pill all now render — but only when the caller's endpoint
+ * actually supplies them (never fabricated). Not every call site's
+ * backend query computes every field yet — e.g. distance/eta_min need
+ * user lat/lng, which the cached stores_in_category rail deliberately
+ * doesn't accept (a per-user value can't live in a shared TTL cache); see
+ * that endpoint's own doc comment.
  */
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
+import { Sparkles, BadgeCheck } from "lucide-react";
 import { trackStoreClick } from "@/lib/analytics";
 import { cloudinaryOptimize } from "@/lib/utils";
 
 // Deliberately looser than the full StoreCard type (Home's own
 // GET /api/feed/popular-stores /-nearby shape) — this component only
-// ever reads id/name/slug/banner(s)/image/area/locality, all optional
-// here, so CategoryClient's own GET /api/categories/{l1}/stores response
-// (a different endpoint, a different field set) can be passed straight
+// ever reads a known subset of fields, all optional here, so
+// CategoryClient's own GET /api/categories/{l1}/stores response (a
+// different endpoint, a different field set) can be passed straight
 // through without a cast, the same reasoning CategoryTileRow's own
 // loosened `categories` prop already uses.
 interface SellerCardStore {
@@ -36,14 +43,30 @@ interface SellerCardStore {
   banner?: string | null;
   banners?: string[];
   image?: string | null;
+  logo?: string | null;
   area_label?: string | null;
   area?: string | null;
   locality?: string | null;
+  distance_km?: number | null;
+  eta_min?: number | null;
+  product_count?: number | null;
+  trusted?: boolean;
 }
 
 export function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel }: { s: SellerCardStore; source?: string; openNow?: boolean; closedLabel?: string }) {
   const banner = s.banner || (Array.isArray(s.banners) && s.banners[0]) || s.image || null;
   const area = s.area_label || s.area || s.locality || "Bhilai";
+  const logisticsParts = [
+    area,
+    s.distance_km != null ? `${s.distance_km.toFixed(1)} km` : null,
+    s.eta_min != null ? `${s.eta_min} min` : null,
+  ].filter(Boolean);
+  const nameRow = (
+    <div className="flex items-center gap-1 min-w-0">
+      <span className="font-bold text-[13px] sm:text-sm leading-tight line-clamp-1 min-w-0">{s.name}</span>
+      {s.trusted && <BadgeCheck size={13} className="shrink-0 text-[#3B82F6]" aria-label="Verified store" />}
+    </div>
+  );
   return (
     <Link key={s.id} href={`/store/${s.slug || s.id}`}
       onClick={() => { try { trackStoreClick(s.id, s.name, source); } catch {} }}
@@ -58,6 +81,14 @@ export function SellerCard({ s, source = "meet_sellers", openNow = false, closed
           <span className="w-1.5 h-1.5 rounded-full bg-[#94A3B8]" /> {closedLabel}
         </span>
       ) : null}
+      {/* Logo — a distinct floating badge (not a banner fallback source),
+          top-right so it never collides with the open/closed pill at
+          top-left. Simply absent when the store has no logo set. */}
+      {s.logo && (
+        <div className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full overflow-hidden border-2 border-white shadow-sm bg-white">
+          <img src={cloudinaryOptimize(s.logo, "w_80,q_auto,f_auto")} alt="" className="w-full h-full object-cover" />
+        </div>
+      )}
       {banner ? (
         <>
           <img
@@ -67,9 +98,12 @@ export function SellerCard({ s, source = "meet_sellers", openNow = false, closed
             className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
           />
           <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
-          <div className="absolute bottom-2.5 left-2.5 right-2.5">
-            <div className="font-bold text-white text-[13px] sm:text-sm leading-tight line-clamp-1">{s.name}</div>
-            <div className="text-[10px] font-semibold text-[#F0E9DD]/90 mt-0.5 leading-tight">{area}</div>
+          <div className="absolute bottom-2.5 left-2.5 right-2.5 text-white">
+            {nameRow}
+            <div className="text-[10px] font-semibold text-[#F0E9DD]/90 mt-0.5 leading-tight line-clamp-1">{logisticsParts.join(" · ")}</div>
+            {!!s.product_count && (
+              <div className="text-[9px] font-medium text-[#F0E9DD]/70 mt-0.5 leading-tight">{s.product_count} product{s.product_count === 1 ? "" : "s"}</div>
+            )}
           </div>
         </>
       ) : (
@@ -79,9 +113,12 @@ export function SellerCard({ s, source = "meet_sellers", openNow = false, closed
           <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
             <Sparkles size={15} className="text-[#E68910]" />
           </div>
-          <div>
-            <div className="font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight line-clamp-1">{s.name}</div>
-            <div className="text-[10px] font-semibold text-[#0A1F5C]/55 mt-0.5 leading-tight">{area}</div>
+          <div className="text-[#0A1F5C]">
+            {nameRow}
+            <div className="text-[10px] font-semibold text-[#0A1F5C]/55 mt-0.5 leading-tight line-clamp-1">{logisticsParts.join(" · ")}</div>
+            {!!s.product_count && (
+              <div className="text-[9px] font-medium text-[#0A1F5C]/45 mt-0.5 leading-tight">{s.product_count} product{s.product_count === 1 ? "" : "s"}</div>
+            )}
           </div>
         </div>
       )}

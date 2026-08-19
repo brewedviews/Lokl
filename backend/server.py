@@ -1157,10 +1157,14 @@ async def feed_selling_fast(limit: int = 12):
 
 
 @api.get("/feed/best-sellers")
-async def feed_best_sellers(limit: int = 12):
+async def feed_best_sellers(limit: int = 12, store: Optional[str] = None):
+    """`store`, when given, is the real bestseller signal (30-day delivered-
+    order quantity) scoped to one store — reused as-is by the store page's
+    Bestsellers rail rather than inventing a second definition."""
     avail_map = await _availability_map()
     sids = list(avail_map.keys())
     if not sids: return []
+    store_filter = store if store else {"$in": sids}
     since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     counts: dict[str, int] = {}
     async for o in db.orders.find(
@@ -1174,14 +1178,14 @@ async def feed_best_sellers(limit: int = 12):
     items: list[dict] = []
     if top_ids:
         items = await db.products.find(
-            {"id": {"$in": top_ids}, "store_id": {"$in": sids}, **_visible_product_filter()},
+            {"id": {"$in": top_ids}, "store_id": store_filter, **_visible_product_filter()},
             {"_id": 0, "images": 0}
         ).to_list(limit)
         rank = {pid: i for i, pid in enumerate(top_ids)}
         items.sort(key=lambda p: rank.get(p["id"], 999))
     if not items:
         items = await db.products.find(
-            {"store_id": {"$in": sids}, **_visible_product_filter()},
+            {"store_id": store_filter, **_visible_product_filter()},
             {"_id": 0, "images": 0}
         ).sort("rating", -1).to_list(limit)
     items = await _enrich_badges(db, items)
@@ -1192,19 +1196,23 @@ async def feed_best_sellers(limit: int = 12):
 
 
 @api.get("/feed/new-arrivals")
-async def feed_new_arrivals(limit: int = 12):
+async def feed_new_arrivals(limit: int = 12, store: Optional[str] = None):
+    """`store`, when given, scopes this same created_at-desc logic (with its
+    existing all-time fallback) to one store — reused as-is by the store
+    page's New Arrivals rail."""
     avail_map = await _availability_map()
     sids = list(avail_map.keys())
     if not sids: return []
+    store_filter = store if store else {"$in": sids}
     since_30d = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     items = await db.products.find(
-        {"store_id": {"$in": sids}, "created_at": {"$gte": since_30d}, **_visible_product_filter()},
+        {"store_id": store_filter, "created_at": {"$gte": since_30d}, **_visible_product_filter()},
         {"_id": 0, "images": 0}
     ).sort("created_at", -1).to_list(limit * 3)
     if not items:
         # Fall back to most recent products across all time if nothing in 30 days.
         items = await db.products.find(
-            {"store_id": {"$in": sids}, **_visible_product_filter()},
+            {"store_id": store_filter, **_visible_product_filter()},
             {"_id": 0, "images": 0}
         ).sort("created_at", -1).to_list(limit)
     items = await _enrich_badges(db, items)
@@ -2720,7 +2728,7 @@ async def stores_in_category(l1_id: str, limit: int = 10):
     stores = await db.stores.find(
         {"id": {"$in": store_ids}, **_visible_store_filter()},
         {"_id": 0, "id": 1, "slug": 1, "name": 1, "logo": 1, "banner": 1, "banners": 1,
-         "area_label": 1, "locality": 1, "tagline": 1},
+         "area_label": 1, "locality": 1, "tagline": 1, "trusted": 1},
     ).to_list(len(store_ids))
     for s in stores:
         avail = avail_map.get(s["id"], {})
@@ -2760,6 +2768,7 @@ DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "hero",           "label": "Hero",                     "enabled": True,  "rank": 20},
     {"id": "under_499",      "label": "Under ₹499",               "enabled": True,  "rank": 30},
     {"id": "meet_sellers",   "label": "Meet your sellers",        "enabled": True,  "rank": 40},
+    {"id": "shop_by_brand",  "label": "Shop by Brand",            "enabled": True,  "rank": 45},
     {"id": "best_deals",     "label": "Best deals",               "enabled": True,  "rank": 50},
     {"id": "try_and_buy",    "label": "Try & Buy",                "enabled": True,  "rank": 60},
     {"id": "for_her",        "label": "For Her",                  "enabled": True,  "rank": 70},
@@ -3185,9 +3194,14 @@ async def feed_nearby_stores(lat: float, lng: float, limit: int = 10):
 
 
 @api.get("/feed/popular-stores")
-async def feed_popular_stores(limit: int = 10):
-    """Stores with the most orders in the last 30 days, sorted by availability rank."""
+async def feed_popular_stores(limit: int = 10, lat: Optional[float] = None, lng: Optional[float] = None):
+    """Stores with the most orders in the last 30 days, sorted by availability rank.
+
+    `lat`/`lng` are optional — when given, distance_km/eta_min are computed
+    the same way feed_nearby_stores does (never fabricated when coords are
+    absent). Popularity ranking itself is unaffected by location."""
     stores = await db.stores.find(_visible_store_filter(), {"_id": 0, "banner_images": 0}).to_list(200)
+    stores = _attach_distance_and_eta(stores, lat, lng)
     since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     counts: dict = {}
     async for o in db.orders.find({"created_at": {"$gte": since}}, {"_id": 0, "items": 1}):
@@ -3449,16 +3463,20 @@ async def get_my_tickets(request: Request):
 
 
 @api.get("/brands")
-async def list_brands(search: str = "", skip: int = 0, limit: int = 20):
-    """Public list — also powers the merchant product form's search-only
-    combobox typeahead (`?search=`). Brand is a closed, admin-curated
+async def list_brands(search: str = "", skip: int = 0, limit: int = 20, sort: str = "name"):
+    """Public list — powers the merchant product form's search-only combobox
+    typeahead (`?search=`), the /brands directory (default `sort=name`),
+    and Home's "Shop by Brand" rail (`sort=popular`, i.e. product_count
+    desc — a real signal already denormalized on the brand doc, not a
+    fabricated "curated" flag). Brand is a closed, admin-curated
     vocabulary — this route has no create counterpart."""
     limit = max(1, min(limit, 100))
     q: dict = {}
     if search.strip():
         q["name"] = {"$regex": _re.escape(search.strip()), "$options": "i"}
     total = await db.brands.count_documents(q)
-    rows = await db.brands.find(q, {"_id": 0}).sort("name", 1).skip(skip).limit(limit).to_list(limit)
+    sort_field, sort_dir = ("product_count", -1) if sort == "popular" else ("name", 1)
+    rows = await db.brands.find(q, {"_id": 0}).sort(sort_field, sort_dir).skip(skip).limit(limit).to_list(limit)
     return {"brands": rows, "total": total, "skip": skip, "limit": limit}
 
 
@@ -3554,6 +3572,35 @@ async def get_store(store_id: str):
         p["store_opens_at_label"] = avail.get("opens_at_label")
         p["store_availability_rank"] = avail["rank"]
     return {"store": s, "products": products}
+
+
+@api.get("/stores/{store_id}/categories")
+async def store_categories(store_id: str):
+    """Distinct L1 categories actually present across this store's visible
+    products — the reverse direction of stores_in_category (categories ->
+    stores). Derived from real product l1_id values only; deliberately does
+    NOT read store.specialties, which is merchant-declared free text with
+    no connection to actual product taxonomy.
+
+    Joined against the live db.categories collection (not the static
+    L1_CATEGORIES seed constant) so admin-edited category names/images stay
+    correct here too, and paused categories are excluded the same as
+    everywhere else a category renders publicly."""
+    store = await db.stores.find_one(
+        {"$or": [{"slug": store_id}, {"id": store_id}], **_visible_store_filter()}, {"_id": 0, "id": 1},
+    )
+    if not store:
+        raise HTTPException(404, "Store not found")
+    l1_ids = [x for x in await db.products.distinct(
+        "l1_id", {"store_id": store["id"], **_visible_product_filter()},
+    ) if x]
+    if not l1_ids:
+        return []
+    cats = await db.categories.find(
+        {"id": {"$in": l1_ids}, "paused": {"$ne": True}}, {"_id": 0},
+    ).sort("order", 1).to_list(50)
+    return cats
+
 
 @api.get("/products")
 async def list_products(l1: Optional[str] = None, l2: Optional[str] = None,

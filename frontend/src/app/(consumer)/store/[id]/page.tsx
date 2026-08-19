@@ -6,12 +6,21 @@ import { serverFetch } from "@/lib/server-fetch";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { StoreInfoChips } from "@/components/consumer/StoreInfoChips";
 import { StoreNotifyBanner } from "@/components/consumer/StoreNotifyBanner";
-import type { Store, ProductCard as ProductCardType } from "@/types";
+import { CategoryTile } from "@/components/consumer/CategoryTile";
+import { TrustSignalsCompact } from "@/components/consumer/TrustSignalsCompact";
+import { StoreDistanceText } from "@/components/consumer/StoreDistanceText";
+import type { Store, ProductCard as ProductCardType, CmsCategory } from "@/types";
 
 interface StoreDetailResponse {
   store: Store;
   products: ProductCardType[];
 }
+
+// Below this many live products, splitting into New Arrivals / Bestsellers
+// rails would mean two thin, near-identical strips pulled from the same
+// small pool — a single "From this store" grid reads better. Above it,
+// both rails get a real chance to show genuinely different products.
+const SPLIT_RAIL_MIN_PRODUCTS = 6;
 
 function etaFromDistance(km?: number | null) {
   if (km == null) return "45 min";
@@ -53,6 +62,21 @@ export default async function StorePage(
   const eta = etaFromDistance(store.distance_km);
   const area = areaFromAddress(store);
 
+  // Categories-sold tile row + New Arrivals / Bestsellers rails all key off
+  // the resolved store id (store.id, not the route's slug-or-id param) —
+  // fetched in parallel with each other, after the store itself resolves.
+  const splitRails = store.product_count >= SPLIT_RAIL_MIN_PRODUCTS;
+  const [categoriesSold, newArrivals, bestsellers] = await Promise.all([
+    serverFetch<CmsCategory[]>(`/api/stores/${store.id}/categories`),
+    splitRails ? serverFetch<ProductCardType[]>(`/api/feed/new-arrivals?store=${store.id}&limit=8`) : Promise.resolve(null),
+    splitRails ? serverFetch<ProductCardType[]>(`/api/feed/best-sellers?store=${store.id}&limit=8`) : Promise.resolve(null),
+  ]);
+  // Even above the product-count threshold, only actually split when BOTH
+  // rails come back with real content — a store can clear the count
+  // threshold but still have e.g. zero 30-day-old orders, which would
+  // otherwise render a near-empty Bestsellers strip.
+  const showSplitRails = splitRails && !!newArrivals?.length && !!bestsellers?.length;
+
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1">
@@ -80,12 +104,41 @@ export default async function StorePage(
               {store.next_open_label || "Closed"}
             </div>
           )}
-          <h1 data-testid="store-name" className="font-display text-2xl sm:text-4xl md:text-6xl font-bold leading-[1.05]">{store.name}</h1>
-          {store.tagline && <p className="text-white/80 mt-1 sm:mt-2 max-w-xl text-xs sm:text-base line-clamp-1 sm:line-clamp-none">{store.tagline}</p>}
+          {/* Logo + name/tagline — same circular-avatar-next-to-text
+              composition MerchantMicroCard already uses for store logo
+              display (PDP), just scaled up for the hero. Absent entirely
+              when the store has no logo, same discipline as everywhere
+              else a possibly-unset image renders on this page. */}
+          <div className="flex items-center gap-3">
+            {store.logo && (
+              <div className="relative w-12 h-12 sm:w-16 sm:h-16 rounded-full overflow-hidden border-2 border-white shrink-0 bg-white shadow-sm">
+                <Image src={store.logo} alt="" fill sizes="64px" className="object-cover" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <h1 data-testid="store-name" className="font-display text-2xl sm:text-4xl md:text-6xl font-bold leading-[1.05]">{store.name}</h1>
+              {store.tagline && <p className="text-white/80 mt-1 sm:mt-2 max-w-xl text-xs sm:text-base line-clamp-1 sm:line-clamp-none">{store.tagline}</p>}
+            </div>
+          </div>
         </div>
       </div>
 
-      <StoreInfoChips storyText={store.story ?? null} area={area} eta={eta} city={store.city || "Bhilai"} timing={store.timing} />
+      <StoreInfoChips storyText={store.story ?? null} area={area} eta={eta} city={store.city || "Bhilai"} timing={store.timing} storeLat={store.lat ?? null} storeLng={store.lng ?? null} />
+
+      {/* Categories this store sells — dense CategoryTile row, derived from
+          real product l1_id values (GET /api/stores/{id}/categories), never
+          from the merchant-declared `specialties` free text. Renders
+          nothing when the store has no products yet. */}
+      {categoriesSold && categoriesSold.length > 0 && (
+        <div className="max-w-7xl mx-auto px-4 md:px-8 pt-5 sm:pt-8" data-testid="store-categories-sold">
+          <h2 className="text-sm font-display font-bold text-[#0A1F5C] mb-3">Shop by category</h2>
+          <div className="flex gap-4 overflow-x-auto no-scrollbar pb-1">
+            {categoriesSold.map((c) => (
+              <CategoryTile key={c.id} density="dense" label={c.name} image={c.image} href={`/c/${c.slug}`} testId={`store-category-${c.slug}`} />
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 md:px-8 pt-5 sm:pt-10 pb-10 grid md:grid-cols-3 md:gap-10">
         <aside className="hidden md:block space-y-5">
@@ -110,14 +163,24 @@ export default async function StorePage(
                   <span>ETA {eta}</span>
                 )}
               </div>
-              <div className="flex items-center gap-2"><MapPin size={14} className="text-[#E68910]" /> {area} · {store.city || "Bhilai"}</div>
+              <div className="flex items-center gap-2">
+                <MapPin size={14} className="text-[#E68910]" />
+                {area} · {store.city || "Bhilai"}
+                <StoreDistanceText storeLat={store.lat} storeLng={store.lng} className="text-[#94A3B8]" />
+              </div>
               <div className="flex items-center gap-2"><ShieldCheck size={14} className="text-[#4F7363]" /> Try-at-doorstep available</div>
             </div>
+          </div>
+          {/* Policies/trust section (redesign-plan 3.4) — the standing
+              4-item TrustSignalsCompact reused verbatim, not a second
+              store-specific version. */}
+          <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC]">
+            <h3 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">Store policies</h3>
+            <TrustSignalsCompact />
           </div>
         </aside>
 
         <div className="md:col-span-2">
-          <h2 className="font-display text-xl sm:text-3xl font-bold text-[#0A1F5C] mb-3 sm:mb-6">From this store ({products.length})</h2>
           <StoreNotifyBanner
             badge={store.badge ?? ""}
             storeId={store.id}
@@ -138,13 +201,46 @@ export default async function StorePage(
                 </>
               )}
             </div>
+          ) : showSplitRails ? (
+            <div className="space-y-8">
+              {newArrivals && newArrivals.length > 0 && (
+                <div data-testid="store-new-arrivals">
+                  <h2 className="font-display text-xl sm:text-3xl font-bold text-[#0A1F5C] mb-3 sm:mb-6">New arrivals</h2>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
+                    {newArrivals.map((p) => (
+                      <ProductCard key={p.id} p={{ ...p, store_name: store.name }} size="default" />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {bestsellers && bestsellers.length > 0 && (
+                <div data-testid="store-bestsellers">
+                  <h2 className="font-display text-xl sm:text-3xl font-bold text-[#0A1F5C] mb-3 sm:mb-6">Bestsellers</h2>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
+                    {bestsellers.map((p) => (
+                      <ProductCard key={p.id} p={{ ...p, store_name: store.name }} size="default" />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
-              {products.map((p) => (
-                <ProductCard key={p.id} p={{ ...p, store_name: store.name }} size="default" />
-              ))}
+            <div data-testid="store-all-products">
+              <h2 className="font-display text-xl sm:text-3xl font-bold text-[#0A1F5C] mb-3 sm:mb-6">From this store ({products.length})</h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
+                {products.map((p) => (
+                  <ProductCard key={p.id} p={{ ...p, store_name: store.name }} size="default" />
+                ))}
+              </div>
             </div>
           )}
+
+          {/* Mobile-only: the aside's policies card is hidden below md, so
+              trust signals still need a home in the main column here. */}
+          <div className="md:hidden mt-8 bg-white rounded-2xl p-5 border border-[#E5E2DC]">
+            <h3 className="font-display text-lg font-bold text-[#0A1F5C] mb-3">Store policies</h3>
+            <TrustSignalsCompact />
+          </div>
         </div>
       </div>
       </div>
