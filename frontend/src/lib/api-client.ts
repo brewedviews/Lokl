@@ -71,6 +71,7 @@ const CUSTOMER_ROUTE_PATTERNS: RegExp[] = [
   /^\/api\/orders\/[^/]+\/complaints$/,
   /^\/api\/customer\/upsert$/,
   /^\/api\/support\//,
+  /^\/api\/payments\/razorpay\/create-order$/,
 ];
 
 const MERCHANT_ROUTE_PATTERNS: RegExp[] = [

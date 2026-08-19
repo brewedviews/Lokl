@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Banknote, MapPin, Plus, CheckCircle2, Truck, Clock, Loader2 } from "lucide-react";
+import { Banknote, MapPin, Plus, CheckCircle2, Truck, Clock, Loader2, Store, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
@@ -28,6 +28,7 @@ interface StoreAvailInfo {
   can_order: boolean;
   eta_message: string;
   opens_at_label?: string | null;
+  can_pickup: boolean;
 }
 
 // Group C2 — lat/lng typed explicitly (not inferred from a `null` literal)
@@ -77,7 +78,9 @@ export default function CheckoutPage() {
   const [savedAddresses, setSavedAddresses] = useState<CustomerAddress[]>([]);
   const [selectedId, setSelectedId] = useState("__new__");
   const [addr, setAddr] = useState({ ...BLANK_ADDR, phone: phone?.slice(-10) ?? "" });
-  const [payment] = useState<"COD">("COD");
+  const [payment, setPayment] = useState<"COD" | "RAZORPAY">("COD");
+  const [payingOnline, setPayingOnline] = useState(false);
+  const [orderType, setOrderType] = useState<"delivery" | "pickup">("delivery");
   const [placing, setPlacing] = useState(false);
   const [estimate, setEstimate] = useState<DeliveryEstimate>(null);
   const [estimating, setEstimating] = useState(false);
@@ -141,7 +144,7 @@ export default function CheckoutPage() {
     Promise.all(
       uniqueStores.map((sid) =>
         apiClient.get<{
-          store: { name?: string; badge?: string; availability_rank?: number; can_order?: boolean; eta_message?: string; next_open_label?: string };
+          store: { name?: string; badge?: string; availability_rank?: number; can_order?: boolean; eta_message?: string; next_open_label?: string; can_pickup?: boolean };
           products?: ProductCardType[];
         }>(`/api/stores/${sid}`)
           .then((r) => {
@@ -156,11 +159,23 @@ export default function CheckoutPage() {
               can_order: s.can_order !== false,
               eta_message: s.eta_message ?? "",
               opens_at_label: s.next_open_label ?? null,
+              can_pickup: s.can_pickup === true,
             }] as [string, StoreAvailInfo];
-          }).catch(() => [sid, { name: sid, badge: "LIVE", rank: 1, can_order: false, eta_message: "" }] as [string, StoreAvailInfo])
+          }).catch(() => [sid, { name: sid, badge: "LIVE", rank: 1, can_order: false, eta_message: "", can_pickup: false }] as [string, StoreAvailInfo])
       )
     ).then((entries) => setStoreAvailMap(Object.fromEntries(entries)));
   }, [uniqueStores]);
+
+  // Pickup only makes sense for a single-store bag (the customer physically
+  // visits one location), and only when that store is on the Pro plan and
+  // currently LIVE/Closed-by-hours (see backend/server.py's accept-pickup
+  // pre-check, which rejects anything else with a clear 400) — mirrors
+  // GET /api/stores/{id}'s own `can_pickup` field exactly so we never offer
+  // an option create_order would just reject.
+  const pickupEligible = !!(cartStoreId && storeAvailMap[cartStoreId]?.can_pickup);
+  useEffect(() => {
+    if (!pickupEligible && orderType === "pickup") setOrderType("delivery");
+  }, [pickupEligible, orderType]);
 
   // One-store-per-bag ⇒ cartStoreId is unambiguous, so the impulse rail
   // never needs cross-store filtering. Exclude anything already in the bag.
@@ -195,10 +210,14 @@ export default function CheckoutPage() {
     }).catch(() => {});
   }, [phone, hasAuth]);
 
-  // Delivery estimate — debounced. Only fires for single-store Bhilai carts.
+  // Delivery estimate — debounced. Only fires for single-store Bhilai carts,
+  // and only for delivery orders — pickup orders never carry a delivery fee
+  // (see backend/server.py's create_order, order_type=="pickup" branch), so
+  // there's nothing useful for this to estimate.
   useEffect(() => {
     setEstimate(null);
     if (!cartStoreId) return;
+    if (orderType === "pickup") return;
     if ((addr.city || "").trim().toLowerCase() !== "bhilai") return;
     if (subtotal <= 0) return;
     let cancelled = false;
@@ -228,7 +247,7 @@ export default function CheckoutPage() {
       }
     }, 350);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [cartStoreId, addr.city, subtotal]);
+  }, [cartStoreId, addr.city, subtotal, orderType]);
 
   const pickSaved = (id: string) => {
     setSelectedId(id);
@@ -242,7 +261,7 @@ export default function CheckoutPage() {
     });
   };
 
-  const deliveryFee = estimate?.deliverable ? estimate.fee : 0;
+  const deliveryFee = orderType === "pickup" ? 0 : (estimate?.deliverable ? estimate.fee : 0);
   const discountAmount = couponResult?.discount_amount ?? 0;
   const grandTotal = Math.max(0, subtotal + deliveryFee - discountAmount);
 
@@ -262,29 +281,40 @@ export default function CheckoutPage() {
   };
   // Block checkout if any cart store is closed or offline.
   const allStoresCanOrder = uniqueStores.every((sid) => !storeAvailMap[sid] || storeAvailMap[sid].can_order);
-  // We allow Pay Now in multi-store carts (no fee added — legacy "FREE") OR
+  // We allow Pay Now in multi-store carts (no fee added — legacy "FREE"),
+  // pickup orders (no delivery estimate is ever fetched for these), OR
   // when the delivery estimate succeeded with deliverable=true. Estimates
   // that 4xx (non-deliverable address) disable the button with a reason.
   const canPay = allStoresCanOrder && items.length > 0 && (
-    !cartStoreId  // multi-store carts skip the estimate
+    orderType === "pickup"
+    || !cartStoreId  // multi-store carts skip the estimate
     || (estimate ? estimate.deliverable : !estimating)
   );
 
   const normalizePhone = (p: string) => p.replace(/\D/g, "").replace(/^0+/, "").padStart(12, "91").slice(-12);
 
   const place = async () => {
-    if (!addr.name || !addr.phone || !addr.line1 || !addr.pincode) return toast.error("Please fill name, phone, address and pincode");
+    const isPickup = orderType === "pickup";
+    // Pickup orders never use the delivery address for fulfillment (the
+    // customer walks into the store — see backend/server.py's create_order,
+    // which skips the whole city/pincode serviceability gate entirely when
+    // order_type=="pickup") — only name+phone are needed to identify the
+    // order/notify the customer.
+    if (!addr.name || !addr.phone) return toast.error("Please fill your name and phone number");
+    if (!isPickup && (!addr.line1 || !addr.pincode)) return toast.error("Please fill name, phone, address and pincode");
     if (!/^[0-9]{10}$/.test(addr.phone)) return toast.error("Enter a valid 10-digit phone number");
-    if ((addr.city || "").trim().toLowerCase() !== "bhilai") {
-      return toast.error("Lokl is only serving Bhilai right now — please update your delivery city.");
-    }
-    if (!isServiceablePincode(addr.pincode.trim())) {
-      return toast.error("We only deliver to Bhilai pincodes (490xxx). Please check your pincode.");
+    if (!isPickup) {
+      if ((addr.city || "").trim().toLowerCase() !== "bhilai") {
+        return toast.error("Lokl is only serving Bhilai right now — please update your delivery city.");
+      }
+      if (!isServiceablePincode(addr.pincode.trim())) {
+        return toast.error("We only deliver to Bhilai pincodes (490xxx). Please check your pincode.");
+      }
     }
     if (items.length === 0) return toast.error("Bag is empty");
     const customerToken = typeof window !== "undefined" ? localStorage.getItem("bf_customer_token") : null;
     if (!hasAuth || !customerToken) { router.push("/account"); return; }
-    if (estimate && !estimate.deliverable) return toast.error(estimate.reason || "Delivery unavailable for this address");
+    if (!isPickup && estimate && !estimate.deliverable) return toast.error(estimate.reason || "Delivery unavailable for this address");
     const closedStore = uniqueStores.find((sid) => storeAvailMap[sid] && !storeAvailMap[sid].can_order);
     if (closedStore) {
       const info = storeAvailMap[closedStore];
@@ -293,6 +323,70 @@ export default function CheckoutPage() {
 
     setPlacing(true);
 
+    if (payment === "RAZORPAY") {
+      setPayingOnline(true);
+      try {
+        const rp = await api.payments.createRazorpayOrder({
+          amount: grandTotal,
+          customer_name: addr.name,
+          customer_phone: normalizePhone(addr.phone),
+        });
+        razorpay.openCheckout({
+          key: rp.key_id,
+          amount: rp.amount_paise,
+          currency: rp.currency,
+          order_id: rp.razorpay_order_id,
+          name: "Lokl",
+          description: `Order for ${items.length} item${items.length === 1 ? "" : "s"}`,
+          handler: (response) => {
+            // Payment is already captured by Razorpay at this point — the
+            // server-side signature check happens inside api.orders.create()
+            // (create_order's razorpay branch, verify_payment_signature()).
+            // We never mark anything "paid" on the client's say-so alone.
+            finalizeOrder(
+              {
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature,
+              },
+              { paymentAlreadyCaptured: true },
+            );
+          },
+          prefill: { name: addr.name, contact: addr.phone },
+          theme: { color: "#0A1F5C" },
+          modal: {
+            escape: true,
+            // User closed/cancelled the Razorpay modal — no payment
+            // happened, no order gets created. Re-enable the button so they
+            // can retry (COD or online) with a clean state, not a stuck spinner.
+            ondismiss: () => {
+              setPlacing(false);
+              setPayingOnline(false);
+            },
+          },
+        });
+      } catch (e) {
+        toast.error(getErrorMessage(e));
+        setPlacing(false);
+        setPayingOnline(false);
+      }
+      return;
+    }
+
+    await finalizeOrder();
+  };
+
+  // Shared by both payment paths. `paymentAlreadyCaptured` only changes the
+  // failure-toast copy — if api.orders.create() fails AFTER a Razorpay
+  // payment already succeeded (e.g. stock ran out in the meantime), the
+  // customer needs to know their money isn't just gone: the webhook's own
+  // orphan-payment check (backend/server.py's _handle_payment_captured)
+  // auto-refunds a captured payment that never got a matching order within
+  // its grace window.
+  const finalizeOrder = async (
+    razorpayExtras: { razorpay_payment_id?: string; razorpay_order_id?: string; razorpay_signature?: string } = {},
+    opts: { paymentAlreadyCaptured?: boolean } = {},
+  ) => {
     try {
       const orderItems = items.map((it) => ({
         product_id: (it as any).id || it.key,
@@ -306,6 +400,8 @@ export default function CheckoutPage() {
         coupon_code: couponResult?.code ?? undefined,
         customer_lat: customerLat ?? null,
         customer_lng: customerLng ?? null,
+        order_type: orderType,
+        ...razorpayExtras,
       });
       clearCart();
       try {
@@ -320,8 +416,13 @@ export default function CheckoutPage() {
       toast.success("Order placed!");
       router.push(`/orders/${order.id}`);
     } catch (e) {
-      toast.error(getErrorMessage(e));
+      if (opts.paymentAlreadyCaptured) {
+        toast.error(`Payment received, but we couldn't finish placing your order (${getErrorMessage(e)}). You'll be refunded automatically within a few minutes.`);
+      } else {
+        toast.error(getErrorMessage(e));
+      }
       setPlacing(false);
+      setPayingOnline(false);
     }
   };
 
@@ -344,10 +445,27 @@ export default function CheckoutPage() {
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-8 pt-4 pb-8 grid grid-cols-1 md:grid-cols-3 gap-5 min-w-0">
         <div className="md:col-span-2 space-y-4 min-w-0">
-          {unserviceable && (
+          {unserviceable && orderType === "delivery" && (
             <div className="mx-4 mb-3 p-4 bg-red-50 border border-red-200 rounded-2xl">
               <p className="font-semibold text-red-700 text-sm">Area not serviceable</p>
               <p className="text-red-600 text-xs mt-1">{unserviceableMessage}</p>
+            </div>
+          )}
+          {pickupEligible && (
+            <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="fulfillment-picker">
+              <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-2">How would you like to get it?</h2>
+              <div className="grid grid-cols-2 gap-2.5">
+                <button type="button" data-testid="fulfillment-delivery" onClick={() => setOrderType("delivery")}
+                  className={`text-left p-3 rounded-xl border-2 transition ${orderType === "delivery" ? "border-[#0A1F5C] bg-[#0A1F5C]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
+                  <div className="flex items-center gap-2 font-semibold text-sm text-[#0A1F5C]"><Truck size={15} className="text-[#E68910]" /> Delivery</div>
+                  <p className="text-[11px] text-[#595959] mt-0.5">Brought to your door</p>
+                </button>
+                <button type="button" data-testid="fulfillment-pickup" onClick={() => setOrderType("pickup")}
+                  className={`text-left p-3 rounded-xl border-2 transition ${orderType === "pickup" ? "border-[#0A1F5C] bg-[#0A1F5C]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
+                  <div className="flex items-center gap-2 font-semibold text-sm text-[#0A1F5C]"><Store size={15} className="text-[#E68910]" /> Store pickup</div>
+                  <p className="text-[11px] text-[#595959] mt-0.5">No delivery fee — collect in person</p>
+                </button>
+              </div>
             </div>
           )}
           {savedAddresses.length > 0 && (
@@ -396,10 +514,21 @@ export default function CheckoutPage() {
 
           <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]">
             <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-2">Payment</h2>
-            <div className="flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 border-[#0A1F5C] bg-[#0A1F5C]/5" data-testid="pay-cod">
-              <Banknote size={18} className="text-[#E68910]" />
-              <span className="font-semibold text-sm">Pay at Delivery</span>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button type="button" data-testid="pay-online" onClick={() => setPayment("RAZORPAY")}
+                className={`flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 transition ${payment === "RAZORPAY" ? "border-[#0A1F5C] bg-[#0A1F5C]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
+                <CreditCard size={18} className="text-[#E68910]" />
+                <span className="font-semibold text-sm">Pay online</span>
+              </button>
+              <button type="button" data-testid="pay-cod" onClick={() => setPayment("COD")}
+                className={`flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 transition ${payment === "COD" ? "border-[#0A1F5C] bg-[#0A1F5C]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
+                <Banknote size={18} className="text-[#E68910]" />
+                <span className="font-semibold text-sm">{orderType === "pickup" ? "Pay at Pickup" : "Pay at Delivery"}</span>
+              </button>
             </div>
+            {payment === "RAZORPAY" && (
+              <p className="text-[11px] text-[#595959] mt-2">UPI, cards and netbanking via Razorpay.</p>
+            )}
           </div>
         </div>
 
@@ -472,22 +601,29 @@ export default function CheckoutPage() {
               <span className="text-[#595959]">Subtotal</span>
               <span className="font-semibold">₹{subtotal.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between text-sm items-center">
-              <span className="text-[#595959] inline-flex items-center gap-1.5"><Truck size={13} className="text-[#E68910]" /> Delivery fee</span>
-              {estimating ? (
-                <span className="text-xs text-[#595959] inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> calculating…</span>
-              ) : !cartStoreId && uniqueStoreNames.length > 1 ? (
-                <span className="text-emerald-700 font-semibold">FREE</span>
-              ) : estimate?.deliverable ? (
-                estimate.is_free
-                  ? <span className="text-emerald-700 font-semibold" data-testid="delivery-fee">FREE</span>
-                  : <span className="font-semibold" data-testid="delivery-fee">₹{estimate.fee.toLocaleString()}</span>
-              ) : estimate && !estimate.deliverable ? (
-                <span className="text-red-500 text-xs" data-testid="delivery-unavailable">Unavailable</span>
-              ) : (
-                <span className="text-xs text-[#595959]">—</span>
-              )}
-            </div>
+            {orderType === "pickup" ? (
+              <div className="flex justify-between text-sm items-center">
+                <span className="text-[#595959] inline-flex items-center gap-1.5"><Store size={13} className="text-[#E68910]" /> Delivery fee</span>
+                <span className="text-emerald-700 font-semibold" data-testid="delivery-fee">FREE — pickup</span>
+              </div>
+            ) : (
+              <div className="flex justify-between text-sm items-center">
+                <span className="text-[#595959] inline-flex items-center gap-1.5"><Truck size={13} className="text-[#E68910]" /> Delivery fee</span>
+                {estimating ? (
+                  <span className="text-xs text-[#595959] inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> calculating…</span>
+                ) : !cartStoreId && uniqueStoreNames.length > 1 ? (
+                  <span className="text-emerald-700 font-semibold">FREE</span>
+                ) : estimate?.deliverable ? (
+                  estimate.is_free
+                    ? <span className="text-emerald-700 font-semibold" data-testid="delivery-fee">FREE</span>
+                    : <span className="font-semibold" data-testid="delivery-fee">₹{estimate.fee.toLocaleString()}</span>
+                ) : estimate && !estimate.deliverable ? (
+                  <span className="text-red-500 text-xs" data-testid="delivery-unavailable">Unavailable</span>
+                ) : (
+                  <span className="text-xs text-[#595959]">—</span>
+                )}
+              </div>
+            )}
             <div className="flex justify-between text-sm" data-testid="platform-fee-row">
               <span className="text-[#595959]">Platform fee</span>
               <span className="font-bold text-[#E68910]">Nah bro!</span>
@@ -496,10 +632,13 @@ export default function CheckoutPage() {
               <span className="text-[#595959]">Handling fee</span>
               <span className="font-bold text-[#E68910]">Absolutely Not!</span>
             </div>
-            {estimate?.deliverable && !estimate.is_free && (
+            {orderType === "delivery" && estimate?.deliverable && !estimate.is_free && (
               <p className="text-[10px] text-[#4F7363]">Free delivery on orders above ₹{estimate.free_delivery_threshold ?? 499}</p>
             )}
-            {(() => {
+            {orderType === "pickup" && (
+              <p className="text-[10px] text-[#4F7363]">You&apos;ll get a pickup code once the store confirms your reservation.</p>
+            )}
+            {orderType === "delivery" && (() => {
               const avail = cartStoreId ? storeAvailMap[cartStoreId] : null;
               const badge = avail?.badge;
               if (badge === "Closed") {
@@ -580,9 +719,9 @@ export default function CheckoutPage() {
             </div>
           )}
 
-          <button onClick={place} disabled={placing || !canPay || unserviceable} data-testid="place-order-btn"
+          <button onClick={place} disabled={placing || !canPay || (orderType === "delivery" && unserviceable)} data-testid="place-order-btn"
             className="w-full mt-4 px-6 py-3.5 rounded-full bg-[#E68910] text-white font-semibold hover:bg-[#C9770E] disabled:opacity-50 transition inline-flex items-center justify-center gap-2">
-            {placing ? <><Loader2 size={14} className="animate-spin" /> Placing…</> : "Place order"}
+            {placing ? <><Loader2 size={14} className="animate-spin" /> {payingOnline ? "Waiting for payment…" : "Placing…"}</> : payment === "RAZORPAY" ? "Pay & place order" : "Place order"}
           </button>
         </div>
       </div>

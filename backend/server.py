@@ -224,6 +224,12 @@ class OrderCreate(BaseModel):
     customer_lat: Optional[float] = None
     customer_lng: Optional[float] = None
     order_type: str = "delivery"  # "delivery" | "pickup"
+    # Client-reported, NEVER trusted for the stored total — same pattern as
+    # `total` above. The server always recomputes its own delivery fee via
+    # DeliveryService (see create_order) so it can never drift from what
+    # POST /api/v1/delivery/estimate showed the customer at checkout.
+    # Accepted here only so the field exists on the schema / for logging.
+    delivery_fee: Optional[float] = None
 
 class CouponCreate(BaseModel):
     code: str
@@ -1787,6 +1793,20 @@ async def _restock_order_items(order: dict) -> None:
             await db.products.update_one({"id": pid}, {"$inc": {f"stock.{sz}": qty}})
 
 
+# The Lokl order is only created by the CLIENT calling POST /api/orders after
+# Razorpay's success callback fires client-side — see create_order's razorpay
+# branch. If the browser/app dies between "Razorpay captured the payment" and
+# that callback reaching us (closed tab, lost network, backgrounded app), this
+# webhook can arrive and find no matching order — sometimes because it's
+# simply racing the client's own in-flight request, sometimes because that
+# request is never coming. RAZORPAY_ORPHAN_GRACE_SECONDS is how long
+# _handle_payment_captured waits (measured off the payment's own `created_at`,
+# not wall-clock-since-webhook-received, so a delayed webhook delivery can't
+# shrink the window) before treating "no order yet" as genuinely orphaned
+# rather than an in-flight race.
+RAZORPAY_ORPHAN_GRACE_SECONDS = 120
+
+
 async def _handle_payment_captured(event: dict) -> None:
     pay = (event.get("payload") or {}).get("payment", {}).get("entity") or {}
     rp_order_id = pay.get("order_id")
@@ -1796,7 +1816,45 @@ async def _handle_payment_captured(event: dict) -> None:
         raise ValueError("No order_id in payment.captured")
     o = await db.orders.find_one({"razorpay_order_id": rp_order_id}, {"_id": 0})
     if not o:
-        raise ValueError(f"No Lokl order for razorpay_order_id={rp_order_id}")
+        # Past the grace window this is a captured payment with no Lokl order
+        # and no client request still in flight to create one — refund
+        # automatically rather than leaving money captured with nothing to
+        # show for it. Reconstructing the order from inside the webhook
+        # instead (re-running stock reservation etc.) isn't attempted here —
+        # it would duplicate create_order's atomic stock/coupon logic against
+        # possibly-stale price/stock data with no cart snapshot to work from
+        # (this endpoint's payload carries payment/amount info only).
+        captured_at = pay.get("created_at")
+        age_s = (datetime.now(timezone.utc).timestamp() - captured_at) if captured_at else None
+        if age_s is None or age_s < RAZORPAY_ORPHAN_GRACE_SECONDS:
+            raise ValueError(
+                f"No Lokl order yet for razorpay_order_id={rp_order_id} "
+                f"(age={age_s if age_s is not None else 'unknown'}s — within grace window, "
+                f"likely still in flight from the client)"
+            )
+        try:
+            # refund_payment returns None (not a raise) when Razorpay isn't
+            # configured (_get_client() has no creds) — that's NOT success,
+            # so check the return value, don't just assume "didn't raise"
+            # means "refunded."
+            refund_result = refund_payment(rp_payment_id, Decimal(amount_paise) / 100, rp_order_id)
+            if refund_result is None:
+                raise RuntimeError("refund_payment returned None — Razorpay client not configured")
+            await audit_service.log(
+                "payment_captured_no_order_auto_refunded",
+                razorpay_order_id=rp_order_id, razorpay_payment_id=rp_payment_id,
+                amount=amount_paise / 100, actor="razorpay_webhook",
+                metadata={"reason": "no Lokl order existed past grace window — "
+                                     "client success callback likely never fired"},
+            )
+        except Exception as refund_err:
+            await audit_service.log(
+                "payment_captured_no_order_refund_failed",
+                razorpay_order_id=rp_order_id, razorpay_payment_id=rp_payment_id,
+                amount=amount_paise / 100, actor="razorpay_webhook",
+                metadata={"refund_error": str(refund_err)},
+            )
+        return
     if o.get("payment_status") == "paid":
         return  # idempotent
     expected_paise = int((Decimal(str(o.get("total", 0))) * 100).quantize(Decimal("1")))
@@ -3309,6 +3367,17 @@ async def get_store(store_id: str):
     s["eta_message"] = avail["eta_message"]
     if avail.get("opens_at_label"):
         s["next_open_label"] = avail["opens_at_label"]
+    # Same Pro-plan + rank gate _attach_store_avail() uses for the per-product
+    # store_can_pickup field — surfaced here on the store object itself so
+    # checkout's order_type selector can grey out Pickup for stores that
+    # would just get rejected by create_order's own pickup pre-check.
+    # NOTE: `avail` here is a raw _store_availability() call, NOT routed
+    # through _availability_map() — that's the only place "plan" normally
+    # gets merged in (see _availability_map's own dict-merge). Read plan
+    # straight off the store doc `s` instead.
+    s["can_pickup"] = (s.get("plan", "free") == "pro"
+                        and avail.get("rank", 4) in (1, 3)
+                        and avail.get("can_order", False))
     # Real, computed order count — same merchant_ids/status-exclusion pattern
     # already used for the merchant's own "first order" check above. Never
     # fabricated: if merchant_id is missing (shouldn't happen for a
@@ -3567,6 +3636,22 @@ def _address_is_serviceable(address: dict) -> bool:
     if not pincode:
         return True
     return pincode in BHILAI_PINCODES
+
+
+def _store_lat_lng(store_doc: dict) -> Optional[tuple]:
+    """(lat, lng) for a store doc — GeoJSON `location.coordinates` first,
+    else legacy flat lat/lng fields. Same fallback POST /api/v1/delivery/
+    estimate uses (routes/geo.py's delivery_estimate handler) so create_order's
+    own delivery-fee recompute agrees with it for every store. Returns None
+    if the store has neither."""
+    loc = store_doc.get("location") or {}
+    if loc.get("type") == "Point" and loc.get("coordinates"):
+        lng_v, lat_v = loc["coordinates"][0], loc["coordinates"][1]
+        return (lat_v, lng_v)
+    lat, lng = store_doc.get("lat"), store_doc.get("lng")
+    if lat is not None and lng is not None:
+        return (float(lat), float(lng))
+    return None
 
 # ---------- Multi-merchant state helpers ----------
 _STATE_RANK = {"pending": 0, "accepted": 1, "handed_off": 2, "delivered": 3}
@@ -3962,10 +4047,16 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
     # Delivery: require can_order=True.
     payload_store_ids = list({it.get("store_id") for it in payload.items if it.get("store_id")})
     _pickup_expires_at = None  # set during pre-check for pickup orders
+    # Cache each store_doc fetched below (already an unfiltered projection —
+    # carries location/lat/lng) so the delivery-fee recompute further down
+    # doesn't need a second round-trip for the common single-store case.
+    store_geo: dict = {}
     if payload_store_ids:
         unavailable_stores = []
         for sid in payload_store_ids:
             store_doc = await db.stores.find_one({"id": sid, **_visible_store_filter()}, {"_id": 0})
+            if store_doc:
+                store_geo[sid] = store_doc
             avail = _store_availability(store_doc) if store_doc else {"can_order": False, "rank": 4, "eta_message": "Store unavailable"}
             if order_type == "pickup":
                 store_rank = avail.get("rank", 4)
@@ -4080,7 +4171,8 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         # ===== Recompute total on the server using Decimal arithmetic =====
         # Never trust the client-sent total — recompute from the (just-validated)
         # snapshot prices. This also prevents tampered-total injection.
-        server_total = _sum_items_money(items_snap)
+        items_subtotal = _sum_items_money(items_snap)
+        server_total = items_subtotal
 
         # ===== Coupon validation (if provided) =====
         coupon_discount = Decimal("0.00")
@@ -4103,7 +4195,45 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                     else:
                         coupon_discount = min(Decimal(str(cpn["discount_value"])), server_total)
                     applied_coupon = coupon_code
-        server_total = max(Decimal("0.00"), server_total - coupon_discount)
+
+        # ===== Delivery fee — server-authoritative =====
+        # Same DeliveryService.calculate_delivery_fee() call, with the same
+        # inputs (BHILAI_LAT/BHILAI_LNG centroid, not the shopper's device
+        # GPS — matching checkout/page.tsx's own delivery-estimate call, see
+        # its comment on why it uses the fixed centroid), that backs
+        # POST /api/v1/delivery/estimate — so the total stored here can never
+        # drift from what checkout displayed. payload.total and
+        # payload.delivery_fee are accepted on the schema but never read.
+        #
+        # Pickup orders are never charged delivery. Multi-store delivery
+        # carts get FREE delivery (fee=0) — this mirrors checkout/page.tsx's
+        # "Single-store rule" comment (uniqueStores.length===1 ? that store :
+        # null; multi-store skips the estimate and displays FREE) exactly,
+        # not a new policy invented here.
+        delivery_fee = Decimal("0.00")
+        if order_type != "pickup":
+            item_store_ids = list({it.get("store_id") for it in items_snap if it.get("store_id")})
+            if len(item_store_ids) == 1:
+                sid = item_store_ids[0]
+                fee_store_doc = store_geo.get(sid)
+                if fee_store_doc is None:
+                    fee_store_doc = await db.stores.find_one({"id": sid}, {"_id": 0, "lat": 1, "lng": 1, "location": 1})
+                store_latlng = _store_lat_lng(fee_store_doc) if fee_store_doc else None
+                if store_latlng is None:
+                    raise HTTPException(400, "Store location not set")
+                try:
+                    fee_result = await _delivery_service.calculate_delivery_fee(
+                        customer_lat=BHILAI_LAT, customer_lng=BHILAI_LNG,
+                        store_lat=store_latlng[0], store_lng=store_latlng[1],
+                        order_subtotal=items_subtotal, city_slug="bhilai",
+                    )
+                except ValueError as e:
+                    raise HTTPException(400, str(e))
+                if not fee_result["deliverable"]:
+                    raise HTTPException(400, fee_result["reason"])
+                delivery_fee = Decimal(str(fee_result["fee"]))
+
+        server_total = max(Decimal("0.00"), items_subtotal - coupon_discount + delivery_fee)
 
         now = datetime.now(timezone.utc).isoformat()
         unique_mids = list(set([m for m in merchant_ids if m]))
@@ -4121,7 +4251,8 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         merchant_states = {mid: "pending" for mid in unique_mids}
         merchant_timelines = {mid: _new_merchant_timeline(now) for mid in unique_mids}
         doc = {"id": order_id, "items": items_snap, "address": payload.address,
-               "total": float(server_total), "payment_method": payload.payment_method,
+               "total": float(server_total), "delivery_fee": float(delivery_fee),
+               "payment_method": payload.payment_method,
                "coupon_code": applied_coupon, "coupon_discount": float(coupon_discount),
                "customer": payload.customer or {},
                "customer_lat": payload.customer_lat,
@@ -7246,9 +7377,14 @@ from services.payment_service import (create_razorpay_order, refund_payment,
                                        verify_webhook_signature, verify_payment_signature,
                                        is_enabled as razorpay_enabled)
 from services.audit_service import AuditService
+from services.delivery_service import DeliveryService
 app.include_router(_init_geo(db))
 app.include_router(_init_addresses(db, merchant_user))
 audit_service = AuditService(db)
+# Shared instance for create_order's own server-authoritative delivery-fee
+# recompute — same class routes/geo.py's own delivery_estimate handler uses,
+# just a separate instance since that one is scoped inside geo.py's init().
+_delivery_service = DeliveryService(db)
 
 # ===== CORS =====
 # Origins must be explicitly allow-listed via ALLOWED_ORIGINS (comma-separated).

@@ -416,7 +416,14 @@ export default function OrderTrackingPage() {
             </div>
             <div className="text-sm space-y-2">
               <div className="flex items-baseline justify-between"><span className="text-[#64748B]">Item total</span><span className="text-[#0A1F5C] font-medium">₹{subtotal.toLocaleString()}</span></div>
-              <div className="flex items-baseline justify-between"><span className="text-[#64748B]">Delivery fee</span><span className="text-emerald-700 font-semibold">FREE</span></div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[#64748B]">Delivery fee</span>
+                {order.delivery_fee ? (
+                  <span className="text-[#0A1F5C] font-medium" data-testid="order-delivery-fee">₹{order.delivery_fee.toLocaleString()}</span>
+                ) : (
+                  <span className="text-emerald-700 font-semibold" data-testid="order-delivery-fee">FREE</span>
+                )}
+              </div>
             </div>
             <div className="border-t border-[#E5E2DC] mt-3 pt-3 flex items-baseline justify-between">
               <span className="text-sm font-semibold text-[#0A1F5C]">Total paid</span>
