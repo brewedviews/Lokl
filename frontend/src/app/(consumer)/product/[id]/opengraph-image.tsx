@@ -9,7 +9,7 @@ export const alt = "Lokl product preview";
 
 const BRAND_BG = "#FDFBF7";
 const BRAND_PRIMARY = "#0A1F5C";
-const BRAND_ACCENT = "#F59E0B";
+const BRAND_ACCENT = "#E68910";
 const TEXT_MUTED = "#64748B";
 
 interface PDPResp { product?: Product }

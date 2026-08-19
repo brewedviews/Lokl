@@ -31,7 +31,7 @@ import { AddressPinPicker } from "@/components/consumer/AddressPinPicker";
 import { ETAHeaderCard } from "@/components/consumer/ETAHeaderCard";
 import { TrustSignalsCompact } from "@/components/consumer/TrustSignalsCompact";
 import { TrendingBestDealsRails } from "@/components/consumer/TrendingBestDealsRails";
-import { Button } from "@/components/ui/Button";
+import { Button, CTA_LINK_CLASSNAME } from "@/components/ui/Button";
 import { useRazorpay } from "@/hooks/useRazorpay";
 import { isServiceablePincode } from "@/lib/serviceability";
 import type { CustomerAddress, ProductCard as ProductCardType } from "@/types";
@@ -542,7 +542,7 @@ export default function CheckoutPage() {
               <p className="text-xs sm:text-sm text-[#64748B] mt-1 max-w-md mx-auto">
                 Add items from your nearby Bhilai stores below — or jump straight to discovery.
               </p>
-              <Link href="/" data-testid="empty-cart-cta" className="inline-block mt-4 px-6 py-2.5 rounded-full bg-[#0A1F5C] text-white text-sm font-semibold hover:bg-[#0F1D38] transition">
+              <Link href="/" data-testid="empty-cart-cta" className={`mt-4 ${CTA_LINK_CLASSNAME}`}>
                 Start shopping
               </Link>
             </div>
@@ -670,8 +670,7 @@ export default function CheckoutPage() {
               <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
                 {impulseProducts.map((p) => (
                   <div key={p.id} className="w-[128px] shrink-0" data-testid={`impulse-item-${p.id}`}>
-                    {/* No wishlist heart on Bag/Checkout (redesign-plan 3.6) */}
-                    <ProductCard p={p} size="compact" showWishlist={false} />
+                    <ProductCard p={p} size="compact" />
                   </div>
                 ))}
               </div>

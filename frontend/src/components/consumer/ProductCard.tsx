@@ -197,7 +197,7 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
           {!isCompact && (
             <>
               {storeBadge === "Away" && (
-                <div className="text-[10px] font-semibold text-[#D97706]">Back soon</div>
+                <div className="text-[10px] font-semibold text-brand-accent">Back soon</div>
               )}
               {storeBadge === "Closed" && storeOpensAt && (
                 <p className="text-[11px] text-[#9CA3AF] truncate">
@@ -253,10 +253,17 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
             Unavailable
           </div>
         ) : qty === 0 ? (
+          // redesign-plan 3.2: same shape+color identity as the shared
+          // Button cta variant (rounded-lg, bg-brand-accent) — applied
+          // directly rather than via <Button>, since this button's padding/
+          // text-size is tuned per-pixel for the compact card grid and
+          // doesn't map onto Button's sm/md/lg size presets. w-full is a
+          // deliberate exception (same as ProductDetailPanel's bottom-sheet
+          // CTA) — it fills its own card, not the viewport.
           <button
             onClick={handleAdd}
             data-testid={`p-card-add-${p.id}`}
-            className={`w-full inline-flex items-center justify-center gap-1 rounded-full bg-[#E68910] text-white font-bold active:scale-95 transition ${
+            className={`w-full inline-flex items-center justify-center gap-1 rounded-lg bg-brand-accent text-white font-bold active:scale-95 transition ${
               isCompact ? "py-1 text-[10px]" : "py-1 gap-1.5 text-[11px]"
             }`}
           >

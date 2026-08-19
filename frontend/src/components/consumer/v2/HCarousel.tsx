@@ -18,8 +18,11 @@ export function HCarousel({ title, subtitle, link, linkLabel = "See all", testid
           <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight line-clamp-1">{title}</h2>
           {subtitle && <p className="text-xs sm:text-sm text-[#64748B] mt-0.5 line-clamp-1">{subtitle}</p>}
         </div>
+        {/* link is a plain nav link, not a CTA/selected-state/savings figure
+            — per redesign-plan 2.2/2.3, orange isn't the default answer
+            here; navy carries it fine (was the deprecated brand-accent-alt). */}
         {link && (
-          <a href={link} className="text-xs font-bold text-[#F59E0B] shrink-0 underline-offset-4 hover:underline">{linkLabel} →</a>
+          <a href={link} className="text-xs font-bold text-[#0A1F5C] shrink-0 underline-offset-4 hover:underline">{linkLabel} →</a>
         )}
       </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 lg:scroll-pl-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">

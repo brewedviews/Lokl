@@ -10,6 +10,7 @@ import { SellerCard } from "@/components/consumer/SellerCard";
 import { HeroCarousel } from "@/components/consumer/HeroCarousel";
 import { getL1HeroSlides } from "@/components/consumer/l1HeroConfig";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
+import { CategoryTile } from "@/components/consumer/CategoryTile";
 import type { ProductCard as ProductCardType, CategoryNode } from "@/types";
 
 type L2 = { id: string; name: string; slug: string; image?: string };
@@ -308,28 +309,17 @@ export function CategoryClient() {
               {l2List.map((sub) => {
                 const isActive = l2Filter === sub.slug;
                 return (
-                  <button
+                  <CategoryTile
                     key={sub.id}
-                    type="button"
                     onClick={() => setL2Filter(isActive ? "" : sub.slug)}
-                    data-testid={`l2-tile-${sub.slug}`}
-                    className="flex flex-col items-center gap-1.5 active:scale-95 transition"
-                  >
-                    <div className={`relative w-16 h-16 rounded-full overflow-hidden bg-[#FDFBF7] border-2 ${
-                      isActive ? "border-[#0A1F5C]" : "border-[#E5E2DC]"
-                    }`}>
-                      {sub.image ? (
-                        <img src={sub.image} alt="" loading="lazy" className="w-full h-full object-cover object-top" />
-                      ) : (
-                        <div className="w-full h-full bg-[#E5E2DC]" />
-                      )}
-                    </div>
-                    <span className={`text-[11px] font-semibold text-center leading-tight line-clamp-2 w-16 ${
-                      isActive ? "text-[#0A1F5C]" : "text-[#595959]"
-                    }`}>
-                      {sub.name}
-                    </span>
-                  </button>
+                    testId={`l2-tile-${sub.slug}`}
+                    active={isActive}
+                    activeStyle="border"
+                    image={sub.image}
+                    label={sub.name}
+                    fallback={<div className="absolute inset-0 bg-[#E5E2DC]" />}
+                    labelClassName={isActive ? "text-[#0A1F5C]" : "text-[#595959]"}
+                  />
                 );
               })}
             </div>

@@ -42,6 +42,20 @@ const SIZE: Record<ButtonSize, string> = {
   lg: "text-lg px-8 py-4",
 };
 
+/** Same classes the `cta` variant renders, exported for the rare case where
+ *  the primary-action trigger has to be a Next `<Link>` (an `<a>`) rather
+ *  than a real `<button>` — e.g. "browse all products" as a full-page nav,
+ *  not a form action — where nesting an actual <Button> inside a <Link>
+ *  would put a <button> inside an <a>, which isn't valid interactive-content
+ *  nesting. Keep these in sync with VARIANT.cta/SIZE.md above by hand;
+ *  there are only a couple of these across the app. */
+export const CTA_LINK_CLASSNAME = cn(
+  "inline-flex items-center justify-center font-medium transition-all",
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent",
+  VARIANT.cta,
+  SIZE.md,
+);
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
     { variant = "primary", size = "md", isLoading = false, className, children, disabled, ...props },

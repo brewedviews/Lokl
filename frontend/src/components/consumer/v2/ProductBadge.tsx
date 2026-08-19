@@ -5,7 +5,12 @@ type BadgeKind =
   | "trending" | "best_deal" | "new_arrival" | "low_stock";
 
 const STYLES: Record<BadgeKind, { icon: LucideIcon; label: string; cls: string }> = {
-  best_seller:  { icon: Trophy,   label: "Best Seller",   cls: "bg-[#F59E0B] text-white" },
+  // redesign-plan 2.4: status tags -> small black tag, not a colored ribbon.
+  // Was bg-[#F59E0B] (the deprecated brand-accent-alt token) — moved to
+  // black rather than brand-accent, since "Best Seller" is a status tag by
+  // the plan's own definition, not a primary-CTA/selected-state context.
+  // (Component currently has zero import sites anywhere in the app.)
+  best_seller:  { icon: Trophy,   label: "Best Seller",   cls: "bg-[#16130F] text-white" },
   selling_fast: { icon: Flame,    label: "Selling Fast",  cls: "bg-[#EF4444] text-white" },
   top_rated:    { icon: Star,     label: "Top Rated",     cls: "bg-[#0A1F5C] text-white" },
   trending:     { icon: Sparkles, label: "Trending",      cls: "bg-[#7C3AED] text-white" },

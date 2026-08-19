@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiClient } from "@/lib/api-client";
 import { ProductCard } from "@/components/consumer/ProductCard";
+import { CTA_LINK_CLASSNAME } from "@/components/ui/Button";
 
 interface L1Cat { id: string; name: string; slug: string; image?: string; }
 interface L2Cat { id: string; name: string; slug: string; }
@@ -146,14 +147,20 @@ function CategoriesInner() {
               ))
             ) : (
               <>
+                {/* Selected-state wash — was bg-[#FFF8F0] (an untokenized,
+                    off-spec near-white), now the actual orange-200 tint
+                    token (redesign-plan 2.4: "for background washes behind
+                    badges/selected chips" — exactly this case). Visibly a
+                    touch more saturated than the old ad hoc value; that's
+                    the intended, consistent tint, not a regression. */}
                 <button
                   onClick={() => setL2("")}
                   className={`w-full text-left px-3 py-3.5 border-b border-[#F0EFED] ${
-                    !activeL2 ? "border-l-[3px] border-l-[#E68910] bg-[#FFF8F0]" : "border-l-[3px] border-l-transparent"
+                    !activeL2 ? "border-l-[3px] border-l-brand-accent bg-orange-200" : "border-l-[3px] border-l-transparent"
                   }`}
                 >
                   <span className={`text-[12px] block leading-tight ${
-                    !activeL2 ? "font-bold text-[#E68910]" : "font-medium text-[#595959]"
+                    !activeL2 ? "font-bold text-brand-accent" : "font-medium text-[#595959]"
                   }`}>All</span>
                 </button>
                 {l2Cats.map(sub => (
@@ -162,12 +169,12 @@ function CategoriesInner() {
                     onClick={() => setL2(sub.slug)}
                     className={`w-full text-left px-3 py-3.5 border-b border-[#F0EFED] ${
                       activeL2 === sub.slug
-                        ? "border-l-[3px] border-l-[#E68910] bg-[#FFF8F0]"
+                        ? "border-l-[3px] border-l-brand-accent bg-orange-200"
                         : "border-l-[3px] border-l-transparent"
                     }`}
                   >
                     <span className={`text-[12px] block leading-tight ${
-                      activeL2 === sub.slug ? "font-bold text-[#E68910]" : "font-medium text-[#595959]"
+                      activeL2 === sub.slug ? "font-bold text-brand-accent" : "font-medium text-[#595959]"
                     }`}>{sub.name}</span>
                   </button>
                 ))}
@@ -206,7 +213,7 @@ function CategoriesInner() {
               <p className="text-3xl mb-2">🛍️</p>
               <p className="font-semibold text-[#0A1F5C] text-sm">No products yet</p>
               <p className="text-xs text-[#9CA3AF] mt-1">Coming soon</p>
-              <Link href="/products" className="mt-3 inline-block px-5 py-2 bg-[#0A1F5C] text-white rounded-full text-sm font-semibold">
+              <Link href="/products" className={`mt-3 ${CTA_LINK_CLASSNAME}`}>
                 Browse all →
               </Link>
             </div>

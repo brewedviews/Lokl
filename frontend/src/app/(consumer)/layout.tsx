@@ -3,6 +3,7 @@ import { ConsumerHeader } from "@/components/consumer/ConsumerHeader";
 import { StickyBottomNav } from "@/components/consumer/StickyBottomNav";
 import { LocationBanner } from "@/components/consumer/LocationBanner";
 import { ActiveOrderPill } from "@/components/consumer/ActiveOrderPill";
+import { BottomNavSafeArea } from "@/components/consumer/BottomNavSafeArea";
 
 /**
  * Consumer route-group layout. Wraps every public-facing page with the
@@ -20,6 +21,13 @@ import { ActiveOrderPill } from "@/components/consumer/ActiveOrderPill";
  * (or an equivalent manual `pb-24`/`pb-*` "just in case") to an individual
  * page's own root — it stacks with this wrapper's padding and produces a
  * double gap at the bottom instead of fixing anything.
+ *
+ * redesign-plan Section 5 fix: the wrapper is now BottomNavSafeArea (a
+ * small client component), not a raw div, specifically so it can skip its
+ * own padding on /checkout — the one route where StickyBottomNav (below)
+ * hides itself, which used to leave dead reserved whitespace under
+ * checkout's own sticky price+CTA bar for a nav that was never actually
+ * there. Every other route is unaffected; this only changes /checkout.
  *
  * Iter-45 — `LocationBanner` mounts directly under the header; it's a no-op
  * for shoppers in the Bhilai footprint and surfaces a soft warning otherwise.
@@ -46,7 +54,7 @@ export default function ConsumerLayout({ children }: { children: React.ReactNode
       <Toaster position="top-center" richColors />
       <ConsumerHeader />
       <LocationBanner />
-      <div className="flex-1 flex flex-col bottom-nav-safe">{children}</div>
+      <BottomNavSafeArea>{children}</BottomNavSafeArea>
       <ActiveOrderPill />
       <StickyBottomNav />
     </div>

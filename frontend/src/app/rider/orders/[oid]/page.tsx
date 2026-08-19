@@ -252,7 +252,7 @@ export default function RiderOrderDetailPage() {
             has it ready well before "out for delivery". */}
         <section className="bg-brand-primary text-white rounded-card-lg p-4" data-testid="rider-handoff-otp-card">
           <div className="flex items-center gap-2 mb-1">
-            <KeyRound size={16} className="text-brand-accent-alt" />
+            <KeyRound size={16} className="text-brand-accent" />
             <div className="text-xs font-bold uppercase tracking-wide text-white/70">Merchant handoff code</div>
           </div>
           <div className="font-display text-3xl font-bold tracking-[0.3em]" data-testid="rider-handoff-otp-value">

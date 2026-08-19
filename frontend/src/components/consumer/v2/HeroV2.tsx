@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Bike } from "lucide-react";
 import { trackAssetClick } from "@/lib/api/admin";
+import { ETAHeaderCard } from "@/components/consumer/ETAHeaderCard";
 
 const FALLBACK_HERO_IMG =
   "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png";
@@ -88,7 +89,7 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
       <div className="relative px-5 md:px-10 lg:px-12 py-6 md:py-10 min-h-[300px] md:min-h-[320px] flex flex-col justify-between md:justify-center max-w-2xl">
         <div>
           <h1 className="font-display text-[28px] leading-[1.1] md:text-4xl lg:text-5xl font-bold tracking-tight text-[#0A1F5C]">
-            {t1} <span className="text-[#F59E0B]">{t2}</span>
+            {t1} <span className="text-[#E68910]">{t2}</span>
           </h1>
           <p className="mt-2.5 md:mt-3 text-[13px] md:text-base text-[#0A1F5C]/75 md:text-[#475569] max-w-md leading-relaxed">
             {sub}
@@ -97,34 +98,32 @@ export function HeroV2({ stats, hero }: { stats?: Stats | null; hero?: HeroConfi
         {/* Compact pill — sits in normal flow below the headline, so it can
             never collide with it. Shown through the tablet range and only
             swapped for the roomier floating card (below) once the container
-            is wide enough (xl) that the two genuinely don't overlap. */}
-        <div className="xl:hidden mt-4 inline-flex items-center gap-2.5 self-start px-3 py-2 rounded-2xl bg-white/95 backdrop-blur-sm shadow-md">
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${isClosedLabel ? "bg-[#94A3B8]" : "bg-[#F59E0B]"}`}><Bike size={14} className="text-white" /></div>
-          <div className="leading-tight">
-            <div className="text-[10px] text-[#0A1F5C]/70 font-medium">{deliveryStatus?.message || "Fast delivery"}</div>
-            <div className={`font-display text-sm ${isClosedLabel ? "font-semibold text-[#64748B]" : "font-bold text-[#0A1F5C]"}`} data-testid="hero-fastest-eta-mobile">{deliveryStatus?.eta_label || `${eta} minutes`}</div>
-          </div>
-          {!isClosedLabel && (
-            <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[9px] font-bold flex items-center gap-1">
-              <span className={`w-1.5 h-1.5 rounded-full ${deliveryStatus?.label === "AWAY" ? "bg-[#E68910]" : "bg-[#F59E0B] animate-pulse"}`} />
-              {deliveryStatus?.label || "LIVE"}
-            </span>
-          )}
-        </div>
+            is wide enough (xl) that the two genuinely don't overlap. Both
+            are the same shared ETAHeaderCard (redesign-plan 3.7) at
+            different size/variant settings, not two separate components. */}
+        <ETAHeaderCard
+          variant="pill"
+          size="compact"
+          className="xl:hidden mt-4 self-start"
+          testId="hero-fastest-eta-mobile"
+          icon={Bike}
+          title={deliveryStatus?.eta_label || `${eta} minutes`}
+          subtitle={deliveryStatus?.message || "Fast delivery"}
+          muted={isClosedLabel}
+          statusBadge={isClosedLabel ? null : { label: deliveryStatus?.label || "LIVE", tone: deliveryStatus?.label === "AWAY" ? "away" : "live" }}
+        />
       </div>
-      <div className="hidden xl:flex absolute top-1/2 right-6 lg:right-10 -translate-y-1/2 bg-white/90 backdrop-blur-md rounded-2xl p-3.5 items-center gap-3 min-w-[260px] shadow-xl">
-        <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 ${isClosedLabel ? "bg-[#94A3B8]" : "bg-[#F59E0B]"}`}><Bike size={18} className="text-white" /></div>
-        <div className="flex-1">
-          <div className="text-[11px] text-[#0A1F5C]/70">{deliveryStatus?.message || "Fast delivery in Bhilai"}</div>
-          <div className={`font-display text-lg ${isClosedLabel ? "font-semibold text-[#64748B]" : "font-bold text-[#0A1F5C]"}`} data-testid="hero-fastest-eta">{deliveryStatus?.eta_label || `${eta} minutes`}</div>
-        </div>
-        {!isClosedLabel && (
-          <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[10px] font-bold flex items-center gap-1">
-            <span className={`w-1.5 h-1.5 rounded-full ${deliveryStatus?.label === "AWAY" ? "bg-[#E68910]" : "bg-[#F59E0B] animate-pulse"}`} />
-            {deliveryStatus?.label || "LIVE"}
-          </span>
-        )}
-      </div>
+      <ETAHeaderCard
+        variant="pill"
+        size="roomy"
+        className="hidden xl:inline-flex absolute top-1/2 right-6 lg:right-10 -translate-y-1/2 min-w-[260px] shadow-xl"
+        testId="hero-fastest-eta"
+        icon={Bike}
+        title={deliveryStatus?.eta_label || `${eta} minutes`}
+        subtitle={deliveryStatus?.message || "Fast delivery in Bhilai"}
+        muted={isClosedLabel}
+        statusBadge={isClosedLabel ? null : { label: deliveryStatus?.label || "LIVE", tone: deliveryStatus?.label === "AWAY" ? "away" : "live" }}
+      />
     </>
   );
 

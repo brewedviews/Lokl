@@ -177,7 +177,7 @@ export default function CustomerAccountPage() {
               <button data-testid="edit-profile-inline" onClick={() => setActiveTile("profile")} className="text-[#64748B] hover:text-[#0A1F5C] transition" aria-label="Edit profile">
                 <Pencil size={14} />
               </button>
-              <span className="bg-[#F59E0B]/10 text-[#F59E0B] px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">Lokl Member</span>
+              <span className="bg-brand-accent/10 text-brand-accent px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">Lokl Member</span>
             </div>
             <div className="text-sm text-[#64748B] mt-0.5">+{phone}</div>
           </div>

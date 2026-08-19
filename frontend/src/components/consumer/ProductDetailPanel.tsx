@@ -28,7 +28,7 @@ import { useState, useEffect } from "react";
 import { trackAddToCart, trackPickupStart, trackPickupComplete, trackProductView } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AlertCircle, Bike, CheckCircle2, Store, RotateCcw, ShieldCheck, Check } from "lucide-react";
+import { AlertCircle, CheckCircle2, Store, RotateCcw, ShieldCheck, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
@@ -39,6 +39,7 @@ import { DeliveryServiceability } from "./DeliveryServiceability";
 import { LocalSocialProof } from "./LocalSocialProof";
 import { PdpCtaRow } from "./PdpCtaRow";
 import { TrustSignalsCompact } from "./TrustSignalsCompact";
+import { Button } from "@/components/ui/Button";
 import type { Product } from "@/types";
 
 // Rounded-rectangle size pill — shared base classes for the main size
@@ -224,14 +225,13 @@ export function ProductDetailPanel({
     <>
       {/* ── Store info row: name + area + ETA, title, price, availability ── */}
       <div className="px-4 pt-4 pb-2 md:px-0 md:pt-0">
-        {/* Store identity row — name, then locality, then the delivery ETA
-            as a third fact, all in one line ("continuation of the store's
-            identity" rather than a separate bordered ETA box). ETA only
-            shows in the normal open+serviceable case (!isClosed &&
-            !isOffline) — showing "~45 min" on a store that's currently
-            closed or offline would contradict the very state that's
-            blocking orders. Area is omitted entirely (not a placeholder)
-            when the store predates that field. */}
+        {/* Store identity row — name, then locality. The delivery ETA used
+            to render here too as a third inline fact ("· 🚲 delivers in ~45
+            min"), but redesign-plan 3.7's retrofit made DeliveryServiceability
+            (below, via the shared ETAHeaderCard) the single ETA surface on
+            this page instead of splitting it across two places — see that
+            component's own doc comment. Area is omitted entirely (not a
+            placeholder) when the store predates that field. */}
         <div className="flex items-center flex-wrap gap-x-1.5" data-testid="store-info-row">
           {product.store_id ? (
             <Link href={`/store/${product.store_id}`} data-testid="store-name-link"
@@ -243,11 +243,6 @@ export function ProductDetailPanel({
           )}
           {storeAreaLabel && (
             <span className="text-[11px] text-slate-gray">· {storeAreaLabel}</span>
-          )}
-          {!isClosed && !isOffline && (
-            <span className="text-[11px] text-slate-gray inline-flex items-center gap-1" data-testid="store-row-eta">
-              · <Bike size={12} className="text-slate-gray shrink-0" /> delivers in ~{etaMin} min
-            </span>
           )}
         </div>
 
@@ -388,12 +383,12 @@ export function ProductDetailPanel({
       <div className="mt-4">
 
         {/* Delivery + serviceability — pincode-based (not GPS), see
-            DeliveryServiceability's own doc comment. The open+serviceable
-            happy path renders nothing here now (ETA moved to the store
-            info row above); this only ever shows for the closed-store
-            "Opens X" message or the unserviceable-pincode alert. */}
+            DeliveryServiceability's own doc comment. Now the single ETA
+            surface on the page (redesign-plan 3.7): the happy-path shared
+            ETAHeaderCard, or the closed-store "Opens X" message, or the
+            unserviceable-pincode alert. */}
         <div className="px-4 md:px-0">
-          <DeliveryServiceability isClosed={isClosed} opensAtLabel={storeOpensAtLabel} />
+          <DeliveryServiceability isClosed={isClosed} isOffline={isOffline} opensAtLabel={storeOpensAtLabel} etaMin={etaMin} />
         </div>
 
         {/* All four trust signals, one consistent list style (see
@@ -565,14 +560,20 @@ export function ProductDetailPanel({
             <div className="flex-shrink-0 px-6 pb-8 pt-3 border-t border-[#E5E2DC]">
               {!reservation ? (
                 <>
-                  <button
+                  {/* Full-width is a deliberate exception to the cta variant's
+                      usual "not full-width" rule — this is a bottom-sheet
+                      footer action, where a content-width button would float
+                      oddly in a wide sheet. Color/radius follow the shared
+                      cta variant as normal; only width is overridden. */}
+                  <Button
+                    variant="cta"
                     onClick={() => void handleReservePickup()}
                     disabled={reserving || !!(product.sizes?.length && !size)}
                     data-testid="confirm-reserve-btn"
-                    className="w-full py-3.5 rounded-full bg-[#0A1F5C] text-white font-bold text-sm hover:bg-[#0F1F3D] disabled:opacity-50 transition inline-flex items-center justify-center gap-2 mb-2"
+                    className="w-full text-sm gap-2 mb-2"
                   >
                     <Store size={15} /> {reserving ? "Reserving…" : "Confirm & Reserve"}
-                  </button>
+                  </Button>
                   <button onClick={() => setShowPickupSheet(false)}
                     className="w-full text-center text-sm text-[#595959] py-2">
                     Cancel

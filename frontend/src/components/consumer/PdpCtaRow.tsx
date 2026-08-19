@@ -43,6 +43,7 @@ import { Bell, Heart, Minus, Plus, Share2, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { useCartStore, useWishlistStore, cartKeyFor } from "@/stores";
 import { useMounted } from "@/hooks/useMounted";
+import { Button } from "@/components/ui/Button";
 import type { Product } from "@/types";
 
 function SaveShareIcons({ product }: { product: Product }) {
@@ -135,13 +136,14 @@ export function PdpCtaRow({
   if (isOffline) {
     return (
       <div className="flex items-center gap-3" data-testid="pdp-cta-row">
-        <button
+        <Button
+          variant="cta"
           onClick={onNotify}
           data-testid="notify-me-btn"
-          className="inline-flex items-center justify-center gap-1.5 px-6 py-2.5 rounded-full bg-brand-accent text-white text-sm font-bold whitespace-nowrap"
+          className="gap-1.5 text-sm whitespace-nowrap"
         >
           <Bell size={15} /> Notify Me
-        </button>
+        </Button>
         <SaveShareIcons product={product} />
       </div>
     );
@@ -172,13 +174,14 @@ export function PdpCtaRow({
       </button>
 
       {qty === 0 ? (
-        <button
+        <Button
+          variant="cta"
           onClick={onAddToBag}
           data-testid="add-to-bag"
-          className="inline-flex items-center justify-center gap-1.5 px-6 py-2.5 rounded-full bg-brand-accent text-white text-sm font-bold hover:bg-brand-accent/90 transition whitespace-nowrap"
+          className="gap-1.5 text-sm whitespace-nowrap"
         >
           <ShoppingBag size={16} /> {isClosed ? "Pre-order" : "Add to bag"}
-        </button>
+        </Button>
       ) : (
         <div
           className="flex items-center gap-3 px-1.5 py-1.5 rounded-full bg-brand-accent text-white"

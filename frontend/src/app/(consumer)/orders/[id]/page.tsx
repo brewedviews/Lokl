@@ -13,6 +13,7 @@ import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { ReturnModal } from "@/components/consumer/ReturnComplaintModals";
+import { CTA_LINK_CLASSNAME } from "@/components/ui/Button";
 import type { Order, OrderTimelineEntry } from "@/types";
 
 const RETURN_WINDOW_HOURS = 24;
@@ -170,7 +171,7 @@ export default function OrderTrackingPage() {
             </div>
             <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">Something went wrong</h1>
             <p className="text-sm text-[#64748B] mt-2">We couldn&apos;t find this order. It may have been cancelled or the link is broken.</p>
-            <Link href="/account" className="inline-block mt-5 px-5 py-2.5 rounded-full bg-[#E68910] text-white text-sm font-semibold">Back to my account</Link>
+            <Link href="/account" className={`mt-5 ${CTA_LINK_CLASSNAME}`}>Back to my account</Link>
           </div>
         </div>
       </div>

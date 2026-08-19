@@ -125,7 +125,7 @@ export default function RiderLayout({ children }: { children: React.ReactNode })
         style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))", paddingBottom: "0.75rem" }}
       >
         <Link href="/rider" data-testid="rider-logo" className="flex items-center gap-2 font-display font-bold text-lg shrink-0">
-          <Bike size={20} className="text-brand-accent-alt" />
+          <Bike size={20} className="text-brand-accent" />
           Lokl Rider
         </Link>
         <div className="flex items-center gap-2 min-w-0">

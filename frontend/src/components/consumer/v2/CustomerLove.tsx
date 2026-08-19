@@ -21,7 +21,7 @@ export function CustomerLove({ items }: { items: Testimonial[] }) {
       <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 lg:scroll-pl-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         {items.map((t) => (
           <article key={t.id} className="snap-start shrink-0 w-[74vw] sm:w-[290px] bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10">
-            <div className="flex items-center gap-1 text-[#F59E0B] mb-2">
+            <div className="flex items-center gap-1 text-[#E68910] mb-2">
               {Array.from({ length: t.rating || 5 }).map((_, i) => (
                 <Star key={i} size={12} fill="currentColor" />
               ))}

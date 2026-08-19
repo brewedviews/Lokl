@@ -47,10 +47,10 @@
  * overflow-x-auto) was already clipping on both axes.
  */
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { trackCategoryTileClick, trackCategoryTileImpression, observeImpression } from "@/lib/analytics";
+import { CategoryTile } from "./CategoryTile";
 
 export function CategoryTileRow() {
   const pathname = usePathname();
@@ -74,57 +74,34 @@ export function CategoryTileRow() {
           ))
         ) : (
           <>
-            <Link
+            <CategoryTile
               href="/"
-              data-testid="category-tile-all"
-              className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition"
-            >
-              <div className="w-16 h-16 rounded-full bg-[#0A1F5C] flex items-center justify-center">
+              label="All"
+              testId="category-tile-all"
+              circleClassName="bg-[#0A1F5C] border-0"
+              fallback={
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
                   <rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
                 </svg>
-              </div>
-              <span className="text-[11px] font-semibold text-[#0A1F5C] text-center">All</span>
-            </Link>
+              }
+            />
             {categories.map((cat, catIdx) => {
               const isActive = activeSlug === cat.slug;
               return (
-                <Link
+                <CategoryTile
                   key={cat.id}
                   href={`/c/${cat.slug}`}
                   onClick={() => { try { trackCategoryTileClick(cat.name, catIdx); } catch {} }}
-                  ref={(el) => { if (el) { try { observeImpression(el, () => trackCategoryTileImpression(cat.name, catIdx)); } catch {} } }}
-                  data-testid={`category-tile-${cat.slug}`}
-                  aria-current={isActive ? "page" : undefined}
-                  className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition"
-                >
-                  <div
-                    className={`w-16 h-16 rounded-full overflow-hidden bg-[#FDFBF7] transition ${
-                      isActive
-                        ? "ring-2 ring-[#0A1F5C] ring-offset-2 ring-offset-white"
-                        : "border border-[#E5E2DC]"
-                    }`}
-                  >
-                    {cat.image ? (
-                      <img
-                        src={cat.image}
-                        alt={cat.name}
-                        loading={catIdx < 4 ? "eager" : "lazy"}
-                        className="w-full h-full object-cover object-top"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-[#E5E2DC] flex items-center justify-center">
-                        <span className="text-2xl">👗</span>
-                      </div>
-                    )}
-                  </div>
-                  <span className={`text-[11px] font-semibold text-center w-16 leading-tight line-clamp-2 ${
-                    isActive ? "text-[#0A1F5C]" : "text-[#0A1F5C]/80"
-                  }`}>
-                    {cat.name === "Lingerie & Innerwear" ? "Lingerie" : cat.name}
-                  </span>
-                </Link>
+                  tileRef={(el) => { if (el) { try { observeImpression(el, () => trackCategoryTileImpression(cat.name, catIdx)); } catch {} } }}
+                  testId={`category-tile-${cat.slug}`}
+                  active={isActive}
+                  activeStyle="ring"
+                  image={cat.image}
+                  imageLoading={catIdx < 4 ? "eager" : "lazy"}
+                  label={cat.name === "Lingerie & Innerwear" ? "Lingerie" : cat.name}
+                  fallback={<span className="text-2xl">👗</span>}
+                />
               );
             })}
           </>

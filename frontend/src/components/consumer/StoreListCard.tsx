@@ -7,7 +7,7 @@ import type { Store } from "@/types";
 
 const BADGE_STYLE: Record<string, { label: string; dot: string; text: string }> = {
   LIVE:            { label: "Live",    dot: "bg-emerald-500", text: "text-emerald-700" },
-  Away:            { label: "Away",    dot: "bg-[#D97706]",   text: "text-[#D97706]" },
+  Away:            { label: "Away",    dot: "bg-brand-accent",   text: "text-brand-accent" },
   Closed:          { label: "Closed",  dot: "bg-[#94A3B8]",   text: "text-[#64748B]" },
   "Store Offline": { label: "Offline", dot: "bg-[#EF4444]",   text: "text-[#EF4444]" },
 };

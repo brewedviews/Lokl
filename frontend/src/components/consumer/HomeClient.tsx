@@ -37,6 +37,7 @@ import { SellerCard } from "@/components/consumer/SellerCard";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
 import { JustInSection } from "@/components/consumer/JustInSection";
 import { TrustStickers } from "@/components/consumer/TrustStickers";
+import { CategoryTile } from "@/components/consumer/CategoryTile";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useLocationStore } from "@/stores";
 import { cloudinaryOptimize } from "@/lib/utils";
@@ -194,26 +195,16 @@ function GenderBentoSection({ id, title, tiles }: { id: string; title: string; t
 
       <div className="grid grid-cols-4 gap-x-2 gap-y-4">
         {tiles.map((t) => (
-          <Link key={t.key} href={t.href} data-testid={`${id}-tile-${t.key}`}
-            className="flex flex-col items-center gap-1.5 active:scale-95 transition">
-            <div className="relative w-16 h-16 rounded-full overflow-hidden bg-surface-tint border border-[#E5E2DC]">
-              {t.image ? (
-                <img
-                  src={cloudinaryOptimize(t.image, "w_128,q_auto,f_auto")}
-                  alt={t.label}
-                  loading="lazy"
-                  className="absolute inset-0 w-full h-full object-cover"
-                />
-              ) : (
-                // No CMS/category image yet — a quiet cream placeholder,
-                // own orange accent mark. Name still renders below.
-                <div className="absolute inset-0 flex items-center justify-center" data-testid={`${id}-blank-${t.key}`}>
-                  <Sparkles size={15} className="text-brand-accent" />
-                </div>
-              )}
-            </div>
-            <span className="text-[11px] font-semibold text-brand-primary text-center w-16 leading-tight line-clamp-2">{t.label}</span>
-          </Link>
+          <CategoryTile
+            key={t.key}
+            href={t.href}
+            testId={`${id}-tile-${t.key}`}
+            image={t.image ? cloudinaryOptimize(t.image, "w_128,q_auto,f_auto") : undefined}
+            label={t.label}
+            circleClassName="bg-surface-tint border border-[#E5E2DC]"
+            labelClassName="text-brand-primary"
+            fallback={<Sparkles size={15} className="text-brand-accent" data-testid={`${id}-blank-${t.key}`} />}
+          />
         ))}
       </div>
     </div>
@@ -326,7 +317,7 @@ function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boo
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
         <div className="flex items-end justify-between gap-3 mb-3">
           <h3 className="text-lg sm:text-xl font-display font-bold text-[#0A1F5C] leading-tight">Shops near you</h3>
-          <a href="/stores" className="text-xs font-bold text-[#F59E0B] shrink-0 hover:underline">See all →</a>
+          <a href="/stores" className="text-xs font-bold text-[#0A1F5C] shrink-0 hover:underline">See all →</a>
         </div>
 
         {!ready ? (
