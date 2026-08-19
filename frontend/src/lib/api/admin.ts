@@ -9,7 +9,7 @@ import type {
   AdminAuthResponse, AdminLoginPayload, HomepageConfig,
   CmsCategory, CmsSubcategory, CmsArea, CmsOffer, CmsPriceBand, CmsDestinationSearch,
   CmsUploadResponse, AnalyticsAssetType, TopClicksResponse,
-  Rider, RiderStatus,
+  Rider, RiderStatus, Brand, BrandListResponse,
 } from "@/types";
 
 export interface AdminCreateRiderPayload {
@@ -107,9 +107,13 @@ export const adminApi = {
   },
 
   // ── CMS shared helpers ──────────────────────────────────────
-  uploadCmsImage: async (file: File): Promise<CmsUploadResponse> => {
+  /** `assetType` defaults to "cms" (shared homepage-asset folder); pass
+   *  "brand_logo" from the Brand admin surface to route into lokl/brands
+   *  instead. */
+  uploadCmsImage: async (file: File, assetType: "cms" | "brand_logo" = "cms"): Promise<CmsUploadResponse> => {
     const fd = new FormData();
     fd.append("file", file);
+    fd.append("asset_type", assetType);
     // The shared axios instance defaults Content-Type to application/json;
     // for a multipart upload we must blank it so the browser sets the
     // correct multipart boundary itself. Without this FastAPI's File(...)
@@ -141,6 +145,28 @@ export const adminApi = {
   updateRider: async (id: string, patch: AdminUpdateRiderPayload): Promise<Rider> => {
     const r = await apiClient.patch<Rider>(`/api/admin/riders/${id}`, patch);
     return r.data;
+  },
+
+  // ── Brands (Phase 1) — full CRUD, unlike categories' edit-only list ──
+  listBrands: async (params?: { search?: string; skip?: number; limit?: number }): Promise<BrandListResponse> => {
+    const r = await apiClient.get<BrandListResponse>("/api/admin/brands", { params });
+    return r.data;
+  },
+
+  createBrand: async (name: string): Promise<Brand> => {
+    const r = await apiClient.post<Brand>("/api/admin/brands", { name });
+    return r.data;
+  },
+
+  updateBrand: async (id: string, patch: Partial<Brand>): Promise<Brand> => {
+    const r = await apiClient.put<Brand>(`/api/admin/brands/${id}`, patch);
+    return r.data;
+  },
+
+  /** Soft-unlink, not cascade-delete — the backend clears `brand_id` on any
+   *  tagged products rather than deleting them. */
+  deleteBrand: async (id: string): Promise<void> => {
+    await apiClient.delete(`/api/admin/brands/${id}`);
   },
 
   // ── Analytics ───────────────────────────────────────────────

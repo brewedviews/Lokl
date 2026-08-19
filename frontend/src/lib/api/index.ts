@@ -132,6 +132,7 @@ export const miscApi = {
 
 // Re-export the lower-level fetchers for code organization-friendly imports.
 export { storesApi } from "./stores";
+export { brandsApi } from "./brands";
 export { productsApi } from "./products";
 export { customersApi } from "./customers";
 export { ordersApi } from "./orders";
@@ -143,6 +144,7 @@ export { riderApi } from "./rider";
 
 // Aliased imports so consumers can grab a single bundle.
 import { storesApi as _storesApi } from "./stores";
+import { brandsApi as _brandsApi } from "./brands";
 import { productsApi as _productsApi } from "./products";
 import { customersApi as _customersApi } from "./customers";
 import { ordersApi as _ordersApi } from "./orders";
@@ -156,6 +158,7 @@ import { paymentsApi as _paymentsApi } from "./payments";
 export const api = {
   auth: _authApi,
   stores: _storesApi,
+  brands: _brandsApi,
   products: _productsApi,
   customers: _customersApi,
   orders: _ordersApi,

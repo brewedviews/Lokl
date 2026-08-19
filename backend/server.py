@@ -213,6 +213,16 @@ class ProductCreate(BaseModel):
     # pattern as the frontend's dormant `colors` field. Always empty for
     # every product created before that UI ships.
     fit_note: Optional[str] = ""
+    # Optional — most merchants won't set this on day one, and existing
+    # products predate the Brand entity entirely. Set via the creatable
+    # brand combobox on the product form or the bulk-upload "brand" column.
+    brand_id: Optional[str] = None
+
+class BrandCreate(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    logo: Optional[str] = ""
+    logo_public_id: Optional[str] = ""
 
 class OrderCreate(BaseModel):
     items: List[dict]; address: dict; total: float
@@ -462,6 +472,26 @@ def _slugify(name: str) -> str:
     s = _re.sub(r"[\s_]+", "-", s)
     s = _re.sub(r"-+", "-", s)
     return s.strip("-")
+
+
+async def _unique_brand_slug(base: str) -> str:
+    """Slugify with a REAL uniqueness check — unlike the store-slug path
+    (`fix_store_slugs`), which never dedupes. On collision, append -2, -3, …"""
+    base = base or "brand"
+    slug = base
+    n = 2
+    while await db.brands.find_one({"slug": slug}, {"_id": 1}):
+        slug = f"{base}-{n}"
+        n += 1
+    return slug
+
+
+async def _recompute_brand_product_count(brand_id: Optional[str]) -> None:
+    """Denormalized counter, mirrors the store `product_count` pattern."""
+    if not brand_id:
+        return
+    cnt = await db.products.count_documents({"brand_id": brand_id, "is_deleted": {"$ne": True}})
+    await db.brands.update_one({"id": brand_id}, {"$set": {"product_count": cnt}})
 
 
 def _normalize_customer_phone(raw: str) -> Optional[str]:
@@ -2049,7 +2079,7 @@ async def merchant_upload_image(
 ):
     """Upload an image to Cloudinary and return {image_url, public_id}.
 
-    asset_type ∈ {"product", "store_logo", "store_banner", "kyc"}.
+    asset_type ∈ {"product", "store_logo", "store_banner", "kyc", "brand_logo"}.
     """
     if user.get("role") not in ("merchant", "admin"):
         raise HTTPException(403, "Merchant access required")
@@ -2126,6 +2156,62 @@ async def admin_create_offer(payload: dict, admin: dict = Depends(require_admin)
 @api.delete("/admin/offers/{oid}")
 async def admin_delete_offer(oid: str, admin: dict = Depends(require_admin)):
     await db.offers.delete_one({"id": oid})
+    return {"ok": True}
+
+
+# ===== Brand admin (Phase 1) =====
+# Unlike categories (small, fixed list — edit only), Brand can grow
+# unbounded, so this is full CRUD with search + pagination on the list
+# side. Create/list/detail are also reachable un-admin-gated below (Brand
+# is merchant-creatable, inline, during product upload).
+
+ALLOWED_BRAND_FIELDS = {"name", "description", "logo", "logo_public_id"}
+
+
+@api.get("/admin/brands")
+async def admin_list_brands(
+    search: str = "", skip: int = 0, limit: int = 20,
+    admin: dict = Depends(require_admin),
+):
+    limit = max(1, min(limit, 100))
+    q: dict = {}
+    if search.strip():
+        q["name"] = {"$regex": _re.escape(search.strip()), "$options": "i"}
+    total = await db.brands.count_documents(q)
+    rows = await db.brands.find(q, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return {"brands": rows, "total": total, "skip": skip, "limit": limit}
+
+
+@api.post("/admin/brands")
+async def admin_create_brand(payload: BrandCreate, admin: dict = Depends(require_admin)):
+    return await _create_brand_doc(payload, "admin")
+
+
+@api.put("/admin/brands/{bid}")
+async def admin_update_brand(bid: str, payload: dict, admin: dict = Depends(require_admin)):
+    existing = await db.brands.find_one({"id": bid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Brand not found")
+    update = {k: v for k, v in payload.items() if k in ALLOWED_BRAND_FIELDS}
+    # Deliberately NOT regenerating the slug on rename — the slug is the
+    # brand's stable public URL (/brand/{slug}); renaming shouldn't 404
+    # anyone who already linked or bookmarked it.
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.brands.update_one({"id": bid}, {"$set": update})
+    doc = await db.brands.find_one({"id": bid}, {"_id": 0})
+    return doc
+
+
+@api.delete("/admin/brands/{bid}")
+async def admin_delete_brand(bid: str, admin: dict = Depends(require_admin)):
+    """Delete a brand. Explicitly a SOFT-UNLINK, not a cascade-delete:
+    products tagged with this brand are kept — only their `brand_id` is
+    cleared. No product is ever removed as a side effect of this call."""
+    existing = await db.brands.find_one({"id": bid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Brand not found")
+    await db.products.update_many({"brand_id": bid}, {"$set": {"brand_id": None}})
+    await db.brands.delete_one({"id": bid})
     return {"ok": True}
 
 
@@ -2425,10 +2511,21 @@ async def admin_update_price_band(bid: str, payload: dict, admin: dict = Depends
 
 
 @api.post("/admin/cms/upload")
-async def admin_cms_upload(file: UploadFile = File(...), admin: dict = Depends(require_admin)):
+async def admin_cms_upload(
+    file: UploadFile = File(...),
+    asset_type: str = Form("cms"),
+    admin: dict = Depends(require_admin),
+):
     """Cloudinary upload for any CMS image asset. Returns the secure_url
-    that admins can copy/paste into hero/category/offer image fields."""
-    return await cloudinary_service.upload_image(file, "cms", admin.get("id", "admin"))
+    that admins can copy/paste into hero/category/offer image fields.
+
+    `asset_type` defaults to "cms" (the shared homepage-asset folder) but
+    accepts "brand_logo" too, so the Brand admin surface's ImageUploadField
+    can route logo uploads into their own Cloudinary folder rather than
+    piling into lokl/cms."""
+    if asset_type not in ("cms", "brand_logo"):
+        raise HTTPException(400, "Invalid asset_type for admin upload")
+    return await cloudinary_service.upload_image(file, asset_type, admin.get("id", "admin"))
 
 
 @api.get("/admin/cms/search-destinations")
@@ -3349,6 +3446,69 @@ async def get_my_tickets(request: Request):
         {"customer_phone": customer_phone}, {"_id": 0}
     ).sort("created_at", -1).to_list(50)
     return {"tickets": tickets}
+
+
+@api.get("/brands")
+async def list_brands(search: str = "", skip: int = 0, limit: int = 20):
+    """Public list — also powers the merchant product form's creatable
+    combobox typeahead (`?search=`)."""
+    limit = max(1, min(limit, 100))
+    q: dict = {}
+    if search.strip():
+        q["name"] = {"$regex": _re.escape(search.strip()), "$options": "i"}
+    total = await db.brands.count_documents(q)
+    rows = await db.brands.find(q, {"_id": 0}).sort("name", 1).skip(skip).limit(limit).to_list(limit)
+    return {"brands": rows, "total": total, "skip": skip, "limit": limit}
+
+
+@api.get("/brands/{slug_or_id}")
+async def get_brand(slug_or_id: str):
+    b = await db.brands.find_one({"$or": [{"slug": slug_or_id}, {"id": slug_or_id}]}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Brand not found")
+    products = await db.products.find(
+        {"brand_id": b["id"], "is_deleted": {"$ne": True}, "paused": {"$ne": True}}, {"_id": 0},
+    ).sort("created_at", -1).to_list(200)
+    return {"brand": b, "products": products}
+
+
+async def _create_brand_doc(payload: BrandCreate, created_by: str) -> dict:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(400, "Brand name is required")
+    # If a brand with this exact name (case-insensitive) already exists,
+    # return it instead of creating a duplicate — matches the bulk-upload
+    # path's name-matched lookup so both flows converge on one brand.
+    existing = await db.brands.find_one(
+        {"name": {"$regex": f"^{_re.escape(name)}$", "$options": "i"}}, {"_id": 0},
+    )
+    if existing:
+        return existing
+    slug = await _unique_brand_slug(_slugify(name))
+    doc = {
+        "id": f"brand-{uuid.uuid4().hex[:10]}",
+        "name": name,
+        "slug": slug,
+        "logo": payload.logo or "",
+        "logo_public_id": payload.logo_public_id or "",
+        "description": payload.description or "",
+        "product_count": 0,
+        "created_by": created_by,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.brands.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.post("/brands")
+async def create_brand(payload: BrandCreate, user: dict = Depends(get_current_user)):
+    """Merchant-or-admin creatable — this is the endpoint the product form's
+    inline "Create '{name}'" combobox option calls."""
+    if user.get("role") not in ("merchant", "admin"):
+        raise HTTPException(403, "Merchant access required")
+    created_by = user["sub"] if user.get("role") == "merchant" else "admin"
+    return await _create_brand_doc(payload, created_by)
 
 
 @api.get("/stores/{store_id}")
@@ -5773,6 +5933,7 @@ async def create_merchant_product(payload: ProductCreate, user: dict = Depends(g
     await db.products.insert_one(doc)
     cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
+    await _recompute_brand_product_count(doc.get("brand_id"))
     await _maybe_autopublish_store(user["sub"])
     doc.pop("_id", None); return doc
 
@@ -5803,6 +5964,12 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
         cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
         await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
         await _maybe_autopublish_store(user["sub"])
+    if "brand_id" in payload:
+        old_brand_id = p.get("brand_id")
+        new_brand_id = payload.get("brand_id")
+        if old_brand_id != new_brand_id:
+            await _recompute_brand_product_count(old_brand_id)
+        await _recompute_brand_product_count(new_brand_id)
     return await db.products.find_one({"id": pid}, {"_id": 0})
 
 @api.patch("/merchant/products/{pid}")
@@ -5874,7 +6041,12 @@ async def merchant_products_bulk_action(payload: dict, user: dict = Depends(get_
     action = (payload.get("action") or "").lower()
     if not ids: raise HTTPException(400, "No ids")
     if action == "delete":
+        affected_brand_ids = await db.products.distinct(
+            "brand_id", {"id": {"$in": ids}, "merchant_id": user["sub"], "brand_id": {"$ne": None}},
+        )
         r = await db.products.delete_many({"id": {"$in": ids}, "merchant_id": user["sub"]})
+        for bid in affected_brand_ids:
+            await _recompute_brand_product_count(bid)
         return {"deleted": r.deleted_count}
     elif action in ("publish", "pause"):
         new_paused = (action == "pause")
@@ -6018,6 +6190,41 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
     for lid, subs in L2_BY_L1.items():
         for s in subs: l2_by_name[(lid, s["name"].lower())] = s["id"]
 
+    # Brand column: name-matched lookup like L1/L2, but on a miss we
+    # AUTO-CREATE the brand (case-preserved) instead of skipping the row —
+    # deliberately different from category's skip-on-miss behavior, per
+    # product decision. `brand_cache` avoids re-querying/re-creating for
+    # repeated brand names within the same upload.
+    brand_cache: dict[str, dict] = {}
+    brands_matched: set[str] = set()
+    brands_created: set[str] = set()
+
+    async def _resolve_brand_id(row: dict) -> Optional[str]:
+        raw = str(row.get("brand") or row.get("brand name") or row.get("brand_name") or "").strip()
+        if not raw:
+            return None
+        key = raw.lower()
+        cached = brand_cache.get(key)
+        if cached:
+            return cached["id"]
+        existing = await db.brands.find_one(
+            {"name": {"$regex": f"^{_re.escape(raw)}$", "$options": "i"}}, {"_id": 0},
+        )
+        if existing:
+            brand_cache[key] = existing
+            brands_matched.add(existing["name"])
+            return existing["id"]
+        slug = await _unique_brand_slug(_slugify(raw))
+        new_brand = {
+            "id": f"brand-{uuid.uuid4().hex[:10]}", "name": raw, "slug": slug,
+            "logo": "", "logo_public_id": "", "description": "", "product_count": 0,
+            "created_by": user["sub"], "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.brands.insert_one(new_brand)
+        brand_cache[key] = new_brand
+        brands_created.add(raw)
+        return new_brand["id"]
+
     created_ids: list[str] = []
     created_names: list[str] = []
     skipped: list[str] = []
@@ -6035,6 +6242,7 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
         if doc_frag is None:
             skipped.append(reason or "unknown")
             continue
+        doc_frag["brand_id"] = await _resolve_brand_id(row)
         pid = f"prod-{uuid.uuid4().hex[:10]}"
         # Newly bulk-uploaded products start PAUSED so the merchant adds images first;
         # they go live one-by-one as the merchant clicks Go-live or adds an image.
@@ -6051,9 +6259,13 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
         slots_used += 1
     cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
+    for cached in brand_cache.values():
+        await _recompute_brand_product_count(cached["id"])
     await _maybe_autopublish_store(user["sub"])
     result: dict = {"created": len(created_ids), "created_ids": created_ids,
-                    "names": created_names[:50], "skipped": skipped[:50]}
+                    "names": created_names[:50], "skipped": skipped[:50],
+                    "brands_created": sorted(brands_created),
+                    "brands_matched": sorted(brands_matched)}
     if limit_hit:
         result["warning"] = f"Some rows were skipped: you reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to upload more."
     return result
@@ -7615,6 +7827,14 @@ async def startup_seed():
         await db.subcategories.create_index("id", unique=True, background=True)
     except Exception as _e:
         log.warning("Category unique indexes: %s", _e)
+
+    # Brand slug/id uniqueness — the DB-level backstop behind the app-level
+    # collision-retry loop in _unique_brand_slug().
+    try:
+        await db.brands.create_index("id", unique=True, background=True)
+        await db.brands.create_index("slug", unique=True, background=True)
+    except Exception as _e:
+        log.warning("Brand unique indexes: %s", _e)
 
     # Idempotent upsert of L1/L2 taxonomy.
     # `image` uses $setOnInsert so admin-uploaded category images are never

@@ -46,6 +46,10 @@ export interface Product {
   store_distance_km: number | null;
   store_eta_min: number | null;
 
+  // Brand (Phase 1) — optional; absent on every product created before
+  // the Brand entity existed, and not every merchant sets one.
+  brand_id?: string | null;
+
   // Flags
   ai_enhanced: boolean;
   try_at_doorstep: boolean;

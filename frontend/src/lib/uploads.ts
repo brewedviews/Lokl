@@ -7,7 +7,7 @@
  */
 import { apiClient } from "@/lib/api-client";
 
-export type UploadAssetType = "product" | "store_logo" | "store_banner" | "kyc";
+export type UploadAssetType = "product" | "store_logo" | "store_banner" | "kyc" | "brand_logo";
 
 export interface UploadedImage {
   image_url: string;

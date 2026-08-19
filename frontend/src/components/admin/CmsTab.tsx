@@ -25,12 +25,13 @@ import { AreasEditor } from "@/components/admin/cms/AreasEditor";
 import { PriceBandsEditor } from "@/components/admin/cms/PriceBandsEditor";
 import { TryAndBuyEditor } from "@/components/admin/cms/TryAndBuyEditor";
 import { OffersEditor } from "@/components/admin/cms/OffersEditor";
+import { BrandsEditor } from "@/components/admin/cms/BrandsEditor";
 import { TopClicksWidget } from "@/components/admin/cms/TopClicksWidget";
 import type { HomepageConfig } from "@/types";
 
 interface Section { id: string; label: string; enabled: boolean; rank: number }
 
-type SubTab = "sections" | "hero" | "l1" | "l2" | "areas" | "price_bands" | "try_and_buy" | "offers";
+type SubTab = "sections" | "hero" | "l1" | "l2" | "areas" | "price_bands" | "try_and_buy" | "offers" | "brands";
 
 const SUB_TABS: { id: SubTab; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
   { id: "sections",     label: "Sections",      icon: LayoutTemplate },
@@ -41,6 +42,7 @@ const SUB_TABS: { id: SubTab; label: string; icon: React.ComponentType<{ size?: 
   { id: "price_bands",  label: "Price bands",   icon: Tag },
   { id: "try_and_buy",  label: "Try & Buy",     icon: RotateCcw },
   { id: "offers",       label: "Offers",        icon: Sparkles },
+  { id: "brands",       label: "Brands",        icon: Tag },
 ];
 
 export function CmsTab() {
@@ -75,6 +77,7 @@ export function CmsTab() {
         {tab === "price_bands" && <PriceBandsEditor />}
         {tab === "try_and_buy" && <TryAndBuyEditor />}
         {tab === "offers"      && <OffersEditor />}
+        {tab === "brands"      && <BrandsEditor />}
       </div>
 
       <TopClicksWidget />

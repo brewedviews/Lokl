@@ -31,7 +31,7 @@ HEADERS = [
     "l1 category", "l2 category", "gender",
     "mrp", "selling price",
     "sizes", "stock_per_size",
-    "returnable",
+    "returnable", "brand",
 ]
 # 10 example rows the merchant can replace.
 EXAMPLES = [
@@ -64,7 +64,7 @@ def build_template_xlsx() -> bytes:
         c.font = header_font
         c.alignment = Alignment(vertical="center")
     ws.row_dimensions[1].height = 26
-    widths = [28, 30, 14, 22, 12, 10, 10, 22, 22, 12]
+    widths = [28, 30, 14, 22, 12, 10, 10, 22, 22, 12, 20]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -92,6 +92,8 @@ def build_template_xlsx() -> bytes:
         "• sizes: comma or semicolon-separated, e.g.  S,M,L,XL  or  S;M;L;XL  or  7;8;9;10",
         "• stock_per_size: same count as sizes, e.g. 50,100,39,10 — quantity per size.",
         "• returnable: Yes / No. Defaults to No if blank. (Innerwear, perishables: keep No.)",
+        "• brand: optional, free text. Matches an existing brand by name (case-insensitive);",
+        "  if no match is found, a new brand is created automatically and listed in the upload summary.",
         "• mrp / price are in INR.",
         "• After upload, every row appears in Products as a draft — add images & tweak before go-live.",
     ]
@@ -142,6 +144,8 @@ _HEADER_ALIAS = {
     "stock per size":      "stock_per_size",
     "stock":               "stock_per_size",
     "product description": "description",
+    "brand name":          "brand",
+    "brand_name":          "brand",
 }
 
 

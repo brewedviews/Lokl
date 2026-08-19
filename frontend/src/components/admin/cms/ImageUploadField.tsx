@@ -22,9 +22,12 @@ interface Props {
   recommended: string;     // e.g. "1920×700"
   testid: string;
   className?: string;
+  /** Cloudinary folder to route into — defaults to the shared "cms" folder.
+   *  Pass "brand_logo" from the Brand admin surface. */
+  assetType?: "cms" | "brand_logo";
 }
 
-export function ImageUploadField({ label, value, onChange, recommended, testid, className }: Props) {
+export function ImageUploadField({ label, value, onChange, recommended, testid, className, assetType = "cms" }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
 
@@ -35,7 +38,7 @@ export function ImageUploadField({ label, value, onChange, recommended, testid, 
     }
     setBusy(true);
     try {
-      const r = await adminApi.uploadCmsImage(file);
+      const r = await adminApi.uploadCmsImage(file, assetType);
       onChange(r.image_url);
       toast.success("Image uploaded");
     } catch (e) {

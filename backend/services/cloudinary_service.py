@@ -29,6 +29,7 @@ FOLDER_MAP = {
     "store_banner": "lokl/banners",
     "kyc": "lokl/kyc",
     "cms": "lokl/cms",
+    "brand_logo": "lokl/brands",
 }
 
 ALLOWED_MIMES = {"image/jpeg", "image/png", "image/webp"}

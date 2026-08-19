@@ -18,6 +18,7 @@ import { getErrorMessage } from "@/lib/api-error";
 import { downloads } from "@/lib/downloads";
 import { useMerchantAuthStore } from "@/stores";
 import { uploadImage, deleteUploadedImage } from "@/lib/uploads";
+import { BrandCombobox } from "@/components/merchant/BrandCombobox";
 import type { Product } from "@/types";
 
 interface L2 { id: string; name: string }
@@ -36,7 +37,7 @@ const SIZE_TYPE_OPTIONS: Record<string, { label: string; sizes: string[] }> = {
 
 const blankForm = {
   name: "", price: "", mrp: "", description: "",
-  l1_id: "", l2_id: "", gender: "",
+  l1_id: "", l2_id: "", gender: "", brand_id: "",
   sizes: [] as string[], stock: {} as Record<string, number>,
   images: [] as string[], image_public_ids: [] as string[],
   return_eligible: false,
@@ -128,6 +129,7 @@ export default function MerchantProductsPage() {
         l1_id: form.l1_id,
         l2_id: form.l2_id || "",
         gender: form.gender || "",
+        brand_id: form.brand_id || undefined,
         sizes: form.sizes,
         stock: form.stock,
         size_type: form.size_type || "",
@@ -156,7 +158,7 @@ export default function MerchantProductsPage() {
       // GET /api/products/{pid} returns { product, similar }, so we have to
       // unwrap before populating the form. Reading the top-level fields was
       // the iter-44 regression that opened the edit modal blank.
-      const r = await apiClient.get<{ product: Product & { image_public_id?: string; image_public_ids?: string[]; stock?: Record<string, number>; sizes?: string[]; l1_id?: string; l2_id?: string; gender?: string; mrp?: number; return_eligible?: boolean; try_at_doorstep?: boolean; images?: string[]; size_type?: string } }>(`/api/products/${p.id}`);
+      const r = await apiClient.get<{ product: Product & { image_public_id?: string; image_public_ids?: string[]; stock?: Record<string, number>; sizes?: string[]; l1_id?: string; l2_id?: string; gender?: string; mrp?: number; return_eligible?: boolean; try_at_doorstep?: boolean; images?: string[]; size_type?: string; brand_id?: string | null } }>(`/api/products/${p.id}`);
       const d = r.data.product;
       let sizeType = d.size_type || "";
       if (!sizeType && d.sizes && d.sizes.length > 0) {
@@ -179,6 +181,7 @@ export default function MerchantProductsPage() {
         l1_id: d.l1_id || "",
         l2_id: d.l2_id || "",
         gender: d.gender || "",
+        brand_id: d.brand_id || "",
         sizes: d.sizes || [],
         stock: d.stock || {},
         images: d.images && d.images.length ? d.images : (d.image ? [d.image] : []),
@@ -518,6 +521,10 @@ export default function MerchantProductsPage() {
                       </select>
                     </div>
                   ) : null}
+                  <BrandCombobox
+                    value={form.brand_id}
+                    onChange={(brand_id) => setForm((f) => ({ ...f, brand_id }))}
+                  />
                 </>
               )}
 

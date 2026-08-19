@@ -7,6 +7,7 @@ export * from "./api";
 export * from "./auth";
 export * from "./user";
 export * from "./store";
+export * from "./brand";
 export * from "./product";
 export * from "./order";
 export * from "./cart";
