@@ -15,6 +15,10 @@ export interface CartItem {
   id: string;           // product id
   name: string;
   price: RupeeAmount;
+  /** Snapshotted from the product at add-to-cart time, for the strikethrough
+   *  MRP display and the bill's MRP-total line. Absent/equal-to-price on
+   *  items added before this field existed — no strikethrough renders then. */
+  mrp?: RupeeAmount | null;
   qty: number;
   size?: string;
   image?: string;

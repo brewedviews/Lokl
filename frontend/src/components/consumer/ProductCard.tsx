@@ -26,9 +26,13 @@ type AnyProduct = ProductCardType & {
 interface Props {
   p: AnyProduct;
   size?: "default" | "compact";
+  /** Default true everywhere. Set false only on surfaces the redesign plan
+   *  scopes wishlist OUT of (Bag/Checkout) — PDP keeps the heart, this is
+   *  the one opt-out, not a redesign of the card itself. */
+  showWishlist?: boolean;
 }
 
-export function ProductCard({ p, size = "default" }: Props) {
+export function ProductCard({ p, size = "default", showWishlist = true }: Props) {
   const isCompact = size === "compact";
   const mounted = useMounted();
   const isWishlisted = useWishlistStore((s) => s.isWishlisted(p.id));
@@ -141,20 +145,22 @@ export function ProductCard({ p, size = "default" }: Props) {
           )}
 
           {/* Wishlist heart — top-right */}
-          <button
-            type="button"
-            aria-label="Wishlist"
-            onClick={handleHeart}
-            className={`absolute top-1.5 right-1.5 rounded-full grid place-items-center backdrop-blur-md transition active:scale-90 ${
-              wished ? "bg-[#E68910] text-white" : "bg-white/85 text-[#0A1F5C]"
-            } ${isCompact ? "w-7 h-7" : "w-9 h-9"}`}
-          >
-            <Heart
-              size={isCompact ? 12 : 15}
-              fill={wished ? "currentColor" : "none"}
-              strokeWidth={2.2}
-            />
-          </button>
+          {showWishlist && (
+            <button
+              type="button"
+              aria-label="Wishlist"
+              onClick={handleHeart}
+              className={`absolute top-1.5 right-1.5 rounded-full grid place-items-center backdrop-blur-md transition active:scale-90 ${
+                wished ? "bg-[#E68910] text-white" : "bg-white/85 text-[#0A1F5C]"
+              } ${isCompact ? "w-7 h-7" : "w-9 h-9"}`}
+            >
+              <Heart
+                size={isCompact ? 12 : 15}
+                fill={wished ? "currentColor" : "none"}
+                strokeWidth={2.2}
+              />
+            </button>
+          )}
         </div>
 
         {/* Text content */}

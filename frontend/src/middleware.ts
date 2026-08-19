@@ -60,6 +60,15 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // /cart and /checkout were merged into one Bag/Checkout screen at
+  // /checkout — /cart no longer has its own page.tsx, this redirect is the
+  // only thing keeping the old URL alive (bookmarks, any external links).
+  if (pathname === '/cart' || pathname.startsWith('/cart/')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/checkout'
+    return NextResponse.redirect(url)
+  }
+
   return NextResponse.next()
 }
 

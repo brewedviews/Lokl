@@ -140,6 +140,7 @@ export const useCartStore = create<CartStore>()(
             id: product.id,
             name: product.name,
             price: product.price,
+            mrp: product.mrp ?? undefined,
             qty,
             size: size || undefined,
             image: product.image,

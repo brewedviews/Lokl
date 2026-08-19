@@ -299,7 +299,7 @@ export function ConsumerHeader() {
             anymore. gap-2/lg:gap-4 on the row above already closes the
             space this left behind — no separate spacer needed. */}
         <Link
-          href="/cart"
+          href="/checkout"
           data-testid="nav-cart"
           aria-label="Bag"
           className="relative flex items-center gap-1 px-3 py-2 rounded-full bg-brand-primary text-white hover:bg-brand-primary/90 transition shrink-0"

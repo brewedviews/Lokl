@@ -2,13 +2,19 @@
  * Button — primary interactive element. Visual parity with the legacy
  * shadcn button used across the consumer surface (rounded-full, navy primary,
  * marigold accent for destructive). All token colors come from globals.css.
+ *
+ * `cta` — the one standardized primary-action button (redesign-plan 3.2):
+ * solid orange fill, tag/label proportions — NOT full-width, NOT a rounded
+ * pill like the other variants here. Radius now lives per-variant (not on
+ * the shared base classes) specifically so `cta` can diverge on shape
+ * without affecting `primary`/`secondary`/`ghost`/`destructive`.
  */
 "use client";
 
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
-type ButtonVariant = "primary" | "secondary" | "ghost" | "destructive";
+type ButtonVariant = "primary" | "secondary" | "ghost" | "destructive" | "cta";
 type ButtonSize = "sm" | "md" | "lg";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -19,13 +25,15 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const VARIANT: Record<ButtonVariant, string> = {
   primary:
-    "bg-brand-primary text-white hover:bg-brand-primary/90 active:bg-brand-primary/80",
+    "rounded-full bg-brand-primary text-white hover:bg-brand-primary/90 active:bg-brand-primary/80",
   secondary:
-    "border border-card-border bg-card-surface text-brand-primary hover:border-brand-primary",
+    "rounded-full border border-card-border bg-card-surface text-brand-primary hover:border-brand-primary",
   ghost:
-    "text-brand-primary hover:bg-brand-primary/5",
+    "rounded-full text-brand-primary hover:bg-brand-primary/5",
   destructive:
-    "text-brand-accent hover:bg-brand-accent/10",
+    "rounded-full text-brand-accent hover:bg-brand-accent/10",
+  cta:
+    "rounded-lg bg-brand-accent text-white hover:bg-brand-accent/90 active:bg-brand-accent/80",
 };
 
 const SIZE: Record<ButtonSize, string> = {
@@ -45,7 +53,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         disabled={disabled ?? isLoading}
         aria-busy={isLoading || undefined}
         className={cn(
-          "inline-flex items-center justify-center font-medium transition-all rounded-full",
+          "inline-flex items-center justify-center font-medium transition-all",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent",
           "disabled:opacity-50 disabled:cursor-not-allowed",
           VARIANT[variant],

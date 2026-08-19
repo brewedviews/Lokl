@@ -22,6 +22,13 @@
  * just no longer the primary entry point. Search lives in the pinned bar
  * in ConsumerHeader (its own in-place top sheet), not here — cart already
  * lives top-right in the consumer header too, so neither doubles up.
+ *
+ * /checkout (the merged Bag/Checkout screen, formerly two pages) is
+ * EXCLUDED — it has its own sticky bottom price+CTA bar, and stacking that
+ * on top of this generic 5-tab nav is exactly the "two competing
+ * fixed-chrome models" the PDP already tried and reverted once (see the
+ * /product/ note above) — same resolution applied here instead of
+ * repeating that mistake.
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -32,7 +39,7 @@ import { trackNavClick } from "@/lib/analytics";
 export function StickyBottomNav() {
   const pathname = usePathname();
 
-  if (pathname.startsWith("/merchant") || pathname.startsWith("/admin") || pathname.startsWith("/rider")) return null;
+  if (pathname.startsWith("/merchant") || pathname.startsWith("/admin") || pathname.startsWith("/rider") || pathname.startsWith("/checkout")) return null;
 
   const isActive = (href: string) => href === "/" ? pathname === "/" : pathname.startsWith(href);
 
