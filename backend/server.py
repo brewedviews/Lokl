@@ -42,6 +42,9 @@ from ai_enhance import enhance_product_images
 import rider_push
 from observability import init_sentry
 from services import cloudinary_service
+from services import encryption_service
+from services import vasyerp_client
+from services.vasyerp_client import VasyERPAuthError, VasyERPClientError
 
 load_dotenv(Path(__file__).parent / ".env")
 
@@ -223,6 +226,13 @@ class BrandCreate(BaseModel):
     description: Optional[str] = ""
     logo: Optional[str] = ""
     logo_public_id: Optional[str] = ""
+
+class VasyERPConnectRequest(BaseModel):
+    api_token: str
+
+class VasyERPSelectBranchRequest(BaseModel):
+    branch_id: str
+    branch_name: Optional[str] = ""
 
 class OrderCreate(BaseModel):
     items: List[dict]; address: dict; total: float
@@ -6114,6 +6124,30 @@ async def merchant_products_bulk_action(payload: dict, user: dict = Depends(get_
 
 
 
+def _category_name_maps() -> tuple[dict, dict, dict]:
+    """Shared by bulk_products and the VasyERP import — the exact same
+    lowercased exact-match dicts, built once per call so both consumers
+    can never drift out of sync with each other.
+
+    Returns (l1_by_name, l2_by_name, l2_flat_by_name):
+      - l1_by_name: {l1 name lower -> l1_id}
+      - l2_by_name: {(l1_id, l2 name lower) -> l2_id} — bulk-upload's shape,
+        used when the caller already knows which L1 an L2 name belongs under.
+      - l2_flat_by_name: {l2 name lower -> (l1_id, l2_id)} — VasyERP only
+        gives ONE flat free-text category field (no separate L1/L2 columns
+        the way the bulk-upload sheet has), so it needs to try matching
+        that text against L2 names directly, without already knowing the L1.
+    """
+    l1_by_name = {c["name"].lower(): c["id"] for c in L1_CATEGORIES}
+    l2_by_name: dict = {}
+    l2_flat_by_name: dict = {}
+    for lid, subs in L2_BY_L1.items():
+        for s in subs:
+            l2_by_name[(lid, s["name"].lower())] = s["id"]
+            l2_flat_by_name[s["name"].lower()] = (lid, s["id"])
+    return l1_by_name, l2_by_name, l2_flat_by_name
+
+
 @api.get("/merchant/products/template.xlsx")
 async def merchant_bulk_template(user: dict = Depends(get_current_user)):
     """Return the Lokl xlsx template with L1/L2/gender/returnable dropdowns and 3 example rows."""
@@ -6236,10 +6270,7 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
         except Exception as e:
             raise HTTPException(400, f"Could not read csv: {e}")
 
-    l1_by_name = {c["name"].lower(): c["id"] for c in L1_CATEGORIES}
-    l2_by_name = {}
-    for lid, subs in L2_BY_L1.items():
-        for s in subs: l2_by_name[(lid, s["name"].lower())] = s["id"]
+    l1_by_name, l2_by_name, _l2_flat_by_name = _category_name_maps()
 
     # Brand column: name-matched lookup like L1/L2 — but unlike L1/L2, a
     # miss never skips or fails the row. Brand is a CLOSED, admin-curated
@@ -6316,6 +6347,404 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
     if limit_hit:
         result["warning"] = f"Some rows were skipped: you reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to upload more."
     return result
+
+
+# ===== VasyERP integration (Phase A: connect, one-way pull, draft staging) =====
+# See docs/integrations/vasyerp-integration-plan.md. Base URL / auth header /
+# response envelope in services/vasyerp_client.py are best-effort, not
+# verified against a live VasyERP account — see that module's own doc
+# comment before relying on this against a real merchant.
+
+_L2_PARENT_L1 = {s["id"]: lid for lid, subs in L2_BY_L1.items() for s in subs}
+
+
+def _vasyerp_item_to_fields(item: dict) -> dict:
+    """Extract the fields Phase A uses from one raw VasyERP product-
+    inventory item. Field names are best-effort per the integration plan's
+    field list — NOT verified against a real response. A missing/oddly-
+    named field degrades to a safe default rather than raising, so one
+    off-shape item can't abort an entire import batch."""
+    return {
+        "vasyerp_item_id": str(item.get("id") or item.get("itemCode") or item.get("itemId") or "").strip(),
+        "name": str(item.get("name") or item.get("productName") or "Untitled product").strip(),
+        "mrp": (float(item["mrp"]) if item.get("mrp") not in (None, "") else None),
+        "price": (float(item["sellingPrice"]) if item.get("sellingPrice") not in (None, "")
+                  else (float(item["mrp"]) if item.get("mrp") not in (None, "") else None)),
+        "qty": int(item.get("qty") or 0),
+        "hsn_code": str(item.get("hsnCode") or ""),
+        "raw_category": str(item.get("category") or "").strip(),
+        "raw_brand": str(item.get("brand") or "").strip(),
+        "measurement_unit": str(item.get("measurementUnit") or ""),
+    }
+
+
+async def _vasyerp_resolve_category(
+    merchant_id: str, raw_category: str, l1_by_name: dict, l2_by_name: dict, l2_flat_by_name: dict,
+) -> tuple[Optional[str], Optional[str], bool]:
+    """Returns (l1_id, l2_id, unmatched). Checks IntegrationMapping first —
+    persisted per-merchant and reused across syncs, per the plan — and only
+    falls back to a fresh name lookup (reusing _L1_NORMALIZE + the same
+    exact-match dicts bulk-upload builds) when no mapping exists yet.
+    Unlike bulk-upload, a miss is NEVER a skip — it's recorded as an
+    unmatched mapping and the caller stages the product for review."""
+    raw = (raw_category or "").strip()
+    if not raw:
+        return None, None, True
+    key = raw.lower()
+    now = datetime.now(timezone.utc).isoformat()
+    existing = await db.integration_mappings.find_one(
+        {"merchant_id": merchant_id, "provider": "vasyerp", "source_value": key, "mapped_type": {"$in": ["l1", "l2"]}},
+        {"_id": 0},
+    )
+    if existing:
+        if existing.get("unmatched"):
+            return None, None, True
+        if existing["mapped_type"] == "l2":
+            return _L2_PARENT_L1.get(existing["mapped_id"]), existing["mapped_id"], False
+        return existing["mapped_id"], None, False
+
+    async def _save_mapping(mapped_type: str, mapped_id: Optional[str], unmatched: bool):
+        await db.integration_mappings.update_one(
+            {"merchant_id": merchant_id, "provider": "vasyerp", "source_value": key, "mapped_type": {"$in": ["l1", "l2"]}},
+            {"$set": {"mapped_type": mapped_type, "mapped_id": mapped_id, "unmatched": unmatched},
+             "$setOnInsert": {"id": f"map-{uuid.uuid4().hex[:10]}", "merchant_id": merchant_id, "provider": "vasyerp",
+                               "source_value": key, "created_at": now}},
+            upsert=True,
+        )
+
+    # VasyERP gives one flat free-text category field, not separate L1/L2
+    # columns the way the bulk-upload sheet does — so unlike bulk-upload,
+    # try matching it against L2 names first (more specific), before L1.
+    if key in l2_flat_by_name:
+        l1_id, l2_id = l2_flat_by_name[key]
+        await _save_mapping("l2", l2_id, False)
+        return l1_id, l2_id, False
+
+    l1_id = _L1_NORMALIZE.get(key) or l1_by_name.get(key)
+    if l1_id and l1_id not in L2_BY_L1:
+        # This L1 has no L2 children — a bare L1 match is already complete.
+        await _save_mapping("l1", l1_id, False)
+        return l1_id, None, False
+
+    # No match, or matched an L1 that requires an L2 we have no separate
+    # text for — both are unmatched, staged for manual review instead of
+    # bulk-upload's "skip the row" behavior.
+    await _save_mapping("l1", l1_id, True)
+    return l1_id, None, True
+
+
+async def _vasyerp_resolve_brand(merchant_id: str, raw_brand: str) -> tuple[Optional[str], bool]:
+    """Returns (brand_id, unmatched). Brand stays optional metadata (same
+    rule as everywhere else in the app) — a BLANK brand field is not a
+    "miss," it's just no brand tag. Brand is a closed, admin-curated
+    vocabulary: a miss never auto-creates one, exactly like bulk-upload's
+    own brand column."""
+    raw = (raw_brand or "").strip()
+    if not raw:
+        return None, False
+    key = raw.lower()
+    now = datetime.now(timezone.utc).isoformat()
+    existing = await db.integration_mappings.find_one(
+        {"merchant_id": merchant_id, "provider": "vasyerp", "source_value": key, "mapped_type": "brand"}, {"_id": 0},
+    )
+    if existing:
+        return (None, True) if existing.get("unmatched") else (existing["mapped_id"], False)
+    match = await db.brands.find_one({"name": {"$regex": f"^{_re.escape(raw)}$", "$options": "i"}}, {"_id": 0, "id": 1})
+    brand_id = match["id"] if match else None
+    await db.integration_mappings.update_one(
+        {"merchant_id": merchant_id, "provider": "vasyerp", "source_value": key, "mapped_type": "brand"},
+        {"$set": {"mapped_id": brand_id, "unmatched": brand_id is None},
+         "$setOnInsert": {"id": f"map-{uuid.uuid4().hex[:10]}", "merchant_id": merchant_id, "provider": "vasyerp",
+                           "source_value": key, "mapped_type": "brand", "created_at": now}},
+        upsert=True,
+    )
+    return brand_id, brand_id is None
+
+
+def _staged_publish_blocker(row: dict) -> Optional[str]:
+    """Returns a human-readable reason the row can't publish yet, or None
+    if it's ready. Checked by both the single and bulk publish endpoints."""
+    if row.get("status") == "published":
+        return "Already published"
+    if not row.get("image"):
+        return "Add at least one photo before publishing"
+    if not row.get("l1_id"):
+        return "Category is not resolved — set it before publishing"
+    if row["l1_id"] in L2_BY_L1 and not row.get("l2_id"):
+        return "Sub-category is required for this category"
+    return None
+
+
+async def _publish_staged_import(row: dict, merchant_id: str) -> dict:
+    blocker = _staged_publish_blocker(row)
+    if blocker:
+        raise HTTPException(400, blocker)
+    # Same fallback bulk-upload's own gender resolution uses: an L1 with no
+    # L2 children needs a gender, and VasyERP has no such field at all.
+    gender = "Unisex" if row["l1_id"] not in L2_BY_L1 else ""
+    _validate_l1_l2(row["l1_id"], row.get("l2_id") or "", gender)
+    m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0})
+    pid = f"prod-{uuid.uuid4().hex[:10]}"
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": pid, "merchant_id": merchant_id, "store_id": row["store_id"],
+        "store_name": (m or {}).get("store_name", ""), "store_city": (m or {}).get("city", ""),
+        "name": row["name"], "price": row.get("price") or 0, "mrp": row.get("mrp"),
+        "l1_id": row["l1_id"], "l2_id": row.get("l2_id") or "", "gender": gender,
+        "brand_id": row.get("brand_id"),
+        "description": "", "sizes": [], "stock": {"default": row.get("qty") or 0},
+        "total_stock": row.get("qty") or 0,
+        "image": row["image"], "image_public_id": row.get("image_public_id") or "",
+        "images": [row["image"]], "image_public_ids": [row.get("image_public_id") or ""],
+        "rating": 4.5, "paused": False, "ai_enhanced": False, "try_at_doorstep": False,
+        "return_eligible": False, "created_at": now,
+    }
+    await db.products.insert_one(doc)
+    await db.staged_imports.update_one(
+        {"id": row["id"]}, {"$set": {"status": "published", "product_id": pid, "updated_at": now}},
+    )
+    cnt = await db.products.count_documents({"store_id": row["store_id"], "paused": {"$ne": True}})
+    await db.stores.update_one({"id": row["store_id"]}, {"$set": {"product_count": cnt}})
+    if row.get("brand_id"):
+        await _recompute_brand_product_count(row["brand_id"])
+    doc.pop("_id", None)
+    return doc
+
+
+@api.post("/merchant/integrations/vasyerp/connect")
+async def vasyerp_connect(payload: VasyERPConnectRequest, user: dict = Depends(get_current_user)):
+    if user.get("role") != "merchant":
+        raise HTTPException(403, "Merchant access required")
+    token = payload.api_token.strip()
+    if not token:
+        raise HTTPException(400, "API token is required")
+    try:
+        branches = await vasyerp_client.list_branches(token)
+    except VasyERPAuthError:
+        raise HTTPException(400, "VasyERP rejected this API token — double-check it and try again")
+    except VasyERPClientError as e:
+        raise HTTPException(502, f"Could not reach VasyERP: {e}")
+    # Only encrypt + store once the token has proven itself against a real
+    # VasyERP call — an invalid token is never persisted, per the plan.
+    encrypted = encryption_service.encrypt_field(token)
+    now = datetime.now(timezone.utc).isoformat()
+    await db.merchant_integrations.update_one(
+        {"merchant_id": user["sub"], "provider": "vasyerp"},
+        {"$set": {"api_token": encrypted, "connected_at": now, "sync_status": "pending_branch_selection", "branch_id": None},
+         "$setOnInsert": {"id": f"integ-{uuid.uuid4().hex[:10]}", "merchant_id": user["sub"], "provider": "vasyerp", "last_synced_at": None}},
+        upsert=True,
+    )
+    return {"branches": branches}
+
+
+@api.post("/merchant/integrations/vasyerp/select-branch")
+async def vasyerp_select_branch(payload: VasyERPSelectBranchRequest, user: dict = Depends(get_current_user)):
+    if user.get("role") != "merchant":
+        raise HTTPException(403, "Merchant access required")
+    integ = await db.merchant_integrations.find_one({"merchant_id": user["sub"], "provider": "vasyerp"}, {"_id": 0})
+    if not integ:
+        raise HTTPException(400, "Connect VasyERP first")
+    await db.merchant_integrations.update_one(
+        {"merchant_id": user["sub"], "provider": "vasyerp"},
+        {"$set": {"branch_id": payload.branch_id, "branch_name": payload.branch_name or "", "sync_status": "connected"}},
+    )
+    return {"ok": True}
+
+
+@api.get("/merchant/integrations/vasyerp/status")
+async def vasyerp_integration_status(user: dict = Depends(get_current_user)):
+    """Connection state only — never returns api_token, encrypted or not."""
+    integ = await db.merchant_integrations.find_one(
+        {"merchant_id": user["sub"], "provider": "vasyerp"},
+        {"_id": 0, "api_token": 0},
+    )
+    return integ or {"connected": False}
+
+
+@api.post("/merchant/integrations/vasyerp/import")
+async def vasyerp_import(user: dict = Depends(get_current_user)):
+    if user.get("role") != "merchant":
+        raise HTTPException(403, "Merchant access required")
+    integ = await db.merchant_integrations.find_one({"merchant_id": user["sub"], "provider": "vasyerp"}, {"_id": 0})
+    if not integ or not integ.get("branch_id"):
+        raise HTTPException(400, "Connect VasyERP and select a branch first")
+    try:
+        token = encryption_service.decrypt_field(integ["api_token"])
+    except ValueError:
+        raise HTTPException(400, "Stored VasyERP credential is unusable — please reconnect")
+
+    store_id = f"store-m-{user['sub']}"
+    l1_by_name, l2_by_name, l2_flat_by_name = _category_name_maps()
+
+    staged_count = 0
+    review_count = 0
+    offset = 0
+    page_limit = 100
+    iterations = 0
+    while True:
+        try:
+            result = await vasyerp_client.fetch_products_inventory_page(
+                token, integ["branch_id"], limit=page_limit, offset=offset,
+            )
+        except VasyERPAuthError:
+            raise HTTPException(400, "VasyERP rejected the stored API token — please reconnect")
+        except VasyERPClientError as e:
+            raise HTTPException(502, f"Could not reach VasyERP: {e}")
+        for item in result["items"]:
+            fields = _vasyerp_item_to_fields(item)
+            if not fields["vasyerp_item_id"]:
+                continue  # no stable id to dedupe/update against — nothing safe to stage
+            l1_id, l2_id, cat_unmatched = await _vasyerp_resolve_category(
+                user["sub"], fields["raw_category"], l1_by_name, l2_by_name, l2_flat_by_name,
+            )
+            brand_id, brand_unmatched = await _vasyerp_resolve_brand(user["sub"], fields["raw_brand"])
+            status = "pending_review" if cat_unmatched else "pending_photos"
+            now = datetime.now(timezone.utc).isoformat()
+            fields_doc = {
+                "merchant_id": user["sub"], "provider": "vasyerp", "store_id": store_id,
+                "vasyerp_item_id": fields["vasyerp_item_id"],
+                "name": fields["name"], "price": fields["price"], "mrp": fields["mrp"], "qty": fields["qty"],
+                "hsn_code": fields["hsn_code"], "measurement_unit": fields["measurement_unit"],
+                "raw_category": fields["raw_category"], "raw_brand": fields["raw_brand"],
+                "l1_id": l1_id, "l2_id": l2_id, "brand_id": brand_id,
+                "category_unmatched": cat_unmatched, "brand_unmatched": brand_unmatched,
+                "raw": item, "updated_at": now,
+            }
+            existing_staged = await db.staged_imports.find_one(
+                {"merchant_id": user["sub"], "provider": "vasyerp", "vasyerp_item_id": fields["vasyerp_item_id"]},
+                {"_id": 0, "id": 1, "status": 1},
+            )
+            if existing_staged and existing_staged.get("status") in ("published", "skipped"):
+                # Already dealt with by the merchant — a re-import never
+                # resurrects or silently overwrites that decision.
+                continue
+            if existing_staged:
+                # Deliberately does NOT touch status/image/created_at here —
+                # those only ever move forward via the review UI or
+                # publish, never backward from a passive re-sync.
+                await db.staged_imports.update_one({"id": existing_staged["id"]}, {"$set": fields_doc})
+            else:
+                fields_doc["id"] = f"stg-{uuid.uuid4().hex[:10]}"
+                fields_doc["status"] = status
+                fields_doc["image"] = ""
+                fields_doc["image_public_id"] = ""
+                fields_doc["created_at"] = now
+                await db.staged_imports.insert_one(fields_doc)
+            staged_count += 1
+            if status == "pending_review":
+                review_count += 1
+        if not result["has_more"]:
+            break
+        offset += page_limit
+        iterations += 1
+        if iterations > 200:  # hard cap so a misbehaving pagination response can't loop forever
+            break
+
+    await db.merchant_integrations.update_one(
+        {"merchant_id": user["sub"], "provider": "vasyerp"},
+        {"$set": {"last_synced_at": datetime.now(timezone.utc).isoformat(), "sync_status": "synced"}},
+    )
+    return {"staged": staged_count, "pending_review": review_count}
+
+
+@api.get("/merchant/integrations/vasyerp/staged")
+async def vasyerp_list_staged(status: Optional[str] = None, user: dict = Depends(get_current_user)):
+    if user.get("role") != "merchant":
+        raise HTTPException(403, "Merchant access required")
+    q: dict = {"merchant_id": user["sub"], "provider": "vasyerp"}
+    if status:
+        q["status"] = status
+    rows = await db.staged_imports.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return rows
+
+
+@api.put("/merchant/integrations/vasyerp/staged/{sid}")
+async def vasyerp_update_staged(sid: str, payload: dict, user: dict = Depends(get_current_user)):
+    """Merchant corrects category/brand and/or attaches an image (already
+    uploaded via the existing /merchant/upload-image endpoint — this route
+    only accepts the resulting {image_url, public_id}, it does not accept
+    a file itself)."""
+    if user.get("role") != "merchant":
+        raise HTTPException(403, "Merchant access required")
+    row = await db.staged_imports.find_one({"id": sid, "merchant_id": user["sub"]}, {"_id": 0})
+    if not row:
+        raise HTTPException(404, "Staged item not found")
+    if row["status"] in ("published", "skipped"):
+        raise HTTPException(400, f"Cannot edit a {row['status']} item")
+
+    ALLOWED = {"l1_id", "l2_id", "brand_id", "image", "image_public_id"}
+    update = {k: v for k, v in payload.items() if k in ALLOWED}
+
+    # A manual correction also updates the persisted IntegrationMapping so
+    # future imports of the same VasyERP category/brand text auto-match —
+    # the plan's "persisted once and reused across all future syncs."
+    if "l1_id" in update and row.get("raw_category"):
+        key = row["raw_category"].strip().lower()
+        if key:
+            mapped_type = "l2" if update.get("l2_id") else "l1"
+            mapped_id = update.get("l2_id") or update.get("l1_id")
+            await db.integration_mappings.update_one(
+                {"merchant_id": user["sub"], "provider": "vasyerp", "source_value": key, "mapped_type": {"$in": ["l1", "l2"]}},
+                {"$set": {"mapped_type": mapped_type, "mapped_id": mapped_id, "unmatched": False},
+                 "$setOnInsert": {"id": f"map-{uuid.uuid4().hex[:10]}", "merchant_id": user["sub"], "provider": "vasyerp",
+                                   "source_value": key, "created_at": datetime.now(timezone.utc).isoformat()}},
+                upsert=True,
+            )
+    if "brand_id" in update and row.get("raw_brand"):
+        key = row["raw_brand"].strip().lower()
+        if key:
+            await db.integration_mappings.update_one(
+                {"merchant_id": user["sub"], "provider": "vasyerp", "source_value": key, "mapped_type": "brand"},
+                {"$set": {"mapped_id": update["brand_id"], "unmatched": update["brand_id"] is None},
+                 "$setOnInsert": {"id": f"map-{uuid.uuid4().hex[:10]}", "merchant_id": user["sub"], "provider": "vasyerp",
+                                   "source_value": key, "mapped_type": "brand", "created_at": datetime.now(timezone.utc).isoformat()}},
+                upsert=True,
+            )
+
+    merged = {**row, **update}
+    if merged.get("l1_id"):
+        update["category_unmatched"] = False
+    has_category = bool(merged.get("l1_id")) and (merged["l1_id"] not in L2_BY_L1 or bool(merged.get("l2_id")))
+    has_image = bool(merged.get("image"))
+    update["status"] = "ready" if (has_category and has_image) else ("pending_photos" if has_category else "pending_review")
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    await db.staged_imports.update_one({"id": sid}, {"$set": update})
+    return await db.staged_imports.find_one({"id": sid}, {"_id": 0})
+
+
+@api.post("/merchant/integrations/vasyerp/staged/{sid}/publish")
+async def vasyerp_publish_staged(sid: str, user: dict = Depends(get_current_user)):
+    if user.get("role") != "merchant":
+        raise HTTPException(403, "Merchant access required")
+    row = await db.staged_imports.find_one({"id": sid, "merchant_id": user["sub"]}, {"_id": 0})
+    if not row:
+        raise HTTPException(404, "Staged item not found")
+    doc = await _publish_staged_import(row, user["sub"])
+    await _maybe_autopublish_store(user["sub"])
+    return doc
+
+
+@api.post("/merchant/integrations/vasyerp/staged/publish-bulk")
+async def vasyerp_publish_staged_bulk(payload: dict, user: dict = Depends(get_current_user)):
+    if user.get("role") != "merchant":
+        raise HTTPException(403, "Merchant access required")
+    ids = payload.get("ids") or []
+    if not ids:
+        raise HTTPException(400, "No ids provided")
+    results = []
+    for sid in ids:
+        row = await db.staged_imports.find_one({"id": sid, "merchant_id": user["sub"]}, {"_id": 0})
+        if not row:
+            results.append({"id": sid, "ok": False, "reason": "Not found"})
+            continue
+        try:
+            await _publish_staged_import(row, user["sub"])
+            results.append({"id": sid, "ok": True})
+        except HTTPException as e:
+            results.append({"id": sid, "ok": False, "reason": e.detail})
+    await _maybe_autopublish_store(user["sub"])
+    return {"results": results, "published": sum(1 for r in results if r["ok"])}
 
 
 # ===== Merchant AI =====
@@ -7882,6 +8311,23 @@ async def startup_seed():
         await db.brands.create_index("slug", unique=True, background=True)
     except Exception as _e:
         log.warning("Brand unique indexes: %s", _e)
+
+    # VasyERP integration collections (Phase A).
+    try:
+        await db.merchant_integrations.create_index(
+            [("merchant_id", 1), ("provider", 1)], unique=True, background=True,
+        )
+        await db.integration_mappings.create_index(
+            [("merchant_id", 1), ("provider", 1), ("source_value", 1), ("mapped_type", 1)],
+            unique=True, background=True,
+        )
+        await db.staged_imports.create_index("id", unique=True, background=True)
+        await db.staged_imports.create_index(
+            [("merchant_id", 1), ("provider", 1), ("vasyerp_item_id", 1)], background=True,
+        )
+        await db.staged_imports.create_index([("merchant_id", 1), ("status", 1)], background=True)
+    except Exception as _e:
+        log.warning("VasyERP integration indexes: %s", _e)
 
     # Idempotent upsert of L1/L2 taxonomy.
     # `image` uses $setOnInsert so admin-uploaded category images are never

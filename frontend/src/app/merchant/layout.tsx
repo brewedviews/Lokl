@@ -19,7 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Toaster } from "sonner";
-import { Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark, ShoppingBag, Crown } from "lucide-react";
+import { Package, LogOut, Store, BarChart3, FileText, Rocket, Bell, Landmark, ShoppingBag, Crown, Boxes } from "lucide-react";
 import { useMerchantAuthStore } from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { api } from "@/lib/api";
@@ -64,6 +64,7 @@ const PUBLIC = ["/merchant/login", "/merchant/register", "/"];
 const APPROVED_ONLY = [
   "/merchant/orders", "/merchant/storefront", "/merchant/bank",
   "/merchant/products", "/merchant/analytics", "/merchant/subscription",
+  "/merchant/vasyerp",
 ];
 
 export default function MerchantLayout({ children }: { children: React.ReactNode }) {
@@ -217,6 +218,7 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
         { to: "/merchant/products",     label: "Products",        icon: Package },
         { to: "/merchant/analytics",    label: "Sales analytics", icon: BarChart3 },
         { to: "/merchant/storefront",   label: "Storefront",      icon: Store },
+        { to: "/merchant/vasyerp",      label: "VasyERP",         icon: Boxes },
         { to: "/merchant/bank",         label: "Bank details",    icon: Landmark },
         { to: "/merchant/subscription", label: "Subscription",    icon: Crown, disabled: true },
       ]
