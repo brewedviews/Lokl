@@ -12,9 +12,10 @@
 
 ## 1. Locked decisions
 
-1. **Image gap**: imported products land as **drafts (unpublished)** until a merchant adds at least one real photo. Never published with a placeholder image.
-2. **Sync direction**: **one-way import first (Phase A/B), two-way later (Phase C)** — push Lokl sales back to decrement VasyERP stock, preventing overselling across channels, once one-way is proven stable.
-3. **Category/Brand mapping**: **auto-match by name where possible**, reusing the existing bulk-upload name-match pattern (lowercased comparison against Lokl's L1/L2/Brand names). Unmatched items are flagged for manual merchant review, never silently dropped or auto-created (brand stays a closed, admin-curated vocabulary per the earlier locked decision — an unmatched VasyERP brand name does NOT auto-create a new Lokl Brand).
+1. **Image gap**: imported products land as **drafts (unpublished)** until a merchant adds photos manually — **applies only when the source provider doesn't supply a real image (e.g. VasyERP). When a source provides a real photo (Zoho, Shopify), the import skips the mandatory photo-upload gate and becomes publish-eligible immediately after category confirmation.**
+2. **Sync direction**: **one-way import first (Phase A/B), two-way later (Phase C)** — push Lokl sales back to decrement source-system stock, preventing overselling across channels, once one-way is proven stable.
+3. **Category/Brand mapping**: **auto-match by name where possible**, reusing the existing bulk-upload name-match pattern (lowercased comparison against Lokl's L1/L2/Brand names). Unmatched items are flagged for manual merchant review, never silently dropped or auto-created (brand stays a closed, admin-curated vocabulary per the earlier locked decision — an unmatched source brand name does NOT auto-create a new Lokl Brand).
+4. **Multi-provider architecture**: `MerchantIntegration`, `IntegrationMapping`, and `StagedImport` are all provider-agnostic (built with a `provider` field from the start). Each new integration (VasyERP, Shopify, Zoho) only needs its own client adapter + connect-flow UI — the staging/review/publish pipeline is shared, not rebuilt per provider.
 
 ## 2. New data models needed
 
@@ -49,7 +50,37 @@
 - Needs its own investigation pass before building: confirm exactly what `Order Create`'s request contract expects (does it require full customer/address data, or just line items + stock decrement?), and whether there's a lighter-weight "just decrement stock" endpoint rather than creating a full mirrored order in VasyERP.
 - Real risk surface: a failed or partial push here could cause stock drift between the two systems — needs the same rigor (idempotency, retry, reconciliation) as the Razorpay webhook work.
 
-## 8. Status
+## 9. Shopify integration (researched, not yet built)
+
+**Auth**: not full OAuth/app-review — a merchant can create a "custom app" directly in their own Shopify admin (Settings → Apps → Develop apps), grant `read_products`/`read_inventory` scopes, and hand Lokl a static Admin API access token. Same paste-a-token simplicity as VasyERP. Header: `X-Shopify-Access-Token`.
+
+**Query style**: GraphQL, not REST. Cursor-based pagination (`first`/`after`), not offset-based.
+
+**Images**: real — `Product.images`/media fields return actual photo URLs. Per the locked decision (Section 1 update below), imports with a real image skip the mandatory photo-upload gate and become publish-eligible right after category confirmation.
+
+**Variants/sizes**: genuinely better than VasyERP. Each `ProductVariant` has structured `selectedOptions: [{name: "Size", value: "M"}, {name: "Color", value: "Red"}]` — clean, named attributes, not a free-text string requiring parsing.
+
+**Category**: `productType` (free-text, merchant-set) — same name-matching approach as VasyERP/bulk-upload applies.
+
+**Rate limiting**: cost-based, not request-count. ~1,000-point bucket, ~50 pts/sec refill (roughly double on Shopify Plus), **1,000-point hard ceiling per single query regardless of bucket size**. For catalogs too large for paginated queries to stay under that ceiling, Shopify's async Bulk Operations API is the documented path — not needed for a first version, flagged as a future upgrade if a merchant's catalog demands it.
+
+**Build sequencing**: build before Zoho (simpler auth, proves the pattern a second time before Zoho's real OAuth work begins).
+
+## 10. Zoho integration (partially researched, auth model confirmed)
+
+**Auth**: real OAuth2 (authorize → redirect → refresh token) — genuinely new infrastructure for Lokl, nothing like this exists in the codebase today (confirmed absent during VasyERP's discovery pass).
+
+**Multi-org**: `organization_id` required on every call — same shape as VasyERP's `branchId`.
+
+**Multi-datacenter**: 8 regional API domains. An Indian merchant is almost certainly on `.in` (`https://www.zohoapis.in/inventory/`) but this needs confirming per merchant, not hardcoded.
+
+**Images**: real — dedicated upload/retrieve/delete/reorder endpoints on the Items API, including a distinct "back image" for a second angle.
+
+**Rate limits**: clean and explicit — 100 req/min always, daily cap scales with the merchant's Zoho plan (1,000/day free → 10,000/day on top tiers), plus a concurrent-call limit (5 on free, 10 on paid).
+
+**Still needed before building**: exact Items endpoint field list (name, SKU, rate, stock_on_hand, category structure — only have the doc's table of contents so far, not the actual field reference), OAuth scope names needed for Items read access, redirect URI registration process.
+
+**Build sequencing**: after Shopify — this is where the new OAuth infrastructure gets built, informed by having already shipped one working integration on the shared pipeline.
 
 **Phase A: built, mock-verified, not live-verified.** Connect flow, branch selection, one-way pull, category/brand auto-match with self-healing mapping corrections, draft staging (pending_review/pending_photos/published/skipped), manual review UI, single + bulk publish — all implemented and tested end-to-end against a faithful local mock server matching VasyERP's confirmed API contract (envelope shape, field names, pagination params all reconciled against the real published docs, not a paraphrase).
 
