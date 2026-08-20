@@ -222,6 +222,27 @@ export default function IntegrationsPage() {
             </select>
           </div>
 
+          {filtered.length > 0 && (
+            <label className="flex items-center gap-2 mb-3 text-xs font-semibold text-[#595959] cursor-pointer w-fit">
+              <input
+                type="checkbox"
+                data-testid="integrations-select-all"
+                checked={filtered.length > 0 && filtered.every((r) => selected.includes(r.id))}
+                ref={(el) => {
+                  if (el) el.indeterminate = filtered.some((r) => selected.includes(r.id)) && !filtered.every((r) => selected.includes(r.id));
+                }}
+                onChange={(e) => {
+                  const filteredIds = filtered.map((r) => r.id);
+                  setSelected((s) => e.target.checked
+                    ? Array.from(new Set([...s, ...filteredIds]))
+                    : s.filter((id) => !filteredIds.includes(id)));
+                }}
+                className="w-4 h-4 accent-[#E68910]"
+              />
+              Select all in this view ({filtered.length})
+            </label>
+          )}
+
           {selected.length > 0 && (
             <div className="sticky top-2 z-20 mb-3 bg-[#1A2B4C] text-white rounded-2xl px-4 py-3 flex items-center justify-between gap-2">
               <span className="text-sm font-semibold">{selected.length} selected</span>
