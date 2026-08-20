@@ -6972,6 +6972,17 @@ async def list_staged(provider: Optional[str] = None, status: Optional[str] = No
     if status:
         q["status"] = status
     rows = await db.staged_imports.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # A published row's linked product can be deleted later (see
+    # _revert_staged_import_on_product_delete, which normally reverts the
+    # row's status right away — this only stays relevant for rows a delete
+    # touched before that existed). Annotate so the frontend's Remove
+    # confirmation can tell "still a live product, warn before removing"
+    # apart from "already orphaned, nothing left to protect."
+    published_pids = [r["product_id"] for r in rows if r.get("status") == "published" and r.get("product_id")]
+    existing_pids = set(await db.products.distinct("id", {"id": {"$in": published_pids}})) if published_pids else set()
+    for r in rows:
+        if r.get("status") == "published" and r.get("product_id"):
+            r["product_exists"] = r["product_id"] in existing_pids
     return rows
 
 
@@ -7094,6 +7105,41 @@ async def publish_staged_bulk(payload: dict, user: dict = Depends(get_current_us
             results.append({"id": sid, "ok": False, "reason": e.detail})
     await _maybe_autopublish_store(user["sub"])
     return {"results": results, "published": sum(1 for r in results if r["ok"])}
+
+
+@api.delete("/merchant/integrations/staged/{sid}")
+async def delete_staged(sid: str, user: dict = Depends(get_current_user)):
+    """Removes a StagedImport row from the pipeline entirely — independent
+    of whether it's linked to a product. Never touches db.products itself;
+    a merchant deletes the actual product from /merchant/products
+    separately if that's what they want (the "This will NOT delete the
+    actual product" warning is a frontend confirmation shown before calling
+    this, not a backend-enforced block, since this endpoint genuinely never
+    cascades into a product delete either way).
+
+    Hard-deleting the row (not soft-deleting/marking "skipped") is
+    deliberate: _stage_source_item's only dedup check is "does a row for
+    this (merchant_id, provider, source_item_id) already exist" — once this
+    row is gone, the next "Pull latest inventory" has nothing to find and
+    re-stages it fresh, exactly like it was never imported before."""
+    if user.get("role") != "merchant":
+        raise HTTPException(403, "Merchant access required")
+    row = await db.staged_imports.find_one({"id": sid, "merchant_id": user["sub"]}, {"_id": 0, "id": 1})
+    if not row:
+        raise HTTPException(404, "Staged item not found")
+    await db.staged_imports.delete_one({"id": sid})
+    return {"ok": True}
+
+
+@api.post("/merchant/integrations/staged/remove-bulk")
+async def remove_staged_bulk(payload: dict, user: dict = Depends(get_current_user)):
+    if user.get("role") != "merchant":
+        raise HTTPException(403, "Merchant access required")
+    ids = payload.get("ids") or []
+    if not ids:
+        raise HTTPException(400, "No ids provided")
+    r = await db.staged_imports.delete_many({"id": {"$in": ids}, "merchant_id": user["sub"]})
+    return {"removed": r.deleted_count}
 
 
 # ===== Merchant AI =====

@@ -60,6 +60,10 @@ export interface StagedImport {
   sizes?: string[];
   status: StagedImportStatus;
   product_id?: string;
+  /** Only present on status:"published" rows — whether product_id still
+   *  points at a real, existing product. Lets the UI warn before Remove
+   *  only when there's an actual live product to protect. */
+  product_exists?: boolean;
   created_at: string;
   updated_at?: string;
 }
@@ -128,6 +132,18 @@ export const integrationsApi = {
   publishBulk: async (ids: string[]): Promise<{ results: PublishResult[]; published: number }> => {
     const r = await apiClient.post<{ results: PublishResult[]; published: number }>(
       "/api/merchant/integrations/staged/publish-bulk", { ids },
+    );
+    return r.data;
+  },
+
+  removeStaged: async (id: string): Promise<{ ok: boolean }> => {
+    const r = await apiClient.delete<{ ok: boolean }>(`/api/merchant/integrations/staged/${id}`);
+    return r.data;
+  },
+
+  removeStagedBulk: async (ids: string[]): Promise<{ removed: number }> => {
+    const r = await apiClient.post<{ removed: number }>(
+      "/api/merchant/integrations/staged/remove-bulk", { ids },
     );
     return r.data;
   },

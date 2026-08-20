@@ -23,7 +23,7 @@
  */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Boxes, Loader2, RefreshCw, AlertTriangle, Upload, Check, ImageIcon, ShoppingBag } from "lucide-react";
+import { Boxes, Loader2, RefreshCw, AlertTriangle, Upload, Check, ImageIcon, ShoppingBag, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/api-error";
 import { uploadImage } from "@/lib/uploads";
@@ -133,6 +133,50 @@ export default function IntegrationsPage() {
     }
   };
 
+  // Removing a staged row never touches the actual product — only warn (and
+  // require an extra confirm) when a row is still published AND its
+  // product genuinely still exists. An already-orphaned published row (the
+  // product was deleted separately) has nothing live left to protect.
+  const removeRow = async (row: StagedImport) => {
+    if (row.status === "published" && row.product_exists) {
+      const ok = window.confirm(
+        "This will remove it from your import list but NOT delete the actual product from your catalog — do that separately from Products if you want it fully removed.",
+      );
+      if (!ok) return;
+    }
+    try {
+      await api.integrations.removeStaged(row.id);
+      setStaged((rows) => rows?.filter((r) => r.id !== row.id) ?? null);
+      setSelected((s) => s.filter((id) => id !== row.id));
+      toast.success(`${row.name} removed`);
+    } catch (e) {
+      toast.error(getErrorMessage(e));
+    }
+  };
+
+  const removeBulk = async () => {
+    if (selected.length === 0) return;
+    const selectedRows = (staged ?? []).filter((r) => selected.includes(r.id));
+    const stillLive = selectedRows.some((r) => r.status === "published" && r.product_exists);
+    if (stillLive) {
+      const ok = window.confirm(
+        "One or more selected items are still published — this will remove them from your import list but NOT delete the actual products from your catalog — do that separately from Products if you want them fully removed.",
+      );
+      if (!ok) return;
+    }
+    setBulkBusy(true);
+    try {
+      const r = await api.integrations.removeStagedBulk(selected);
+      toast.success(`Removed ${r.removed} item${r.removed === 1 ? "" : "s"}`);
+      setSelected([]);
+      await loadStaged();
+    } catch (e) {
+      toast.error(getErrorMessage(e));
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const filtered = (staged ?? []).filter((r) => (tab === "all" || r.status === tab) && (providerFilter === "all" || r.provider === providerFilter));
 
   if (loadingStatus) {
@@ -179,12 +223,18 @@ export default function IntegrationsPage() {
           </div>
 
           {selected.length > 0 && (
-            <div className="sticky top-2 z-20 mb-3 bg-[#1A2B4C] text-white rounded-2xl px-4 py-3 flex items-center justify-between">
+            <div className="sticky top-2 z-20 mb-3 bg-[#1A2B4C] text-white rounded-2xl px-4 py-3 flex items-center justify-between gap-2">
               <span className="text-sm font-semibold">{selected.length} selected</span>
-              <button onClick={() => void publishBulk()} disabled={bulkBusy} data-testid="integrations-publish-bulk"
-                className="px-3 py-1.5 rounded-full bg-[#4F7363] text-xs font-semibold disabled:opacity-50">
-                {bulkBusy ? "Publishing…" : "Publish selected"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => void publishBulk()} disabled={bulkBusy} data-testid="integrations-publish-bulk"
+                  className="px-3 py-1.5 rounded-full bg-[#4F7363] text-xs font-semibold disabled:opacity-50">
+                  {bulkBusy ? "Publishing…" : "Publish selected"}
+                </button>
+                <button onClick={() => void removeBulk()} disabled={bulkBusy} data-testid="integrations-remove-bulk"
+                  className="px-3 py-1.5 rounded-full bg-red-500 text-xs font-semibold disabled:opacity-50">
+                  {bulkBusy ? "Working…" : "Remove selected"}
+                </button>
+              </div>
             </div>
           )}
 
@@ -210,6 +260,7 @@ export default function IntegrationsPage() {
                   onSaveMapping={() => void saveMapping({ ...row })}
                   onUpload={(f) => void uploadForRow(row, f)}
                   onPublish={() => void publishRow(row)}
+                  onRemove={() => void removeRow(row)}
                 />
               ))}
             </div>
@@ -384,7 +435,7 @@ function ShopifyConnectCard({ status, onConnected, onImport }: { status?: Integr
 }
 
 function StagedRow({
-  row, categories, checked, onToggleSelect, onPatch, onSaveMapping, onUpload, onPublish,
+  row, categories, checked, onToggleSelect, onPatch, onSaveMapping, onUpload, onPublish, onRemove,
 }: {
   row: StagedImport;
   categories: CategoryNode[];
@@ -394,6 +445,7 @@ function StagedRow({
   onSaveMapping: () => void;
   onUpload: (f: File | undefined) => void;
   onPublish: () => void;
+  onRemove: () => void;
 }) {
   const currentL1 = categories.find((c) => c.id === row.l1_id);
   const hasL2 = !!(currentL1 && currentL1.l2 && currentL1.l2.length > 0);
@@ -402,9 +454,7 @@ function StagedRow({
   return (
     <div className="bg-white rounded-2xl border border-[#E5E2DC] p-4" data-testid={`integrations-staged-${row.id}`}>
       <div className="flex items-start gap-3">
-        {row.status !== "published" && (
-          <input type="checkbox" checked={checked} onChange={onToggleSelect} className="mt-1.5 w-4 h-4 accent-[#E68910]" data-testid={`integrations-select-${row.id}`} />
-        )}
+        <input type="checkbox" checked={checked} onChange={onToggleSelect} className="mt-1.5 w-4 h-4 accent-[#E68910]" data-testid={`integrations-select-${row.id}`} />
         <div className="w-14 h-14 rounded-xl overflow-hidden bg-[#F5F5F5] flex-shrink-0 flex items-center justify-center">
           {row.image ? <img src={row.image} alt={row.name} className="w-full h-full object-cover" /> : <ImageIcon size={18} className="text-[#9CA3AF]" />}
         </div>
@@ -419,6 +469,10 @@ function StagedRow({
           </div>
         </div>
         <StatusPill status={row.status} />
+        <button onClick={onRemove} title="Remove from import list" data-testid={`integrations-remove-${row.id}`}
+          className="p-1.5 rounded-full text-[#9CA3AF] hover:text-red-500 hover:bg-red-50 shrink-0">
+          <Trash2 size={14} />
+        </button>
       </div>
 
       {row.status === "pending_review" && (
