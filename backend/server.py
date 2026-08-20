@@ -6132,6 +6132,8 @@ async def merchant_products_bulk_action(payload: dict, user: dict = Depends(get_
         r = await db.products.delete_many({"id": {"$in": ids}, "merchant_id": user["sub"]})
         for bid in affected_brand_ids:
             await _recompute_brand_product_count(bid)
+        for pid in ids:
+            await _revert_staged_import_on_product_delete(pid)
         return {"deleted": r.deleted_count}
     elif action in ("publish", "pause"):
         new_paused = (action == "pause")
@@ -6427,10 +6429,21 @@ def _shopify_item_to_fields(item: dict) -> dict:
             if (opt.get("name") or "").strip().lower() == "size" and opt.get("value"):
                 size_val = opt["value"]
                 break
-        key = size_val or "Default"
+        # Shopify auto-generates a single "Title"/"Default Title" variant
+        # with no real Size option when a merchant never defines sizes at
+        # all — map that to Lokl's own established "Free Size" convention
+        # (see the merchant product modal's size_type=="free_size" case:
+        # sizes=["Free Size"], stock={"Free Size": qty}) instead of an ad
+        # hoc bucket nothing else in the app knows how to read. Both the PDP
+        # (`product.sizes?.[0]` picks the size to look stock up by) and
+        # checkout's per-size stock decrement (`stock.{size}` from the
+        # size the customer picked) need `sizes` and `stock`'s keys to
+        # actually agree — an empty `sizes` with a stray "Default" bucket
+        # left neither one able to find real stock.
+        key = size_val or "Free Size"
         stock[key] = stock.get(key, 0) + int(v.get("inventoryQuantity") or 0)
-        if size_val and size_val not in sizes:
-            sizes.append(size_val)
+        if key not in sizes:
+            sizes.append(key)
 
     return {
         "source_item_id": str(item.get("id") or "").strip(),
@@ -6651,6 +6664,26 @@ def _staged_publish_blocker(row: dict) -> Optional[str]:
     if row["l1_id"] in L2_BY_L1 and not row.get("l2_id"):
         return "Sub-category is required for this category"
     return None
+
+
+async def _revert_staged_import_on_product_delete(pid: str) -> None:
+    """A published StagedImport row keeps a reference (`product_id`) to the
+    Product it created. If that product is later deleted — merchant bulk
+    delete or admin delete, either one — the row must not stay stuck on
+    'published' forever with no way to reference or republish it. Reverts
+    to whatever status its own (untouched) category/image data computes
+    today via the same _compute_staged_status every import/correction uses,
+    and clears product_id since it no longer points to anything real.
+    No-op if this product id isn't linked to any staged row (the common
+    case — most products are created directly via the merchant modal)."""
+    row = await db.staged_imports.find_one({"product_id": pid}, {"_id": 0})
+    if not row:
+        return
+    status = _compute_staged_status(row.get("l1_id"), row.get("l2_id"), bool(row.get("image")))
+    await db.staged_imports.update_one(
+        {"id": row["id"]},
+        {"$set": {"status": status, "product_id": None, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
 
 
 async def _publish_staged_import(row: dict, merchant_id: str) -> dict:
@@ -6980,6 +7013,25 @@ async def update_staged(sid: str, payload: dict, user: dict = Depends(get_curren
                                    "source_value": key, "created_at": datetime.now(timezone.utc).isoformat()}},
                 upsert=True,
             )
+            # This correction only helped FUTURE pulls until now — every
+            # OTHER already-staged row (any status short of the terminal
+            # published/skipped) sharing this exact source category text,
+            # for this same merchant+provider, gets re-resolved right now
+            # too, instead of making the merchant repeat the identical
+            # correction per item.
+            async for sib in db.staged_imports.find(
+                {"merchant_id": user["sub"], "provider": provider, "id": {"$ne": sid},
+                 "status": {"$nin": ["published", "skipped"]},
+                 "raw_category": {"$regex": f"^{_re.escape(row['raw_category'])}$", "$options": "i"}},
+                {"_id": 0},
+            ):
+                sib_l1, sib_l2 = update.get("l1_id"), update.get("l2_id")
+                sib_status = _compute_staged_status(sib_l1, sib_l2, bool(sib.get("image")))
+                await db.staged_imports.update_one(
+                    {"id": sib["id"]},
+                    {"$set": {"l1_id": sib_l1, "l2_id": sib_l2, "category_unmatched": False,
+                               "status": sib_status, "updated_at": datetime.now(timezone.utc).isoformat()}},
+                )
     if "brand_id" in update and row.get("raw_brand"):
         key = row["raw_brand"].strip().lower()
         if key:
@@ -6989,6 +7041,15 @@ async def update_staged(sid: str, payload: dict, user: dict = Depends(get_curren
                  "$setOnInsert": {"id": f"map-{uuid.uuid4().hex[:10]}", "merchant_id": user["sub"], "provider": provider,
                                    "source_value": key, "mapped_type": "brand", "created_at": datetime.now(timezone.utc).isoformat()}},
                 upsert=True,
+            )
+            # Same immediate-sibling-reapply as category, above — brand
+            # never affects `status`, so this is a plain field update.
+            await db.staged_imports.update_many(
+                {"merchant_id": user["sub"], "provider": provider, "id": {"$ne": sid},
+                 "status": {"$nin": ["published", "skipped"]},
+                 "raw_brand": {"$regex": f"^{_re.escape(row['raw_brand'])}$", "$options": "i"}},
+                {"$set": {"brand_id": update["brand_id"], "brand_unmatched": update["brand_id"] is None,
+                           "updated_at": datetime.now(timezone.utc).isoformat()}},
             )
 
     merged = {**row, **update}
@@ -7619,6 +7680,7 @@ async def admin_delete_product(pid: str, admin: dict = Depends(require_admin)):
     await db.products.delete_one({"id": pid})
     cnt = await db.products.count_documents({"store_id": p["store_id"], "paused": {"$ne": True}})
     await db.stores.update_one({"id": p["store_id"]}, {"$set": {"product_count": cnt}})
+    await _revert_staged_import_on_product_delete(pid)
     return {"ok": True}
 
 @api.post("/admin/stores/{sid}/pause")
