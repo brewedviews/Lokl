@@ -6672,18 +6672,37 @@ async def _publish_staged_import(row: dict, merchant_id: str) -> dict:
     # variants) — falls back to a single "default" bucket for sources with
     # only a flat quantity (VasyERP).
     stock = row.get("stock") or {"default": row.get("qty") or 0}
+
+    # A staged row's `image` is only ever a real Cloudinary asset when
+    # image_public_id is set — that's true for a manually-attached photo
+    # (uploaded via /merchant/upload-image, same as the product modal), but
+    # a source provider that supplies its own real image (Shopify's CDN
+    # URL) is stored as-is on the staged row for the review screen's own
+    # <img> preview, which has no host restriction. A raw source-provider
+    # URL must never reach the Product doc directly — the customer PDP
+    # renders images via next/image, which enforces next.config.ts's
+    # remotePatterns allowlist and silently fails to render any host not
+    # on it (cdn.shopify.com isn't, nor could every future provider's CDN
+    # be pre-listed). So publish always re-uploads through Cloudinary first
+    # when there's no public_id yet, exactly like a manual product photo.
+    image_url, image_public_id = row["image"], row.get("image_public_id") or ""
+    if not image_public_id:
+        uploaded = await cloudinary_service.upload_image_from_url(image_url, "product", merchant_id)
+        image_url, image_public_id = uploaded["image_url"], uploaded["public_id"]
+
     payload = ProductCreate(
         name=row["name"], price=row.get("price") or 0, mrp=row.get("mrp"),
         l1_id=row["l1_id"], l2_id=row.get("l2_id") or "", gender=gender,
         brand_id=row.get("brand_id"),
         description="", sizes=row.get("sizes") or [], stock=stock,
-        image=row["image"], image_public_id=row.get("image_public_id") or "",
-        images=[row["image"]], image_public_ids=[row.get("image_public_id") or ""],
+        image=image_url, image_public_id=image_public_id,
+        images=[image_url], image_public_ids=[image_public_id],
     )
     doc = await _create_product_for_merchant(payload, merchant_id)
     await db.staged_imports.update_one(
         {"id": row["id"]},
-        {"$set": {"status": "published", "product_id": doc["id"], "updated_at": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"status": "published", "product_id": doc["id"], "image": image_url, "image_public_id": image_public_id,
+                   "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     return doc
 
