@@ -42,7 +42,30 @@ Confirmed contract (from Shopify's public docs, not paraphrased):
     the app and the store must belong to the same Shopify organization —
     a merchant using this integration has to create their own app inside
     their own Shopify Organization, not use a shared/hosted Lokl app.
+
+  Bidirectional inventory sync (added after the "stock stuck at the
+  imported quantity" bug report — see server.py's _sync_shopify_delta and
+  the /webhooks/shopify/inventory endpoint):
+  - Scopes: read_products + read_inventory were enough for the original
+    one-way pull; sync additionally needs write_inventory (to push a
+    delta out) — merchants who connected before this must add that scope
+    to their app in the Dev Dashboard and reconnect, same as any Shopify
+    scope change.
+  - Outbound (Lokl order -> Shopify): inventoryAdjustQuantities takes a
+    signed DELTA against one (inventoryItemId, locationId) pair.
+  - Inbound (Shopify change -> Lokl): the INVENTORY_LEVELS_UPDATE webhook
+    topic posts the new ABSOLUTE "available" count for one (inventory
+    item, location) pair — not a delta. Lokl's handler SETS its own stock
+    to match rather than incrementing, which is what makes an outbound
+    adjustment safely idempotent when its own resulting webhook echoes
+    back: setting a stock value to what it was already about to become is
+    a no-op, not a double-count.
+  - Multi-location stores: only the first location Shopify returns is
+    used, for both directions. A documented simplification, not a bug.
 """
+import base64
+import hashlib
+import hmac
 import os
 from typing import Optional
 
@@ -203,6 +226,7 @@ query Products($first: Int!, $after: String) {
               compareAtPrice
               inventoryQuantity
               selectedOptions { name value }
+              inventoryItem { id }
             }
           }
         }
@@ -225,3 +249,93 @@ async def fetch_products_page(shop_domain: str, access_token: str, first: int = 
     page_info = products.get("pageInfo") or {}
     items = [e["node"] for e in edges if e.get("node")]
     return {"items": items, "has_more": bool(page_info.get("hasNextPage")), "cursor": page_info.get("endCursor")}
+
+
+async def get_primary_location_id(shop_domain: str, access_token: str) -> Optional[str]:
+    """The first fulfillment location Shopify returns for this shop.
+    Inventory in Shopify is tracked per-(inventory item, location) pair —
+    every inventory read/write below needs one to operate against. Only the
+    first location is used; multi-location stores are a known, documented
+    simplification (same "pick one, keep it simple" call as VasyERP's own
+    single-branch-selection model elsewhere in this integration)."""
+    data = await _post(shop_domain, access_token, "query { locations(first: 1) { edges { node { id } } } }")
+    edges = ((data.get("locations") or {}).get("edges")) or []
+    return edges[0]["node"]["id"] if edges else None
+
+
+_INVENTORY_ADJUST_MUTATION = """
+mutation AdjustInventory($input: InventoryAdjustQuantitiesInput!) {
+  inventoryAdjustQuantities(input: $input) {
+    inventoryAdjustmentGroup { createdAt }
+    userErrors { field message }
+  }
+}
+"""
+
+
+async def adjust_inventory(shop_domain: str, access_token: str, inventory_item_id: str, location_id: str, delta: int) -> None:
+    """Applies a signed delta to one inventory item's "available" quantity
+    at one location — the outbound half of sync (a Lokl order decrements,
+    a Lokl cancel/return increments). Requires the write_inventory scope;
+    raises ShopifyAuthError if the connected app was never granted it."""
+    if delta == 0:
+        return
+    variables = {"input": {
+        "reason": "correction", "name": "available",
+        "changes": [{"inventoryItemId": inventory_item_id, "locationId": location_id, "delta": delta}],
+    }}
+    data = await _post(shop_domain, access_token, _INVENTORY_ADJUST_MUTATION, variables)
+    errors = ((data.get("inventoryAdjustQuantities") or {}).get("userErrors")) or []
+    if errors:
+        msgs = "; ".join(e.get("message", "") for e in errors)
+        raise ShopifyClientError(f"Shopify rejected the inventory adjustment: {msgs}")
+
+
+_WEBHOOK_CREATE_MUTATION = """
+mutation CreateWebhook($topic: WebhookSubscriptionTopic!, $callbackUrl: URL!) {
+  webhookSubscriptionCreate(topic: $topic, webhookSubscription: {callbackUrl: $callbackUrl, format: JSON}) {
+    webhookSubscription { id }
+    userErrors { field message }
+  }
+}
+"""
+
+
+def verify_webhook_signature(raw_body: bytes, hmac_header: str, client_secret: str) -> bool:
+    """Shopify signs every webhook with HMAC-SHA256 over the raw request
+    body, keyed by the app's client secret, base64-encoded (NOT hex, unlike
+    Razorpay's own webhook signature elsewhere in this codebase) — compared
+    against the X-Shopify-Hmac-Sha256 header."""
+    if not client_secret or not hmac_header:
+        return False
+    digest = hmac.new(client_secret.encode(), raw_body, hashlib.sha256).digest()
+    expected = base64.b64encode(digest).decode()
+    return hmac.compare_digest(expected, hmac_header)
+
+
+def to_gid(resource: str, numeric_id) -> str:
+    """Shopify's REST-shaped webhook payloads carry bare numeric ids
+    (e.g. inventory_item_id: 12345); the GraphQL Admin API (used
+    everywhere else in this client) only ever deals in gids
+    (gid://shopify/InventoryItem/12345). Webhook handlers normalize
+    through this before looking anything up against data the GraphQL
+    import already stored gid-keyed."""
+    return f"gid://shopify/{resource}/{numeric_id}"
+
+
+async def register_inventory_webhook(shop_domain: str, access_token: str, callback_url: str) -> Optional[str]:
+    """Subscribes Lokl's webhook endpoint to this store's
+    INVENTORY_LEVELS_UPDATE topic — the inbound half of sync (a change made
+    directly on Shopify, e.g. an in-store sale, reaches Lokl in near-real-
+    time instead of waiting for the next manual "Pull latest inventory").
+    Returns the subscription id, or None if Shopify reported a userError
+    (e.g. this exact callback URL is already subscribed — not fatal, connect
+    still succeeds; see server.py's shopify_connect)."""
+    data = await _post(shop_domain, access_token, _WEBHOOK_CREATE_MUTATION,
+                        {"topic": "INVENTORY_LEVELS_UPDATE", "callbackUrl": callback_url})
+    result = data.get("webhookSubscriptionCreate") or {}
+    errors = result.get("userErrors") or []
+    if errors:
+        return None
+    sub = result.get("webhookSubscription") or {}
+    return sub.get("id")

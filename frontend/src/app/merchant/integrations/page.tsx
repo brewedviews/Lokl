@@ -417,6 +417,11 @@ function ShopifyConnectCard({ status, onConnected, onImport }: { status?: Integr
         <>
           <p className="text-xs text-[#595959] mb-3">Connected · {status?.shop_name || status?.shop_domain}</p>
           <p className="text-[11px] text-[#9CA3AF] mb-3">{status?.last_synced_at ? `Last synced ${new Date(status.last_synced_at).toLocaleString()}` : "Never synced yet"}</p>
+          <p className={`text-[11px] mb-3 font-semibold ${status?.inventory_sync_enabled ? "text-[#4F7363]" : "text-[#B45309]"}`}>
+            {status?.inventory_sync_enabled
+              ? "Two-way inventory sync active — orders here update Shopify, and vice versa"
+              : "Two-way inventory sync is off — add write_inventory to your app's scopes in the Dev Dashboard and reconnect"}
+          </p>
           <button onClick={() => void handleImportClick()} disabled={importing} data-testid="shopify-import-btn"
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#1A2B4C] text-white text-xs font-semibold disabled:opacity-50">
             {importing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} {importing ? "Pulling…" : "Pull latest inventory"}
@@ -425,10 +430,12 @@ function ShopifyConnectCard({ status, onConnected, onImport }: { status?: Integr
       ) : (
         <>
           <p className="text-xs text-[#595959] mb-3">
-            In your Shopify Dev Dashboard, create an app, set its scopes to read_products and read_inventory,
-            and install it on your store — the app must belong to the same Shopify organization as this store.
-            Then copy the Client ID and Client Secret from the app&apos;s API credentials page and paste them below
-            (Shopify no longer issues a static access token here).
+            In your Shopify Dev Dashboard, create an app, set its scopes to read_products, read_inventory and
+            write_inventory (the last one keeps stock in sync both ways after an order), and install it on your
+            store — the app must belong to the same Shopify organization as this store. Then copy the Client ID
+            and Client Secret from the app&apos;s API credentials page and paste them below (Shopify no longer
+            issues a static access token here). Already connected without write_inventory? Add the scope in the
+            Dev Dashboard and reconnect here — two-way sync won&apos;t start until you do.
           </p>
           <input
             type="text" value={shopDomain} onChange={(e) => setShopDomain(e.target.value)}

@@ -31,6 +31,9 @@ export interface IntegrationStatus {
   connected_at?: string | null;
   last_synced_at?: string | null;
   sync_status?: string;
+  /** Shopify only — whether the inbound inventory webhook registered
+   *  successfully at connect time (requires the write_inventory scope). */
+  inventory_sync_enabled?: boolean;
 }
 
 export type StagedImportStatus = "pending_review" | "pending_photos" | "ready" | "published" | "skipped";

@@ -222,6 +222,17 @@ class ProductCreate(BaseModel):
     # products predate the Brand entity entirely. Set via the creatable
     # brand combobox on the product form or the bulk-upload "brand" column.
     brand_id: Optional[str] = None
+    # Integration linkage — None for every manually-created/bulk-uploaded
+    # product. Set only by _publish_staged_import, carried forward from the
+    # StagedImport row, so a Lokl order for this product can be synced back
+    # to the source platform's own inventory (see _sync_remote_inventory).
+    # `remote_variant_ids` maps Lokl's own size key -> the source
+    # platform's per-variant identifier (Shopify: an inventory item gid) —
+    # provider-specific shape, opaque to everything except that provider's
+    # own sync implementation.
+    provider: Optional[str] = None
+    source_item_id: Optional[str] = None
+    remote_variant_ids: Optional[dict] = None
 
 class BrandCreate(BaseModel):
     name: str
@@ -1846,12 +1857,104 @@ async def payment_webhook(request: Request):
     return {"status": "ok"}
 
 
+@api.post("/webhooks/shopify/inventory")
+@_limit("120/minute")
+async def shopify_inventory_webhook(request: Request):
+    """Inbound half of Shopify inventory sync — a change made directly on
+    Shopify (an in-store sale, a manual stock edit) reaches Lokl without
+    waiting for the merchant to click "Pull latest inventory". Registered
+    automatically at connect time against the INVENTORY_LEVELS_UPDATE
+    topic (see shopify_client.register_inventory_webhook).
+
+    Always returns 200 once the signature checks out (even for a shop we
+    don't recognize, or a variant we have no mapping for) — Shopify retries
+    aggressively on anything else, and there's nothing actionable to retry
+    for those cases. 400 is reserved for a bad/missing signature only.
+
+    The payload gives an ABSOLUTE new "available" count for one (inventory
+    item, location) pair, not a delta — see shopify_client's module
+    docstring for why SETting Lokl's stock to match (not incrementing) is
+    what makes this safely idempotent against an outbound adjustment's own
+    resulting webhook echoing back."""
+    raw = await request.body()
+    shop_domain = request.headers.get("x-shopify-shop-domain", "")
+    hmac_header = request.headers.get("x-shopify-hmac-sha256", "")
+    webhook_id = request.headers.get("x-shopify-webhook-id", "")
+    if not shop_domain or not hmac_header:
+        raise HTTPException(400, "Missing Shopify webhook headers")
+
+    integ = await db.merchant_integrations.find_one({"provider": "shopify", "shop_domain": shop_domain}, {"_id": 0})
+    if not integ or not integ.get("client_secret"):
+        return {"ok": True}  # unknown/disconnected shop — nothing to act on
+    try:
+        client_secret = encryption_service.decrypt_field(integ["client_secret"])
+    except ValueError:
+        return {"ok": True}
+    if not shopify_client.verify_webhook_signature(raw, hmac_header, client_secret):
+        log.warning("[shopify_webhook] signature mismatch for shop=%s", shop_domain)
+        raise HTTPException(400, "Invalid signature")
+
+    if webhook_id:
+        try:
+            await db.shopify_webhook_events.insert_one({
+                "webhook_id": webhook_id, "shop_domain": shop_domain,
+                "received_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except DuplicateKeyError:
+            return {"ok": True}  # already processed this exact delivery
+
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return {"ok": True}
+
+    inv_item_numeric = data.get("inventory_item_id")
+    location_numeric = data.get("location_id")
+    available = data.get("available")
+    if inv_item_numeric is None or available is None:
+        return {"ok": True}
+
+    # Multi-location stores: only act on the one location Lokl syncs
+    # against (documented simplification, matches the outbound side).
+    if location_numeric is not None and integ.get("location_id"):
+        if shopify_client.to_gid("Location", location_numeric) != integ["location_id"]:
+            return {"ok": True}
+
+    inv_item_gid = shopify_client.to_gid("InventoryItem", inv_item_numeric)
+    mapping = await db.remote_inventory_map.find_one(
+        {"provider": "shopify", "remote_variant_id": inv_item_gid}, {"_id": 0},
+    )
+    if not mapping or mapping.get("merchant_id") != integ.get("merchant_id"):
+        return {"ok": True}
+
+    await db.products.update_one(
+        {"id": mapping["product_id"]},
+        {"$set": {f"stock.{mapping['size']}": int(available)}},
+    )
+    fresh = await db.products.find_one({"id": mapping["product_id"]}, {"_id": 0, "stock": 1, "store_id": 1, "paused": 1})
+    if fresh and not fresh.get("paused"):
+        total = sum(int(v) for v in (fresh.get("stock") or {}).values() if isinstance(v, (int, float)))
+        if total <= 0:
+            await db.products.update_one({"id": mapping["product_id"]}, {"$set": {"paused": True, "status": "paused"}})
+            cnt = await db.products.count_documents({"store_id": fresh["store_id"], "paused": {"$ne": True}})
+            await db.stores.update_one({"id": fresh["store_id"]}, {"$set": {"product_count": cnt}})
+    return {"ok": True}
+
+
 async def _restock_order_items(order: dict) -> None:
     for it in (order.get("items") or []):
         pid = it.get("id"); qty = int(it.get("qty", 1) or 1)
         sz = (it.get("size") or "").strip() or "default"
         if pid and qty > 0:
-            await db.products.update_one({"id": pid}, {"$inc": {f"stock.{sz}": qty}})
+            updated = await db.products.find_one_and_update(
+                {"id": pid}, {"$inc": {f"stock.{sz}": qty}},
+                projection={"_id": 0, "merchant_id": 1, "provider": 1, "remote_variant_ids": 1},
+                return_document=True,
+            )
+            # A cancel/return puts stock back -> a positive delta out to
+            # the source platform, mirroring create_order's negative one.
+            if updated:
+                asyncio.create_task(_sync_remote_inventory({**updated, "id": pid}, sz, qty))
 
 
 # The Lokl order is only created by the CLIENT calling POST /api/orders after
@@ -4073,13 +4176,7 @@ async def _merchant_cancel_own_slice(oid: str, mid: str, reason: str) -> str:
     o = await db.orders.find_one({"id": oid}, {"_id": 0})
     if not o:
         raise HTTPException(404, "Order not found")
-    for it in (o.get("items") or []):
-        if it.get("merchant_id") != mid:
-            continue
-        pid = it.get("id"); qty = int(it.get("qty", 1) or 1)
-        size = (it.get("size") or "").strip() or "default"
-        if pid and qty > 0:
-            await db.products.update_one({"id": pid}, {"$inc": {f"stock.{size}": qty}})
+    await _restock_order_items({"items": [it for it in (o.get("items") or []) if it.get("merchant_id") == mid]})
     states = dict(o.get("merchant_states") or {m: "pending" for m in (o.get("merchant_ids") or [])})
     states[mid] = "cancelled"
     cancelled = dict(o.get("merchant_cancelled") or {})
@@ -4369,13 +4466,16 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                  stock_field: {"$gte": qty}},
                 {"$inc": {stock_field: -qty}},
                 projection={"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
-                            "return_eligible": 1, "name": 1, stock_field: 1},
+                            "return_eligible": 1, "name": 1, stock_field: 1,
+                            "provider": 1, "remote_variant_ids": 1},
                 return_document=True,
             )
             if not updated:
                 raise HTTPException(409, f"Insufficient stock for {p.get('name', pid)}"
                                          + (f" (size {size})" if size else ""))
             reservations.append((pid, size or "default", qty))
+            if size:
+                asyncio.create_task(_sync_remote_inventory({**updated, "id": pid}, size, -qty))
 
             # Auto-pause once every size is sold out. The atomic $inc above only
             # touches this one size's field, so re-fetch the full stock map to
@@ -4553,10 +4653,11 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         if applied_coupon:
             await db.coupons.update_one({"code": applied_coupon}, {"$inc": {"used_count": 1}})
     except Exception:
-        # ROLL BACK any successful stock decrements before re-raising
-        for pid, sz, qty in reservations:
-            stock_field = f"stock.{sz}"
-            await db.products.update_one({"id": pid}, {"$inc": {stock_field: qty}})
+        # ROLL BACK any successful stock decrements before re-raising —
+        # also undoes the outbound sync each decrement already dispatched
+        # (positive delta out to the source platform, same as a real
+        # cancel), since the Lokl order behind it never actually got created.
+        await _restock_order_items({"items": [{"id": pid, "size": sz, "qty": qty} for pid, sz, qty in reservations]})
         raise
 
     if order_type != "pickup" and payload.customer and payload.customer.get("phone"):
@@ -5695,11 +5796,7 @@ async def admin_cancel_order(oid: str, payload: Optional[dict] = None, admin: di
     items_to_restock = [it for it in (o.get("items") or [])
                        if ((not target_mid) or it.get("merchant_id") == target_mid)
                        and it.get("merchant_id") not in already_cancelled_mids]
-    for it in items_to_restock:
-        pid = it.get("id"); qty = int(it.get("qty", 1) or 1)
-        size = (it.get("size") or "").strip() or "default"
-        if pid and qty > 0:
-            await db.products.update_one({"id": pid}, {"$inc": {f"stock.{size}": qty}})
+    await _restock_order_items({"items": items_to_restock})
 
     if target_mid:
         if target_mid not in mids:
@@ -6423,6 +6520,7 @@ def _shopify_item_to_fields(item: dict) -> dict:
 
     stock: dict[str, int] = {}
     sizes: list[str] = []
+    remote_variant_ids: dict[str, str] = {}
     for v in variants:
         size_val = None
         for opt in (v.get("selectedOptions") or []):
@@ -6444,6 +6542,14 @@ def _shopify_item_to_fields(item: dict) -> dict:
         stock[key] = stock.get(key, 0) + int(v.get("inventoryQuantity") or 0)
         if key not in sizes:
             sizes.append(key)
+        inv_item_id = (v.get("inventoryItem") or {}).get("id")
+        if inv_item_id:
+            # Which Shopify inventory item a Lokl order for this size must
+            # adjust to sync stock back out. Two variants collapsing onto
+            # the same key (e.g. two colors with no Size option) is a rare
+            # edge case — the last one wins, same "one bucket, not tracked
+            # separately" simplification `stock`/`sizes` already accept.
+            remote_variant_ids[key] = inv_item_id
 
     return {
         "source_item_id": str(item.get("id") or "").strip(),
@@ -6458,6 +6564,7 @@ def _shopify_item_to_fields(item: dict) -> dict:
         "image_url": image_url,
         "stock": stock or None,
         "sizes": sizes,
+        "remote_variant_ids": remote_variant_ids or None,
     }
 
 
@@ -6601,6 +6708,7 @@ async def _stage_source_item(
     image_url: str, image_public_id: str, raw: dict,
     l1_by_name: dict, l2_by_name: dict, l2_flat_by_name: dict,
     stock: Optional[dict] = None, sizes: Optional[list] = None,
+    remote_variant_ids: Optional[dict] = None,
 ) -> tuple[bool, bool]:
     """Resolves category/brand, computes status, and upserts one row into
     StagedImport — the ONE shared write path for every provider's import
@@ -6627,6 +6735,7 @@ async def _stage_source_item(
         "l1_id": l1_id, "l2_id": l2_id, "brand_id": brand_id,
         "category_unmatched": cat_unmatched, "brand_unmatched": brand_unmatched,
         "stock": stock, "sizes": sizes or [],
+        "remote_variant_ids": remote_variant_ids,
         "raw": raw, "updated_at": now,
     }
     existing = await db.staged_imports.find_one(
@@ -6686,6 +6795,79 @@ async def _revert_staged_import_on_product_delete(pid: str) -> None:
     )
 
 
+async def _sync_remote_inventory(product: dict, size: str, delta: int) -> None:
+    """Best-effort OUTBOUND push: a Lokl order/rollback/cancel/return
+    adjusts a linked source-platform product's own inventory by the same
+    delta, so the platform an integration exists to unify around never
+    silently drifts out of sync with what just happened on Lokl. The whole
+    reason to connect an integration is one centralized inventory, not a
+    one-time import — see the Shopify "stock stuck at the imported
+    quantity" bug report this was built to fix.
+
+    Provider-dispatched: add a branch here for each future write-capable
+    integration; VasyERP has no known write API today, so it's simply not
+    listed — that's a capability gap in VasyERP's own contract, not a TODO
+    in Lokl's dispatch logic.
+
+    Deliberately swallows every exception and never raises: this always
+    runs as a fire-and-forget asyncio task from checkout/cancel/return, and
+    a third-party outage, expired credential, or missing write scope must
+    never affect the Lokl-side order itself. The two systems can briefly
+    disagree and self-heal on the next "Pull latest inventory" or inbound
+    webhook — an acceptable tradeoff against blocking a customer-facing
+    flow on someone else's API."""
+    provider = product.get("provider")
+    remote_variant_ids = product.get("remote_variant_ids") or {}
+    remote_id = remote_variant_ids.get(size)
+    merchant_id = product.get("merchant_id")
+    if not provider or not remote_id or not merchant_id or delta == 0:
+        return
+    try:
+        if provider == "shopify":
+            await _sync_shopify_delta(merchant_id, remote_id, delta)
+        # else: no write-capable integration for this provider yet.
+    except Exception:
+        log.exception("Outbound inventory sync failed: product=%s size=%s provider=%s delta=%s",
+                       product.get("id"), size, provider, delta)
+
+
+async def _sync_shopify_delta(merchant_id: str, inventory_item_id: str, delta: int) -> None:
+    integ = await _get_integration(merchant_id, "shopify")
+    if not integ or not integ.get("client_id") or not integ.get("client_secret") or not integ.get("location_id"):
+        return
+    client_id = encryption_service.decrypt_field(integ["client_id"])
+    client_secret = encryption_service.decrypt_field(integ["client_secret"])
+    # Same "exchange fresh every time, never cache" rule as import — CCG
+    # tokens expire in ~24h (see shopify_client's own docstring).
+    token_data = await shopify_client.get_access_token(integ["shop_domain"], client_id, client_secret)
+    await shopify_client.adjust_inventory(
+        integ["shop_domain"], token_data["access_token"], inventory_item_id, integ["location_id"], delta,
+    )
+
+
+async def _index_remote_inventory_map(product: dict) -> None:
+    """Maintains the reverse lookup an inbound sync webhook needs: given a
+    source platform's own variant identifier, which Lokl (merchant_id,
+    product_id, size) does it correspond to. Populated at publish time from
+    the product's own remote_variant_ids (provider-specific {size: id}
+    map, carried forward from its StagedImport row) — a no-op for any
+    product with no provider linkage (every manually-created/bulk-uploaded
+    product, and any provider whose sync doesn't need inbound webhooks)."""
+    provider = product.get("provider")
+    remote_variant_ids = product.get("remote_variant_ids")
+    if not provider or not remote_variant_ids:
+        return
+    for size, remote_id in remote_variant_ids.items():
+        if not remote_id:
+            continue
+        await db.remote_inventory_map.update_one(
+            {"provider": provider, "remote_variant_id": remote_id},
+            {"$set": {"merchant_id": product["merchant_id"], "product_id": product["id"], "size": size},
+             "$setOnInsert": {"id": f"rim-{uuid.uuid4().hex[:10]}"}},
+            upsert=True,
+        )
+
+
 async def _publish_staged_import(row: dict, merchant_id: str) -> dict:
     """Converts a StagedImport row into a real Product by going through
     _create_product_for_merchant — the same canonical insert path the
@@ -6730,6 +6912,8 @@ async def _publish_staged_import(row: dict, merchant_id: str) -> dict:
         description="", sizes=row.get("sizes") or [], stock=stock,
         image=image_url, image_public_id=image_public_id,
         images=[image_url], image_public_ids=[image_public_id],
+        provider=row["provider"], source_item_id=row.get("source_item_id"),
+        remote_variant_ids=row.get("remote_variant_ids"),
     )
     doc = await _create_product_for_merchant(payload, merchant_id)
     await db.staged_imports.update_one(
@@ -6737,6 +6921,7 @@ async def _publish_staged_import(row: dict, merchant_id: str) -> dict:
         {"$set": {"status": "published", "product_id": doc["id"], "image": image_url, "image_public_id": image_public_id,
                    "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
+    await _index_remote_inventory_map(doc)
     return doc
 
 
@@ -6776,6 +6961,22 @@ async def vasyerp_select_branch(payload: VasyERPSelectBranchRequest, user: dict 
     return {"ok": True}
 
 
+def _shopify_webhook_callback_url() -> Optional[str]:
+    """Where Shopify should POST inventory_levels/update events. Explicit
+    BACKEND_PUBLIC_URL wins (set it for any deploy target that isn't
+    Railway); Railway's own RAILWAY_PUBLIC_DOMAIN covers production without
+    extra config. None in local dev (no public URL for Shopify to reach) —
+    inbound sync registration is skipped there, not an error."""
+    base = os.environ.get("BACKEND_PUBLIC_URL", "").strip()
+    if not base:
+        railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+        if railway_domain:
+            base = f"https://{railway_domain}"
+    if not base:
+        return None
+    return f"{base.rstrip('/')}/api/webhooks/shopify/inventory"
+
+
 @api.post("/merchant/integrations/shopify/connect")
 async def shopify_connect(payload: ShopifyConnectRequest, user: dict = Depends(get_current_user)):
     if user.get("role") != "merchant":
@@ -6792,6 +6993,23 @@ async def shopify_connect(payload: ShopifyConnectRequest, user: dict = Depends(g
         raise HTTPException(400, "Shopify rejected this Client ID/Secret — double-check them and make sure the app is installed on this store")
     except ShopifyClientError as e:
         raise HTTPException(502, f"Could not reach Shopify: {e}")
+    # Best-effort: primary location (for outbound inventory adjustments)
+    # and the inbound inventory webhook both need the write_inventory
+    # scope, which is newer than the original read_products/read_inventory
+    # connect flow. Neither failing should block connect itself — the
+    # one-way pull still works with only the original scopes; inventory
+    # sync just stays off (location_id: None) until the merchant adds
+    # write_inventory to their app and reconnects.
+    location_id = None
+    sync_enabled = False
+    try:
+        location_id = await shopify_client.get_primary_location_id(shop_domain, token_data["access_token"])
+        callback_url = _shopify_webhook_callback_url()
+        if location_id and callback_url:
+            sub_id = await shopify_client.register_inventory_webhook(shop_domain, token_data["access_token"], callback_url)
+            sync_enabled = bool(sub_id)
+    except (ShopifyAuthError, ShopifyClientError):
+        pass
     # Only encrypt + store once the credentials have proven themselves via a
     # real token exchange + Shopify call — invalid credentials are never
     # persisted, same rule as VasyERP. client_id/client_secret (not the
@@ -6814,8 +7032,9 @@ async def shopify_connect(payload: ShopifyConnectRequest, user: dict = Depends(g
         "client_secret": encrypted_client_secret,
         "shop_domain": shop_domain, "shop_name": shop_name,
         "connected_at": datetime.now(timezone.utc).isoformat(), "sync_status": "connected",
+        "location_id": location_id, "inventory_sync_enabled": sync_enabled,
     })
-    return {"ok": True, "shop_name": shop_name}
+    return {"ok": True, "shop_name": shop_name, "inventory_sync_enabled": sync_enabled}
 
 
 @api.get("/merchant/integrations/status")
@@ -6944,6 +7163,7 @@ async def shopify_import(user: dict = Depends(get_current_user)):
                 fields["image_url"], "", item,
                 l1_by_name, l2_by_name, l2_flat_by_name,
                 stock=fields["stock"], sizes=fields["sizes"],
+                remote_variant_ids=fields["remote_variant_ids"],
             )
             if staged:
                 staged_count += 1
@@ -8142,6 +8362,10 @@ async def admin_return_action(rid: str, action: str, admin: dict = Depends(requi
     await db.returns.update_one({"id": rid}, {"$set": update})
     if status == "completed":
         await db.orders.update_one({"id": r["order_id"]}, {"$set": {"return_status": "completed", "status": "returned"}})
+        # Returned items go back into sellable stock — this was previously
+        # missing entirely (a completed return never restocked anything),
+        # independent of any source-platform sync question.
+        await _restock_order_items(r)
     else:
         await db.orders.update_one({"id": r["order_id"]}, {"$set": {"return_status": status}})
     # Outbound notifications (fire-and-forget)
