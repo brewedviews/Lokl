@@ -625,6 +625,69 @@ class MSG91Provider(NotificationProvider):
             self.last_result = {"ok": False, "provider": "msg91", "channel": "verify_otp", "error": str(e)}
             return False
 
+    def verify_widget_access_token(self, access_token: str) -> dict:
+        """Server-side verification of the OTP Widget's access-token — the
+        Custom UI (exposeMethods) flow's `window.verifyOtp()` success
+        callback hands the frontend an access-token, NOT an otp/mobile pair;
+        this is the only way to actually trust it (a client-side "success"
+        callback firing is not proof by itself — the token must be checked
+        against MSG91's own server).
+
+        Endpoint and field names confirmed via a real live call (not
+        guessed): POST https://control.msg91.com/api/v5/widget/verifyAccessToken
+        with JSON body {"authkey": ..., "access-token": ...}. A deliberately
+        invalid token returned {"message": "invalid access-token", "type":
+        "error", "code": 701} — an access-token-specific error, not an
+        authkey-rejection — confirming `authkey` here really is the main
+        MSG91_AUTH_KEY (the same one every other MSG91Provider call uses),
+        not a separate per-widget credential.
+
+        NOTE: the exact SUCCESS response shape (does it echo back the
+        verified mobile/identifier?) is still unconfirmed — that requires an
+        actual live widget round-trip (real phone, real browser, real OTP
+        entry), which can't be produced from a backend-only test call. The
+        caller (server.py's customer_verify_otp) does NOT currently trust
+        any identifier MSG91 might return; it keeps using the client-
+        supplied `phone` for JWT issuance, same trust boundary the plain
+        verify_otp() path above already has. Revisit once a real success
+        response has actually been observed.
+
+        Returns {"ok": bool, ...raw MSG91 response merged in...}."""
+        auth_key = self._auth_key()
+        if not auth_key:
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "verify_widget_token",
+                                 "error": "MSG91_AUTH_KEY not configured"}
+            return {"ok": False, "error": "MSG91_AUTH_KEY not configured"}
+        token = (access_token or "").strip()
+        if not token:
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "verify_widget_token",
+                                 "error": "access_token is required"}
+            return {"ok": False, "error": "access_token is required"}
+        try:
+            import requests
+            # Same "don't raise_for_status" rule as verify_otp above — MSG91
+            # returns HTTP 200 with a {"type": "error", ...} body for an
+            # invalid/expired token, a normal outcome here, not a transport
+            # failure.
+            resp = requests.post(
+                f"{_MSG91_BASE}/widget/verifyAccessToken",
+                json={"authkey": auth_key, "access-token": token},
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                timeout=10,
+            )
+            data = resp.json()
+            ok = str(data.get("type", "")).lower() == "success"
+            if ok:
+                log.info("[msg91-widget] access-token verify OK")
+            else:
+                log.warning("[msg91-widget] access-token verify FAILED: %s", data.get("message"))
+            self.last_result = {"ok": ok, "provider": "msg91", "channel": "verify_widget_token", "response": data}
+            return {"ok": ok, **data}
+        except Exception as e:
+            log.warning("[msg91-widget] access-token verify request failed: %s", e)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "verify_widget_token", "error": str(e)}
+            return {"ok": False, "error": str(e)}
+
 
 # ============================================================================
 # Provider factory / selector

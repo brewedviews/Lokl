@@ -564,7 +564,14 @@ class CustomerOtpRequest(BaseModel):
 
 class CustomerOtpVerify(BaseModel):
     phone: str
-    otp: str
+    # For the Twilio/local path, the raw 6-digit code. For the msg91 path
+    # (widget Custom UI), `otp` is unused — the frontend instead sends the
+    # access-token from window.verifyOtp()'s success callback here, since
+    # the widget already verified the code client-side and the only thing
+    # left for the backend to do is confirm that verification actually
+    # happened, server-side, against MSG91 (see customer_verify_otp).
+    otp: str = ""
+    access_token: str = ""
 
 
 # ===== OTP validity windows — single source of truth per role/path =====
@@ -573,12 +580,12 @@ class CustomerOtpVerify(BaseModel):
 # previously did here: two independent hardcoded literals (a `timedelta`
 # and a bare `600`) kept in sync only by a human remembering to edit both.
 CUSTOMER_OTP_TTL_MINUTES = 10  # Twilio/local-verification path only
-# MSG91's OTP Widget/API owns this path's expiry entirely once
+# MSG91's OTP Widget owns this path's expiry entirely once
 # NOTIFICATION_PROVIDER=msg91 is active — there is no local `timedelta` for
-# it to match (see customer_request_otp below, msg91 branch). 15 is MSG91's
-# documented MINIMUM OTP validity, not a confirmed configured value — this
-# is a placeholder. Update it the moment the real number is read off the
-# MSG91 dashboard's widget/OTP config, before relying on it anywhere.
+# it to match (see customer_request_otp below, msg91 branch). 15 minutes is
+# confirmed against the real MSG91 dashboard widget config (previously a
+# placeholder guessed at MSG91's documented minimum — now the actual set
+# value).
 MSG91_CUSTOMER_OTP_TTL_MINUTES = 15
 MERCHANT_OTP_TTL_MINUTES = 10
 RIDER_OTP_TTL_MINUTES = 10
@@ -596,9 +603,13 @@ async def customer_request_otp(request: Request, payload: CustomerOtpRequest):
         db.customer_otps with a CUSTOMER_OTP_TTL_MINUTES TTL, and dispatch
         it — UNCHANGED from before this migration, rollback-safe.
       - msg91: MSG91's OTP API generates and owns the code itself; no local
-        record is written, since there's nothing to verify locally. The
-        expiry reported below is MSG91_CUSTOMER_OTP_TTL_MINUTES, a
-        placeholder until the real MSG91-configured value is confirmed.
+        record is written, since there's nothing to verify locally. NOTE:
+        the OTP Widget (Custom UI) frontend flow calls window.sendOtp()
+        directly against MSG91, bypassing this endpoint entirely for the
+        actual send — this branch exists for any caller that still hits
+        this endpoint directly, and its expiry (MSG91_CUSTOMER_OTP_TTL_
+        MINUTES, confirmed against the real MSG91 dashboard widget config)
+        is reported for consistency either way.
     Either way the response shape is identical, so the frontend needs no
     changes regardless of which provider is active.
     """
@@ -649,17 +660,28 @@ async def customer_verify_otp(request: Request, payload: CustomerOtpVerify):
 
     twilio (default): local bcrypt check against db.customer_otps, 5-attempt
     lockout — UNCHANGED from before this migration, rollback-safe.
-    msg91: no local record exists (request-otp never wrote one) — verification
-    goes through get_provider().verify_otp(), which calls MSG91's verify API.
+    msg91: the OTP Widget (Custom UI / exposeMethods mode) verifies the code
+    client-side and hands the frontend an access-token, NOT the raw otp —
+    server.py never sees the code itself for this path. That access-token
+    is what payload.access_token carries, and MSG91Provider.
+    verify_widget_access_token() confirms it server-side against MSG91's
+    own API before this counts as a real login — a client-side "success"
+    callback firing is not proof by itself; anyone could call the frontend
+    success handler directly without ever entering a real code.
     """
     phone = _normalize_customer_phone(payload.phone)
-    if not phone or not payload.otp:
-        raise HTTPException(400, "Invalid phone or OTP")
+    if not phone:
+        raise HTTPException(400, "Invalid phone number")
 
     if active_provider_name() == "msg91":
-        if not get_provider().verify_otp(phone, payload.otp.strip()):
+        if not payload.access_token:
+            raise HTTPException(400, "Missing access token")
+        result = get_provider().verify_widget_access_token(payload.access_token)
+        if not result.get("ok"):
             raise HTTPException(401, "Incorrect or expired OTP")
     else:
+        if not payload.otp:
+            raise HTTPException(400, "Invalid phone or OTP")
         # ---- Twilio / local — UNCHANGED from before this migration ----
         rec = await db.customer_otps.find_one({"phone": phone})
         if not rec:

@@ -46,7 +46,15 @@ export interface CustomerOtpRequestResponse {
   expires_in: number;     // seconds
 }
 
-export interface CustomerOtpVerifyPayload { phone: string; otp: string }
+export interface CustomerOtpVerifyPayload {
+  phone: string;
+  // Twilio/local path: the raw 6-digit code. MSG91 widget path: omitted —
+  // access_token carries the widget's verifyOtp() access-token instead
+  // (the widget already verified the code client-side; access_token is
+  // what the backend re-checks server-side against MSG91's own API).
+  otp?: string;
+  access_token?: string;
+}
 export interface CustomerOtpVerifyResponse {
   token: string;
   phone: CanonicalPhone;
