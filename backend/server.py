@@ -567,6 +567,23 @@ class CustomerOtpVerify(BaseModel):
     otp: str
 
 
+# ===== OTP validity windows — single source of truth per role/path =====
+# Each constant is read by BOTH the stored/computed expiry AND the API
+# response's `expires_in`, so the two can never drift the way they
+# previously did here: two independent hardcoded literals (a `timedelta`
+# and a bare `600`) kept in sync only by a human remembering to edit both.
+CUSTOMER_OTP_TTL_MINUTES = 10  # Twilio/local-verification path only
+# MSG91's OTP Widget/API owns this path's expiry entirely once
+# NOTIFICATION_PROVIDER=msg91 is active — there is no local `timedelta` for
+# it to match (see customer_request_otp below, msg91 branch). 15 is MSG91's
+# documented MINIMUM OTP validity, not a confirmed configured value — this
+# is a placeholder. Update it the moment the real number is read off the
+# MSG91 dashboard's widget/OTP config, before relying on it anywhere.
+MSG91_CUSTOMER_OTP_TTL_MINUTES = 15
+MERCHANT_OTP_TTL_MINUTES = 10
+RIDER_OTP_TTL_MINUTES = 10
+
+
 @api.post("/auth/customer/request-otp")
 @_limit(_LIMIT_CUSTOMER_OTP_REQUEST)
 async def customer_request_otp(request: Request, payload: CustomerOtpRequest):
@@ -576,10 +593,12 @@ async def customer_request_otp(request: Request, payload: CustomerOtpRequest):
     Branches on the active NOTIFICATION_PROVIDER (see notifications.py's
     module docstring for the full OTP-ownership asymmetry):
       - twilio (default): we generate the OTP, bcrypt-hash it into
-        db.customer_otps with a 10-minute TTL, and dispatch it — UNCHANGED
-        from before this migration, rollback-safe.
+        db.customer_otps with a CUSTOMER_OTP_TTL_MINUTES TTL, and dispatch
+        it — UNCHANGED from before this migration, rollback-safe.
       - msg91: MSG91's OTP API generates and owns the code itself; no local
-        record is written, since there's nothing to verify locally.
+        record is written, since there's nothing to verify locally. The
+        expiry reported below is MSG91_CUSTOMER_OTP_TTL_MINUTES, a
+        placeholder until the real MSG91-configured value is confirmed.
     Either way the response shape is identical, so the frontend needs no
     changes regardless of which provider is active.
     """
@@ -592,11 +611,12 @@ async def customer_request_otp(request: Request, payload: CustomerOtpRequest):
             get_provider().send_otp(phone)
         except Exception as e:
             log.warning("MSG91 OTP send failed for %s: %s", phone, e)
+        ttl_minutes = MSG91_CUSTOMER_OTP_TTL_MINUTES
     else:
         # ---- Twilio / local — UNCHANGED from before this migration ----
         otp = f"{secrets.randbelow(1_000_000):06d}"
         otp_hash = hash_password(otp)
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=CUSTOMER_OTP_TTL_MINUTES)
 
         # Upsert so a re-request for the same phone overwrites the prior OTP.
         await db.customer_otps.update_one(
@@ -617,8 +637,9 @@ async def customer_request_otp(request: Request, payload: CustomerOtpRequest):
             notify_customer_otp(phone, otp)
         except Exception as e:
             log.warning("OTP delivery failed for %s: %s", phone, e)
+        ttl_minutes = CUSTOMER_OTP_TTL_MINUTES
 
-    return {"ok": True, "message": "OTP sent if the phone is valid", "expires_in": 600}
+    return {"ok": True, "message": "OTP sent if the phone is valid", "expires_in": ttl_minutes * 60}
 
 
 @api.post("/auth/customer/verify-otp")
@@ -733,7 +754,7 @@ async def merchant_request_otp(request: Request, payload: MerchantOtpRequest):
     # -> send_with_fallback) switches with the active provider.
     otp = f"{secrets.randbelow(1_000_000):06d}"
     otp_hash = hash_password(otp)
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=MERCHANT_OTP_TTL_MINUTES)
     # Store under the canonical 12-digit key (91 + last-10) so look-ups during
     # verify share a stable key with the Twilio/WhatsApp recipient.
     canonical = f"91{p10}"
@@ -753,7 +774,7 @@ async def merchant_request_otp(request: Request, payload: MerchantOtpRequest):
         notify_merchant_otp(canonical, otp)
     except Exception as e:
         log.warning("Merchant OTP delivery failed for %s: %s", canonical, e)
-    return {"ok": True, "message": "OTP sent", "expires_in": 600}
+    return {"ok": True, "message": "OTP sent", "expires_in": MERCHANT_OTP_TTL_MINUTES * 60}
 
 
 @api.post("/auth/merchant/verify-otp")
@@ -855,7 +876,7 @@ async def rider_request_otp(request: Request, payload: RiderOtpRequest):
     if rider:
         otp = f"{secrets.randbelow(1_000_000):06d}"
         otp_hash = hash_password(otp)
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=RIDER_OTP_TTL_MINUTES)
         await db.rider_otps.update_one(
             {"phone": phone},
             {"$set": {
@@ -872,7 +893,7 @@ async def rider_request_otp(request: Request, payload: RiderOtpRequest):
         except Exception as e:
             log.warning("Rider OTP delivery failed for %s: %s", phone, e)
 
-    return {"ok": True, "message": "OTP sent if this is a registered rider", "expires_in": 600}
+    return {"ok": True, "message": "OTP sent if this is a registered rider", "expires_in": RIDER_OTP_TTL_MINUTES * 60}
 
 
 @api.post("/auth/rider/verify-otp")
