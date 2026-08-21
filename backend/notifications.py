@@ -750,12 +750,24 @@ def send_otp_with_fallback(phone: str, otp: str) -> str:
     return get_provider().send_otp(phone, otp)
 
 
-def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = None) -> str:
-    """Best-effort delivery for ANY transactional message — WhatsApp first, SMS on failure.
+def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = None,
+                        preferred_channel: str = "whatsapp") -> str:
+    """Best-effort delivery for ANY transactional message — tries
+    `preferred_channel` first, falls back to the other channel on failure.
+
+    `preferred_channel` defaults to "whatsapp" (the original, still-current
+    behavior for every existing caller that doesn't pass it explicitly).
+    Pass "sms" to reverse the order — e.g. merchant/rider login OTP, where
+    SMS is the priority channel and WhatsApp is the fallback, unlike every
+    other notification in the app (order lifecycle, merchant alerts, pickup
+    flow, etc.), which all stay WhatsApp-first. This is a single shared
+    function both TwilioProvider and MSG91Provider go through identically
+    via the same NotificationProvider.send_sms/send_whatsapp interface —
+    the channel-order logic lives here once, not duplicated per provider.
 
     Unlike `send_otp_with_fallback`, this skips the status poll because
     order-flow notifications can't tolerate that latency in a request
-    handler. Any WhatsApp-side rejection is treated as "fall back now".
+    handler. Any first-channel rejection is treated as "fall back now".
     Successful submission counts as success — terminal delivery status is
     best effort, surfaced via the provider's own dashboard/status webhook.
 
@@ -767,16 +779,25 @@ def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = N
     """
     provider = get_provider()
     provider_name = type(provider).__name__.replace("Provider", "").lower()
-    log.info("[NOTIFY] provider=%s %s <- %.80s", provider_name, phone, body.replace("\n", " "))
-    sid = provider.send_whatsapp(phone, body, message_type=message_type)
-    if sid:
-        log.info("[NOTIFY] provider=%s WhatsApp OK sid=%s to=%s", provider_name, sid, phone)
-        return "whatsapp"
-    log.warning("[NOTIFY] provider=%s WhatsApp failed for %s (%s) — falling back to SMS",
-                provider_name, phone, provider.last_result.get("error", "see prior log line"))
-    if provider.send_sms(phone, body, message_type=message_type):
-        log.info("[NOTIFY] provider=%s SMS fallback delivered to %s", provider_name, phone)
-        return "sms"
+    log.info("[NOTIFY] provider=%s channel_priority=%s %s <- %.80s",
+             provider_name, preferred_channel, phone, body.replace("\n", " "))
+
+    sms_first = preferred_channel == "sms"
+    first, second = ("sms", "whatsapp") if sms_first else ("whatsapp", "sms")
+
+    def _try(channel: str) -> bool:
+        result = (provider.send_sms(phone, body, message_type=message_type) if channel == "sms"
+                  else provider.send_whatsapp(phone, body, message_type=message_type))
+        return bool(result)
+
+    if _try(first):
+        log.info("[NOTIFY] provider=%s %s OK to=%s", provider_name, first, phone)
+        return first
+    log.warning("[NOTIFY] provider=%s %s failed for %s (%s) — falling back to %s",
+                provider_name, first, phone, provider.last_result.get("error", "see prior log line"), second)
+    if _try(second):
+        log.info("[NOTIFY] provider=%s %s fallback delivered to %s", provider_name, second, phone)
+        return second
     log.warning("[NOTIFY] provider=%s all channels failed for %s (%s)",
                 provider_name, phone, provider.last_result.get("error", "see prior log line"))
     return "none"
@@ -817,27 +838,34 @@ def notify_merchant_otp(merchant_phone: str, otp: str) -> None:
     module docstring — only the delivery channel changes with the active
     provider. Uses send_with_fallback (the generic path), NOT send_otp: the
     OTP-template contract is fixed-wording, and merchants need unambiguous
-    merchant-themed wording instead."""
+    merchant-themed wording instead.
+
+    preferred_channel="sms": SMS first, WhatsApp as fallback — the reverse
+    of every other notify_* call site in this file, which all stay
+    WhatsApp-first. Login OTPs need the fastest, most reliable channel;
+    WhatsApp's delivery latency/session-window quirks are a worse fit here
+    than for a browsable order update."""
     if os.environ.get("CUSTOMER_OTP_DEBUG", "").strip().lower() in ("1", "true", "yes"):
         log.warning("[MERCHANT-OTP-DEBUG] phone=%s otp=%s", merchant_phone, otp)
     body = (
         f"Lokl merchant login code: {otp}. "
         f"Valid for 10 minutes. Don't share this code with anyone."
     )
-    send_with_fallback(merchant_phone, body, message_type="merchant_login_otp")
+    send_with_fallback(merchant_phone, body, message_type="merchant_login_otp", preferred_channel="sms")
 
 
 def notify_rider_otp(rider_phone: str, otp: str) -> None:
     """Rider phone-OTP login. Always locally generated/verified — see
     module docstring — only the delivery channel changes with the active
-    provider. Same send_with_fallback rationale as notify_merchant_otp."""
+    provider. Same send_with_fallback rationale as notify_merchant_otp,
+    including the same preferred_channel="sms" reasoning."""
     if os.environ.get("CUSTOMER_OTP_DEBUG", "").strip().lower() in ("1", "true", "yes"):
         log.warning("[RIDER-OTP-DEBUG] phone=%s otp=%s", rider_phone, otp)
     body = (
         f"Lokl rider login code: {otp}. "
         f"Valid for 10 minutes. Don't share this code with anyone."
     )
-    send_with_fallback(rider_phone, body, message_type="rider_login_otp")
+    send_with_fallback(rider_phone, body, message_type="rider_login_otp", preferred_channel="sms")
 
 
 def notify_order_placed(phone: str, order_id: str, total: float) -> None:
