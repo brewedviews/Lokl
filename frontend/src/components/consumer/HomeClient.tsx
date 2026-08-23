@@ -76,31 +76,65 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 // TrustStickers isn't part of this ranked list at all — it's hardcoded to
 // render after {orderedSections} unconditionally (see JSX below), which
 // always puts it last regardless of CMS order.
+// Redesign Phase D — LOCKED SEQUENCE, rank-for-rank (see this file's own
+// git history / docs/design/lokl-redesign-plan.md discussion for how this
+// was arrived at):
+//   Hero -> Shop by Category -> Best Deals -> Shop by Price -> Shop by
+//   Area -> Shops near you (meet_sellers' on-page copy) -> Footwear Store
+//   -> Ethnic Store -> Premium picks -> Lingerie/Innerwear Store ->
+//   Browse All
+// Everything from "category_pills" through "customer_love" below that
+// block predates this redesign and was never part of the locked sequence
+// (it's desktop-only or simply out of this redesign's scope) — left after
+// it, in its prior relative order, rather than reshuffled without a spec.
+//
+// Section-id cheat sheet for a future admin editing Homepage CMS ->
+// Sections (each toggle's real-world meaning, since "id" alone in that
+// panel doesn't explain gender/L1 targeting):
+//   best_deals / premium_picks — L1-scoped to Home's own default L1
+//     (Women) via GET /api/products?l1=&sort=, NOT the global site-wide
+//     feed. Toggling this only affects Home; /c/[slug] pages have their
+//     own separate "Bestsellers in {L1}"/"Premium picks in {L1}" rails,
+//     not driven by this CMS list at all.
+//   store_footwear / store_ethnic / store_lingerie — each is ONE gendered-
+//     L2 store module (banner + SellerCard row). On Home today all three
+//     target Women's L2s (l2-women-footwear/ethnic/lingerie). The
+//     Men's-equivalent module list swaps the third to "Innerwear Store"
+//     (l2-men-innerwear — there is no l2-men-lingerie) but that list isn't
+//     wired to any live page yet; Home is Women-only, per CategoryTileRow.
+//   under_499 — kept its original id from the pre-overlapping-bands era
+//     (see PRICE_BANDS_SEED in server.py) even though the section is now
+//     "Shop by Price" and covers all three bands, not just the first —
+//     renaming it would silently drop the id from every existing
+//     site_config doc's saved rank/enabled state. The CMS label already
+//     reads "Shop by Price" so this only matters to someone reading raw
+//     ids, not the admin UI.
 const DEFAULT_SECTIONS: SectionDoc[] = [
-  { id: "category_pills", label: "Category pills",    enabled: true, rank: 10 },
-  { id: "hero",           label: "Hero",              enabled: true, rank: 20 },
-  { id: "shop_by_category", label: "Shop by Category", enabled: true, rank: 25 },
-  { id: "under_499",      label: "Under ₹499",        enabled: true, rank: 50 },
-  { id: "meet_sellers",   label: "Meet your sellers", enabled: true, rank: 60 },
-  // Placed right after meet_sellers — both are discovery-by-identity
-  // rather than discovery-by-product, so grouping them reads as one
-  // "who's on Lokl" beat rather than two unrelated interruptions. See
-  // ShopByBrandSection's own comment for the fuller reasoning.
-  { id: "shop_by_brand",  label: "Shop by Brand",     enabled: true, rank: 65 },
-  { id: "best_deals",     label: "Best deals",        enabled: true, rank: 30 },
-  { id: "try_and_buy",    label: "Try & Buy",         enabled: true, rank: 40 },
-  { id: "for_her",        label: "For Her",           enabled: true, rank: 100 },
-  { id: "for_him",        label: "For Him",           enabled: true, rank: 105 },
-  { id: "gendered_stores", label: "Footwear / Ethnic / Lingerie Stores", enabled: true, rank: 107 },
-  { id: "merchant_cta",   label: "Open a store",      enabled: true, rank: 70 },
-  { id: "premium_picks",  label: "Premium picks",     enabled: true, rank: 90 },
-  { id: "shop_by_area",   label: "Shop by Area",      enabled: true, rank: 80 },
-  { id: "offers",         label: "Offers for you",    enabled: true, rank: 110 },
+  { id: "category_pills",  label: "Category pills",              enabled: true,  rank: 10 },
+  { id: "hero",             label: "Hero",                        enabled: true,  rank: 20 },
+  { id: "shop_by_category", label: "Shop by Category",            enabled: true,  rank: 25 },
+  { id: "best_deals",       label: "Best deals",                  enabled: true,  rank: 30 },
+  { id: "under_499",        label: "Shop by Price",                enabled: true,  rank: 40 },
+  { id: "shop_by_area",     label: "Shop by Area",                enabled: true,  rank: 50 },
+  { id: "meet_sellers",     label: "Shops near you",              enabled: true,  rank: 60 },
+  { id: "store_footwear",   label: "Footwear Store",              enabled: true,  rank: 70 },
+  { id: "store_ethnic",     label: "Ethnic Store",                enabled: true,  rank: 80 },
+  { id: "premium_picks",    label: "Premium picks",               enabled: true,  rank: 90 },
+  { id: "store_lingerie",   label: "Lingerie / Innerwear Store",  enabled: true,  rank: 100 },
+  { id: "browse_all",       label: "Browse All",                  enabled: true,  rank: 110 },
+
+  // Pre-redesign sections — not part of the locked sequence above.
+  { id: "try_and_buy",     label: "Try & Buy",                enabled: true,  rank: 120 },
+  { id: "shop_by_brand",   label: "Shop by Brand",            enabled: true,  rank: 130 },
+  { id: "for_her",         label: "For Her",                  enabled: true,  rank: 140 },
+  { id: "for_him",         label: "For Him",                  enabled: true,  rank: 150 },
+  { id: "merchant_cta",    label: "Open a store",             enabled: true,  rank: 160 },
+  { id: "offers",          label: "Offers for you",           enabled: true,  rank: 170 },
 
   // Optional / Future
-  { id: "just_in",        label: "Just In",                   enabled: false, rank: 120 },
-  { id: "trending",       label: "Trending now",              enabled: false, rank: 130 },
-  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 140 },
+  { id: "just_in",        label: "Just In",                   enabled: false, rank: 180 },
+  { id: "trending",       label: "Trending now",              enabled: false, rank: 190 },
+  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 200 },
 ];
 
 // cloudinaryOptimize moved to @/lib/utils — SellerCard needed it too, see
@@ -338,15 +372,22 @@ function StoreSectionModule({ l1, spec }: { l1: CategoryNode; spec: StoreModuleS
   );
 }
 
-function GenderedStoreSections({ categories, l1Slug }: { categories: CategoryNode[]; l1Slug: string }) {
+// Redesign Phase D: split from a single bundled "gendered_stores" section
+// (Phase C) into three independently-ranked CMS sections — the locked
+// homepage sequence interleaves Footwear/Ethnic Store with Premium picks
+// sitting between Ethnic and Lingerie/Innerwear, so the three modules can
+// no longer render as one contiguous block. `index` addresses a fixed
+// position (0=Footwear, 1=Ethnic, 2=Lingerie/Innerwear) in whichever
+// gendered module list applies — WOMEN_STORE_MODULES and
+// MEN_STORE_MODULES are both authored in that same order, so this stays
+// correct for either gender without a lookup-by-label.
+function GenderedStoreSection({ categories, l1Slug, index }: { categories: CategoryNode[]; l1Slug: string; index: number }) {
   const l1 = categories.find((c) => c.slug === l1Slug);
   if (!l1) return null;
   const modules = l1Slug === "men" ? MEN_STORE_MODULES : l1Slug === "women" ? WOMEN_STORE_MODULES : [];
-  return (
-    <>
-      {modules.map((spec) => <StoreSectionModule key={spec.l2Slug} l1={l1} spec={spec} />)}
-    </>
-  );
+  const spec = modules[index];
+  if (!spec) return null;
+  return <StoreSectionModule l1={l1} spec={spec} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -428,6 +469,39 @@ function ShopByPriceSection({ priceBento }: { priceBento: PriceBentoResponse | n
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// "Browse All" (redesign Phase D) — closes a real gap flagged during
+// Phase B: the mobile bottom nav's old "All" tab (a direct /products link)
+// was replaced by Search that same phase, and desktop's own "All" tile
+// only exists inside category_pills' `hidden md:grid` desktop block — so
+// mobile had no single-tap "see everything" affordance left on Home at
+// all. This is the resolution: a simple, low-risk closing CTA banner
+// (same structural weight as merchant_cta just below it — one navy row,
+// headline + pill), not a full paginated product grid, which would be a
+// much larger, undiscussed feature. Last content section before
+// TrustStickers, per the locked sequence.
+// ---------------------------------------------------------------------------
+function BrowseAllSection() {
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-browse_all">
+      <Link href="/products" className="block">
+        <div className="bg-[#0A1F5C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-white font-bold text-base leading-tight">Browse everything on Lokl</p>
+            <p className="text-[12px] text-white/70 mt-0.5">every store, every category, one grid.</p>
+          </div>
+          <div className="flex-shrink-0 flex items-center gap-2 bg-[#E68910] text-white text-xs font-bold px-3 py-2 rounded-xl">
+            <span>See all</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M5 12h14M12 5l7 7-7 7"/>
+            </svg>
+          </div>
+        </div>
+      </Link>
     </div>
   );
 }
@@ -720,9 +794,34 @@ export function HomeClient() {
   const [sections, setSections] = useState<SectionDoc[]>(DEFAULT_SECTIONS);
   const [offers, setOffers] = useState<OfferDoc[]>([]);
   const [trending, setTrending] = useState<ProductCardType[]>([]);
-  const [bestDeals, setBestDeals] = useState<ProductCardType[]>([]);
-  const [premiumPicks, setPremiumPicks] = useState<ProductCardType[]>([]);
   const [_storeRails, setStoreRails] = useState<HomeProductsRail[]>([]);
+
+  // Best deals / Premium picks — L1-scoped to Home's own default L1
+  // (Women, per CategoryTileRow's own doc comment on why Home defaults to
+  // Women rather than an "All" state) via the exact same
+  // GET /api/products?l1=&sort= pattern CategoryClient.tsx's own
+  // "Bestsellers in {L1}"/"Premium picks in {L1}" rails already use for
+  // /c/[slug] — sort=discount for deals, sort=price_desc for premium.
+  // Previously both rails read from the global, unscoped
+  // GET /api/feed/home-products response (see that fetch below, which
+  // still supplies `trending` and the store rails — neither of those is
+  // called out as L1-scoped in the locked section sequence, so they're
+  // untouched).
+  const HOME_L1_ID = "l1-women";
+  const { data: bestDeals = [], isPending: bestDealsPending, isError: bestDealsErrored } = useQuery({
+    queryKey: ["home-best-deals", HOME_L1_ID],
+    queryFn: async () => {
+      const r = await apiClient.get<{ products: ProductCardType[] }>("/api/products", { params: { l1: HOME_L1_ID, sort: "discount", limit: 8 } });
+      return Array.isArray(r.data) ? r.data : (r.data?.products || []);
+    },
+  });
+  const { data: premiumPicks = [], isPending: premiumPicksPending, isError: premiumPicksErrored } = useQuery({
+    queryKey: ["home-premium-picks", HOME_L1_ID],
+    queryFn: async () => {
+      const r = await apiClient.get<{ products: ProductCardType[] }>("/api/products", { params: { l1: HOME_L1_ID, sort: "price_desc", limit: 8 } });
+      return Array.isArray(r.data) ? r.data : (r.data?.products || []);
+    },
+  });
   const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [areas, setAreas] = useState<AreaTile[]>([]);
   const [priceBento, setPriceBento] = useState<PriceBentoResponse | null>(null);
@@ -826,7 +925,9 @@ export function HomeClient() {
       }
     }, 800);
 
-    // Single request for all product content — replaces N+1 store fetches
+    // Single request for trending + store rails — best_deals/premium_picks
+    // are now sourced from the separate L1-scoped useQuery calls above, not
+    // this feed (see their own comment for why).
     apiClient.get<HomeProductsResponse>("/api/feed/home-products").then((r) => {
       const data = r.data || { store_rails: [], trending: [], best_deals: [], premium_picks: [] };
       const hasProducts = (data.trending?.length || 0) + (data.store_rails?.length || 0) > 0;
@@ -834,16 +935,12 @@ export function HomeClient() {
       if (hasProducts) {
         setStoreRails(data.store_rails || []);
         setTrending(data.trending || []);
-        setBestDeals(data.best_deals || []);
-        setPremiumPicks(data.premium_picks || []);
       } else {
         // Direct fallback — fetch products without feed filtering
         apiClient.get("/api/products?limit=24&sort=newest").then((r2: any) => {
           const products: ProductCardType[] = r2.data?.products || r2.data || [];
           if (products.length > 0) {
             setTrending(products.slice(0, 8));
-            setBestDeals(products.slice(8, 16));
-            setPremiumPicks(products.slice(16, 24));
             const byStore: Record<string, ProductCardType[]> = {};
             products.forEach((p: any) => {
               if (!p.store_id) return;
@@ -864,26 +961,18 @@ export function HomeClient() {
       }
 
       markLoaded("storeRails");
-      markLoaded("sellingFast");
       markLoaded("recent");
-      markLoaded("premiumPicks");
     }).catch(() => {
       // On total failure still try direct products
       apiClient.get("/api/products?limit=24").then((r2: any) => {
         const products: ProductCardType[] = r2.data?.products || [];
         if (products.length > 0) {
           setTrending(products.slice(0, 8));
-          setBestDeals(products.slice(8, 16));
-          setPremiumPicks(products.slice(16, 24));
         }
       }).catch(() => {});
       markLoaded("storeRails");
-      markLoaded("sellingFast");
       markLoaded("recent");
-      markLoaded("premiumPicks");
-      markError("sellingFast");
       markError("recent");
-      markError("premiumPicks");
     });
 
     return () => clearTimeout(_deferTimer);
@@ -964,9 +1053,17 @@ export function HomeClient() {
 
     for_him: <GenderBentoSection key="for-him" id="for_him" title="For Him" tiles={resolveGenderTiles(categories, FOR_HIM_TILES)} />,
 
-    gendered_stores: <GenderedStoreSections key="gendered-stores" categories={categories} l1Slug="women" />,
+    // Split into 3 independently-ranked sections (Phase D) — see
+    // GenderedStoreSection's own comment for why. index 0/1/2 =
+    // Footwear/Ethnic/Lingerie-or-Innerwear, always in that order for
+    // either gender's module list.
+    store_footwear: <GenderedStoreSection key="store-footwear" categories={categories} l1Slug="women" index={0} />,
+    store_ethnic: <GenderedStoreSection key="store-ethnic" categories={categories} l1Slug="women" index={1} />,
+    store_lingerie: <GenderedStoreSection key="store-lingerie" categories={categories} l1Slug="women" index={2} />,
 
     under_499: <ShopByPriceSection key="shop-by-price" priceBento={priceBento} />,
+
+    browse_all: <BrowseAllSection key="browse-all" />,
 
     // category_pills is now desktop-only — the mobile circular tile strip
     // this section used to render (via CategoryTileRow) moved to the
@@ -1042,10 +1139,10 @@ export function HomeClient() {
         )
       : !loaded.has("recent") ? <ProductRailSkeleton key="trending-skeleton" testid="home-new-arrivals-skeleton" /> : null,
 
-    // Best deals
-    best_deals: errors.has("sellingFast") ? null
-      : loaded.has("sellingFast") && bestDeals.length >= 1 ? (
-          <HCarousel key="best-deals" title="Best deals" testid="home-best-deals" link="/products?sort=discount" linkLabel="See all">
+    // Best deals — L1-scoped (see HOME_L1_ID's own comment above)
+    best_deals: bestDealsErrored ? null
+      : !bestDealsPending && bestDeals.length >= 1 ? (
+          <HCarousel key="best-deals" title="Best deals" testid="home-best-deals" link={`/products?l1=${HOME_L1_ID}&sort=discount`} linkLabel="See all">
             {bestDeals.slice(0, 8).map((p, pIdx) => (
               <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "best_deals", position: pIdx }); } catch {} }}>
                 <ProductCard p={p} size="default" />
@@ -1053,12 +1150,12 @@ export function HomeClient() {
             ))}
           </HCarousel>
         )
-      : !loaded.has("sellingFast") ? <ProductRailSkeleton key="best-deals-skeleton" testid="home-best-deals-skeleton" /> : null,
+      : bestDealsPending ? <ProductRailSkeleton key="best-deals-skeleton" testid="home-best-deals-skeleton" /> : null,
 
-    // Premium picks — highest-priced products, full stop
-    premium_picks: errors.has("premiumPicks") ? null
-      : loaded.has("premiumPicks") && premiumPicks.length >= 1 ? (
-          <HCarousel key="premium-picks" title="Premium picks" testid="home-premium-picks" link="/products?sort=price_desc" linkLabel="See all">
+    // Premium picks — highest-priced products, L1-scoped
+    premium_picks: premiumPicksErrored ? null
+      : !premiumPicksPending && premiumPicks.length >= 1 ? (
+          <HCarousel key="premium-picks" title="Premium picks" testid="home-premium-picks" link={`/products?l1=${HOME_L1_ID}&sort=price_desc`} linkLabel="See all">
             {premiumPicks.slice(0, 8).map((p, pIdx) => (
               <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "premium_picks", position: pIdx }); } catch {} }}>
                 <ProductCard p={p} size="default" />
@@ -1066,7 +1163,7 @@ export function HomeClient() {
             ))}
           </HCarousel>
         )
-      : !loaded.has("premiumPicks") ? <ProductRailSkeleton key="premium-picks-skeleton" testid="home-premium-picks-skeleton" /> : null,
+      : premiumPicksPending ? <ProductRailSkeleton key="premium-picks-skeleton" testid="home-premium-picks-skeleton" /> : null,
 
     offers: errors.has("offers") ? (
       <SectionError key="offers-error" minHeight="min-h-[120px]" />

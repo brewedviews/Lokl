@@ -19,14 +19,26 @@
  *
  * Visual rebuild: full-bleed (edge-to-edge, no rounded-2xl card/no max-w
  * padded tray around the image — unlike ProductGallery's PDP treatment,
- * which IS a padded/cornered card), height capped low (~92-104px, the
- * "thin banner" treatment per the redesign plan, replacing the old
- * two-tier default/compact sizing split entirely — there's now only one
- * size). Dots are correspondingly smaller. The HeroSlide backend model has
- * no subtitle or separate CTA-label field (just image/eyebrow/headline/
- * cta_link) — sized copy to match (eyebrow + one-line headline only) and
- * made the whole slide tap-through via cta_link when present, rather than
- * inventing a button label the model doesn't carry.
+ * which IS a padded/cornered card), replacing the old two-tier default/
+ * compact sizing split entirely — there's now only one size, and it's the
+ * same fixed `min-h-[200px]` at every breakpoint (a single shared
+ * component property, not per-L1/per-breakpoint styling — Men/Kids will
+ * inherit it automatically the moment either has a real published slide).
+ *
+ * height=200px, not the original ~92-104px "thin banner" first shipped:
+ * that height was picked in the abstract and turned out to be a real
+ * regression once tested against actual content — at 92-104px the
+ * headline was already AT its 2-line clamp limit with the current
+ * seeded copy ("Delivered in minutes from stores next door.", 45 chars)
+ * and provably truncated on anything longer (measured live: a 62-char
+ * headline clamped mid-word). 200px + text-lg headline + line-clamp-3
+ * was arrived at by actually laying out both the real seeded headline and
+ * a realistic longer one (screenshotted both) until neither clamped and
+ * neither looked sparse — not a number picked in the abstract twice.
+ * There is no separate CTA button/pill — the entire slide (full viewport
+ * width × 200px) is itself the tap target via `cta_link`, which clears a
+ * 44×44px minimum by a wide margin on its own; the HeroSlide backend
+ * model has no subtitle or CTA-label field to render one from anyway.
  *
  * Scroll-snap + dot-indicator + autoplay mechanics are unchanged from the
  * pre-Phase-B version (still lifted from ProductGallery's own pattern —
@@ -43,7 +55,7 @@ import type { HeroSlide } from "@/types";
 const AUTOPLAY_MS = 4500;
 
 function HeroSkeleton() {
-  return <div className="w-full min-h-[92px] sm:min-h-[104px] bg-[#E5E2DC] animate-pulse" />;
+  return <div className="w-full min-h-[180px] bg-[#E5E2DC] animate-pulse" />;
 }
 
 export function HeroCarousel({ l1Id }: { l1Id: string }) {
@@ -123,19 +135,19 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
                 className="object-cover object-center"
               />
               <div className="absolute inset-0 bg-gradient-to-r from-[#FDFBF7]/95 via-[#FDFBF7]/55 to-transparent" />
-              <div className="relative h-full flex flex-col justify-center max-w-[75%] sm:max-w-md px-4 sm:px-6">
+              <div className="relative h-full flex flex-col justify-center max-w-[75%] sm:max-w-md px-5 sm:px-8">
                 {slide.eyebrow && (
-                  <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wide text-[#E68910]">{slide.eyebrow}</span>
+                  <span className="text-[11px] sm:text-xs font-bold uppercase tracking-wide text-[#E68910]">{slide.eyebrow}</span>
                 )}
                 {slide.headline && (
-                  <h1 className="font-display font-bold text-[#0A1F5C] text-[13px] sm:text-[15px] leading-snug line-clamp-2 mt-0.5">
+                  <h1 className="font-display font-bold text-[#0A1F5C] text-lg sm:text-xl leading-snug line-clamp-3 mt-1.5">
                     {slide.headline}
                   </h1>
                 )}
               </div>
             </>
           );
-          const slideClassName = "relative snap-start shrink-0 w-full min-h-[92px] sm:min-h-[104px]";
+          const slideClassName = "relative snap-start shrink-0 w-full min-h-[200px]";
           return slide.cta_link ? (
             <Link key={slide.id} href={slide.cta_link} data-testid={`hero-carousel-slide-${i}`} className={slideClassName}>
               {content}
@@ -149,16 +161,21 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
       </div>
 
       {slides.length > 1 && (
-        <div className="absolute bottom-1.5 inset-x-0 flex justify-center gap-1">
+        <div className="absolute bottom-2 inset-x-0 flex justify-center gap-1">
           {slides.map((_, i) => (
+            // p-2 padding gives each dot a real ~24px+ touch target without
+            // growing the visual mark itself — the inner span stays a slim
+            // 1.5px bar, matching the rest of this component's restraint.
             <button
               key={i}
               type="button"
               onClick={() => { stopAutoplay(); goTo(i); }}
               data-testid={`hero-carousel-dot-${i}`}
               aria-label={`Go to slide ${i + 1}`}
-              className={`h-1 rounded-full transition-all ${i === idx ? "bg-[#0A1F5C] w-4" : "bg-[#0A1F5C]/30 w-1"}`}
-            />
+              className="p-2 -m-2 flex items-center"
+            >
+              <span className={`h-1.5 rounded-full transition-all ${i === idx ? "bg-[#0A1F5C] w-5" : "bg-[#0A1F5C]/30 w-1.5"}`} />
+            </button>
           ))}
         </div>
       )}
