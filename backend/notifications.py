@@ -13,6 +13,14 @@ back to "twilio").
   - `MSG91Provider` — Commit 2: a second implementation, selectable via
     NOTIFICATION_PROVIDER=msg91. Built and testable, but NOT yet the
     default — Commit 3 will flip the default after live validation.
+  - `GupshupProvider` — added narrowly to unblock login OTP delivery
+    (customer/merchant/rider) while MSG91's Authentication-template path
+    stays blocked on config/eligibility. WhatsApp-template-only —
+    send_sms/send_otp/verify_otp are deliberately unimplemented (fail
+    loudly, see the provider's own docstring), not silent no-ops.
+    Selectable via NOTIFICATION_PROVIDER=gupshup; do NOT set this in
+    production until a real live send has been verified — same rule as
+    every other provider cutover.
   - `get_provider()` — factory reading NOTIFICATION_PROVIDER (default
     "twilio"). An unrecognized value logs a warning and falls back to
     Twilio rather than breaking the app.
@@ -114,6 +122,17 @@ def _to_msg91_mobile(phone: str) -> Optional[str]:
     (e.g. `919812345678`), unlike Twilio's E.164 `+919812345678`."""
     e164 = _to_e164(phone)
     return e164.lstrip("+") if e164 else None
+
+
+def _to_gupshup_mobile(phone: str) -> Optional[str]:
+    """Gupshup's confirmed contract doesn't specify a digit format for
+    `destination` — this reuses the same country-code-no-plus convention
+    (`919812345678`) MSG91's WhatsApp API already uses, the most common
+    shape for Indian WhatsApp Business APIs. NOT independently confirmed
+    against Gupshup's own docs; the live test this provider was built
+    alongside is what actually validates it — if that test comes back
+    with a destination-format error, this is the first thing to check."""
+    return _to_msg91_mobile(phone)
 
 
 # ============================================================================
@@ -724,6 +743,159 @@ class MSG91Provider(NotificationProvider):
 
 
 # ============================================================================
+# Gupshup provider — added narrowly to unblock login OTP delivery
+# (customer/merchant/rider) while MSG91's WhatsApp Authentication-template
+# path remains blocked on config/eligibility issues (see MSG91Provider's
+# own docstring). Gupshup is WhatsApp-TEMPLATE-ONLY in this pass —
+# send_sms/send_otp/verify_otp are all deliberately UNIMPLEMENTED (fail
+# loudly: log + safe return value, never a silent no-op) rather than
+# guessed at. Do not extend this provider to cover order-lifecycle
+# notifications, SMS, or provider-owned OTP generation without a
+# confirmed contract for that specific capability first — the same
+# discipline every other provider in this file follows.
+# ============================================================================
+
+_GUPSHUP_BASE = "https://api.gupshup.io/wa/api/v1"
+
+
+class GupshupProvider(NotificationProvider):
+    """Request contract (from Gupshup's own current docs):
+
+      POST https://api.gupshup.io/wa/api/v1/template/msg
+      Header: apikey: {GUPSHUP_API_KEY}
+      Content-Type: application/x-www-form-urlencoded
+      Form fields: channel=whatsapp, source={GUPSHUP_WHATSAPP_NUMBER},
+        src.name={GUPSHUP_APP_NAME}, destination={recipient},
+        template={"id": "<template_id>", "params": ["<otp>", "<otp>"]}
+        — the OTP appears TWICE in params (body + button component), per
+        Gupshup's own explicit note. Do not deviate from this shape
+        without confirming a real reason to.
+
+    Response contract — PARTIALLY confirmed live, PARTIALLY still wrong:
+    a real live send (see git history around this class's introduction)
+    got back HTTP 202 with `{"status": "submitted", "messageId": "..."}`,
+    NOT `{"status": "success", ...}` as originally documented — so the
+    strict `status == "success"` check below deliberately treats that
+    real response as a FAILURE, matching what actually happened: the
+    message was accepted by Gupshup's API but never arrived on the real
+    test phone. 202+messageId is NOT sufficient proof of delivery for
+    this account — root cause (template/account config on Gupshup's own
+    dashboard, most likely) is UNRESOLVED as of this comment. Do not
+    loosen this check to accept "submitted" without independently
+    confirming real delivery first — that was the whole point of this
+    live test.
+
+    `template_params` (the interface's generic dict) carries exactly one
+    value — the OTP — via the same `{"1": otp}` convention Twilio/MSG91's
+    own send_whatsapp() already use elsewhere in this file; this provider
+    reads its first value and duplicates it into Gupshup's two-slot
+    `params` array to satisfy the request shape above.
+    """
+
+    _TEMPLATE_ENV = {
+        "customer_otp": "GUPSHUP_TEMPLATE_CUSTOMER_OTP",
+        "merchant_login_otp": "GUPSHUP_TEMPLATE_MERCHANT_LOGIN_OTP",
+        "rider_login_otp": "GUPSHUP_TEMPLATE_RIDER_LOGIN_OTP",
+    }
+
+    def _api_key(self) -> Optional[str]:
+        key = (os.environ.get("GUPSHUP_API_KEY") or "").strip()
+        if not key:
+            log.warning("[gupshup] GUPSHUP_API_KEY not configured — all Gupshup sends will be skipped")
+            return None
+        return key
+
+    def send_sms(self, to: str, message: str, *, message_type: Optional[str] = None) -> bool:
+        log.warning("[gupshup] send_sms() is not implemented for Gupshup in this pass — "
+                    "it is WhatsApp-template-only (see notifications.py's Gupshup section); skipping %s", to)
+        self.last_result = {"ok": False, "provider": "gupshup", "channel": "sms",
+                             "error": "send_sms not implemented for Gupshup (WhatsApp-template-only in this pass)"}
+        return False
+
+    def send_whatsapp(self, to: str, message: str, *,
+                       template_id: Optional[str] = None,
+                       template_params: Optional[dict] = None,
+                       message_type: Optional[str] = None) -> Optional[str]:
+        if not template_id:
+            log.warning("[gupshup-wa] send_whatsapp called without template_id for %s — Gupshup has no "
+                        "freeform WhatsApp path in this pass, only approved-template sends", to)
+            self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp",
+                                 "error": "template_id is required — Gupshup has no freeform WhatsApp path in this pass"}
+            return None
+        api_key = self._api_key()
+        if not api_key:
+            self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp",
+                                 "error": "GUPSHUP_API_KEY not configured"}
+            return None
+        source = (os.environ.get("GUPSHUP_WHATSAPP_NUMBER") or "").strip()
+        app_name = (os.environ.get("GUPSHUP_APP_NAME") or "").strip()
+        if not source or not app_name:
+            log.warning("[gupshup-wa] GUPSHUP_WHATSAPP_NUMBER/GUPSHUP_APP_NAME not configured — skipping WhatsApp to %s", to)
+            self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp",
+                                 "error": "GUPSHUP_WHATSAPP_NUMBER or GUPSHUP_APP_NAME not configured"}
+            return None
+        mobile = _to_gupshup_mobile(to)
+        if not mobile:
+            log.warning("[gupshup-wa] invalid phone: %r", to)
+            self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp", "error": f"invalid phone: {to!r}"}
+            return None
+        values = list((template_params or {}).values())
+        if not values:
+            log.warning("[gupshup-wa] send_whatsapp called with template_id but no template_params "
+                        "(need the OTP value) for %s", to)
+            self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp",
+                                 "error": "template_params must supply the OTP value"}
+            return None
+        otp_value = str(values[0])
+        try:
+            import requests
+            payload = {
+                "channel": "whatsapp",
+                "source": source,
+                "src.name": app_name,
+                "destination": mobile,
+                "template": json.dumps({"id": template_id, "params": [otp_value, otp_value]}),
+            }
+            resp = requests.post(
+                f"{_GUPSHUP_BASE}/template/msg",
+                data=payload,
+                headers={"apikey": api_key, "Content-Type": "application/x-www-form-urlencoded"},
+                timeout=10,
+            )
+            data = resp.json() if resp.content else {}
+            if resp.status_code == 202 and str(data.get("status", "")).lower() == "success":
+                msg_id = data.get("messageId")
+                log.info("[gupshup-wa] %s sent (id=%s message_type=%s)", mobile, msg_id, message_type)
+                self.last_result = {"ok": True, "provider": "gupshup", "channel": "whatsapp",
+                                     "status_code": resp.status_code, "message_id": msg_id, "response": data}
+                return str(msg_id) if msg_id else None
+            log.warning("[gupshup-wa] send to %s failed: status=%s response=%s", mobile, resp.status_code, data)
+            self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp",
+                                 "status_code": resp.status_code,
+                                 "error": data.get("message", f"HTTP {resp.status_code}"), "response": data}
+            return None
+        except Exception as e:
+            log.warning("[gupshup-wa] send to %s failed: %s", mobile, e)
+            self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp", "error": str(e)}
+            return None
+
+    def send_otp(self, to: str, otp: Optional[str] = None) -> str:
+        log.warning("[gupshup] send_otp() is not implemented for Gupshup in this pass — "
+                    "OTP is always locally generated (server.py); use send_whatsapp() with an "
+                    "explicit template_id via _deliver_login_otp() instead; skipping %s", to)
+        self.last_result = {"ok": False, "provider": "gupshup", "channel": "otp",
+                             "error": "send_otp not implemented for Gupshup in this pass"}
+        return "none"
+
+    def verify_otp(self, to: str, otp: str) -> bool:
+        log.warning("[gupshup] verify_otp() is not implemented for Gupshup in this pass — "
+                    "OTP verification is always local (server.py bcrypt check), never provider-owned")
+        self.last_result = {"ok": False, "provider": "gupshup", "channel": "verify_otp",
+                             "error": "verify_otp not implemented for Gupshup in this pass"}
+        return False
+
+
+# ============================================================================
 # Provider factory / selector
 # ============================================================================
 
@@ -744,12 +916,17 @@ def get_provider() -> NotificationProvider:
     An unrecognized value logs a warning and falls back to Twilio rather
     than breaking every send path."""
     name = active_provider_name()
-    if name not in ("twilio", "msg91"):
+    if name not in ("twilio", "msg91", "gupshup"):
         log.warning("[notify] NOTIFICATION_PROVIDER=%r is not implemented — using twilio", name)
         name = "twilio"
     inst = _provider_instances.get(name)
     if inst is None:
-        inst = MSG91Provider() if name == "msg91" else TwilioProvider()
+        if name == "msg91":
+            inst = MSG91Provider()
+        elif name == "gupshup":
+            inst = GupshupProvider()
+        else:
+            inst = TwilioProvider()
         _provider_instances[name] = inst
     return inst
 
@@ -860,6 +1037,18 @@ def _deliver_login_otp(phone: str, otp: str, message_type: str, fallback_body: s
     for an Authentication template, so `fallback_body`'s Lokl-branded text
     is NOT what actually gets sent on this path.
 
+    Gupshup follows the same shape: when Gupshup is active AND has a
+    configured template id for this message_type (GUPSHUP_TEMPLATE_ENV),
+    sends via GupshupProvider.send_whatsapp(template_id=...) and always
+    returns early (success or fail) — never falls through to
+    send_with_fallback, since Gupshup has no freeform WhatsApp path in
+    this pass (see GupshupProvider's own docstring). If Gupshup is active
+    but no template is configured for this message_type, it DOES fall
+    through below — send_with_fallback() will call send_whatsapp() with
+    no template_id, and GupshupProvider's own guard fails that loudly
+    (clear log line, no silent no-op), rather than duplicating that guard
+    here.
+
     Otherwise falls back to the plain send_with_fallback(fallback_body)
     path (Twilio, or MSG91 without Authentication-template config yet) —
     this is where fallback_body's own wording actually ships. Kept as a
@@ -879,6 +1068,19 @@ def _deliver_login_otp(phone: str, otp: str, message_type: str, fallback_body: s
                 log.info("[OTP] provider=msg91 auth-template OTP delivered to=%s (id=%s)", phone, msg_id)
                 return
             log.warning("[OTP] provider=msg91 auth-template OTP FAILED for %s (%s) — no further channel attempted",
+                        phone, provider.last_result.get("error", "see prior log line"))
+            return
+    if active_provider_name() == "gupshup":
+        provider = get_provider()
+        template_env = getattr(provider, "_TEMPLATE_ENV", {}).get(message_type)
+        template_id = (os.environ.get(template_env) or "").strip() if template_env else ""
+        if template_id:
+            msg_id = provider.send_whatsapp(phone, fallback_body, template_id=template_id,
+                                             template_params={"1": str(otp)}, message_type=message_type)
+            if msg_id:
+                log.info("[OTP] provider=gupshup template OTP delivered to=%s (id=%s)", phone, msg_id)
+                return
+            log.warning("[OTP] provider=gupshup template OTP FAILED for %s (%s) — no further channel attempted",
                         phone, provider.last_result.get("error", "see prior log line"))
             return
     send_with_fallback(phone, fallback_body, message_type=message_type)
