@@ -1,108 +1,60 @@
 "use client";
 
 /**
- * HeroCarousel — replaces the old static HeroV2 in Home's hero slot.
+ * HeroCarousel — the per-L1 hero banner, shown on Home (l1Id="l1-women",
+ * since Women is the default-active tab there — see CategoryTileRow's own
+ * doc comment) and on every /c/[slug] page (l1Id = that page's own L1).
  *
- * Scroll-snap + dot-indicator mechanics are lifted from ProductGallery's
- * mobile image gallery (flex overflow-x-auto snap-x snap-mandatory, a
- * debounced scroll listener deriving the active index, scrollIntoView for
- * programmatic navigation) rather than built from scratch — see that
- * component's own doc comment for why this is the established pattern
- * for a swipeable strip in this codebase.
+ * Redesign Phase B: this component now self-fetches from the real backend
+ * HeroSlide collection (GET /api/hero-slides?l1_id=..., Phase A's model,
+ * public-read endpoint added alongside this change) instead of taking a
+ * `slides` prop — DEFAULT_HERO_SLIDES and l1HeroConfig.ts's static per-L1
+ * copy are both gone, replaced by whatever an admin has published for that
+ * L1 in CMS -> Homepage Assets -> Hero slides. An L1 with zero active
+ * slides published (everything except Women today — see migration
+ * 017_seed_hero_slides.py, the only seeded row) simply renders nothing;
+ * this is real, expected, and matches the same "correct plumbing, sparse
+ * data" situation Phase A's L2 store-aggregation work already surfaced —
+ * not a bug, just content an admin hasn't entered yet.
  *
- * Autoplay: a single setInterval (AUTOPLAY_MS) advances to the next slide
- * via the same goTo() the dots use, wrapping back to 0 after the last
- * slide. Of the two pause behaviors the spec allowed (pause-and-resume-
- * after-inactivity vs. stop-permanently-on-manual-interaction), this uses
- * the LATTER — stopAutoplay() is called on the first touch/pointer-down
- * on the strip or the first dot click, and once called the interval never
- * restarts for the rest of this component's lifetime. Pause-and-resume
- * needs a second debounced timer that has to coexist with the autoplay
- * interval without racing it (e.g. a resume firing mid-drag); permanent
- * stop-on-interaction has no such race — "the user is now driving, stop
- * driving for them" is a strictly simpler rule and was chosen for that
- * reason, not because resume wouldn't also be valid.
+ * Visual rebuild: full-bleed (edge-to-edge, no rounded-2xl card/no max-w
+ * padded tray around the image — unlike ProductGallery's PDP treatment,
+ * which IS a padded/cornered card), height capped low (~92-104px, the
+ * "thin banner" treatment per the redesign plan, replacing the old
+ * two-tier default/compact sizing split entirely — there's now only one
+ * size). Dots are correspondingly smaller. The HeroSlide backend model has
+ * no subtitle or separate CTA-label field (just image/eyebrow/headline/
+ * cta_link) — sized copy to match (eyebrow + one-line headline only) and
+ * made the whole slide tap-through via cta_link when present, rather than
+ * inventing a button label the model doesn't carry.
  *
- * HeroSlide[] is a prop, not fetched here — for THIS phase the caller
- * passes DEFAULT_HERO_SLIDES (below), a static placeholder array reusing
- * imagery already referenced elsewhere in this codebase (the existing
- * hero image, plus the same Unsplash photos the Women/Men/Ethnic L1
- * category tiles already use — see backend/seed_data.py's L1_CATEGORIES).
- * Swapping in real backend-driven slides later (once the offers model's
- * ALLOWED_OFFER_FIELDS gap from the audit is fixed) is a data-source
- * change at the call site, not a change to this component.
- *
- * `compact` — CategoryClient's /c/[slug] hero opts into this; Home's own
- * hero doesn't pass it at all, so its size is completely unaffected.
- * ~45% of the default min-height (135px/145px vs. 300px/320px), a single
- * smaller title line instead of the large multi-line headline scale, and
- * a smaller CTA pill — sized for l1HeroConfig's own shorter eyebrow + one-
- * line copy (no separate subtitle paragraph at that length), not the
- * fuller marketing-banner copy Home's slides still carry.
+ * Scroll-snap + dot-indicator + autoplay mechanics are unchanged from the
+ * pre-Phase-B version (still lifted from ProductGallery's own pattern —
+ * see git history for the fuller rationale); only sizing/data-source
+ * changed.
  */
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-
-export interface HeroSlide {
-  id: string;
-  image: string;
-  mobileImage?: string;
-  eyebrow?: string;
-  title: string;
-  subtitle?: string;
-  ctaLabel?: string;
-  ctaHref?: string;
-}
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import type { HeroSlide } from "@/types";
 
 const AUTOPLAY_MS = 4500;
 
-// Reuses FALLBACK_HERO_IMG's exact asset (the one hero photo that actually
-// exists in this codebase today, see v2/HeroV2.tsx) for slide 1, and the
-// same Unsplash URLs backend/seed_data.py's L1_CATEGORIES already use for
-// Women/Men/Ethnic Wear (bumped to a wider crop for a hero-sized banner)
-// for slides 2-4 — placeholder content, not new asset uploads, per the
-// phase-1 scope (no real offers/category-scoped banners yet).
-export const DEFAULT_HERO_SLIDES: HeroSlide[] = [
-  {
-    id: "welcome",
-    image: "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png",
-    eyebrow: "Serving Bhilai",
-    title: "Delivered in minutes from stores next door.",
-    subtitle: "Hand-picked fashion from trusted Bhilai stores.",
-    ctaLabel: "Shop now",
-    ctaHref: "/products",
-  },
-  {
-    id: "women",
-    image: "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=1200&q=80",
-    eyebrow: "New in",
-    title: "Fresh drops in Women's Fashion",
-    subtitle: "Dresses, ethnic wear and more from local stores.",
-    ctaLabel: "Shop Women",
-    ctaHref: "/c/women",
-  },
-  {
-    id: "men",
-    image: "https://images.unsplash.com/photo-1617137968427-85924c800a22?w=1200&q=80",
-    eyebrow: "Trending",
-    title: "Level up your Men's wardrobe",
-    subtitle: "Shirts, jeans and ethnic wear, delivered fast.",
-    ctaLabel: "Shop Men",
-    ctaHref: "/c/men",
-  },
-  {
-    id: "ethnic",
-    image: "https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=1200&q=80",
-    eyebrow: "Festive ready",
-    title: "Ethnic wear for every occasion",
-    subtitle: "Kurtas, sarees and more from Bhilai's own stores.",
-    ctaLabel: "Shop Ethnic Wear",
-    ctaHref: "/c/ethnic",
-  },
-];
+function HeroSkeleton() {
+  return <div className="w-full min-h-[92px] sm:min-h-[104px] bg-[#E5E2DC] animate-pulse" />;
+}
 
-export function HeroCarousel({ slides, compact = false }: { slides: HeroSlide[]; compact?: boolean }) {
+export function HeroCarousel({ l1Id }: { l1Id: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["hero-slides", l1Id],
+    queryFn: () => api.catalog.heroSlides(l1Id),
+    staleTime: 5 * 60_000,
+  });
+
+  const slides = [...(data ?? [])].sort((a, b) => a.order - b.order);
+
   const [idx, setIdx] = useState(0);
   const idxRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -124,8 +76,9 @@ export function HeroCarousel({ slides, compact = false }: { slides: HeroSlide[];
     if (autoplayTimer.current) { clearInterval(autoplayTimer.current); autoplayTimer.current = null; }
   };
 
-  // Autoplay — see doc comment above for why this is stop-permanently
-  // (not pause/resume) once the user has touched the strip.
+  // Autoplay — stop-permanently (not pause/resume) once the user has
+  // touched the strip; see this file's own history for why that's simpler
+  // than a resume-after-inactivity model.
   useEffect(() => {
     if (slides.length <= 1) return;
     autoplayTimer.current = setInterval(() => {
@@ -136,9 +89,6 @@ export function HeroCarousel({ slides, compact = false }: { slides: HeroSlide[];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slides.length]);
 
-  // Same debounced-scroll-end -> derive-active-index pattern ProductGallery
-  // uses, so the dots stay correct whether a slide change came from
-  // autoplay, a dot click, or the user's own swipe.
   const handleScroll = () => {
     if (scrollTimer.current) clearTimeout(scrollTimer.current);
     scrollTimer.current = setTimeout(() => {
@@ -149,94 +99,69 @@ export function HeroCarousel({ slides, compact = false }: { slides: HeroSlide[];
     }, 80);
   };
 
+  if (isLoading) return <HeroSkeleton />;
   if (slides.length === 0) return null;
 
   return (
-    <section data-testid="hero-carousel" className="relative">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 md:pt-6">
-        <div className="relative rounded-2xl overflow-hidden bg-[#0A1F5C]">
-          <div
-            ref={scrollRef}
-            onScroll={handleScroll}
-            onPointerDown={stopAutoplay}
-            onTouchStart={stopAutoplay}
-            className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory"
-          >
-            {slides.map((slide, i) => (
-              <div
-                key={slide.id}
-                data-testid={`hero-carousel-slide-${i}`}
-                className={`relative snap-start shrink-0 w-full ${compact ? "min-h-[135px] md:min-h-[145px]" : "min-h-[300px] md:min-h-[320px]"}`}
-              >
-                <Image
-                  src={slide.mobileImage || slide.image}
-                  alt={slide.title}
-                  fill
-                  priority={i === 0}
-                  sizes="100vw"
-                  className="object-cover object-center md:hidden"
-                />
-                <Image
-                  src={slide.image}
-                  alt={slide.title}
-                  fill
-                  priority={i === 0}
-                  sizes="(max-width: 768px) 100vw, 1200px"
-                  className="object-cover object-[60%_45%] md:object-center hidden md:block"
-                />
-                <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/95 via-[#FDFBF7]/80 to-[#FDFBF7]/30 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
-                <div className={`relative flex flex-col justify-center max-w-2xl ${
-                  compact
-                    ? "px-4 md:px-6 py-4 md:py-5 min-h-[135px] md:min-h-[145px]"
-                    : "px-5 md:px-10 lg:px-12 py-6 md:py-10 min-h-[300px] md:min-h-[320px]"
-                }`}>
-                  {slide.eyebrow && (
-                    <span className="text-[11px] font-bold uppercase tracking-wide text-[#E68910]">{slide.eyebrow}</span>
-                  )}
-                  <h1 className={`font-display font-bold text-[#0A1F5C] mt-1 ${
-                    compact
-                      ? "text-[15px] md:text-lg leading-snug"
-                      : "text-[26px] leading-[1.1] md:text-4xl lg:text-5xl tracking-tight"
-                  }`}>
-                    {slide.title}
+    <section data-testid="hero-carousel" className="relative w-full overflow-hidden bg-[#0A1F5C]">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        onPointerDown={stopAutoplay}
+        onTouchStart={stopAutoplay}
+        className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory"
+      >
+        {slides.map((slide, i) => {
+          const content = (
+            <>
+              <Image
+                src={slide.image}
+                alt={slide.headline || ""}
+                fill
+                priority={i === 0}
+                sizes="100vw"
+                className="object-cover object-center"
+              />
+              <div className="absolute inset-0 bg-gradient-to-r from-[#FDFBF7]/95 via-[#FDFBF7]/55 to-transparent" />
+              <div className="relative h-full flex flex-col justify-center max-w-[75%] sm:max-w-md px-4 sm:px-6">
+                {slide.eyebrow && (
+                  <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wide text-[#E68910]">{slide.eyebrow}</span>
+                )}
+                {slide.headline && (
+                  <h1 className="font-display font-bold text-[#0A1F5C] text-[13px] sm:text-[15px] leading-snug line-clamp-2 mt-0.5">
+                    {slide.headline}
                   </h1>
-                  {slide.subtitle && (
-                    <p className="mt-2.5 md:mt-3 text-[13px] md:text-base text-[#0A1F5C]/75 md:text-[#475569] max-w-md leading-relaxed">
-                      {slide.subtitle}
-                    </p>
-                  )}
-                  {slide.ctaLabel && slide.ctaHref && (
-                    <Link
-                      href={slide.ctaHref}
-                      data-testid={`hero-carousel-cta-${i}`}
-                      className={`inline-flex items-center self-start rounded-full bg-[#0A1F5C] text-white font-bold hover:bg-[#0A1F5C]/90 transition ${
-                        compact ? "mt-2 px-3.5 py-1.5 text-[11px]" : "mt-4 px-5 py-2.5 text-sm"
-                      }`}
-                    >
-                      {slide.ctaLabel}
-                    </Link>
-                  )}
-                </div>
+                )}
               </div>
-            ))}
-          </div>
-
-          {slides.length > 1 && (
-            <div className="absolute bottom-3 inset-x-0 flex justify-center gap-1.5">
-              {slides.map((_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => { stopAutoplay(); goTo(i); }}
-                  data-testid={`hero-carousel-dot-${i}`}
-                  aria-label={`Go to slide ${i + 1}`}
-                  className={`h-1.5 rounded-full transition-all ${i === idx ? "bg-[#0A1F5C] w-5" : "bg-[#0A1F5C]/30 w-1.5"}`}
-                />
-              ))}
+            </>
+          );
+          const slideClassName = "relative snap-start shrink-0 w-full min-h-[92px] sm:min-h-[104px]";
+          return slide.cta_link ? (
+            <Link key={slide.id} href={slide.cta_link} data-testid={`hero-carousel-slide-${i}`} className={slideClassName}>
+              {content}
+            </Link>
+          ) : (
+            <div key={slide.id} data-testid={`hero-carousel-slide-${i}`} className={slideClassName}>
+              {content}
             </div>
-          )}
-        </div>
+          );
+        })}
       </div>
+
+      {slides.length > 1 && (
+        <div className="absolute bottom-1.5 inset-x-0 flex justify-center gap-1">
+          {slides.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => { stopAutoplay(); goTo(i); }}
+              data-testid={`hero-carousel-dot-${i}`}
+              aria-label={`Go to slide ${i + 1}`}
+              className={`h-1 rounded-full transition-all ${i === idx ? "bg-[#0A1F5C] w-4" : "bg-[#0A1F5C]/30 w-1"}`}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }

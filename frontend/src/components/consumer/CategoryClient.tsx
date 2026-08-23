@@ -8,7 +8,6 @@ import { apiClient } from "@/lib/api-client";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { SellerCard } from "@/components/consumer/SellerCard";
 import { HeroCarousel } from "@/components/consumer/HeroCarousel";
-import { getL1HeroSlides } from "@/components/consumer/l1HeroConfig";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { CategoryTile } from "@/components/consumer/CategoryTile";
 import type { ProductCard as ProductCardType, CategoryNode } from "@/types";
@@ -243,14 +242,11 @@ export function CategoryClient() {
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <main className="flex-1">
-        {/* 1. L1-scoped hero — a single-slide HeroCarousel (renders static,
-            no autoplay/dots, since HeroCarousel no-ops both once
-            slides.length <= 1) driven by l1HeroConfig's per-L1 copy. Falls
-            back to a generic-but-honest hero for any L1 not yet in that
-            config — see getL1HeroSlides. `compact` shrinks it to ~45% of
-            Home's hero height, sized for l1HeroConfig's shorter
-            eyebrow + one-line copy — see both components' own comments. */}
-        <HeroCarousel slides={getL1HeroSlides(slug, l1.name)} compact />
+        {/* 1. L1-scoped hero — HeroCarousel now self-fetches this L1's real
+            HeroSlide docs (redesign Phase B). Renders nothing for an L1
+            with no active slides published yet — see HeroCarousel's own
+            doc comment; that's expected today for every L1 except Women. */}
+        <HeroCarousel l1Id={l1.id} />
 
         {/* 2. "Bestsellers in {L1}" — reuses HCarousel + ProductCard exactly
             as Home's own rails do, no new card component. */}

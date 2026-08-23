@@ -30,7 +30,7 @@ import Link from "next/link";
 import { Sparkles, RotateCcw, Tag } from "lucide-react";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
-import { HeroV2 } from "@/components/consumer/v2/HeroV2";
+import { HeroCarousel } from "@/components/consumer/HeroCarousel";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { SellerCard } from "@/components/consumer/SellerCard";
@@ -50,8 +50,6 @@ import {
 
 interface OfferDoc { id: string; title: string; subtitle?: string; description?: string; code?: string; image?: string; cta_label?: string; cta_link?: string; background?: string }
 interface TestimonialDoc { id: string; name: string; city: string; quote?: string; message?: string; rating?: number; avatar?: string }
-interface HomeStatsDoc { fastest_eta_min?: number }
-interface HeroConfigDoc { image?: string; eyebrow?: string; title_line1?: string; title_line2?: string; subtitle?: string }
 interface SectionDoc { id: string; label: string; enabled: boolean; rank: number }
 interface HomeProductsRail { store_id: string; store_name: string; store_slug: string; store_banner?: string; store_tagline?: string; products: ProductCardType[] }
 interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCardType[]; best_deals: ProductCardType[]; premium_picks: ProductCardType[] }
@@ -80,6 +78,7 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills", label: "Category pills",    enabled: true, rank: 10 },
   { id: "hero",           label: "Hero",              enabled: true, rank: 20 },
+  { id: "shop_by_category", label: "Shop by Category", enabled: true, rank: 25 },
   { id: "under_499",      label: "Under ₹499",        enabled: true, rank: 50 },
   { id: "meet_sellers",   label: "Meet your sellers", enabled: true, rank: 60 },
   // Placed right after meet_sellers — both are discovery-by-identity
@@ -175,6 +174,70 @@ function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[])
     out.push({ key: l2.id, href: `/c/${l1.slug}/${l2.slug}`, image: l2.image || null, label: spec.label, minPrice: l2.min_price ?? null });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// "Shop by Category" (redesign Phase B) — a curated 2x3 grid using
+// CategoryTile's "generous" density (portrait photo, bottom scrim, white
+// label baked in — redesign-plan 3.1), distinct from GenderBentoSection's
+// "dense" circular-avatar 8-tile grids just above. Exactly 6 tiles, in
+// this fixed order, per the locked decision: Dresses/Tops/Bottoms route to
+// their normal Women-scoped L2s; Footwear/Ethnic/Lingerie route to the
+// GENDERED L2 (l2-women-footwear etc.), not the standalone L1 — this falls
+// out automatically from reading `l1.l2` (Women's own nested L2 list only
+// ever contains the gendered variants, never the standalone l1-footwear/
+// l1-ethnic/l1-lingerie categories), the exact same mechanism
+// resolveGenderTiles already relies on for FOR_HER_TILES/FOR_HIM_TILES —
+// see that function's own comment.
+//
+// `l1Slug` is a parameter (not hardcoded to "women") so this is reusable
+// for a future Men's-homepage context, but today it's only ever called
+// with "women" — Home is Women's homepage by default (see
+// CategoryTileRow), and /c/men already has its own full L2 grid
+// (CategoryClient's "Shop by category" filter grid, all L2s, dense).
+// ---------------------------------------------------------------------------
+interface ShopByCategorySpec { label: string; l2Slug: string }
+
+const SHOP_BY_CATEGORY_TILES: ShopByCategorySpec[] = [
+  { label: "Dresses",  l2Slug: "dresses" },
+  { label: "Tops",     l2Slug: "tops" },
+  { label: "Bottoms",  l2Slug: "bottoms" },
+  { label: "Footwear", l2Slug: "footwear" },
+  { label: "Ethnic",   l2Slug: "ethnic-wear" },
+  { label: "Lingerie", l2Slug: "lingerie" },
+];
+
+function resolveShopByCategoryTiles(categories: CategoryNode[], l1Slug: string): ResolvedGenderTile[] {
+  const l1 = categories.find((c) => c.slug === l1Slug);
+  if (!l1) return [];
+  const out: ResolvedGenderTile[] = [];
+  for (const spec of SHOP_BY_CATEGORY_TILES) {
+    const l2 = (l1.l2 ?? []).find((s) => s.slug === spec.l2Slug);
+    if (!l2) continue;
+    out.push({ key: l2.id, href: `/c/${l1.slug}/${l2.slug}`, image: l2.image || null, label: spec.label, minPrice: l2.min_price ?? null });
+  }
+  return out;
+}
+
+function ShopByCategorySection({ tiles }: { tiles: ResolvedGenderTile[] }) {
+  if (tiles.length === 0) return null;
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_category">
+      <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">Shop by Category</h2>
+      <div className="grid grid-cols-2 gap-3">
+        {tiles.map((t) => (
+          <CategoryTile
+            key={t.key}
+            density="generous"
+            href={t.href}
+            testId={`shop-by-category-tile-${t.key}`}
+            image={t.image ? cloudinaryOptimize(t.image, "w_400,q_auto,f_auto") : undefined}
+            label={t.label}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // Small circular category avatars — the same visual scale/shape as
@@ -461,8 +524,6 @@ function TryAndBuySection({ image }: { image: string }) {
 export function HomeClient() {
   const lat = useLocationStore((s) => s.lat);
   const lng = useLocationStore((s) => s.lng);
-  const [stats, setStats] = useState<HomeStatsDoc | null>(null);
-  const [hero, setHero] = useState<HeroConfigDoc | null>(null);
   const [tryAndBuyImage, setTryAndBuyImage] = useState<string>("");
   const [sections, setSections] = useState<SectionDoc[]>(DEFAULT_SECTIONS);
   const [offers, setOffers] = useState<OfferDoc[]>([]);
@@ -504,10 +565,8 @@ export function HomeClient() {
     setErrors((prev) => { const next = new Set(prev); next.add(key); return next; });
 
   useEffect(() => {
-    api.site.homeStats().then((r) => setStats(r as unknown as HomeStatsDoc)).catch(() => {});
     api.site.homepageConfig().then((cfg) => {
-      const c = cfg as unknown as { hero?: HeroConfigDoc; sections?: SectionDoc[]; try_and_buy_image?: string };
-      if (c.hero) setHero(c.hero);
+      const c = cfg as unknown as { sections?: SectionDoc[]; try_and_buy_image?: string };
       if (c.try_and_buy_image) setTryAndBuyImage(c.try_and_buy_image);
       if (Array.isArray(c.sections) && c.sections.length > 0) {
         // The DB config is now AUTHORITATIVE for order + enabled — this is
@@ -696,11 +755,18 @@ export function HomeClient() {
   );
 
   const sectionRenderers: Record<string, React.ReactNode> = {
+    // Women is Home's default-active L1 tab (see CategoryTileRow) — the
+    // hero shows Women's published slides for that same reason. The old
+    // site-wide HeroEditor.tsx/site_config.homepage.hero system (HeroV2)
+    // is untouched and still coexists in the codebase; Home simply no
+    // longer renders it here.
     hero: (
       <div key="hero" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("hero")); } catch {} } }}>
-        <HeroV2 stats={stats} hero={hero} />
+        <HeroCarousel l1Id="l1-women" />
       </div>
     ),
+
+    shop_by_category: <ShopByCategorySection key="shop-by-category" tiles={resolveShopByCategoryTiles(categories, "women")} />,
 
     for_her: <GenderBentoSection key="for-her" id="for_her" title="For Her" tiles={resolveGenderTiles(categories, FOR_HER_TILES)} />,
 

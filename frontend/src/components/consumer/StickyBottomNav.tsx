@@ -15,13 +15,21 @@
  * PdpCtaRow) stays in normal document flow, not fixed. This nav is the
  * only persistent chrome on the PDP.
  *
- *   [ Home ] [ Categories ] [ All ] [ Stores ] [ Profile ]
+ *   [ Home ] [ Categories ] [ Search ] [ Stores ] [ Profile ]
  *
  * Wishlist moved into the account page (its own boxed section, matching
  * the address box) — the standalone /wishlist route still works, it's
- * just no longer the primary entry point. Search lives in the pinned bar
- * in ConsumerHeader (its own in-place top sheet), not here — cart already
- * lives top-right in the consumer header too, so neither doubles up.
+ * just no longer the primary entry point.
+ *
+ * Redesign Phase B: the middle slot used to be "All" (a Link to
+ * /products); ConsumerHeader's persistent pinned search bar was removed in
+ * the same pass, so this slot is now Search's entry point instead — a
+ * button (not a Link; it doesn't navigate) that opens the exact same
+ * useSearchOverlay-driven sheet the header bar used to open, via the same
+ * store. /products itself is still reachable (desktop header's own
+ * "Products" nav link, Home's category/price-band tiles, etc.) — it's just
+ * no longer a single-tap mobile bottom-nav destination; this is an
+ * intentional trade-off, not an oversight — see the redesign notes.
  *
  * /checkout (the merged Bag/Checkout screen, formerly two pages) is
  * EXCLUDED — it has its own sticky bottom price+CTA bar, and stacking that
@@ -32,12 +40,15 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Grid3x3, Store, ShoppingBag, User } from "lucide-react";
+import { Home, Grid3x3, Store, Search, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { trackNavClick } from "@/lib/analytics";
+import { useSearchOverlay } from "@/stores";
 
 export function StickyBottomNav() {
   const pathname = usePathname();
+  const searchOpen = useSearchOverlay((s) => s.open);
+  const openSearch = useSearchOverlay((s) => s.show);
 
   if (pathname.startsWith("/merchant") || pathname.startsWith("/admin") || pathname.startsWith("/rider") || pathname.startsWith("/checkout")) return null;
 
@@ -63,10 +74,10 @@ export function StickyBottomNav() {
           </Link>
         </li>
         <li className="flex items-center justify-center">
-          <Link href="/products" data-testid="nav-all-products" onClick={() => { try { trackNavClick("all"); } catch {} }} className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/products") ? "text-brand-accent" : "text-slate-600")}>
-            <ShoppingBag size={20} />
-            <span className="text-[10px] font-medium">All</span>
-          </Link>
+          <button type="button" onClick={() => { try { trackNavClick("search"); } catch {} openSearch(); }} data-testid="nav-search" className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", searchOpen ? "text-brand-accent" : "text-slate-600")}>
+            <Search size={20} />
+            <span className="text-[10px] font-medium">Search</span>
+          </button>
         </li>
         <li className="flex items-center justify-center">
           <Link href="/stores" data-testid="nav-stores" onClick={() => { try { trackNavClick("stores"); } catch {} }} className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/stores") ? "text-brand-accent" : "text-slate-600")}>

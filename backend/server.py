@@ -1110,6 +1110,18 @@ async def list_categories():
     return [{**c, "min_price": l1_min.get(c["id"]), "l2": by_l1.get(c["id"], [])} for c in cats]
 
 
+@api.get("/hero-slides")
+async def list_hero_slides(l1_id: str):
+    """Public read of the per-L1 hero carousel (redesign Phase A's
+    HeroSlide model, Phase B's first real consumer of it) — active-only,
+    already sorted by `order`, so HeroCarousel.tsx can render the response
+    as-is with no client-side filtering. The admin CRUD counterpart
+    (/admin/hero-slides) stays auth-gated; this is the customer-facing
+    read half that was missing until now."""
+    rows = await db.hero_slides.find({"l1_id": l1_id, "active": True}, {"_id": 0}).sort("order", 1).to_list(20)
+    return rows
+
+
 @api.get("/areas")
 async def list_areas():
     """Featured Bhilai areas for the homepage "Shop by Area" section — image
@@ -3012,6 +3024,7 @@ async def stores_in_category(l1_id: str, l2_id: Optional[str] = None, limit: int
 DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "category_pills", "label": "Category pills",           "enabled": True,  "rank": 10},
     {"id": "hero",           "label": "Hero",                     "enabled": True,  "rank": 20},
+    {"id": "shop_by_category", "label": "Shop by Category",       "enabled": True,  "rank": 25},
     {"id": "under_499",      "label": "Under ₹499",               "enabled": True,  "rank": 30},
     {"id": "meet_sellers",   "label": "Meet your sellers",        "enabled": True,  "rank": 40},
     {"id": "shop_by_brand",  "label": "Shop by Brand",            "enabled": True,  "rank": 45},

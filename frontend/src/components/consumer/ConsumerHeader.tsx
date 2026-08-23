@@ -3,23 +3,23 @@
 /**
  * ConsumerHeader — sticky glass header.
  *
- * Mobile (<lg): TWO rows, both inside the same sticky header element so
- *   they scroll together — Logo · LocationChip (flex-1) · Cart on row 1,
- *   then a full-width pinned search bar on row 2. Tapping it does NOT
- *   navigate or take over the screen — the bar itself turns into a real
- *   input in place, and a SHEET drops down from directly below the header
- *   (over a dimmed backdrop covering the rest of the page) with the same
- *   recent/trending/live-suggestion experience the old full-screen
- *   SearchOverlay had. See MobileSearchBar (idle vs active) and
- *   MobileSearchSheet below. Dismiss via backdrop tap, the X, Escape, or
- *   the device back gesture (a history entry is pushed while the sheet is
- *   open specifically so back-gesture has something to intercept — see the
- *   popstate effect below).
+ * Mobile (<lg): ONE row — Logo · LocationChip (flex-1) · Cart. Redesign
+ *   Phase B removed the persistent pinned search bar that used to sit in a
+ *   second row here — search's entry point is now the bottom nav's Search
+ *   tab (see StickyBottomNav.tsx), which calls the same useSearchOverlay
+ *   store's `show()` this header used to call from its own bar. Opening it
+ *   still renders the same SHEET dropping down from directly below the
+ *   header (over a dimmed backdrop covering the rest of the page), with
+ *   the same recent/trending/live-suggestion experience — the sheet just
+ *   now owns its own search input directly (see MobileSearchSheet below)
+ *   instead of reading it from a header row that no longer exists. Dismiss
+ *   via backdrop tap, the X, Escape, or the device back gesture (a history
+ *   entry is pushed while the sheet is open specifically so back-gesture
+ *   has something to intercept — see the popstate effect below).
  * Desktop (≥lg): single row — Logo · LocationChip · big Search · Stores
- *   · For Merchants · Profile · Cart. The Search input claims as much of
- *   the row as possible so the header doesn't have wasted whitespace; its
- *   dropdown (SuggestPanel) was already an in-place, non-navigating
- *   pattern, so it's untouched by the mobile sheet rework above.
+ *   · For Merchants · Profile · Cart. Untouched by the above — desktop has
+ *   no bottom nav, so its inline Search input + SuggestPanel dropdown stay
+ *   exactly where they were.
  *
  * LocationChip handles its own auto-detect on mount and its own popover —
  * see the LocationChip component below.
@@ -80,7 +80,6 @@ export function ConsumerHeader() {
   const customerPhone = useCustomerAuthStore((s) => s.phone);
   useHeartbeat(customerPhone ? "customer" : "guest", { phone: customerPhone });
   const mobileSearchOpen = useSearchOverlay((s) => s.open);
-  const openMobileSearch = useSearchOverlay((s) => s.show);
   const closeMobileSearch = useSearchOverlay((s) => s.hide);
 
   // Header height, tracked live so the mobile sheet/backdrop can anchor
@@ -308,28 +307,13 @@ export function ConsumerHeader() {
           {mounted && cartCount > 0 && <span className="text-xs font-semibold" data-testid="cart-badge">{cartCount}</span>}
         </Link>
       </div>
-
-      {/* Mobile pinned search bar — row 2, still inside the sticky header
-          so it scrolls together with row 1. Tapping it does NOT navigate —
-          it swaps in place to a real input, and MobileSearchSheet (a sibling
-          of <header>, positioned by headerHeight below) drops down over the
-          rest of the page. */}
-      <div className="lg:hidden max-w-7xl mx-auto px-4 pb-2.5">
-        <MobileSearchBar
-          active={mobileSearchOpen}
-          q={mobileQ}
-          onChange={setMobileQ}
-          onOpen={openMobileSearch}
-          onSubmit={() => submitMobileSearch()}
-          onClose={dismissMobileSearch}
-        />
-      </div>
     </header>
 
     {mobileSearchOpen && (
       <MobileSearchSheet
         topOffset={headerHeight}
         q={mobileQ}
+        onChange={setMobileQ}
         loading={mobileSuggLoading}
         suggestions={mobileSuggestions}
         recent={mobileRecent}
@@ -346,116 +330,21 @@ export function ConsumerHeader() {
 
 // ─── Subcomponents ─────────────────────────────────────────────────
 
-// Mobile pinned search bar — idle state looks like a text input (rounded,
-// on-brand, whisper shadow, search glyph, cycling placeholder hint) but is
-// really a button. Once active it swaps in place — same position/size — to
-// a REAL input plus a close (X) button; the sheet below reads its value.
-// The cycling placeholder pauses while active since a real value/placeholder
-// takes over.
-const SEARCH_HINTS = ["try: jeans", "try: kurtas", "try: sarees", "try: sneakers", "try: ethnic wear"];
-
-function MobileSearchBar({
-  active, q, onChange, onOpen, onSubmit, onClose,
-}: {
-  active: boolean;
-  q: string;
-  onChange: (v: string) => void;
-  onOpen: () => void;
-  onSubmit: () => void;
-  onClose: () => void;
-}) {
-  const [hintIndex, setHintIndex] = useState(0);
-  const [visible, setVisible] = useState(true);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (active) return; // real value/placeholder takes over once active
-    let fadeTimer: ReturnType<typeof setTimeout> | undefined;
-    const tick = setInterval(() => {
-      setVisible(false);
-      fadeTimer = setTimeout(() => {
-        setHintIndex((i) => (i + 1) % SEARCH_HINTS.length);
-        setVisible(true);
-      }, 180);
-    }, 2200);
-    return () => { clearInterval(tick); if (fadeTimer) clearTimeout(fadeTimer); };
-  }, [active]);
-
-  // Pop the keyboard as soon as the bar becomes the real input.
-  useEffect(() => {
-    if (active) requestAnimationFrame(() => inputRef.current?.focus());
-  }, [active]);
-
-  if (!active) {
-    return (
-      <button
-        type="button"
-        onClick={onOpen}
-        data-testid="mobile-search-bar"
-        aria-label="Search"
-        className="w-full flex items-center gap-2.5 px-4 py-2.5 bg-white rounded-full border border-card-border shadow-[0_2px_8px_rgba(10,31,92,0.06)] text-left active:scale-[0.99] transition"
-      >
-        <Search size={17} className="text-brand-accent shrink-0" />
-        <span
-          data-testid="mobile-search-hint"
-          className={`flex-1 min-w-0 truncate text-sm text-text-secondary transition-opacity duration-200 ${visible ? "opacity-100" : "opacity-0"}`}
-        >
-          {SEARCH_HINTS[hintIndex]}
-        </span>
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 flex items-center gap-2.5 px-4 py-2.5 bg-white rounded-full border border-brand-primary shadow-[0_2px_8px_rgba(10,31,92,0.06)] min-w-0">
-        <Search size={17} className="text-brand-accent shrink-0" />
-        <input
-          ref={inputRef}
-          data-testid="mobile-search-input"
-          value={q}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onSubmit(); } }}
-          placeholder="Search kurtas, sneakers, stores…"
-          className="bg-transparent flex-1 outline-none text-sm min-w-0 text-brand-primary"
-          autoComplete="off"
-        />
-        {q && (
-          <button
-            type="button"
-            onClick={() => onChange("")}
-            data-testid="mobile-search-clear"
-            aria-label="Clear search"
-            className="text-text-secondary hover:text-brand-primary transition shrink-0"
-          >
-            <X size={14} />
-          </button>
-        )}
-      </div>
-      <button
-        type="button"
-        onClick={onClose}
-        data-testid="mobile-search-close"
-        aria-label="Close search"
-        className="w-9 h-9 shrink-0 rounded-full bg-white border border-card-border flex items-center justify-center hover:bg-[#FDFBF7] transition"
-      >
-        <X size={16} className="text-brand-primary" />
-      </button>
-    </div>
-  );
-}
-
 // The top sheet itself — dropped below the header (topOffset = header's
 // live height), over a dimmed backdrop. Reuses the exact recent/trending/
-// live-suggestion data and layout the old full-screen SearchOverlay had,
-// just repositioned into a shorter anchored panel instead of a full-screen
-// takeover. z-[61]/[60] clears StickyBottomNav's z-50, so on a short page
-// the sheet renders OVER the bottom nav rather than being hidden behind it.
+// live-suggestion data and layout the old full-screen SearchOverlay had.
+// Redesign Phase B: now owns its own search input at the top (the pinned
+// header bar that used to hold it is gone — see ConsumerHeader's own doc
+// comment) — auto-focused on mount, same value/onChange/onSubmit wiring
+// the old in-header input had, just relocated. z-[61]/[60] clears
+// StickyBottomNav's z-50, so on a short page the sheet renders OVER the
+// bottom nav rather than being hidden behind it.
 function MobileSearchSheet({
-  topOffset, q, loading, suggestions, recent, trending, trendingProducts, onClose, onSubmit, onClearRecent,
+  topOffset, q, onChange, loading, suggestions, recent, trending, trendingProducts, onClose, onSubmit, onClearRecent,
 }: {
   topOffset: number;
   q: string;
+  onChange: (v: string) => void;
   loading: boolean;
   suggestions: SuggestResponse | null;
   recent: string[];
@@ -468,6 +357,10 @@ function MobileSearchSheet({
   const showResults = q.trim().length >= 2;
   const products = suggestions?.products ?? [];
   const stores = suggestions?.stores ?? [];
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // Pop the keyboard as soon as the sheet (and its input) mount.
+  useEffect(() => { requestAnimationFrame(() => inputRef.current?.focus()); }, []);
 
   return (
     <>
@@ -484,6 +377,41 @@ function MobileSearchSheet({
         className="lg:hidden fixed inset-x-0 z-[61] bg-white rounded-b-3xl shadow-[0_16px_40px_rgba(10,31,92,0.18)] flex flex-col overflow-hidden search-sheet-in"
         style={{ top: topOffset, maxHeight: `calc(100vh - ${topOffset}px)` }}
       >
+        <div className="shrink-0 flex items-center gap-2 px-3 pt-3 pb-2 border-b border-card-border">
+          <div className="flex-1 flex items-center gap-2.5 px-4 py-2.5 bg-[#FDFBF7] rounded-full border border-brand-primary min-w-0">
+            <Search size={17} className="text-brand-accent shrink-0" />
+            <input
+              ref={inputRef}
+              data-testid="mobile-search-input"
+              value={q}
+              onChange={(e) => onChange(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onSubmit(); } }}
+              placeholder="Search kurtas, sneakers, stores…"
+              className="bg-transparent flex-1 outline-none text-sm min-w-0 text-brand-primary"
+              autoComplete="off"
+            />
+            {q && (
+              <button
+                type="button"
+                onClick={() => onChange("")}
+                data-testid="mobile-search-clear"
+                aria-label="Clear search"
+                className="text-text-secondary hover:text-brand-primary transition shrink-0"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            data-testid="mobile-search-close"
+            aria-label="Close search"
+            className="w-9 h-9 shrink-0 rounded-full bg-white border border-card-border flex items-center justify-center hover:bg-[#FDFBF7] transition"
+          >
+            <X size={16} className="text-brand-primary" />
+          </button>
+        </div>
         <div className="overflow-y-auto">
           {showResults ? (
             <div className="px-2 py-2">

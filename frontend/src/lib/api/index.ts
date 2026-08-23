@@ -4,7 +4,7 @@
  */
 import { apiClient } from "@/lib/api-client";
 import type {
-  AreaTile, CategoryCount, CategoryNode, HomeStats, HomepageConfig, Offer,
+  AreaTile, CategoryCount, CategoryNode, HomeStats, HomepageConfig, HeroSlide, Offer,
   PriceBentoResponse, SearchResults, Testimonial,
 } from "@/types";
 
@@ -83,6 +83,14 @@ export const catalogApi = {
    *  per-product/category coupon targeting today. */
   activeCoupons: async (limit = 5): Promise<ActiveCoupon[]> => {
     const r = await apiClient.get<ActiveCoupon[]>("/api/coupons/active", { params: { limit } });
+    return r.data;
+  },
+
+  /** GET /api/hero-slides?l1_id — active-only, already order-sorted, for
+   *  HeroCarousel.tsx's per-L1 hero (redesign Phase B). Public read half
+   *  of Phase A's admin-only HeroSlide CRUD. */
+  heroSlides: async (l1_id: string): Promise<HeroSlide[]> => {
+    const r = await apiClient.get<HeroSlide[]>("/api/hero-slides", { params: { l1_id } });
     return r.data;
   },
 };
