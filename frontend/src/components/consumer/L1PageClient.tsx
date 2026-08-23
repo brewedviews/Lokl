@@ -1,32 +1,77 @@
 "use client";
 
 /**
- * Home page client tree.
+ * L1PageClient — the ONE shared, L1-parameterized page tree behind both
+ * "/" (Home) and "/c/[slug]" (+ its L2 catch-all, "/c/[slug]/[...l2slug]").
  *
- * Section order + enabled/disabled state is CMS-driven — see
- * DEFAULT_SECTIONS below (the seed/fallback) and the homepageConfig fetch
- * effect (the DB-is-authoritative merge). It is NOT a fixed list — an
- * admin can reorder or toggle any section from Homepage CMS -> Sections
- * without a code change, so don't rely on a hardcoded sequence in this
- * comment going stale again; read DEFAULT_SECTIONS for the current
- * default/fallback order.
+ * Redesign Phase E: before this, HomeClient.tsx and CategoryClient.tsx
+ * were two genuinely separate implementations, manually kept in visual
+ * sync across Phases A-D — see this session's own discovery report for
+ * the full accounting of what was duplicated (Best Deals vs Bestsellers,
+ * two different stores-rail implementations) vs. what was already shared
+ * (HeroCarousel, SellerCard, CategoryTile). This file replaces both:
+ * HomeClient.tsx is deleted entirely (see git history), and CategoryClient
+ * .tsx's old slug-resolution responsibility moved to a thin wrapper,
+ * CategoryRouteClient.tsx, that resolves a URL slug to an `l1Id` and
+ * mounts this component — the exact same "resolve then render" shape
+ * CategoryClient used internally, just extracted one layer up so this
+ * component's own required input is just `l1Id`, not a slug.
  *
- * Trending now, Just In and Loved by Bhilai shoppers ship disabled by
- * default — code stays in place so re-enabling any of them from the CMS
- * is a toggle, not a code change.
+ * Two required decisions, made here rather than silently:
  *
- * API calls on mount — critical (immediate):
- *   • /api/feed/home-products  — trending + best deals
- *   • /api/categories
- *   • /api/site/homepage-config
- *   • /api/site/home-stats
- * Deferred 800 ms (non-critical):
- *   • /api/catalog/offers
- *   • /api/catalog/testimonials
- *   • /api/feed/popular-stores
+ * 1. Best Deals (sort=discount) vs Bestsellers (sort=rating) — NOT kept
+ *    as two rails. CategoryClient's own old doc comment stated its intent
+ *    outright: "'Bestsellers' uses rating as the closest available
+ *    quality signal to Home's Best deals rail (which sorts by discount %
+ *    — not exposed as a query param here)." That parenthetical was wrong
+ *    — GET /api/products has supported `sort=discount` the whole time
+ *    (see server.py's all_products()); CategoryClient just didn't know
+ *    it when written. Given the rail's own stated intent was to mirror
+ *    Best Deals, and the only reason it diverged was a stale assumption
+ *    about backend capability, this merge keeps ONE canonical rail — Best
+ *    Deals, sort=discount, now L1-scoped via the real l1Id on every page
+ *    — and drops "Bestsellers" (sort=rating) as the now-provably-redundant
+ *    version, not a silent unexplained deletion.
+ *
+ * 2. Stores rail — CategoryClient's flat "Stores in {L1}" (one
+ *    unscoped-by-L2 GET /categories/{l1}/stores call) is also dropped,
+ *    not merged. It was never part of Phase D's locked homepage sequence.
+ *    The unified page instead inherits the two things Phase D DID lock
+ *    in: `meet_sellers` ("Shops near you" — nearby/popular stores,
+ *    unscoped by L1, same everywhere) and the three gendered-L2 store
+ *    modules (store_footwear/store_ethnic/store_lingerie — narrower than
+ *    CategoryClient's old rail, scoped to a specific L2 not the whole
+ *    L1). Together these are a strict superset of what the old L1-wide
+ *    rail was approximating with a single blunt query — not two
+ *    implementations of the same feature, one already-locked pair
+ *    replacing one ad hoc one.
+ *
+ * `mode` — the one real difference left between the two surfaces after
+ * the above: /c/[slug]'s own intrinsic browsing UI (an L2 filter grid +
+ * a full sortable "Browse all {L1}" product grid) is NOT part of the
+ * ranked CMS section system and never should be — it's core category-
+ * browsing chrome, not a merchandising/discovery section an admin
+ * toggles on and off, and it needs page-local filter state the CMS
+ * sections don't. Home never rendered anything like it (its own
+ * `browse_all` CMS section is a small CTA banner linking OUT to
+ * /products, not an inline grid) and Phase E's regression requirement is
+ * that Home renders IDENTICALLY to before — so this block is opt-in via
+ * `mode: "category"` (the default, matching CategoryClient's own prior
+ * always-on behavior), and Home's call site explicitly passes
+ * `mode="home"` to suppress it. `l1Id` remains the only REQUIRED input;
+ * `mode` is optional with a sensible default, per the spec.
+ *
+ * L2 deep-link preservation: this component still reads
+ * useParams()/useSearchParams() directly, unconditionally, exactly as
+ * CategoryClient did — on "/" those hooks simply return no slug/l2slug
+ * (there's no dynytic route segment there), so `l2FromUrl` naturally
+ * resolves to "" and the (mode="home"-suppressed, so moot anyway) filter
+ * state never activates. No prop-plumbing needed to keep this working
+ * under either route tree.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useParams, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles, RotateCcw, Tag } from "lucide-react";
 import { api } from "@/lib/api";
@@ -55,60 +100,35 @@ interface SectionDoc { id: string; label: string; enabled: boolean; rank: number
 interface HomeProductsRail { store_id: string; store_name: string; store_slug: string; store_banner?: string; store_tagline?: string; products: ProductCardType[] }
 interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCardType[]; best_deals: ProductCardType[]; premium_picks: ProductCardType[] }
 
-// SEED/FALLBACK ONLY — this array's order and enabled state are what a
-// brand-new site_config doc gets seeded with, and what the homepage falls
-// back to if the CMS config is missing/malformed. Once a DB config exists,
-// it is AUTHORITATIVE for order + enabled (see the homepageConfig fetch
-// effect in HomeClient below) — an admin reorders/toggles sections from
-// Homepage CMS -> Sections, not by editing this file. Keep this array in
-// sync with the backend's DEFAULT_HOMEPAGE_SECTIONS (server.py) so a
-// fresh install and the CMS's own seed agree.
+// CANONICAL SECTION LIST — now genuinely shared by all three routes
+// ("/", "/c/[slug]", "/c/[slug]/[...l2slug]"), not just Home. See this
+// file's own migration (018_reseed_homepage_sections_phase_d.py, and any
+// later renumbered one) for the live DB seed; this is the seed/fallback
+// used when a site_config doc is missing/malformed, or a newly-shipped
+// id hasn't been synced to it yet. Keep in sync with the backend's
+// DEFAULT_HOMEPAGE_SECTIONS (server.py), id-for-id/rank-for-rank.
 //
-// "open_now" (formerly its own "Open now near you" rail) has been folded
-// into meet_sellers — the two showed the same store data with overlapping
-// intent, so meet_sellers' rail is now open-stores-first, nearest-first,
-// then closed stores — see sellersSorted in HomeClient and
-// MeetSellersSection above. There is no longer a separate id for it.
-// The standalone "stores" section (disabled "Popular stores" rail) has
-// been deleted entirely — same storesRail data, same /stores destination
-// as meet_sellers, just an older visual style; dead weight once
-// meet_sellers covers the same ground.
-// TrustStickers isn't part of this ranked list at all — it's hardcoded to
-// render after {orderedSections} unconditionally (see JSX below), which
-// always puts it last regardless of CMS order.
-// Redesign Phase D — LOCKED SEQUENCE, rank-for-rank (see this file's own
-// git history / docs/design/lokl-redesign-plan.md discussion for how this
-// was arrived at):
-//   Hero -> Shop by Category -> Best Deals -> Shop by Price -> Shop by
-//   Area -> Shops near you (meet_sellers' on-page copy) -> Footwear Store
-//   -> Ethnic Store -> Premium picks -> Lingerie/Innerwear Store ->
-//   Browse All
-// Everything from "category_pills" through "customer_love" below that
-// block predates this redesign and was never part of the locked sequence
-// (it's desktop-only or simply out of this redesign's scope) — left after
-// it, in its prior relative order, rather than reshuffled without a spec.
+// LOCKED SEQUENCE (Phase D): Hero -> Shop by Category -> Best Deals ->
+// Shop by Price -> Shop by Area -> Shops near you -> Footwear Store ->
+// Ethnic Store -> Premium picks -> Lingerie/Innerwear Store -> Browse
+// All. Everything after that block predates the redesign and was never
+// part of the locked sequence — kept in its prior relative order.
 //
-// Section-id cheat sheet for a future admin editing Homepage CMS ->
-// Sections (each toggle's real-world meaning, since "id" alone in that
-// panel doesn't explain gender/L1 targeting):
-//   best_deals / premium_picks — L1-scoped to Home's own default L1
-//     (Women) via GET /api/products?l1=&sort=, NOT the global site-wide
-//     feed. Toggling this only affects Home; /c/[slug] pages have their
-//     own separate "Bestsellers in {L1}"/"Premium picks in {L1}" rails,
-//     not driven by this CMS list at all.
-//   store_footwear / store_ethnic / store_lingerie — each is ONE gendered-
-//     L2 store module (banner + SellerCard row). On Home today all three
-//     target Women's L2s (l2-women-footwear/ethnic/lingerie). The
-//     Men's-equivalent module list swaps the third to "Innerwear Store"
-//     (l2-men-innerwear — there is no l2-men-lingerie) but that list isn't
-//     wired to any live page yet; Home is Women-only, per CategoryTileRow.
-//   under_499 — kept its original id from the pre-overlapping-bands era
-//     (see PRICE_BANDS_SEED in server.py) even though the section is now
-//     "Shop by Price" and covers all three bands, not just the first —
-//     renaming it would silently drop the id from every existing
-//     site_config doc's saved rank/enabled state. The CMS label already
-//     reads "Shop by Price" so this only matters to someone reading raw
-//     ids, not the admin UI.
+// Section-id cheat sheet (each toggle's real-world meaning — id alone
+// doesn't explain L1/gender targeting):
+//   best_deals / premium_picks — L1-scoped via the page's own `l1Id` (was
+//     hardcoded to Women on Home pre-Phase-E; now genuinely dynamic —
+//     see resolveBestDealsQuery/resolvePremiumPicksQuery below).
+//   shop_by_category / store_footwear / store_ethnic / store_lingerie —
+//     all resolve against the page's own resolved L1 (name/slug/L2 list),
+//     not a hardcoded gender. On an L1 whose L2 list doesn't have a
+//     matching slug (e.g. Kids has no "dresses"/"lingerie"), the
+//     corresponding tile/module simply doesn't render — same graceful
+//     per-tile drop these already used before Phase E, just no longer
+//     limited to Women.
+//   under_499 — kept its pre-rename id from the pre-overlapping-bands era
+//     (see PRICE_BANDS_SEED in server.py); the CMS label reads "Shop by
+//     Price" so this only matters to someone reading raw ids.
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills",  label: "Category pills",              enabled: true,  rank: 10 },
   { id: "hero",             label: "Hero",                        enabled: true,  rank: 20 },
@@ -137,15 +157,13 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 200 },
 ];
 
-// cloudinaryOptimize moved to @/lib/utils — SellerCard needed it too, see
-// that file's own comment.
-
 // ---------------------------------------------------------------------------
-// For Her / For Him bento — reuses category_pills' tile visual pattern
-// (mobile horizontal-scroll circles, desktop image-led portrait grid) against
-// a curated list of L2s (+ a few standalone L1s) rather than the full
-// category set. Tiles resolve their image from the same /api/categories
-// response category_pills already fetches — no extra request.
+// For Her / For Him bento — a curated list of L2s (+ a few standalone
+// L1s) against a FIXED gender, not the page's own l1Id — this is
+// unchanged from Home's pre-Phase-E behavior (Home already showed both
+// For Her AND For Him unconditionally, even though it's nominally
+// Women's default page) and Phase E doesn't touch it: it was never
+// L1-parameterized to begin with, on Home or anywhere else.
 // ---------------------------------------------------------------------------
 interface GenderTileSpec {
   label: string;
@@ -177,25 +195,6 @@ const FOR_HIM_TILES: GenderTileSpec[] = [
 
 interface ResolvedGenderTile { key: string; href: string; image: string | null; label: string; minPrice: number | null }
 
-// Ethnic/Footwear/Lingerie tiles target the L2s already nested under
-// l1-women / l1-men (l2-women-ethnic, l2-men-footwear, etc.) rather than
-// the standalone l1-ethnic/l1-footwear/l1-lingerie categories or the
-// product `gender` field. That field is unreliable — the merchant form
-// never shows a gender picker once an L1 has L2 children, which Ethnic and
-// Footwear both do, so it's almost never set — but these gendered L2s sidestep
-// that entirely: they're real, separate category docs (same mechanism as
-// Dresses/Tops/Bottoms), each with its own image and its own filtered
-// destination, no gender field involved. Accessories has no gendered L2
-// under either l1-women or l1-men, so it stays pointed at the shared
-// standalone l1-accessories for both grids.
-//
-// Image is read ONLY from the tile's own target — l1.image for an L1-target
-// tile, l2.image for an L2-target tile — never a cross-fallback between the
-// two. A tile is only dropped when its target CATEGORY doesn't exist (l1
-// missing, or l2Slug given but no matching l2 under that l1); if the
-// category exists but its image is unset, the tile still renders with
-// image: null so the grid keeps its full 8 tiles and the component below
-// shows a blank placeholder instead of borrowing imagery from elsewhere.
 function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[]): ResolvedGenderTile[] {
   const out: ResolvedGenderTile[] = [];
   for (const spec of specs) {
@@ -213,24 +212,13 @@ function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[])
 }
 
 // ---------------------------------------------------------------------------
-// "Shop by Category" (redesign Phase B) — a curated 2x3 grid using
-// CategoryTile's "generous" density (portrait photo, bottom scrim, white
-// label baked in — redesign-plan 3.1), distinct from GenderBentoSection's
-// "dense" circular-avatar 8-tile grids just above. Exactly 6 tiles, in
-// this fixed order, per the locked decision: Dresses/Tops/Bottoms route to
-// their normal Women-scoped L2s; Footwear/Ethnic/Lingerie route to the
-// GENDERED L2 (l2-women-footwear etc.), not the standalone L1 — this falls
-// out automatically from reading `l1.l2` (Women's own nested L2 list only
-// ever contains the gendered variants, never the standalone l1-footwear/
-// l1-ethnic/l1-lingerie categories), the exact same mechanism
-// resolveGenderTiles already relies on for FOR_HER_TILES/FOR_HIM_TILES —
-// see that function's own comment.
-//
-// `l1Slug` is a parameter (not hardcoded to "women") so this is reusable
-// for a future Men's-homepage context, but today it's only ever called
-// with "women" — Home is Women's homepage by default (see
-// CategoryTileRow), and /c/men already has its own full L2 grid
-// (CategoryClient's "Shop by category" filter grid, all L2s, dense).
+// "Shop by Category" — a curated 2x3 grid using CategoryTile's "generous"
+// density. Redesign Phase E: `l1Slug` is now the PAGE's own resolved L1
+// slug (was hardcoded "women" pre-unification) — Dresses/Tops/Bottoms/
+// Footwear/Ethnic/Lingerie is still a Women-shaped spec list (that's what
+// the locked design approved), so on Men/Kids only the slugs that happen
+// to match (e.g. "footwear") render — fewer tiles, never a crash, same
+// per-tile-drop mechanism this always had.
 // ---------------------------------------------------------------------------
 interface ShopByCategorySpec { label: string; l2Slug: string }
 
@@ -277,28 +265,15 @@ function ShopByCategorySection({ tiles }: { tiles: ResolvedGenderTile[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Footwear / Ethnic / Lingerie Store sections (redesign Phase C) — three
-// independent modules, each a large editorial banner (the L2's own
-// `image`, bold uppercase white text, tapping routes to that L2's product
-// listing) with a horizontal SellerCard row beneath it, sourced from
-// Phase A's generalized `GET /categories/{l1_id}/stores?l2_id=` — the
-// same gendered-L2-not-standalone-L1 targeting `resolveShopByCategoryTiles`
-// already established (Women's `l1.l2` list only ever contains the
-// gendered footwear/ethnic/lingerie variants).
-//
-// Men has no lingerie equivalent (Phase A discovery: closest is
-// `l2-men-innerwear`, no `l2-men-lingerie` exists at all) — the locked
-// decision is Men's third module targets that L2 instead, labeled
-// "Innerwear Store" specifically (not just "Innerwear") since unlike
-// "Footwear"/"Ethnic"/"Lingerie", "Innerwear" alone reads ambiguously as a
-// standalone banner headline.
-//
-// Each module independently hides itself (returns null) when its L2
-// doesn't exist for this L1, OR when the store fetch resolves to zero
-// results — never a banner with an empty row beneath it. Phase A already
-// confirmed zero products are currently tagged against any of these five
-// L2 ids, so on real data today every module here is expected to render
-// nothing — an accepted launch state, not a bug.
+// Footwear / Ethnic / Lingerie(-or-Innerwear) Store sections — three
+// independent modules, each an editorial banner + horizontal SellerCard
+// row, sourced from GET /categories/{l1_id}/stores?l2_id=. `l1Slug` is now
+// the page's own resolved L1 slug (was hardcoded "women"). Men swaps the
+// third module to "Innerwear Store" (l2-men-innerwear — no l2-men-
+// lingerie exists). Any other L1 (Kids, Ethnic, Footwear, ...) has no
+// gendered module list at all, so all three sections cleanly render
+// nothing there — same as they already did for every non-Women L1 before
+// Phase E generalized l1Slug.
 // ---------------------------------------------------------------------------
 interface StoreModuleSpec { bannerLabel: string; l2Slug: string }
 
@@ -314,11 +289,6 @@ const MEN_STORE_MODULES: StoreModuleSpec[] = [
   { bannerLabel: "Innerwear Store", l2Slug: "innerwear" },
 ];
 
-// Same store-row response shape CategoryClient.tsx's own "Stores in {L1}"
-// rail types as `CategoryStore` — duplicated here rather than shared
-// across files since it's a small, page-local interface either way (same
-// judgment call CategoryClient's own doc comment makes about SellerCard's
-// looser prop type).
 interface GenderedSectionStore {
   id: string; slug?: string; name: string;
   logo?: string; banner?: string; banners?: string[];
@@ -330,7 +300,7 @@ function StoreSectionModule({ l1, spec }: { l1: CategoryNode; spec: StoreModuleS
   const l2 = (l1.l2 ?? []).find((s) => s.slug === spec.l2Slug);
 
   const { data: stores } = useQuery({
-    queryKey: ["home-gendered-store-section", l2?.id],
+    queryKey: ["gendered-store-section", l2?.id],
     queryFn: async () => {
       const r = await apiClient.get<GenderedSectionStore[]>(`/api/categories/${l1.id}/stores`, { params: { l2_id: l2!.id, limit: 10 } });
       return Array.isArray(r.data) ? r.data : [];
@@ -365,22 +335,19 @@ function StoreSectionModule({ l1, spec }: { l1: CategoryNode; spec: StoreModuleS
         {stores.map((s) => {
           const isOpen = s.availability_rank === 1;
           const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
-          return <SellerCard key={s.id} s={s} source={`home_store_${spec.l2Slug}`} openNow={isOpen} closedLabel={closedLabel} />;
+          return <SellerCard key={s.id} s={s} source={`store_${spec.l2Slug}`} openNow={isOpen} closedLabel={closedLabel} />;
         })}
       </div>
     </div>
   );
 }
 
-// Redesign Phase D: split from a single bundled "gendered_stores" section
-// (Phase C) into three independently-ranked CMS sections — the locked
-// homepage sequence interleaves Footwear/Ethnic Store with Premium picks
-// sitting between Ethnic and Lingerie/Innerwear, so the three modules can
-// no longer render as one contiguous block. `index` addresses a fixed
-// position (0=Footwear, 1=Ethnic, 2=Lingerie/Innerwear) in whichever
-// gendered module list applies — WOMEN_STORE_MODULES and
-// MEN_STORE_MODULES are both authored in that same order, so this stays
-// correct for either gender without a lookup-by-label.
+// index addresses a fixed position (0=Footwear, 1=Ethnic, 2=Lingerie-or-
+// Innerwear) in whichever gendered module list applies — both lists are
+// authored in that order, so this stays correct for either gender without
+// a lookup-by-label. Split into 3 independently-ranked sections (Phase D)
+// so Premium picks can sit between Ethnic and Lingerie/Innerwear per the
+// locked sequence.
 function GenderedStoreSection({ categories, l1Slug, index }: { categories: CategoryNode[]; l1Slug: string; index: number }) {
   const l1 = categories.find((c) => c.slug === l1Slug);
   if (!l1) return null;
@@ -391,19 +358,11 @@ function GenderedStoreSection({ categories, l1Slug, index }: { categories: Categ
 }
 
 // ---------------------------------------------------------------------------
-// "Shop by Price" (redesign Phase C) — mixed-weight headline (SHOP BY bold
-// uppercase / price italic, redesign-plan 3.3's first real application),
-// asymmetric layout: one large dominant Under ₹499 card + two smaller
-// stacked Under ₹999 / Under ₹1499 cards, per the approved editorial
-// concept. CSS grid auto-placement does the asymmetry for free — a
-// 2-column grid with the first (large) card given `row-span-2` and no
-// explicit row assigned to the other two lets them auto-flow into the
-// second column's two rows, no manual grid-template-areas needed.
-//
-// Same overlapping-band data contract Phase A built (under-499/-999/-1499,
-// $lt semantics) and the same `priceBento` auto-picked representative-
-// product-image fetch HomeClient already had — only the markup changed,
-// not the data source.
+// "Shop by Price" — mixed-weight headline, asymmetric layout (one large
+// dominant Under ₹499 card + two smaller stacked cards). NOT L1-scoped —
+// deliberately left untouched per Phase E's explicit scope (the L1-
+// scoping gap this session's discovery flagged is a Phase F fix, not
+// this one) — same overlapping-band data contract Phase A built.
 // ---------------------------------------------------------------------------
 const PRICE_BANDS = [
   { href: "/products?price=under-499",  price: "₹499",   sub: "Steals & deals", filter: "under_499" as const,  bentoKey: "under_499" as const,  size: "large" as const },
@@ -452,9 +411,6 @@ function ShopByPriceSection({ priceBento }: { priceBento: PriceBentoResponse | n
                   </div>
                 </>
               ) : (
-                // No product in this band yet — light cream/tint fallback,
-                // not a dark navy slab. Fills in automatically once
-                // inventory lands in range.
                 <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-1.5 px-2 text-center">
                   <div className={`rounded-full bg-[#E68910]/15 flex items-center justify-center ${large ? "w-10 h-10" : "w-8 h-8"}`}>
                     <Sparkles size={large ? 18 : 14} className="text-[#E68910]" />
@@ -473,18 +429,9 @@ function ShopByPriceSection({ priceBento }: { priceBento: PriceBentoResponse | n
   );
 }
 
-// ---------------------------------------------------------------------------
-// "Browse All" (redesign Phase D) — closes a real gap flagged during
-// Phase B: the mobile bottom nav's old "All" tab (a direct /products link)
-// was replaced by Search that same phase, and desktop's own "All" tile
-// only exists inside category_pills' `hidden md:grid` desktop block — so
-// mobile had no single-tap "see everything" affordance left on Home at
-// all. This is the resolution: a simple, low-risk closing CTA banner
-// (same structural weight as merchant_cta just below it — one navy row,
-// headline + pill), not a full paginated product grid, which would be a
-// much larger, undiscussed feature. Last content section before
-// TrustStickers, per the locked sequence.
-// ---------------------------------------------------------------------------
+// "Browse All" (redesign Phase D) — a small closing CTA banner linking
+// OUT to /products, distinct from `mode="category"`'s own inline
+// browse-everything-in-this-L1 grid further below. Same on every route.
 function BrowseAllSection() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-browse_all">
@@ -506,21 +453,6 @@ function BrowseAllSection() {
   );
 }
 
-// Small circular category avatars — the same visual scale/shape as
-// category_pills' own mobile tile strip above (w-16 h-16 circle, label
-// centered below), reused here instead of the large aspect-[3/4]
-// rectangular cards this section used to render. Those rectangular cards
-// (roughly half-width each) made this a tall, heavy section. No price
-// pill overlay — a price badge doesn't sit well on a circular crop, and
-// category_pills' own avatars don't carry one, so dropping it keeps the
-// two patterns actually consistent rather than just visually similar.
-//
-// Static 4-column grid, NOT a horizontal scroll — an earlier pass made
-// this a horizontal-scroll row, but with ~7-8 tiles per section that
-// hides most of them behind a swipe a user has no visual cue to try.
-// grid-cols-4 shows all of them up front, wrapping to a second
-// (partially-filled) row rather than scrolling — every category is
-// visible on load, not just the first 4-5.
 function GenderBentoSection({ id, title, tiles }: { id: string; title: string; tiles: ResolvedGenderTile[] }) {
   if (tiles.length === 0) return null;
   return (
@@ -545,22 +477,6 @@ function GenderBentoSection({ id, title, tiles }: { id: string; title: string; t
   );
 }
 
-// "Shop by Area" — a LIGHT NAVIGATION card, same rationale as
-// GenderBentoSection above: clean photo (no gradient scrim), the
-// store-count pill overlaid bottom-left ON the image (own solid white
-// fill + shadow so it reads over any photo), area name below the image in
-// bold navy. Distinct from the price bentos' dark-gradient PROMOTIONAL
-// treatment, which is unchanged. Fixed grid-cols-3 regardless of width
-// (unlike the gender bento's responsive column count) since this set is
-// always exactly 6. The count pill ALWAYS renders, including "0 stores" —
-// a missing count isn't a reason to hide it, an area with no stores yet is
-// still real information ("expanding here").
-//
-// aspect-[4/3] (was aspect-[3/4]) + gap-1.5 (was gap-2) — this is 6 EXISTING
-// areas rendered denser, not a 3rd row of new areas: still exactly 3
-// columns × 2 rows, just each card and the gaps between them shrunk.
-// Badge/label font sizes scaled down to match (9px→8px badge, 12.5px→11px
-// label) so neither looks oversized against the smaller photo.
 function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
   if (areas.length === 0) return null;
   return (
@@ -580,11 +496,6 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
                   className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
                 />
               ) : (
-                // No CMS image set for this area — a quiet cream
-                // placeholder, own orange accent mark. The area name and
-                // store count still render normally (below the image /
-                // pinned on the image respectively) — an empty photo isn't
-                // a reason to hide either.
                 <div className="absolute inset-0 flex items-center justify-center" data-testid={`shop-by-area-blank-${a.slug}`}>
                   <div className="w-7 h-7 rounded-full bg-brand-accent/15 flex items-center justify-center">
                     <Sparkles size={13} className="text-brand-accent" />
@@ -603,39 +514,9 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// "Shops near you" (rail heading — section id/title still says "meet
-// sellers" in code/CMS, only the on-page copy changed) — the community/
-// emotional pillar. Two parts:
-//   A. A static cream positioning band (always renders — claims the local-
-//      first story even with zero merchants onboarded).
-//   B. A real-merchant rail sourced from nearby/popularStores — see
-//      storesEnabled in HomeClient, which gates that fetch on this
-//      section's own enabled flag (the standalone "stores" section that
-//      used to share this fetch has since been removed as redundant).
-// Sparse-catalog handling: whatever real stores exist render, in full —
-// no trailing filler tile padding out a short rail. Zero stores → a single
-// inviting banner, never a broken/empty scroll strip. All fallbacks are
-// light (cream/tint), consistent with the recent navy-restraint pass — no
-// dark slabs.
-// ---------------------------------------------------------------------------
-// SellerCard moved to its own file (@/components/consumer/SellerCard) —
-// CategoryClient's "Stores in {L1}" rail needed the exact same card, not
-// a second similar-looking one. See that file's own doc comment.
-
-// Combined "why local" + real-sellers rail. Used to be two sections
-// (meet_sellers Part A/B, and a separate open_now rail) — merged into one
-// since both showed the same store data with overlapping intent. `stores`
-// is expected pre-sorted: open stores first, each bucket ascending by
-// distance (see the sort in HomeClient below) — this component just
-// renders whatever order it's given, per-card open/closed status included.
 function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boolean }) {
   return (
     <div className="pt-8" data-testid="home-meet_sellers">
-      {/* Header/hook — editorial statement, same voice/treatment as the
-          hero headline (bold display font, navy ink, orange accent word,
-          left-aligned, sits directly on the page). No box, no pills.
-          Always shows, independent of whether any seller is open. */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <h2 className="font-display font-bold text-[#0A1F5C] text-[22px] sm:text-2xl leading-[1.15] tracking-tight max-w-md">
           your neighbour&apos;s shop, not a faraway <span className="text-[#E68910]">warehouse.</span>
@@ -645,9 +526,6 @@ function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boo
         </p>
       </div>
 
-      {/* Real-seller rail — open stores first (green "Open now" pill),
-          then closed ones (muted "Opens at X" / "Closed" pill), each
-          bucket nearest-first. */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
         <div className="flex items-end justify-between gap-3 mb-3">
           <h3 className="text-lg sm:text-xl font-display font-bold text-[#0A1F5C] leading-tight">Shops near you</h3>
@@ -683,16 +561,6 @@ function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boo
   );
 }
 
-// "Shop by Brand" (Phase 4, Part C) — same structural pattern as
-// MeetSellersSection just above (editorial intro + horizontal rail +
-// "See all →"), since both are discovery-by-identity rather than
-// discovery-by-product. Placed directly after meet_sellers in both
-// DEFAULT_SECTIONS and the backend's DEFAULT_HOMEPAGE_SECTIONS for that
-// reason — see this file's own rank comment at the top for the exact
-// value. Reuses CategoryTile's "dense" variant (circular image + label)
-// rather than a bespoke brand card — a brand's only real asset is a small
-// logo, which is exactly what that variant already renders well; a
-// banner-photo card like SellerCard would have nothing real to show.
 function ShopByBrandSection({ brands, ready }: { brands: Brand[]; ready: boolean }) {
   return (
     <div className="pt-8" data-testid="home-shop_by_brand">
@@ -743,16 +611,6 @@ function ShopByBrandSection({ brands, ready }: { brands: Brand[]; ready: boolean
   );
 }
 
-// ---------------------------------------------------------------------------
-// "Try & Buy" — Lokl's differentiated wedge (rider waits while you try, keep
-// what you love, return the rest on the spot). A compact strip matching the
-// merchant-CTA banner's proportions (rounded-2xl, whisper shadow, same
-// overall footprint) — NOT a tall feature section. Light treatment (white
-// card, navy text, orange accents), not a navy fill, per the restraint pass.
-// The photo is CMS-settable (site_config.try_and_buy_image); a neutral
-// cream fallback with a small orange icon renders when unset, same spirit
-// as the price/area tiles' empty states.
-// ---------------------------------------------------------------------------
 function TryAndBuySection({ image }: { image: string }) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-try_and_buy">
@@ -787,7 +645,160 @@ function TryAndBuySection({ image }: { image: string }) {
   );
 }
 
-export function HomeClient() {
+// ---------------------------------------------------------------------------
+// mode="category" only — /c/[slug]'s own intrinsic browsing chrome: an L2
+// filter grid (all of this L1's L2s, filter-button behavior, not
+// navigation) driving a full sortable "Browse all {L1}" product grid.
+// Ported from the old CategoryClient.tsx essentially unchanged — this is
+// NOT part of the ranked CMS section list (see this file's own top
+// comment for why) and always renders last, right before TrustStickers.
+// ---------------------------------------------------------------------------
+type SortKey = "nearest" | "price_asc" | "price_desc";
+
+function sortProducts(products: ProductCardType[], sort: SortKey): ProductCardType[] {
+  const copy = [...products];
+  if (sort === "price_asc") return copy.sort((a, b) => a.price - b.price);
+  if (sort === "price_desc") return copy.sort((a, b) => b.price - a.price);
+  return copy.sort((a, b) => {
+    const aRank = a.store_availability_rank ?? 1;
+    const bRank = b.store_availability_rank ?? 1;
+    if (aRank !== bRank) return aRank - bRank;
+    const aDist = a.store_distance_km ?? 999;
+    const bDist = b.store_distance_km ?? 999;
+    return aDist - bDist;
+  });
+}
+
+function SkeletonGrid() {
+  return (
+    <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="rounded-2xl overflow-hidden bg-white border border-[#E5E2DC] animate-pulse">
+          <div className="aspect-[3/4] bg-[#E5E2DC]" />
+          <div className="p-3 space-y-2">
+            <div className="h-3 bg-[#E5E2DC] rounded w-2/3" />
+            <div className="h-3 bg-[#E5E2DC] rounded w-1/2" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BrowseGridBlock({ l1 }: { l1: CategoryNode }) {
+  const params = useParams<{ slug: string; l2slug?: string[] }>();
+  const searchParams = useSearchParams();
+  const l2FromUrl = params.l2slug?.[0] || searchParams.get("l2") || "";
+
+  const [sort, setSort] = useState<SortKey>("nearest");
+  const [l2Filter, setL2Filter] = useState(""); // slug
+  useEffect(() => { setL2Filter(l2FromUrl); }, [l1.id, l2FromUrl]);
+
+  const { data: subcategories = [] } = useQuery({
+    queryKey: ["category-l2", l1.id],
+    queryFn: async () => {
+      const r = await apiClient.get(`/api/categories/${l1.id}/l2`);
+      const subs = Array.isArray(r.data) ? r.data : (r.data?.subcategories || []);
+      return (subs.length > 0 ? subs : (l1.l2 ?? [])) as CategoryNode["l2"];
+    },
+  });
+
+  const l2FilterId = useMemo(() => {
+    if (!l2Filter) return "";
+    const sub = subcategories.find((s) => s.slug === l2Filter) ?? (l1.l2 ?? []).find((s) => s.slug === l2Filter);
+    return sub?.id ?? "";
+  }, [l2Filter, subcategories, l1]);
+
+  const { data: allProducts = [], isPending: isLoading } = useQuery({
+    queryKey: ["category-products", l1.id, l2FilterId, sort],
+    queryFn: async () => {
+      const p = new URLSearchParams({ l1: l1.id });
+      if (l2FilterId) p.set("l2", l2FilterId);
+      if (sort === "price_asc") p.set("sort", "price_asc");
+      if (sort === "price_desc") p.set("sort", "price_desc");
+      const r = await apiClient.get<ProductCardType[]>(`/api/products?${p.toString()}`);
+      return Array.isArray(r.data) ? r.data : [];
+    },
+  });
+
+  const products = useMemo(() => sortProducts(allProducts, sort), [allProducts, sort]);
+  const l2List = subcategories.length > 0 ? subcategories : (l1.l2 ?? []);
+
+  return (
+    <>
+      {l2List.length > 0 && (
+        <div className="max-w-7xl mx-auto px-4 md:px-8 pt-6" data-testid="cat-l2-grid">
+          <h2 className="text-lg sm:text-xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">
+            Shop by category
+          </h2>
+          <div className="grid grid-cols-4 gap-x-2 gap-y-4">
+            {l2List.map((sub) => {
+              const isActive = l2Filter === sub.slug;
+              return (
+                <CategoryTile
+                  key={sub.id}
+                  onClick={() => setL2Filter(isActive ? "" : sub.slug)}
+                  testId={`l2-tile-${sub.slug}`}
+                  active={isActive}
+                  activeStyle="border"
+                  image={sub.image}
+                  label={sub.name}
+                  fallback={<div className="absolute inset-0 bg-[#E5E2DC]" />}
+                  labelClassName={isActive ? "text-[#0A1F5C]" : "text-[#595959]"}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
+        <div className="text-[11px] font-bold uppercase tracking-widest text-[#E68910] mb-1">Browse all</div>
+        <h1 data-testid="cat-title" className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">
+          {l1.name}
+          {!isLoading && (
+            <span className="text-sm font-normal text-[#595959] ml-2">({products.length})</span>
+          )}
+        </h1>
+
+        <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1 mt-3">
+          {([
+            { key: "nearest", label: "Nearest" },
+            { key: "price_asc", label: "Price: Low–High" },
+            { key: "price_desc", label: "Price: High–Low" },
+          ] as Array<{ key: SortKey; label: string }>).map(opt => (
+            <button key={opt.key}
+              onClick={() => setSort(opt.key)}
+              data-testid={`sort-${opt.key}`}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
+                sort === opt.key
+                  ? "bg-[#0A1F5C] text-white border-[#0A1F5C]"
+                  : "bg-white text-[#595959] border-[#E5E2DC]"
+              }`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {isLoading ? (
+          <SkeletonGrid />
+        ) : products.length === 0 ? (
+          <div className="mt-6 bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#E68910]/10 text-[#E68910] text-[11px] font-bold uppercase tracking-widest mb-3">Building it</div>
+            <h3 className="font-display text-xl md:text-2xl font-bold text-[#0A1F5C]">Coming soon to {l1.name} in Bhilai</h3>
+            <p className="text-sm text-[#595959] mt-2 max-w-md mx-auto">We&apos;re onboarding local sellers right now — fresh drops will land here shortly.</p>
+          </div>
+        ) : (
+          <div data-testid="cat-product-grid" className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
+            {products.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?: "home" | "category" }) {
   const lat = useLocationStore((s) => s.lat);
   const lng = useLocationStore((s) => s.lng);
   const [tryAndBuyImage, setTryAndBuyImage] = useState<string>("");
@@ -796,33 +807,33 @@ export function HomeClient() {
   const [trending, setTrending] = useState<ProductCardType[]>([]);
   const [_storeRails, setStoreRails] = useState<HomeProductsRail[]>([]);
 
-  // Best deals / Premium picks — L1-scoped to Home's own default L1
-  // (Women, per CategoryTileRow's own doc comment on why Home defaults to
-  // Women rather than an "All" state) via the exact same
-  // GET /api/products?l1=&sort= pattern CategoryClient.tsx's own
-  // "Bestsellers in {L1}"/"Premium picks in {L1}" rails already use for
-  // /c/[slug] — sort=discount for deals, sort=price_desc for premium.
-  // Previously both rails read from the global, unscoped
-  // GET /api/feed/home-products response (see that fetch below, which
-  // still supplies `trending` and the store rails — neither of those is
-  // called out as L1-scoped in the locked section sequence, so they're
-  // untouched).
-  const HOME_L1_ID = "l1-women";
+  // Best deals / Premium picks — L1-scoped via the page's own l1Id prop
+  // directly (not the resolved `l1` object below), so these two rails can
+  // start fetching immediately on mount without waiting on the categories
+  // fetch to resolve first.
   const { data: bestDeals = [], isPending: bestDealsPending, isError: bestDealsErrored } = useQuery({
-    queryKey: ["home-best-deals", HOME_L1_ID],
+    queryKey: ["l1-best-deals", l1Id],
     queryFn: async () => {
-      const r = await apiClient.get<{ products: ProductCardType[] }>("/api/products", { params: { l1: HOME_L1_ID, sort: "discount", limit: 8 } });
+      const r = await apiClient.get<{ products: ProductCardType[] }>("/api/products", { params: { l1: l1Id, sort: "discount", limit: 8 } });
       return Array.isArray(r.data) ? r.data : (r.data?.products || []);
     },
   });
   const { data: premiumPicks = [], isPending: premiumPicksPending, isError: premiumPicksErrored } = useQuery({
-    queryKey: ["home-premium-picks", HOME_L1_ID],
+    queryKey: ["l1-premium-picks", l1Id],
     queryFn: async () => {
-      const r = await apiClient.get<{ products: ProductCardType[] }>("/api/products", { params: { l1: HOME_L1_ID, sort: "price_desc", limit: 8 } });
+      const r = await apiClient.get<{ products: ProductCardType[] }>("/api/products", { params: { l1: l1Id, sort: "price_desc", limit: 8 } });
       return Array.isArray(r.data) ? r.data : (r.data?.products || []);
     },
   });
-  const [categories, setCategories] = useState<CategoryNode[]>([]);
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ["categories"],
+    queryFn: () => api.catalog.categories(),
+    staleTime: 5 * 60_000,
+  });
+  const l1 = useMemo(() => categories.find((c) => c.id === l1Id), [categories, l1Id]);
+  const l1Slug = l1?.slug ?? "";
+
   const [areas, setAreas] = useState<AreaTile[]>([]);
   const [priceBento, setPriceBento] = useState<PriceBentoResponse | null>(null);
   const [nearby, setNearby] = useState<StoreCard[]>([]);
@@ -831,20 +842,10 @@ export function HomeClient() {
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Set<string>>(new Set());
-  // Gates the popular-stores / nearby-stores fetches — no point fetching
-  // data unless meet_sellers (the only remaining consumer of this fetch,
-  // now that the standalone "stores" section has been removed) is enabled.
-  // Seeded from the local default and updated once the server config
-  // (which can override enabled/disabled without a deploy) resolves.
-  // Mirrored into a ref too since the deferred-fetch timer lives inside a
-  // mount-only effect and can't reactively read updated state from its own
-  // closure.
   const [storesEnabled, setStoresEnabled] = useState(
     () => DEFAULT_SECTIONS.find((s) => s.id === "meet_sellers")?.enabled ?? false
   );
   const storesEnabledRef = useRef(storesEnabled);
-  // Same gating pattern for the "Shop by Brand" rail — no point fetching
-  // brands unless that section is actually enabled.
   const [brandsEnabled, setBrandsEnabled] = useState(
     () => DEFAULT_SECTIONS.find((s) => s.id === "shop_by_brand")?.enabled ?? false
   );
@@ -860,19 +861,6 @@ export function HomeClient() {
       const c = cfg as unknown as { sections?: SectionDoc[]; try_and_buy_image?: string };
       if (c.try_and_buy_image) setTryAndBuyImage(c.try_and_buy_image);
       if (Array.isArray(c.sections) && c.sections.length > 0) {
-        // The DB config is now AUTHORITATIVE for order + enabled — this is
-        // what makes the admin "Sections" CMS panel (Homepage Assets ->
-        // Sections) actually take effect. Local DEFAULT_SECTIONS is used
-        // only to fill in (a) any individual field missing/malformed on a
-        // given DB entry — defensive; DB entries are always well-formed
-        // today via admin_put_homepage_config's coercion, but a rank/
-        // enabled value is never trusted blindly — and (b) whole sections
-        // that exist in code but haven't been synced to the DB config yet,
-        // so a newly-shipped section still appears (at its local default
-        // rank/enabled) even before an admin or migration touches the CMS.
-        // If this fetch fails, or returns no sections, `sections` state
-        // simply keeps its useState(DEFAULT_SECTIONS) initial value below —
-        // the homepage never blanks out on a missing/malformed CMS config.
         const defaultMap = new Map(DEFAULT_SECTIONS.map((s) => [s.id, s]));
         const serverIds = new Set(c.sections.map((s: SectionDoc) => s.id));
         const extra = DEFAULT_SECTIONS.filter((s) => !serverIds.has(s.id));
@@ -898,7 +886,6 @@ export function HomeClient() {
       }
       markLoaded("hero");
     }).catch(() => { markLoaded("hero"); });
-    api.catalog.categories().then((r) => setCategories(r)).catch(() => {});
     api.catalog.areas().then((r) => setAreas(r)).catch(() => {});
     api.catalog.priceBento().then((r) => setPriceBento(r)).catch(() => {});
 
@@ -906,12 +893,6 @@ export function HomeClient() {
       api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
       api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
       if (storesEnabledRef.current) {
-        // No lat/lng here deliberately — this effect is mount-only ([]),
-        // so it would always capture the pre-geolocation null value. The
-        // separate reactive effect below (keyed on [lat, lng, storesEnabled])
-        // already fetches the real-distance `nearby` list once location
-        // resolves, and storesRail below prefers `nearby` over this
-        // popular-stores fallback whenever it has data.
         api.stores.popular({ limit: 10 }).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
       } else {
         markLoaded("popularStores");
@@ -925,9 +906,8 @@ export function HomeClient() {
       }
     }, 800);
 
-    // Single request for trending + store rails — best_deals/premium_picks
-    // are now sourced from the separate L1-scoped useQuery calls above, not
-    // this feed (see their own comment for why).
+    // Trending + store_rails — genuinely site-wide, not L1-scoped (see
+    // this component's own top comment); same behavior on every route.
     apiClient.get<HomeProductsResponse>("/api/feed/home-products").then((r) => {
       const data = r.data || { store_rails: [], trending: [], best_deals: [], premium_picks: [] };
       const hasProducts = (data.trending?.length || 0) + (data.store_rails?.length || 0) > 0;
@@ -936,7 +916,6 @@ export function HomeClient() {
         setStoreRails(data.store_rails || []);
         setTrending(data.trending || []);
       } else {
-        // Direct fallback — fetch products without feed filtering
         apiClient.get("/api/products?limit=24&sort=newest").then((r2: any) => {
           const products: ProductCardType[] = r2.data?.products || r2.data || [];
           if (products.length > 0) {
@@ -963,7 +942,6 @@ export function HomeClient() {
       markLoaded("storeRails");
       markLoaded("recent");
     }).catch(() => {
-      // On total failure still try direct products
       apiClient.get("/api/products?limit=24").then((r2: any) => {
         const products: ProductCardType[] = r2.data?.products || [];
         if (products.length > 0) {
@@ -988,17 +966,6 @@ export function HomeClient() {
   const storesReady = loaded.has("nearby") || loaded.has("popularStores");
   const storesRail = nearby.length > 0 ? nearby : popularStores;
 
-  // meet_sellers' rail order: open stores first, then closed — each bucket
-  // nearest-first. "Open" = availability_rank 1, the exact same LIVE rank
-  // _store_availability() computes everywhere else in the app (badges,
-  // checkout, order placement) — never a separate open/closed check.
-  // distance_km is only populated when the backend had real user coords to
-  // compute it from (nearby-stores; popularStores never gets one) — the
-  // backend itself already falls back to the Bhilai centroid rather than a
-  // faraway tester's real GPS (see _attach_distance_and_eta), so this never
-  // sorts by a meaningless ~1000km reading. Missing distance sorts last
-  // within its bucket, which for popularStores (no distance data at all)
-  // just preserves the backend's own popularity order as a stable tiebreak.
   const sellersSorted = [...storesRail].sort((a, b) => {
     const aOpen = (a as any).availability_rank === 1 ? 0 : 1; // eslint-disable-line @typescript-eslint/no-explicit-any
     const bOpen = (b as any).availability_rank === 1 ? 0 : 1; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -1035,48 +1002,32 @@ export function HomeClient() {
     </div>
   );
 
+  const bestDealsLink = `/products?l1=${l1Id}&sort=discount`;
+  const premiumPicksLink = `/products?l1=${l1Id}&sort=price_desc`;
+
   const sectionRenderers: Record<string, React.ReactNode> = {
-    // Women is Home's default-active L1 tab (see CategoryTileRow) — the
-    // hero shows Women's published slides for that same reason. The old
-    // site-wide HeroEditor.tsx/site_config.homepage.hero system (HeroV2)
-    // is untouched and still coexists in the codebase; Home simply no
-    // longer renders it here.
     hero: (
       <div key="hero" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("hero")); } catch {} } }}>
-        <HeroCarousel l1Id="l1-women" />
+        <HeroCarousel l1Id={l1Id} />
       </div>
     ),
 
-    shop_by_category: <ShopByCategorySection key="shop-by-category" tiles={resolveShopByCategoryTiles(categories, "women")} />,
+    shop_by_category: <ShopByCategorySection key="shop-by-category" tiles={resolveShopByCategoryTiles(categories, l1Slug)} />,
 
     for_her: <GenderBentoSection key="for-her" id="for_her" title="For Her" tiles={resolveGenderTiles(categories, FOR_HER_TILES)} />,
 
     for_him: <GenderBentoSection key="for-him" id="for_him" title="For Him" tiles={resolveGenderTiles(categories, FOR_HIM_TILES)} />,
 
-    // Split into 3 independently-ranked sections (Phase D) — see
-    // GenderedStoreSection's own comment for why. index 0/1/2 =
-    // Footwear/Ethnic/Lingerie-or-Innerwear, always in that order for
-    // either gender's module list.
-    store_footwear: <GenderedStoreSection key="store-footwear" categories={categories} l1Slug="women" index={0} />,
-    store_ethnic: <GenderedStoreSection key="store-ethnic" categories={categories} l1Slug="women" index={1} />,
-    store_lingerie: <GenderedStoreSection key="store-lingerie" categories={categories} l1Slug="women" index={2} />,
+    store_footwear: <GenderedStoreSection key="store-footwear" categories={categories} l1Slug={l1Slug} index={0} />,
+    store_ethnic: <GenderedStoreSection key="store-ethnic" categories={categories} l1Slug={l1Slug} index={1} />,
+    store_lingerie: <GenderedStoreSection key="store-lingerie" categories={categories} l1Slug={l1Slug} index={2} />,
 
     under_499: <ShopByPriceSection key="shop-by-price" priceBento={priceBento} />,
 
     browse_all: <BrowseAllSection key="browse-all" />,
 
-    // category_pills is now desktop-only — the mobile circular tile strip
-    // this section used to render (via CategoryTileRow) moved to the
-    // persistent (consumer)/(shop)/layout.tsx, which mounts CategoryTileRow
-    // ONCE for both Home and every /c/[slug] page so it never remounts on
-    // navigation between them. Home no longer renders its own copy at any
-    // breakpoint — see CategoryTileRow's own doc comment. The desktop
-    // portrait-card grid below is untouched: a deliberately different,
-    // older treatment that was never part of the tile-strip unification,
-    // and has no /c/[slug] equivalent to persist.
     category_pills: (
       <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
-        {/* Desktop — image-led portrait card grid, one column per category. */}
         <div
           className="hidden md:grid gap-4 pb-2"
           style={{ gridTemplateColumns: `repeat(${categories.length === 0 ? 8 : Math.min(categories.length, 9) + 1}, minmax(0, 1fr))` }}
@@ -1104,9 +1055,6 @@ export function HomeClient() {
                   className="group relative aspect-[3/4] rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC] transition hover:border-[#0A1F5C]"
                 >
                   {cat.image ? (
-                    // Whole row fits within one desktop viewport width (a
-                    // CSS grid, not a scroll strip like mobile) — the
-                    // entire above-the-fold row loads eager.
                     <img src={cloudinaryOptimize(cat.image, "w_400,q_auto,f_auto")} alt={cat.name}
                       loading="eager"
                       fetchPriority={catIdx === 0 ? "high" : "auto"}
@@ -1126,7 +1074,6 @@ export function HomeClient() {
       </div>
     ),
 
-    // Trending products
     trending: errors.has("recent") ? null
       : loaded.has("recent") && trending.length >= 1 ? (
           <HCarousel key="trending" title="Trending now" testid="home-new-arrivals" link="/products?sort=trending" linkLabel="See all">
@@ -1139,10 +1086,12 @@ export function HomeClient() {
         )
       : !loaded.has("recent") ? <ProductRailSkeleton key="trending-skeleton" testid="home-new-arrivals-skeleton" /> : null,
 
-    // Best deals — L1-scoped (see HOME_L1_ID's own comment above)
+    // Best deals — L1-scoped via l1Id. Canonical rail (sort=discount) —
+    // see this file's own top comment for why CategoryClient's old
+    // "Bestsellers" (sort=rating) rail was retired, not kept alongside it.
     best_deals: bestDealsErrored ? null
       : !bestDealsPending && bestDeals.length >= 1 ? (
-          <HCarousel key="best-deals" title="Best deals" testid="home-best-deals" link={`/products?l1=${HOME_L1_ID}&sort=discount`} linkLabel="See all">
+          <HCarousel key="best-deals" title="Best deals" testid="home-best-deals" link={bestDealsLink} linkLabel="See all">
             {bestDeals.slice(0, 8).map((p, pIdx) => (
               <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "best_deals", position: pIdx }); } catch {} }}>
                 <ProductCard p={p} size="default" />
@@ -1152,10 +1101,9 @@ export function HomeClient() {
         )
       : bestDealsPending ? <ProductRailSkeleton key="best-deals-skeleton" testid="home-best-deals-skeleton" /> : null,
 
-    // Premium picks — highest-priced products, L1-scoped
     premium_picks: premiumPicksErrored ? null
       : !premiumPicksPending && premiumPicks.length >= 1 ? (
-          <HCarousel key="premium-picks" title="Premium picks" testid="home-premium-picks" link={`/products?l1=${HOME_L1_ID}&sort=price_desc`} linkLabel="See all">
+          <HCarousel key="premium-picks" title="Premium picks" testid="home-premium-picks" link={premiumPicksLink} linkLabel="See all">
             {premiumPicks.slice(0, 8).map((p, pIdx) => (
               <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "premium_picks", position: pIdx }); } catch {} }}>
                 <ProductCard p={p} size="default" />
@@ -1211,8 +1159,6 @@ export function HomeClient() {
       </section>
     ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
 
-    // JustInSection self-fetches newest arrivals + the store-chip list and
-    // collapses to null if no store has any visible products.
     just_in: <JustInSection key="just-in" />,
 
     merchant_cta: (
@@ -1224,19 +1170,6 @@ export function HomeClient() {
           onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
           className="block"
         >
-          {/* Single line of copy, not a stacked title+subtitle — the old
-              two-line version ("Own a store in Bhilai?" / "Join Lokl —
-              list your products for free") made the subtitle wrap to a
-              third line on narrow phones, which is what made the banner
-              read as too thick. First attempt at a merged one-liner
-              ("Own a store in Bhilai? List free on Lokl") still measured
-              too long for the ~183px of text width actually left over
-              once the "Join free →" pill and its gap are accounted for at
-              375px — it truncated with an ellipsis instead of fitting.
-              Just the original headline reliably fits at that width; the
-              "free" part isn't lost, it's already carried by the Join
-              free button right next to it. Tighter vertical padding
-              (py-3, was py-4) now that there's only one line of text. */}
           <div className="bg-[#0A1F5C] rounded-2xl px-5 py-3 flex items-center justify-between gap-4">
             <p className="min-w-0 text-white font-bold text-sm leading-tight truncate">
               Own a store in Bhilai?
@@ -1261,7 +1194,6 @@ export function HomeClient() {
     try_and_buy: <TryAndBuySection key="try-and-buy" image={tryAndBuyImage} />,
 
     shop_by_area: <ShopByAreaSection key="shop-by-area" areas={areas} />,
-
   };
 
   const orderedSections = [...sections]
@@ -1274,6 +1206,7 @@ export function HomeClient() {
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <main className="flex-1">
         {orderedSections}
+        {mode === "category" && (l1 ? <BrowseGridBlock l1={l1} /> : null)}
         <TrustStickers />
       </main>
     </div>

@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { CategoryClient } from "@/components/consumer/CategoryClient";
+import { CategoryRouteClient } from "@/components/consumer/CategoryRouteClient";
 
 const CATEGORY_NAMES: Record<string, string> = {
   "women":       "Women's Fashion",
@@ -34,7 +34,7 @@ export async function generateMetadata(
 export default function CategoryL1Page() {
   return (
     <Suspense fallback={null}>
-      <CategoryClient />
+      <CategoryRouteClient />
     </Suspense>
   );
 }
