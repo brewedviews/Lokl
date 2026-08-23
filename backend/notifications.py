@@ -21,46 +21,37 @@ back to "twilio").
     as thin delegates to `get_provider()`. test_smoke_imports.py asserts
     `send_with_fallback` exists as a module attribute — must stay.
 
-### OTP delivery contract — provider asymmetry (READ THIS)
-Twilio and MSG91 own OTP verification differently, and the two request-otp
-/verify-otp code paths in server.py branch accordingly (see the docstrings
-on customer_request_otp/customer_verify_otp etc. in server.py for the exact
-branch, and `active_provider_name()` below for the switch):
+### OTP model — LOCAL for every role, always (READ THIS)
+Customer, merchant, and rider login OTP are all the SAME model regardless
+of NOTIFICATION_PROVIDER: server.py generates the 6-digit code itself,
+bcrypt-hashes it into db.customer_otps/db.rider_otps/db.merchant_login_otps
+with a 10-minute TTL and 5-attempt lockout, and calls notify_customer_otp/
+notify_merchant_otp/notify_rider_otp purely to DELIVER that code — the
+provider is a pure delivery-channel concern, invisible to verification.
+`NotificationProvider.verify_otp()` (both Twilio's and MSG91's
+implementations) is UNUSED by any of the three login flows as of this
+revert — server.py's own local bcrypt compare is the only verification
+that ever happens now.
 
-  - **Twilio** (default): server.py generates the 6-digit OTP itself,
-    bcrypt-hashes it into db.customer_otps/db.rider_otps/
-    db.merchant_login_otps with a 10-minute TTL and 5-attempt lockout, and
-    calls `TwilioProvider.send_otp(to, otp)` purely to DELIVER that code
-    (WhatsApp with ~5s delivery poll, falling back to SMS). Verification is
-    a local bcrypt compare against that same collection — completely
-    unaffected by this migration. `TwilioProvider.verify_otp()` is a
-    documented no-op (`return True`) because Twilio is never actually
-    consulted for verification; it exists only to satisfy the interface.
-  - **MSG91**: MSG91's dedicated OTP product (v5/otp, v5/otp/verify) owns
-    the entire lifecycle — it generates its own code, delivers it (per the
-    channel policy configured against MSG91_OTP_TEMPLATE_ID in the MSG91
-    dashboard), and verifies it server-side. server.py does NOT write a
-    local OTP record for this path — there is nothing to hash or compare
-    locally. `MSG91Provider.send_otp(to)` is called with no `otp` argument
-    (MSG91 generates it), and `MSG91Provider.verify_otp(to, otp)` calls
-    MSG91's verify API directly.
-  - This means: switching providers changes WHO owns OTP state, not just
-    which SMS vendor is used. Rolling back to Twilio (NOTIFICATION_PROVIDER
-    unset or "twilio") immediately restores the local-generate/local-verify
-    path with zero code changes needed — that's the whole point of keeping
-    the local bcrypt logic fully intact and untouched by this migration.
+This used to be asymmetric: customer OTP briefly used MSG91's OTP Widget
+(Custom UI / exposeMethods mode), which owned the entire send+verify
+lifecycle itself and handed the frontend an access-token to confirm
+server-side instead of a raw code. That was reverted — the widget's fixed
+message template couldn't be reworded to Lokl's own branding from code
+(it required DLT/template approval work on MSG91's dashboard side, and in
+the meantime showed a generic non-Lokl sender name), so customer OTP moved
+back to the same local model merchant/rider already used. If MSG91's own
+OTP Widget/API-generated-and-verified model is ever revisited, expect this
+docstring's asymmetry section to come back along with it — don't assume
+`verify_otp()` staying unused is permanent.
 
-Merchant and rider LOGIN-OTP notifications (notify_merchant_otp /
-notify_rider_otp) are a partial exception: they need custom wording ("Lokl
-merchant login code...") that doesn't fit either provider's fixed OTP
-template, so they always go through the generic send_with_fallback() path
-(message_type="merchant_login_otp"/"rider_login_otp") — meaning MERCHANT
-and RIDER login OTPs are ALWAYS verified locally (bcrypt), regardless of
-which provider is active. Only the DELIVERY channel switches with
-NOTIFICATION_PROVIDER for those two flows; only CUSTOMER OTP fully switches
-delivery AND verification to MSG91 when it's active. See server.py's
-merchant_verify_otp/rider_verify_otp — they are intentionally NOT branched
-by provider, unlike customer_verify_otp.
+### Channel behavior — WhatsApp-only, no fallback (deliberately deferred)
+`send_with_fallback()` currently only attempts WhatsApp; SMS fallback on
+failure is NOT wired up right now — see that function's own docstring for
+the TODO marking where a real multi-channel fallback strategy (SMS, Voice,
+etc.) needs to be designed and reintroduced. This applies uniformly to
+every notify_* call site, OTP and non-OTP alike — there is no per-message
+channel-priority override today.
 
 ### Visibility (the silent-failure fix, Commit 1)
 Every provider logs a WARNING (not silence) when it can't send: missing
@@ -416,6 +407,7 @@ class MSG91Provider(NotificationProvider):
         "merchant_first_order": "MSG91_SMS_TEMPLATE_MERCHANT_FIRST_ORDER",
         "merchant_login_otp": "MSG91_SMS_TEMPLATE_MERCHANT_LOGIN_OTP",
         "rider_login_otp": "MSG91_SMS_TEMPLATE_RIDER_LOGIN_OTP",
+        "customer_otp": "MSG91_SMS_TEMPLATE_CUSTOMER_OTP",
         # Ad-hoc call sites in server.py that don't go through a notify_*
         # wrapper (see grep of send_with_fallback( in server.py):
         "merchant_order_cancelled_by_customer": "MSG91_SMS_TEMPLATE_MERCHANT_ORDER_CANCELLED_BY_CUSTOMER",
@@ -427,6 +419,18 @@ class MSG91Provider(NotificationProvider):
         "admin_notification_test": "MSG91_SMS_TEMPLATE_ADMIN_NOTIFICATION_TEST",
         # order_accepted is dead code (zero call sites, see notify_order_accepted's
         # docstring) — deliberately NOT mapped; no Railway var needed for it.
+    }
+
+    # message_type -> Railway env var name holding that message's APPROVED
+    # WhatsApp Authentication-category template NAME (not id — WhatsApp
+    # templates are identified by name+language, unlike the numeric-id SMS
+    # template convention above). Only login-OTP flows go through
+    # send_authentication_otp() — every other message stays on the plain
+    # Utility-shaped send_whatsapp() path.
+    _WA_AUTH_TEMPLATE_ENV = {
+        "customer_otp": "MSG91_WA_TEMPLATE_CUSTOMER_OTP",
+        "merchant_login_otp": "MSG91_WA_TEMPLATE_MERCHANT_LOGIN_OTP",
+        "rider_login_otp": "MSG91_WA_TEMPLATE_RIDER_LOGIN_OTP",
     }
 
     def _auth_key(self) -> Optional[str]:
@@ -548,6 +552,98 @@ class MSG91Provider(NotificationProvider):
             self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp", "error": str(e)}
             return None
 
+    def send_authentication_otp(self, to: str, otp: str, template_name: str) -> Optional[str]:
+        """Send a WhatsApp OTP via an approved Authentication-category
+        template — genuinely separate from send_whatsapp(), not a
+        parameter variant of it. Authentication templates are a distinct
+        Meta template category with a hard structural requirement
+        send_whatsapp()'s existing template_id path does NOT satisfy: a
+        BUTTONS component carrying an OTP button (otp_type: COPY_CODE),
+        alongside the body parameter, plus a `namespace` field scoped to
+        the whole WABA account (confirmed via research to be a single
+        account-level value, not per-template) that send_whatsapp() never
+        sends at all.
+
+        Component shape: keyed object ({"body_1": {...}, "button_1": {...}})
+        per MSG91's own WhatsApp-OTP-specific documentation — DELIBERATELY
+        DIFFERENT from send_whatsapp()'s array-of-objects shape (which
+        matches MSG91's generic Utility-template docs instead). This is
+        the FIRST attempt at resolving a real shape ambiguity found during
+        research — two different MSG91 doc pages describe two different
+        shapes for what may or may not be the same endpoint, and the only
+        way to know which one this account's API actually accepts is a
+        live call. If this shape gets rejected specifically on payload
+        structure (not on eligibility/config), the array shape is the
+        fallback to try next — see the caller/test script, not hardcoded
+        as an automatic retry here, since we want to SEE each raw response
+        distinctly rather than silently swallow the first failure.
+
+        Returns the provider's message id on success, or None on failure
+        (same contract as send_whatsapp())."""
+        auth_key = self._auth_key()
+        if not auth_key:
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp_auth",
+                                 "error": "MSG91_AUTH_KEY not configured"}
+            return None
+        mobile = _to_msg91_mobile(to)
+        if not mobile:
+            log.warning("[msg91-wa-auth] invalid phone: %r", to)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp_auth", "error": f"invalid phone: {to!r}"}
+            return None
+        integrated_number = (os.environ.get("MSG91_WHATSAPP_INTEGRATED_NUMBER") or "").strip()
+        if not integrated_number:
+            log.warning("[msg91-wa-auth] MSG91_WHATSAPP_INTEGRATED_NUMBER not configured — skipping to %s", to)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp_auth",
+                                 "error": "MSG91_WHATSAPP_INTEGRATED_NUMBER not configured"}
+            return None
+        namespace = (os.environ.get("MSG91_WHATSAPP_NAMESPACE") or "").strip()
+        if not namespace:
+            log.warning("[msg91-wa-auth] MSG91_WHATSAPP_NAMESPACE not configured — skipping to %s", to)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp_auth",
+                                 "error": "MSG91_WHATSAPP_NAMESPACE not configured"}
+            return None
+        if not template_name:
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp_auth",
+                                 "error": "template_name is required"}
+            return None
+        try:
+            import requests
+            payload = {
+                "integrated_number": integrated_number,
+                "content_type": "template",
+                "payload": {
+                    "messaging_product": "whatsapp",
+                    "type": "template",
+                    "template": {
+                        "name": template_name,
+                        "language": {"code": "en", "policy": "deterministic"},
+                        "namespace": namespace,
+                        "to_and_components": [{
+                            "to": [mobile],
+                            "components": {
+                                "body_1": {"type": "text", "value": str(otp)},
+                                "button_1": {"subtype": "url", "type": "text", "value": str(otp)},
+                            },
+                        }],
+                    },
+                },
+            }
+            url = f"{_MSG91_BASE}/whatsapp/whatsapp-outbound-message/bulk/"
+            resp = requests.post(url, json=payload, headers=self._headers(auth_key), timeout=10)
+            data = resp.json()
+            msg_id = data.get("message_id") or data.get("request_id")
+            if not msg_id:
+                log.warning("[msg91-wa-auth] send to %s failed: %s", mobile, data)
+                self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp_auth", "response": data}
+                return None
+            log.info("[msg91-wa-auth] %s sent (id=%s template=%s)", mobile, msg_id, template_name)
+            self.last_result = {"ok": True, "provider": "msg91", "channel": "whatsapp_auth", "message_id": msg_id, "response": data}
+            return str(msg_id)
+        except Exception as e:
+            log.warning("[msg91-wa-auth] send to %s failed: %s", mobile, e)
+            self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp_auth", "error": str(e)}
+            return None
+
     def send_otp(self, to: str, otp: Optional[str] = None) -> str:
         """`otp` is normally omitted — MSG91's OTP API generates its own
         code (see module docstring's OTP asymmetry section). Passing one
@@ -625,68 +721,6 @@ class MSG91Provider(NotificationProvider):
             self.last_result = {"ok": False, "provider": "msg91", "channel": "verify_otp", "error": str(e)}
             return False
 
-    def verify_widget_access_token(self, access_token: str) -> dict:
-        """Server-side verification of the OTP Widget's access-token — the
-        Custom UI (exposeMethods) flow's `window.verifyOtp()` success
-        callback hands the frontend an access-token, NOT an otp/mobile pair;
-        this is the only way to actually trust it (a client-side "success"
-        callback firing is not proof by itself — the token must be checked
-        against MSG91's own server).
-
-        Endpoint and field names confirmed via a real live call (not
-        guessed): POST https://control.msg91.com/api/v5/widget/verifyAccessToken
-        with JSON body {"authkey": ..., "access-token": ...}. A deliberately
-        invalid token returned {"message": "invalid access-token", "type":
-        "error", "code": 701} — an access-token-specific error, not an
-        authkey-rejection — confirming `authkey` here really is the main
-        MSG91_AUTH_KEY (the same one every other MSG91Provider call uses),
-        not a separate per-widget credential.
-
-        NOTE: the exact SUCCESS response shape (does it echo back the
-        verified mobile/identifier?) is still unconfirmed — that requires an
-        actual live widget round-trip (real phone, real browser, real OTP
-        entry), which can't be produced from a backend-only test call. The
-        caller (server.py's customer_verify_otp) does NOT currently trust
-        any identifier MSG91 might return; it keeps using the client-
-        supplied `phone` for JWT issuance, same trust boundary the plain
-        verify_otp() path above already has. Revisit once a real success
-        response has actually been observed.
-
-        Returns {"ok": bool, ...raw MSG91 response merged in...}."""
-        auth_key = self._auth_key()
-        if not auth_key:
-            self.last_result = {"ok": False, "provider": "msg91", "channel": "verify_widget_token",
-                                 "error": "MSG91_AUTH_KEY not configured"}
-            return {"ok": False, "error": "MSG91_AUTH_KEY not configured"}
-        token = (access_token or "").strip()
-        if not token:
-            self.last_result = {"ok": False, "provider": "msg91", "channel": "verify_widget_token",
-                                 "error": "access_token is required"}
-            return {"ok": False, "error": "access_token is required"}
-        try:
-            import requests
-            # Same "don't raise_for_status" rule as verify_otp above — MSG91
-            # returns HTTP 200 with a {"type": "error", ...} body for an
-            # invalid/expired token, a normal outcome here, not a transport
-            # failure.
-            resp = requests.post(
-                f"{_MSG91_BASE}/widget/verifyAccessToken",
-                json={"authkey": auth_key, "access-token": token},
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
-                timeout=10,
-            )
-            data = resp.json()
-            ok = str(data.get("type", "")).lower() == "success"
-            if ok:
-                log.info("[msg91-widget] access-token verify OK")
-            else:
-                log.warning("[msg91-widget] access-token verify FAILED: %s", data.get("message"))
-            self.last_result = {"ok": ok, "provider": "msg91", "channel": "verify_widget_token", "response": data}
-            return {"ok": ok, **data}
-        except Exception as e:
-            log.warning("[msg91-widget] access-token verify request failed: %s", e)
-            self.last_result = {"ok": False, "provider": "msg91", "channel": "verify_widget_token", "error": str(e)}
-            return {"ok": False, "error": str(e)}
 
 
 # ============================================================================
@@ -750,24 +784,29 @@ def send_otp_with_fallback(phone: str, otp: str) -> str:
     return get_provider().send_otp(phone, otp)
 
 
-def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = None,
-                        preferred_channel: str = "whatsapp") -> str:
-    """Best-effort delivery for ANY transactional message — tries
-    `preferred_channel` first, falls back to the other channel on failure.
+# TODO(fallback-strategy): WhatsApp-only for now, deliberately deferred —
+# NOT designed yet, not forgotten. When a real fallback strategy is built
+# (SMS, Voice, or otherwise), reintroduce it here: bring back the two-
+# channel try/fallback loop send_with_fallback() had before this flag
+# (git history has it — a WhatsApp-then-SMS attempt with a
+# preferred_channel override for latency/reliability-sensitive callers
+# like login OTP), decide what "channel priority per message type" should
+# actually mean this time, and update every notify_* call site's own
+# docstring claims about delivery order (several currently say "WhatsApp
+# first, SMS fallback" — no longer true while this flag is on).
+NOTIFICATION_SMS_FALLBACK_ENABLED = (os.environ.get("NOTIFICATION_SMS_FALLBACK_ENABLED", "") or "").strip().lower() in ("1", "true", "yes")
 
-    `preferred_channel` defaults to "whatsapp" (the original, still-current
-    behavior for every existing caller that doesn't pass it explicitly).
-    Pass "sms" to reverse the order — e.g. merchant/rider login OTP, where
-    SMS is the priority channel and WhatsApp is the fallback, unlike every
-    other notification in the app (order lifecycle, merchant alerts, pickup
-    flow, etc.), which all stay WhatsApp-first. This is a single shared
-    function both TwilioProvider and MSG91Provider go through identically
-    via the same NotificationProvider.send_sms/send_whatsapp interface —
-    the channel-order logic lives here once, not duplicated per provider.
 
-    Unlike `send_otp_with_fallback`, this skips the status poll because
-    order-flow notifications can't tolerate that latency in a request
-    handler. Any first-channel rejection is treated as "fall back now".
+def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = None) -> str:
+    """Best-effort delivery for ANY transactional message.
+
+    WHATSAPP-ONLY as of the widget revert — see the
+    NOTIFICATION_SMS_FALLBACK_ENABLED TODO above. SMS fallback on a
+    WhatsApp failure is NOT attempted; the failure is logged clearly
+    instead of silently falling back to a different channel. This applies
+    uniformly to every notify_* call site in this file (OTP and non-OTP
+    alike) — there is no per-message-type exception today.
+
     Successful submission counts as success — terminal delivery status is
     best effort, surfaced via the provider's own dashboard/status webhook.
 
@@ -779,25 +818,27 @@ def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = N
     """
     provider = get_provider()
     provider_name = type(provider).__name__.replace("Provider", "").lower()
-    log.info("[NOTIFY] provider=%s channel_priority=%s %s <- %.80s",
-             provider_name, preferred_channel, phone, body.replace("\n", " "))
+    log.info("[NOTIFY] provider=%s %s <- %.80s", provider_name, phone, body.replace("\n", " "))
 
-    sms_first = preferred_channel == "sms"
-    first, second = ("sms", "whatsapp") if sms_first else ("whatsapp", "sms")
+    if provider.send_whatsapp(phone, body, message_type=message_type):
+        log.info("[NOTIFY] provider=%s whatsapp OK to=%s", provider_name, phone)
+        return "whatsapp"
 
-    def _try(channel: str) -> bool:
-        result = (provider.send_sms(phone, body, message_type=message_type) if channel == "sms"
-                  else provider.send_whatsapp(phone, body, message_type=message_type))
-        return bool(result)
+    if not NOTIFICATION_SMS_FALLBACK_ENABLED:
+        log.warning("[NOTIFY] provider=%s whatsapp failed for %s (%s) — SMS fallback is disabled "
+                    "(NOTIFICATION_SMS_FALLBACK_ENABLED), no further channel attempted",
+                    provider_name, phone, provider.last_result.get("error", "see prior log line"))
+        return "none"
 
-    if _try(first):
-        log.info("[NOTIFY] provider=%s %s OK to=%s", provider_name, first, phone)
-        return first
-    log.warning("[NOTIFY] provider=%s %s failed for %s (%s) — falling back to %s",
-                provider_name, first, phone, provider.last_result.get("error", "see prior log line"), second)
-    if _try(second):
-        log.info("[NOTIFY] provider=%s %s fallback delivered to %s", provider_name, second, phone)
-        return second
+    # Latent path — not exercised while NOTIFICATION_SMS_FALLBACK_ENABLED
+    # defaults off. Kept working (not deleted) so re-enabling it via the
+    # env var is a real, tested fallback rather than dead code someone has
+    # to rebuild from scratch later.
+    log.warning("[NOTIFY] provider=%s whatsapp failed for %s (%s) — falling back to sms",
+                provider_name, phone, provider.last_result.get("error", "see prior log line"))
+    if provider.send_sms(phone, body, message_type=message_type):
+        log.info("[NOTIFY] provider=%s sms fallback delivered to %s", provider_name, phone)
+        return "sms"
     log.warning("[NOTIFY] provider=%s all channels failed for %s (%s)",
                 provider_name, phone, provider.last_result.get("error", "see prior log line"))
     return "none"
@@ -810,62 +851,89 @@ def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = N
 # module docstring). Twilio ignores the tag; zero behavior change for it.
 # ============================================================================
 
-def notify_customer_otp(customer_phone: str, otp: str) -> None:
-    """Send the 6-digit login OTP to the customer.
+def _deliver_login_otp(phone: str, otp: str, message_type: str, fallback_body: str) -> None:
+    """Shared delivery path for the three login-OTP notify_* functions.
 
-    Twilio-only path — see module docstring's OTP asymmetry section. When
-    MSG91 is active, server.py's customer_request_otp does NOT call this
-    function at all; it calls get_provider().send_otp(phone) directly with
-    no local otp, letting MSG91 generate its own.
+    When MSG91 is active AND its Authentication-template config
+    (MSG91_WA_TEMPLATE_* + MSG91_WHATSAPP_NAMESPACE) is present, sends via
+    MSG91Provider.send_authentication_otp() — Meta owns the exact wording
+    for an Authentication template, so `fallback_body`'s Lokl-branded text
+    is NOT what actually gets sent on this path.
+
+    Otherwise falls back to the plain send_with_fallback(fallback_body)
+    path (Twilio, or MSG91 without Authentication-template config yet) —
+    this is where fallback_body's own wording actually ships. Kept as a
+    real, working path (not deleted) for exactly this fallback role, and
+    for whenever a future SMS channel is reintroduced (see
+    send_with_fallback's own deferred-fallback TODO) — SMS has no
+    Authentication-template concept the way WhatsApp does, so the plain
+    Lokl-worded body is what an SMS fallback would need regardless of
+    which WhatsApp path is active."""
+    if active_provider_name() == "msg91":
+        provider = get_provider()
+        template_env = getattr(provider, "_WA_AUTH_TEMPLATE_ENV", {}).get(message_type)
+        template_name = (os.environ.get(template_env) or "").strip() if template_env else ""
+        if template_name and hasattr(provider, "send_authentication_otp"):
+            msg_id = provider.send_authentication_otp(phone, otp, template_name)
+            if msg_id:
+                log.info("[OTP] provider=msg91 auth-template OTP delivered to=%s (id=%s)", phone, msg_id)
+                return
+            log.warning("[OTP] provider=msg91 auth-template OTP FAILED for %s (%s) — no further channel attempted",
+                        phone, provider.last_result.get("error", "see prior log line"))
+            return
+    send_with_fallback(phone, fallback_body, message_type=message_type)
+
+
+def notify_customer_otp(customer_phone: str, otp: str) -> None:
+    """Send the 6-digit login OTP to the customer. Always locally
+    generated/verified (see module docstring) — only the delivery channel
+    changes with the active provider. This used to route through MSG91's
+    dedicated OTP-Widget product (which owned the whole send+verify
+    lifecycle itself), but that meant the message body was MSG91's own
+    fixed widget template — not this Lokl-branded wording — and couldn't
+    be changed from code. Reverted to the same generic, freely-worded path
+    merchant/rider already use, now further branching to MSG91's
+    Authentication-template path when configured — see
+    _deliver_login_otp().
 
     Dev/preview: when `CUSTOMER_OTP_DEBUG=true` we also log the OTP to the
     backend log so testing works without a real phone.
     """
     if os.environ.get("CUSTOMER_OTP_DEBUG", "").strip().lower() in ("1", "true", "yes"):
         log.warning("[OTP-DEBUG] phone=%s otp=%s", customer_phone, otp)
-    provider = get_provider()
-    provider_name = type(provider).__name__.replace("Provider", "").lower()
-    result = provider.send_otp(customer_phone, otp)
-    if result == "none":
-        log.warning("[OTP] provider=%s customer OTP delivery FAILED for %s (%s)",
-                    provider_name, customer_phone, provider.last_result.get("error", "all channels"))
-    else:
-        log.info("[OTP] provider=%s customer OTP delivered via=%s to=%s", provider_name, result, customer_phone)
+    body = (
+        f"Your Lokl verification code is {otp}. "
+        f"Valid for 10 minutes. Don't share this code with anyone."
+    )
+    _deliver_login_otp(customer_phone, otp, "customer_otp", body)
 
 
 def notify_merchant_otp(merchant_phone: str, otp: str) -> None:
     """Merchant phone-OTP login. Always locally generated/verified — see
     module docstring — only the delivery channel changes with the active
-    provider. Uses send_with_fallback (the generic path), NOT send_otp: the
-    OTP-template contract is fixed-wording, and merchants need unambiguous
-    merchant-themed wording instead.
-
-    preferred_channel="sms": SMS first, WhatsApp as fallback — the reverse
-    of every other notify_* call site in this file, which all stay
-    WhatsApp-first. Login OTPs need the fastest, most reliable channel;
-    WhatsApp's delivery latency/session-window quirks are a worse fit here
-    than for a browsable order update."""
+    provider. See _deliver_login_otp() for the MSG91 Authentication-
+    template branch; falls back to send_with_fallback (generic path,
+    merchant-themed wording) otherwise."""
     if os.environ.get("CUSTOMER_OTP_DEBUG", "").strip().lower() in ("1", "true", "yes"):
         log.warning("[MERCHANT-OTP-DEBUG] phone=%s otp=%s", merchant_phone, otp)
     body = (
         f"Lokl merchant login code: {otp}. "
         f"Valid for 10 minutes. Don't share this code with anyone."
     )
-    send_with_fallback(merchant_phone, body, message_type="merchant_login_otp", preferred_channel="sms")
+    _deliver_login_otp(merchant_phone, otp, "merchant_login_otp", body)
 
 
 def notify_rider_otp(rider_phone: str, otp: str) -> None:
     """Rider phone-OTP login. Always locally generated/verified — see
     module docstring — only the delivery channel changes with the active
-    provider. Same send_with_fallback rationale as notify_merchant_otp,
-    including the same preferred_channel="sms" reasoning."""
+    provider. Same _deliver_login_otp() rationale as notify_merchant_otp."""
     if os.environ.get("CUSTOMER_OTP_DEBUG", "").strip().lower() in ("1", "true", "yes"):
         log.warning("[RIDER-OTP-DEBUG] phone=%s otp=%s", rider_phone, otp)
     body = (
         f"Lokl rider login code: {otp}. "
         f"Valid for 10 minutes. Don't share this code with anyone."
     )
-    send_with_fallback(rider_phone, body, message_type="rider_login_otp", preferred_channel="sms")
+    _deliver_login_otp(rider_phone, otp, "rider_login_otp", body)
 
 
 def notify_order_placed(phone: str, order_id: str, total: float) -> None:

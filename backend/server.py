@@ -240,6 +240,24 @@ class BrandCreate(BaseModel):
     logo: Optional[str] = ""
     logo_public_id: Optional[str] = ""
 
+class HeroSlideCreate(BaseModel):
+    # Single, required L1 per slide — a slide always targets exactly one
+    # L1 (e.g. l1-women), never multiple/none. Validated against the real
+    # L1_CATEGORIES list at create/update time (same integrity check
+    # _validate_l1_l2 does for products) rather than trusting any string.
+    l1_id: str
+    image: Optional[str] = ""
+    image_public_id: Optional[str] = ""
+    eyebrow: Optional[str] = ""
+    headline: Optional[str] = ""
+    # Plain string, same shape DestinationPicker already outputs/consumes
+    # for the existing site-wide Hero banner's own redirect_url field — no
+    # new backend "destination" concept needed, this reuses that component
+    # unmodified on the admin frontend side.
+    cta_link: Optional[str] = ""
+    active: bool = True
+    order: int = 1
+
 class VasyERPConnectRequest(BaseModel):
     api_token: str
 
@@ -564,14 +582,7 @@ class CustomerOtpRequest(BaseModel):
 
 class CustomerOtpVerify(BaseModel):
     phone: str
-    # For the Twilio/local path, the raw 6-digit code. For the msg91 path
-    # (widget Custom UI), `otp` is unused — the frontend instead sends the
-    # access-token from window.verifyOtp()'s success callback here, since
-    # the widget already verified the code client-side and the only thing
-    # left for the backend to do is confirm that verification actually
-    # happened, server-side, against MSG91 (see customer_verify_otp).
-    otp: str = ""
-    access_token: str = ""
+    otp: str
 
 
 # ===== OTP validity windows — single source of truth per role/path =====
@@ -579,14 +590,17 @@ class CustomerOtpVerify(BaseModel):
 # response's `expires_in`, so the two can never drift the way they
 # previously did here: two independent hardcoded literals (a `timedelta`
 # and a bare `600`) kept in sync only by a human remembering to edit both.
-CUSTOMER_OTP_TTL_MINUTES = 10  # Twilio/local-verification path only
-# MSG91's OTP Widget owns this path's expiry entirely once
-# NOTIFICATION_PROVIDER=msg91 is active — there is no local `timedelta` for
-# it to match (see customer_request_otp below, msg91 branch). 15 minutes is
-# confirmed against the real MSG91 dashboard widget config (previously a
-# placeholder guessed at MSG91's documented minimum — now the actual set
-# value).
-MSG91_CUSTOMER_OTP_TTL_MINUTES = 15
+# Customer, merchant, and rider OTP are now all the same local-generate/
+# local-verify model — see customer_request_otp/verify_otp below. The
+# MSG91 OTP Widget (Custom UI) integration that customer OTP briefly used
+# has been fully removed, not just disabled: it required real-name/DLT
+# template approval on MSG91's dashboard side and produced a confusing
+# non-Lokl-branded message ("DSHOTP"/"Dash") that couldn't be fixed from
+# code, since the widget model has MSG91 own the entire message body.
+# Reverting to the same code path merchant/rider already used gives full
+# control over wording again, at the cost of losing MSG91's own widget-
+# side bot/replay protections — an accepted tradeoff for now.
+CUSTOMER_OTP_TTL_MINUTES = 10
 MERCHANT_OTP_TTL_MINUTES = 10
 RIDER_OTP_TTL_MINUTES = 10
 
@@ -595,119 +609,78 @@ RIDER_OTP_TTL_MINUTES = 10
 @_limit(_LIMIT_CUSTOMER_OTP_REQUEST)
 async def customer_request_otp(request: Request, payload: CustomerOtpRequest):
     """Generate/dispatch a 6-digit OTP. Always returns the same shape to
-    prevent user-enumeration via response timing/structure.
-
-    Branches on the active NOTIFICATION_PROVIDER (see notifications.py's
-    module docstring for the full OTP-ownership asymmetry):
-      - twilio (default): we generate the OTP, bcrypt-hash it into
-        db.customer_otps with a CUSTOMER_OTP_TTL_MINUTES TTL, and dispatch
-        it — UNCHANGED from before this migration, rollback-safe.
-      - msg91: MSG91's OTP API generates and owns the code itself; no local
-        record is written, since there's nothing to verify locally. NOTE:
-        the OTP Widget (Custom UI) frontend flow calls window.sendOtp()
-        directly against MSG91, bypassing this endpoint entirely for the
-        actual send — this branch exists for any caller that still hits
-        this endpoint directly, and its expiry (MSG91_CUSTOMER_OTP_TTL_
-        MINUTES, confirmed against the real MSG91 dashboard widget config)
-        is reported for consistency either way.
-    Either way the response shape is identical, so the frontend needs no
-    changes regardless of which provider is active.
-    """
+    prevent user-enumeration via response timing/structure. Same
+    local-generate/bcrypt-hash/10-min-TTL/5-attempt-lockout model as
+    merchant_request_otp/rider_request_otp — provider (Twilio/MSG91) only
+    changes the delivery channel via notify_customer_otp, never OTP
+    ownership."""
     phone = _normalize_customer_phone(payload.phone)
     if not phone:
         raise HTTPException(400, "Invalid phone number")
 
-    if active_provider_name() == "msg91":
-        try:
-            get_provider().send_otp(phone)
-        except Exception as e:
-            log.warning("MSG91 OTP send failed for %s: %s", phone, e)
-        ttl_minutes = MSG91_CUSTOMER_OTP_TTL_MINUTES
-    else:
-        # ---- Twilio / local — UNCHANGED from before this migration ----
-        otp = f"{secrets.randbelow(1_000_000):06d}"
-        otp_hash = hash_password(otp)
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=CUSTOMER_OTP_TTL_MINUTES)
+    otp = f"{secrets.randbelow(1_000_000):06d}"
+    otp_hash = hash_password(otp)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=CUSTOMER_OTP_TTL_MINUTES)
 
-        # Upsert so a re-request for the same phone overwrites the prior OTP.
-        await db.customer_otps.update_one(
-            {"phone": phone},
-            {"$set": {
-                "phone": phone,
-                "otp_hash": otp_hash,
-                "attempts": 0,
-                "expires_at": expires_at,
-                "created_at": datetime.now(timezone.utc),
-            }},
-            upsert=True,
-        )
+    # Upsert so a re-request for the same phone overwrites the prior OTP.
+    await db.customer_otps.update_one(
+        {"phone": phone},
+        {"$set": {
+            "phone": phone,
+            "otp_hash": otp_hash,
+            "attempts": 0,
+            "expires_at": expires_at,
+            "created_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
 
-        # Fire-and-forget delivery. The notify helper logs OTP to backend logs
-        # when CUSTOMER_OTP_DEBUG=true so dev/preview works regardless of Twilio.
-        try:
-            notify_customer_otp(phone, otp)
-        except Exception as e:
-            log.warning("OTP delivery failed for %s: %s", phone, e)
-        ttl_minutes = CUSTOMER_OTP_TTL_MINUTES
+    # Fire-and-forget delivery. The notify helper logs OTP to backend logs
+    # when CUSTOMER_OTP_DEBUG=true so dev/preview works regardless of the
+    # configured provider.
+    try:
+        notify_customer_otp(phone, otp)
+    except Exception as e:
+        log.warning("OTP delivery failed for %s: %s", phone, e)
 
-    return {"ok": True, "message": "OTP sent if the phone is valid", "expires_in": ttl_minutes * 60}
+    return {"ok": True, "message": "OTP sent if the phone is valid", "expires_in": CUSTOMER_OTP_TTL_MINUTES * 60}
 
 
 @api.post("/auth/customer/verify-otp")
 @_limit(_LIMIT_CUSTOMER_OTP_VERIFY)
 async def customer_verify_otp(request: Request, payload: CustomerOtpVerify):
-    """Verify the OTP and issue a customer JWT pair.
-
-    twilio (default): local bcrypt check against db.customer_otps, 5-attempt
-    lockout — UNCHANGED from before this migration, rollback-safe.
-    msg91: the OTP Widget (Custom UI / exposeMethods mode) verifies the code
-    client-side and hands the frontend an access-token, NOT the raw otp —
-    server.py never sees the code itself for this path. That access-token
-    is what payload.access_token carries, and MSG91Provider.
-    verify_widget_access_token() confirms it server-side against MSG91's
-    own API before this counts as a real login — a client-side "success"
-    callback firing is not proof by itself; anyone could call the frontend
-    success handler directly without ever entering a real code.
-    """
+    """Verify the OTP and issue a customer JWT pair. Local bcrypt check
+    against db.customer_otps, 5-attempt lockout — same model as
+    merchant_verify_otp/rider_verify_otp."""
     phone = _normalize_customer_phone(payload.phone)
-    if not phone:
-        raise HTTPException(400, "Invalid phone number")
+    if not phone or not payload.otp:
+        raise HTTPException(400, "Invalid phone or OTP")
 
-    if active_provider_name() == "msg91":
-        if not payload.access_token:
-            raise HTTPException(400, "Missing access token")
-        result = get_provider().verify_widget_access_token(payload.access_token)
-        if not result.get("ok"):
-            raise HTTPException(401, "Incorrect or expired OTP")
-    else:
-        if not payload.otp:
-            raise HTTPException(400, "Invalid phone or OTP")
-        # ---- Twilio / local — UNCHANGED from before this migration ----
-        rec = await db.customer_otps.find_one({"phone": phone})
-        if not rec:
-            raise HTTPException(401, "OTP not found or expired — request a new one")
+    rec = await db.customer_otps.find_one({"phone": phone})
+    if not rec:
+        raise HTTPException(401, "OTP not found or expired — request a new one")
 
-        expires_at = rec.get("expires_at")
-        if isinstance(expires_at, datetime):
-            # Mongo returns naive UTC; normalize before comparison.
-            if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-            if expires_at < datetime.now(timezone.utc):
-                await db.customer_otps.delete_one({"phone": phone})
-                raise HTTPException(401, "OTP expired — request a new one")
-
-        if int(rec.get("attempts", 0)) >= 5:
+    expires_at = rec.get("expires_at")
+    if isinstance(expires_at, datetime):
+        # Mongo returns naive UTC; normalize before comparison.
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < datetime.now(timezone.utc):
             await db.customer_otps.delete_one({"phone": phone})
-            raise HTTPException(429, "Too many attempts — request a new OTP")
+            raise HTTPException(401, "OTP expired — request a new one")
 
-        if not verify_password(payload.otp.strip(), rec.get("otp_hash", "")):
-            await db.customer_otps.update_one({"phone": phone}, {"$inc": {"attempts": 1}})
-            raise HTTPException(401, "Incorrect OTP")
-
-        # Success — burn the OTP.
+    if int(rec.get("attempts", 0)) >= 5:
         await db.customer_otps.delete_one({"phone": phone})
+        raise HTTPException(429, "Too many attempts — request a new OTP")
 
-    # Shared for both providers — ensure a customer doc exists, issue tokens.
+    if not verify_password(payload.otp.strip(), rec.get("otp_hash", "")):
+        await db.customer_otps.update_one({"phone": phone}, {"$inc": {"attempts": 1}})
+        raise HTTPException(401, "Incorrect OTP")
+
+    # Success — burn the OTP.
+    await db.customer_otps.delete_one({"phone": phone})
+
+    # Ensure a customer doc exists, issue tokens.
     await db.customers.update_one(
         {"phone": phone},
         {"$setOnInsert": {
@@ -1472,21 +1445,22 @@ async def feed_above_1099(limit: int = 12):
 
 @api.get("/feed/price-bento")
 async def feed_price_bento():
-    """Image for each homepage price-bento tile (Under ₹499 / Most Loved /
-    Premium — <499, 499-1499, >=1500). Per band: an admin-set override in
-    db.price_bands wins if present; otherwise the cheapest visible
-    product's image in that band (ties broken by newest); otherwise null
-    so the frontend renders a neutral fallback tile instead of a broken
-    image. Never N+1: at most 3 DB round trips regardless of catalog size
-    (band overrides, visible store ids, one $facet covering all three
-    bands) — and if every band already has an admin override, the product
-    lookup is skipped entirely."""
+    """Image for each homepage price-bento tile (Under ₹499 / Under ₹999 /
+    Under ₹1,499 — <499, <999, <1499, OVERLAPPING thresholds, not
+    mutually-exclusive ranges — see PRICE_BANDS_SEED's own comment). Per
+    band: an admin-set override in db.price_bands wins if present;
+    otherwise the cheapest visible product's image in that band (ties
+    broken by newest); otherwise null so the frontend renders a neutral
+    fallback tile instead of a broken image. Never N+1: at most 3 DB round
+    trips regardless of catalog size (band overrides, visible store ids,
+    one $facet covering all three bands) — and if every band already has
+    an admin override, the product lookup is skipped entirely."""
     band_docs = await db.price_bands.find({}, {"_id": 0, "slug": 1, "image": 1}).to_list(10)
     overrides = {b["slug"]: b.get("image") for b in band_docs if b.get("image")}
     result = {
         "under_499": overrides.get("under-499"),
-        "most_loved": overrides.get("499-1499"),
-        "premium": overrides.get("above-1499"),
+        "under_999": overrides.get("under-999"),
+        "under_1499": overrides.get("under-1499"),
     }
     if all(result.values()):
         return result
@@ -1501,14 +1475,14 @@ async def feed_price_bento():
         {"$sort": {"price": 1, "created_at": -1}},
         {"$facet": {
             "under_499": [{"$match": {"price": {"$lt": 499}}}, {"$limit": 1}],
-            "most_loved": [{"$match": {"price": {"$gte": 499, "$lte": 1499}}}, {"$limit": 1}],
-            "premium": [{"$match": {"price": {"$gte": 1500}}}, {"$limit": 1}],
+            "under_999": [{"$match": {"price": {"$lt": 999}}}, {"$limit": 1}],
+            "under_1499": [{"$match": {"price": {"$lt": 1499}}}, {"$limit": 1}],
         }},
     ]
     rows = await db.products.aggregate(pipeline).to_list(1)
     facets = rows[0] if rows else {}
 
-    for key in ("under_499", "most_loved", "premium"):
+    for key in ("under_499", "under_999", "under_1499"):
         if result[key]:
             continue  # admin override already set for this band
         arr = facets.get(key) or []
@@ -2397,6 +2371,73 @@ async def admin_delete_brand(bid: str, admin: dict = Depends(require_admin)):
 # Front-of-house (public) endpoints reuse the existing /categories, /offers,
 # /site/homepage-config — these admin routes add the writes + analytics.
 
+# ---- HeroSlide (redesign Phase A) — per-L1 multi-slide hero carousel ----
+# A GENUINELY SEPARATE system from the existing single site-wide Hero
+# banner above (site_config.homepage.hero, edited via HeroEditor.tsx /
+# PUT /admin/site/homepage-config) — this is not a replacement or
+# migration of that one, the two coexist. HeroSlide backs
+# HeroCarousel.tsx's per-L1 slide list (currently fed a hardcoded
+# DEFAULT_HERO_SLIDES array on the frontend; wiring the carousel to fetch
+# from here is a later phase's frontend work, not this one).
+#
+# Full CRUD (unlike categories' fixed edit-only list) but no
+# search/pagination (unlike Brand) — likely small volume per L1, per the
+# task's own scoping call.
+ALLOWED_HERO_SLIDE_FIELDS = {
+    "l1_id", "image", "image_public_id", "eyebrow", "headline", "cta_link", "active", "order",
+}
+
+
+@api.get("/admin/hero-slides")
+async def admin_list_hero_slides(l1_id: Optional[str] = None, admin: dict = Depends(require_admin)):
+    q: dict = {}
+    if l1_id:
+        q["l1_id"] = l1_id
+    rows = await db.hero_slides.find(q, {"_id": 0}).sort([("l1_id", 1), ("order", 1)]).to_list(500)
+    return rows
+
+
+@api.post("/admin/hero-slides")
+async def admin_create_hero_slide(payload: HeroSlideCreate, admin: dict = Depends(require_admin)):
+    if payload.l1_id not in [c["id"] for c in L1_CATEGORIES]:
+        raise HTTPException(400, "Invalid l1_id")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": f"hero-{uuid.uuid4().hex[:10]}",
+        **payload.model_dump(),
+        "created_at": now, "updated_at": now,
+    }
+    await db.hero_slides.insert_one(doc)
+    doc_out = {k: v for k, v in doc.items() if k != "_id"}
+    return doc_out
+
+
+@api.put("/admin/hero-slides/{sid}")
+async def admin_update_hero_slide(sid: str, payload: dict, admin: dict = Depends(require_admin)):
+    existing = await db.hero_slides.find_one({"id": sid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Hero slide not found")
+    update = {k: v for k, v in payload.items() if k in ALLOWED_HERO_SLIDE_FIELDS}
+    if "l1_id" in update and update["l1_id"] not in [c["id"] for c in L1_CATEGORIES]:
+        raise HTTPException(400, "Invalid l1_id")
+    if "active" in update:
+        update["active"] = bool(update["active"])
+    if "order" in update:
+        update["order"] = int(update["order"])
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.hero_slides.update_one({"id": sid}, {"$set": update})
+    doc = await db.hero_slides.find_one({"id": sid}, {"_id": 0})
+    return doc
+
+
+@api.delete("/admin/hero-slides/{sid}")
+async def admin_delete_hero_slide(sid: str, admin: dict = Depends(require_admin)):
+    r = await db.hero_slides.delete_one({"id": sid})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Hero slide not found")
+    return {"ok": True}
+
+
 ALLOWED_OFFER_FIELDS = {
     "title", "subtitle", "image", "cta_label", "cta_link",
     "background", "rank", "published", "expires_at", "redirect_url",
@@ -2660,10 +2701,31 @@ async def admin_update_area(aid: str, payload: dict, admin: dict = Depends(requi
 # Fixed set of 3 homepage price-bento bands. slug MUST match the
 # price=<slug> query param /api/products/all and the price-bento tiles'
 # href use, and the label bands feed_price_bento() matches overrides against.
+#
+# OVERLAPPING "Under X" scheme (redesign Phase A) — a genuine semantic
+# change from the old mutually-exclusive tiers (<499 / 499-1499 / >=1500):
+# a ₹300 product now matches ALL THREE bands, not just one. See
+# all_products()'s price filter and feed_price_bento()'s facet below —
+# both changed from range-matching to a per-band $lt threshold.
+#
+# `id` values deliberately UNCHANGED from the old scheme (only slug/label
+# changed) — the boot-time upsert below matches by `id` and never
+# overwrites an existing doc's `image` ($setOnInsert only), so keeping the
+# same ids is what lets band-under-499's real admin-uploaded image (a
+# genuinely still-correct threshold, <499 both before and after) survive
+# automatically with zero migration. band-most-loved and band-premium
+# also keep their ids/images by the same mechanism, but their OLD images
+# no longer semantically match their new "Under X" framing — see
+# migrations/016_price_bands_overlapping_bands.py, which explicitly
+# clears band-premium's image (a "premium/expensive" photo would be
+# actively misleading under an "Under ₹1,499" budget-ceiling label) and
+# flags band-most-loved's carried-forward image for admin review (still
+# plausible as a mid-range product photo, but no longer a deliberate
+# curation choice for this exact band).
 PRICE_BANDS_SEED = [
     {"id": "band-under-499", "slug": "under-499", "label": "Under ₹499", "order": 1},
-    {"id": "band-most-loved", "slug": "499-1499", "label": "Most Loved", "order": 2},
-    {"id": "band-premium", "slug": "above-1499", "label": "Premium", "order": 3},
+    {"id": "band-most-loved", "slug": "under-999", "label": "Under ₹999", "order": 2},
+    {"id": "band-premium", "slug": "under-1499", "label": "Under ₹1,499", "order": 3},
 ]
 
 
@@ -2839,22 +2901,34 @@ async def list_l2(l1_id: str):
 
 # Simple in-memory TTL cache for stores_in_category — see that endpoint's
 # own doc comment for why this one specifically got a cache when nothing
-# else in this file has one. Keyed by (l1_id, limit); {expires_at, value}.
-# Deliberately NOT a general-purpose cache utility — this endpoint is the
-# one flagged as an actual measured navigation-speed contributor (three
-# sequential DB round-trips: _availability_map's own store scan, the
-# products aggregation, the stores lookup), not a speculative add-it-
-# everywhere pattern.
-_STORES_IN_CATEGORY_CACHE: dict[tuple[str, int], dict] = {}
+# else in this file has one. Keyed by (l1_id, l2_id, limit); {expires_at,
+# value}. Deliberately NOT a general-purpose cache utility — this endpoint
+# is the one flagged as an actual measured navigation-speed contributor
+# (three sequential DB round-trips: _availability_map's own store scan,
+# the products aggregation, the stores lookup), not a speculative
+# add-it-everywhere pattern.
+_STORES_IN_CATEGORY_CACHE: dict[tuple[str, Optional[str], int], dict] = {}
 _STORES_IN_CATEGORY_TTL = timedelta(minutes=3)
 
 
 @api.get("/categories/{l1_id}/stores")
-async def stores_in_category(l1_id: str, limit: int = 10):
-    """Stores with at least one visible product in this L1 — powers the
-    /c/[slug] "Stores in {L1}" rail. One products aggregation (grouped by
-    store_id, counting matches) rather than N+1 per-store product-count
-    queries, then a single db.stores lookup for display fields.
+async def stores_in_category(l1_id: str, l2_id: Optional[str] = None, limit: int = 10):
+    """Stores with at least one visible product in this category — powers
+    the /c/[slug] "Stores in {L1}" rail, AND (once `l2_id` is passed) the
+    homepage's L2-scoped "Footwear/Ethnic/Lingerie Store" sections (Phase
+    C), which target a gendered L2 like l2-women-footwear rather than the
+    standalone l1-footwear — see docs/design/lokl-redesign-plan.md and the
+    Phase-A discovery note on the two competing "Footwear" identities in
+    the taxonomy.
+
+    Match field: l2_id when given, else l1_id — a single request always
+    matches on exactly ONE of the two, never both (an L2's parent l1_id is
+    still required in the URL path even when matching on l2_id, since
+    these gendered L2s are always known relative to a specific L1 — this
+    keeps the URL nested/ownership-shaped without adding a second,
+    near-identical endpoint or an ambiguous combined id param). The
+    l1_id path segment itself is otherwise unused for matching once l2_id
+    is present.
 
     Sort priority: availability_rank first (open stores before closed —
     the same priority _attach_store_avail/every other feed in this file
@@ -2863,17 +2937,18 @@ async def stores_in_category(l1_id: str, limit: int = 10):
     shouldn't outrank an open one just because it happens to stock more
     of this category.
 
-    3-minute in-memory TTL cache, keyed by (l1_id, limit) — this data
-    doesn't need to be real-time (a store's product count or open/closed
-    status shifting doesn't need to reflect within the same few minutes),
-    and this was the one endpoint the /c/[slug] navigation-speed audit
-    flagged as a real contributor: three sequential DB round-trips per
-    request (_availability_map's own store scan, the products
-    aggregation, the stores lookup) with no caching. No other endpoint in
-    this file caches anything — this is a targeted fix for a measured
-    cost, not a new general pattern being introduced everywhere.
+    3-minute in-memory TTL cache, keyed by (l1_id, l2_id, limit) — this
+    data doesn't need to be real-time (a store's product count or
+    open/closed status shifting doesn't need to reflect within the same
+    few minutes), and this was the one endpoint the /c/[slug]
+    navigation-speed audit flagged as a real contributor: three
+    sequential DB round-trips per request (_availability_map's own store
+    scan, the products aggregation, the stores lookup) with no caching.
+    No other endpoint in this file caches anything — this is a targeted
+    fix for a measured cost, not a new general pattern being introduced
+    everywhere.
     """
-    cache_key = (l1_id, limit)
+    cache_key = (l1_id, l2_id, limit)
     cached = _STORES_IN_CATEGORY_CACHE.get(cache_key)
     now = datetime.now(timezone.utc)
     if cached and cached["expires_at"] > now:
@@ -2883,8 +2958,10 @@ async def stores_in_category(l1_id: str, limit: int = 10):
     sids = list(avail_map.keys())
     if not sids:
         return []
+    match_field = "l2_id" if l2_id else "l1_id"
+    match_value = l2_id if l2_id else l1_id
     pipeline = [
-        {"$match": {"l1_id": l1_id, "store_id": {"$in": sids}, **_visible_product_filter()}},
+        {"$match": {match_field: match_value, "store_id": {"$in": sids}, **_visible_product_filter()}},
         {"$group": {"_id": "$store_id", "product_count": {"$sum": 1}}},
     ]
     counts: dict[str, int] = {}
@@ -3877,12 +3954,17 @@ async def all_products(
         safe_q = _re.escape(search.strip()[:64])
         rx = {"$regex": safe_q, "$options": "i"}
         q["$or"] = [{"name": rx}, {"description": rx}]
+    # Overlapping "Under X" bands (redesign Phase A) — each is a plain
+    # $lt threshold, not a mutually-exclusive range: a ₹300 product
+    # matches under-499 AND under-999 AND under-1499. See PRICE_BANDS_SEED's
+    # own comment for why this replaced the old <499/499-1499/>=1500
+    # mutually-exclusive scheme.
     if price == "under-499":
         q["price"] = {"$lt": 499}
-    elif price == "499-1499":
-        q["price"] = {"$gte": 499, "$lte": 1499}
-    elif price == "above-1499":
-        q["price"] = {"$gte": 1500}
+    elif price == "under-999":
+        q["price"] = {"$lt": 999}
+    elif price == "under-1499":
+        q["price"] = {"$lt": 1499}
     sort_field, sort_dir = "created_at", -1
     if sort == "price_asc":
         sort_field, sort_dir = "price", 1

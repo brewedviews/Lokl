@@ -710,14 +710,14 @@ export function HomeClient() {
       <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}>
         <div className="grid grid-cols-3 gap-2">
           {[
-            // Gap-free, integer-price bands: <499, 499-1499, >=1500. The
-            // hero text below says "₹1,500+" (not "₹1,499+") specifically
-            // so it agrees with the >=1500 filter it links to — 1499 itself
-            // belongs to the middle band, so a "₹1,499+" label would have
-            // overlapped it.
+            // Overlapping "Under X" bands (redesign Phase A) — each tile
+            // links to a plain $lt-threshold filter, not a mutually-
+            // exclusive range: a ₹300 product matches all three. See
+            // PRICE_BANDS_SEED's own comment in server.py for why this
+            // replaced the old <499/499-1499/>=1500 scheme.
             { href: "/products?price=under-499", hero: "Under ₹499", sub: "Steals & deals", filter: "under_499" as const, bentoKey: "under_499" as const },
-            { href: "/products?price=499-1499", hero: "₹499–1,499", sub: "Most loved", filter: "499_999" as const, bentoKey: "most_loved" as const },
-            { href: "/products?price=above-1499", hero: "₹1,500+", sub: "Premium picks", filter: "premium" as const, bentoKey: "premium" as const },
+            { href: "/products?price=under-999", hero: "Under ₹999", sub: "Everyday picks", filter: "under_999" as const, bentoKey: "under_999" as const },
+            { href: "/products?price=under-1499", hero: "Under ₹1,499", sub: "Best value", filter: "under_1499" as const, bentoKey: "under_1499" as const },
           ].map(({ href, hero, sub, filter, bentoKey }, i) => {
             const image = priceBento?.[bentoKey] ?? null;
             return (

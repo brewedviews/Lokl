@@ -61,11 +61,12 @@ export interface CategoryCount {
 /** Image for each homepage price-bento tile — an admin CMS override if one
  *  is set, else the cheapest visible product's image in that band, else
  *  `null` when the band has neither (sparse catalog — tile falls back to
- *  a neutral tile). */
+ *  a neutral tile). Overlapping "Under X" bands (redesign Phase A) — a
+ *  product under 499 also matches under_999 and under_1499. */
 export interface PriceBentoResponse {
   under_499: string | null;
-  most_loved: string | null;
-  premium: string | null;
+  under_999: string | null;
+  under_1499: string | null;
 }
 
 export interface CategoryNode {

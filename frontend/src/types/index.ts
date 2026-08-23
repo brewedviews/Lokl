@@ -8,6 +8,7 @@ export * from "./auth";
 export * from "./user";
 export * from "./store";
 export * from "./brand";
+export * from "./heroSlide";
 export * from "./product";
 export * from "./order";
 export * from "./cart";

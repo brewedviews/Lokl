@@ -37,7 +37,7 @@ export function trackCategoryTileImpression(category_name: string, position: num
 }
 
 // ── Price filter bentos ───────────────────────────────────────────────────────
-export function trackPriceFilterClick(filter: "under_499" | "499_999" | "premium") {
+export function trackPriceFilterClick(filter: "under_499" | "under_999" | "under_1499") {
   gtag("event", "price_filter_click", { filter });
 }
 

@@ -10,6 +10,7 @@ import type {
   CmsCategory, CmsSubcategory, CmsArea, CmsOffer, CmsPriceBand, CmsDestinationSearch,
   CmsUploadResponse, AnalyticsAssetType, TopClicksResponse,
   Rider, RiderStatus, Brand, BrandListResponse,
+  HeroSlide, HeroSlideCreatePayload,
 } from "@/types";
 
 export interface AdminCreateRiderPayload {
@@ -167,6 +168,27 @@ export const adminApi = {
    *  tagged products rather than deleting them. */
   deleteBrand: async (id: string): Promise<void> => {
     await apiClient.delete(`/api/admin/brands/${id}`);
+  },
+
+  // ── Hero slides (redesign Phase A) — per-L1 multi-slide hero carousel,
+  // a separate system from the single site-wide Hero banner above ──
+  listHeroSlides: async (l1_id?: string): Promise<HeroSlide[]> => {
+    const r = await apiClient.get<HeroSlide[]>("/api/admin/hero-slides", { params: l1_id ? { l1_id } : undefined });
+    return r.data;
+  },
+
+  createHeroSlide: async (payload: HeroSlideCreatePayload): Promise<HeroSlide> => {
+    const r = await apiClient.post<HeroSlide>("/api/admin/hero-slides", payload);
+    return r.data;
+  },
+
+  updateHeroSlide: async (id: string, patch: Partial<HeroSlide>): Promise<HeroSlide> => {
+    const r = await apiClient.put<HeroSlide>(`/api/admin/hero-slides/${id}`, patch);
+    return r.data;
+  },
+
+  deleteHeroSlide: async (id: string): Promise<void> => {
+    await apiClient.delete(`/api/admin/hero-slides/${id}`);
   },
 
   // ── Analytics ───────────────────────────────────────────────

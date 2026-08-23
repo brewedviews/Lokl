@@ -16,11 +16,12 @@ const SORT_OPTIONS = [
 
 // Matches the exact `price=` values the homepage bentos send and the
 // backend's /api/products/all if/elif chain checks — see HomeClient.tsx
-// price-bento hrefs and server.py's all_products().
+// price-bento hrefs and server.py's all_products(). Overlapping "Under X"
+// thresholds (redesign Phase A), not mutually-exclusive ranges.
 const PRICE_LABELS: Record<string, string> = {
   "under-499": "Under ₹499",
-  "499-1499": "Most Loved",
-  "above-1499": "Premium",
+  "under-999": "Under ₹999",
+  "under-1499": "Under ₹1,499",
 };
 
 function pageTitle(cat: L1Cat | undefined, search: string) {
