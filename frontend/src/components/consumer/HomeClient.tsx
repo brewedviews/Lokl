@@ -27,6 +27,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { Sparkles, RotateCcw, Tag } from "lucide-react";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
@@ -90,6 +91,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "try_and_buy",    label: "Try & Buy",         enabled: true, rank: 40 },
   { id: "for_her",        label: "For Her",           enabled: true, rank: 100 },
   { id: "for_him",        label: "For Him",           enabled: true, rank: 105 },
+  { id: "gendered_stores", label: "Footwear / Ethnic / Lingerie Stores", enabled: true, rank: 107 },
   { id: "merchant_cta",   label: "Open a store",      enabled: true, rank: 70 },
   { id: "premium_picks",  label: "Premium picks",     enabled: true, rank: 90 },
   { id: "shop_by_area",   label: "Shop by Area",      enabled: true, rank: 80 },
@@ -235,6 +237,196 @@ function ShopByCategorySection({ tiles }: { tiles: ResolvedGenderTile[] }) {
             label={t.label}
           />
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Footwear / Ethnic / Lingerie Store sections (redesign Phase C) — three
+// independent modules, each a large editorial banner (the L2's own
+// `image`, bold uppercase white text, tapping routes to that L2's product
+// listing) with a horizontal SellerCard row beneath it, sourced from
+// Phase A's generalized `GET /categories/{l1_id}/stores?l2_id=` — the
+// same gendered-L2-not-standalone-L1 targeting `resolveShopByCategoryTiles`
+// already established (Women's `l1.l2` list only ever contains the
+// gendered footwear/ethnic/lingerie variants).
+//
+// Men has no lingerie equivalent (Phase A discovery: closest is
+// `l2-men-innerwear`, no `l2-men-lingerie` exists at all) — the locked
+// decision is Men's third module targets that L2 instead, labeled
+// "Innerwear Store" specifically (not just "Innerwear") since unlike
+// "Footwear"/"Ethnic"/"Lingerie", "Innerwear" alone reads ambiguously as a
+// standalone banner headline.
+//
+// Each module independently hides itself (returns null) when its L2
+// doesn't exist for this L1, OR when the store fetch resolves to zero
+// results — never a banner with an empty row beneath it. Phase A already
+// confirmed zero products are currently tagged against any of these five
+// L2 ids, so on real data today every module here is expected to render
+// nothing — an accepted launch state, not a bug.
+// ---------------------------------------------------------------------------
+interface StoreModuleSpec { bannerLabel: string; l2Slug: string }
+
+const WOMEN_STORE_MODULES: StoreModuleSpec[] = [
+  { bannerLabel: "Footwear", l2Slug: "footwear" },
+  { bannerLabel: "Ethnic",   l2Slug: "ethnic-wear" },
+  { bannerLabel: "Lingerie", l2Slug: "lingerie" },
+];
+
+const MEN_STORE_MODULES: StoreModuleSpec[] = [
+  { bannerLabel: "Footwear",        l2Slug: "footwear" },
+  { bannerLabel: "Ethnic",          l2Slug: "ethnic-wear" },
+  { bannerLabel: "Innerwear Store", l2Slug: "innerwear" },
+];
+
+// Same store-row response shape CategoryClient.tsx's own "Stores in {L1}"
+// rail types as `CategoryStore` — duplicated here rather than shared
+// across files since it's a small, page-local interface either way (same
+// judgment call CategoryClient's own doc comment makes about SellerCard's
+// looser prop type).
+interface GenderedSectionStore {
+  id: string; slug?: string; name: string;
+  logo?: string; banner?: string; banners?: string[];
+  area_label?: string; locality?: string;
+  product_count: number; availability_rank: number; next_open_label?: string;
+}
+
+function StoreSectionModule({ l1, spec }: { l1: CategoryNode; spec: StoreModuleSpec }) {
+  const l2 = (l1.l2 ?? []).find((s) => s.slug === spec.l2Slug);
+
+  const { data: stores } = useQuery({
+    queryKey: ["home-gendered-store-section", l2?.id],
+    queryFn: async () => {
+      const r = await apiClient.get<GenderedSectionStore[]>(`/api/categories/${l1.id}/stores`, { params: { l2_id: l2!.id, limit: 10 } });
+      return Array.isArray(r.data) ? r.data : [];
+    },
+    enabled: !!l2,
+  });
+
+  if (!l2 || !stores || stores.length === 0) return null;
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid={`home-store-section-${spec.l2Slug}`}>
+      <Link
+        href={`/c/${l1.slug}/${l2.slug}`}
+        className="group relative block aspect-[21/9] sm:aspect-[3/1] rounded-2xl overflow-hidden"
+      >
+        {l2.image ? (
+          <img
+            src={cloudinaryOptimize(l2.image, "w_1200,q_auto,f_auto")}
+            alt={spec.bannerLabel}
+            loading="lazy"
+            className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+          />
+        ) : (
+          <div className="absolute inset-0 bg-[#0A1F5C]" />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+        <span className="absolute bottom-4 left-4 sm:left-6 font-display font-black text-white uppercase tracking-tight text-2xl sm:text-4xl leading-none">
+          {spec.bannerLabel}
+        </span>
+      </Link>
+      <div className="mt-4 flex gap-3 overflow-x-auto no-scrollbar pb-1">
+        {stores.map((s) => {
+          const isOpen = s.availability_rank === 1;
+          const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
+          return <SellerCard key={s.id} s={s} source={`home_store_${spec.l2Slug}`} openNow={isOpen} closedLabel={closedLabel} />;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function GenderedStoreSections({ categories, l1Slug }: { categories: CategoryNode[]; l1Slug: string }) {
+  const l1 = categories.find((c) => c.slug === l1Slug);
+  if (!l1) return null;
+  const modules = l1Slug === "men" ? MEN_STORE_MODULES : l1Slug === "women" ? WOMEN_STORE_MODULES : [];
+  return (
+    <>
+      {modules.map((spec) => <StoreSectionModule key={spec.l2Slug} l1={l1} spec={spec} />)}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// "Shop by Price" (redesign Phase C) — mixed-weight headline (SHOP BY bold
+// uppercase / price italic, redesign-plan 3.3's first real application),
+// asymmetric layout: one large dominant Under ₹499 card + two smaller
+// stacked Under ₹999 / Under ₹1499 cards, per the approved editorial
+// concept. CSS grid auto-placement does the asymmetry for free — a
+// 2-column grid with the first (large) card given `row-span-2` and no
+// explicit row assigned to the other two lets them auto-flow into the
+// second column's two rows, no manual grid-template-areas needed.
+//
+// Same overlapping-band data contract Phase A built (under-499/-999/-1499,
+// $lt semantics) and the same `priceBento` auto-picked representative-
+// product-image fetch HomeClient already had — only the markup changed,
+// not the data source.
+// ---------------------------------------------------------------------------
+const PRICE_BANDS = [
+  { href: "/products?price=under-499",  price: "₹499",   sub: "Steals & deals", filter: "under_499" as const,  bentoKey: "under_499" as const,  size: "large" as const },
+  { href: "/products?price=under-999",  price: "₹999",   sub: "Everyday picks", filter: "under_999" as const,  bentoKey: "under_999" as const,  size: "small" as const },
+  { href: "/products?price=under-1499", price: "₹1,499", sub: "Best value",     filter: "under_1499" as const, bentoKey: "under_1499" as const, size: "small" as const },
+];
+
+function ShopByPriceSection({ priceBento }: { priceBento: PriceBentoResponse | null }) {
+  return (
+    <div
+      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8"
+      data-testid="home-under_499"
+      ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}
+    >
+      <h2 className="text-2xl sm:text-3xl font-display font-black tracking-tight text-[#0A1F5C] leading-tight mb-3">
+        SHOP BY <span className="italic font-normal">price</span>
+      </h2>
+      <div className="grid grid-cols-2 gap-3">
+        {PRICE_BANDS.map(({ href, price, sub, filter, bentoKey, size }) => {
+          const image = priceBento?.[bentoKey] ?? null;
+          const large = size === "large";
+          return (
+            <Link
+              key={href}
+              href={href}
+              onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
+              data-testid={`price-band-${filter}`}
+              className={`group relative rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95 ${
+                large ? "row-span-2 aspect-[4/5]" : "aspect-[16/9]"
+              }`}
+            >
+              {image ? (
+                <>
+                  <img
+                    src={cloudinaryOptimize(image, large ? "w_600,q_auto,f_auto" : "w_400,q_auto,f_auto")}
+                    alt={`Under ${price}`}
+                    loading="eager"
+                    fetchPriority={large ? "high" : "auto"}
+                    className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+                  />
+                  <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
+                  <div className={`absolute text-white ${large ? "bottom-4 left-4 right-4" : "bottom-2.5 left-3 right-3"}`}>
+                    <div className={`font-semibold uppercase tracking-wide opacity-80 ${large ? "text-[11px]" : "text-[9px]"}`}>Under</div>
+                    <div className={`font-display font-black leading-none ${large ? "text-4xl sm:text-5xl mt-1" : "text-xl sm:text-2xl mt-0.5"}`}>{price}</div>
+                    <div className={`font-semibold opacity-90 ${large ? "text-[12px] mt-1.5" : "text-[10px] mt-1"}`}>{sub}</div>
+                  </div>
+                </>
+              ) : (
+                // No product in this band yet — light cream/tint fallback,
+                // not a dark navy slab. Fills in automatically once
+                // inventory lands in range.
+                <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-1.5 px-2 text-center">
+                  <div className={`rounded-full bg-[#E68910]/15 flex items-center justify-center ${large ? "w-10 h-10" : "w-8 h-8"}`}>
+                    <Sparkles size={large ? 18 : 14} className="text-[#E68910]" />
+                  </div>
+                  <div>
+                    <div className={`font-display font-black text-[#0A1F5C] leading-none ${large ? "text-3xl" : "text-lg"}`}>{price}</div>
+                    <div className={`font-semibold text-[#0A1F5C]/55 mt-1 ${large ? "text-[12px]" : "text-[10px]"}`}>{sub}</div>
+                  </div>
+                </div>
+              )}
+            </Link>
+          );
+        })}
       </div>
     </div>
   );
@@ -772,71 +964,9 @@ export function HomeClient() {
 
     for_him: <GenderBentoSection key="for-him" id="for_him" title="For Him" tiles={resolveGenderTiles(categories, FOR_HIM_TILES)} />,
 
-    under_499: (
-      <div key="price-bentos" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}>
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            // Overlapping "Under X" bands (redesign Phase A) — each tile
-            // links to a plain $lt-threshold filter, not a mutually-
-            // exclusive range: a ₹300 product matches all three. See
-            // PRICE_BANDS_SEED's own comment in server.py for why this
-            // replaced the old <499/499-1499/>=1500 scheme.
-            { href: "/products?price=under-499", hero: "Under ₹499", sub: "Steals & deals", filter: "under_499" as const, bentoKey: "under_499" as const },
-            { href: "/products?price=under-999", hero: "Under ₹999", sub: "Everyday picks", filter: "under_999" as const, bentoKey: "under_999" as const },
-            { href: "/products?price=under-1499", hero: "Under ₹1,499", sub: "Best value", filter: "under_1499" as const, bentoKey: "under_1499" as const },
-          ].map(({ href, hero, sub, filter, bentoKey }, i) => {
-            const image = priceBento?.[bentoKey] ?? null;
-            return (
-              // aspect-[6/5] — was aspect-[3/4] (height = 1.333× width).
-              // 6/5 brings height down to 0.833× width, ~62.5% of the old
-              // height (inside the requested 60-70% range), while all 3
-              // cards still fill the row in one line same as before — only
-              // the height changed, not the column count. Internal text
-              // inset trimmed from 2.5 to 2 to match the shorter card
-              // (was starting to feel like it ate too much of the
-              // remaining image at the new height); font sizes untouched.
-              <Link key={href} href={href} onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
-                className="group relative aspect-[6/5] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
-                {image ? (
-                  <>
-                    <img
-                      src={cloudinaryOptimize(image, "w_400,q_auto,f_auto")}
-                      alt={hero}
-                      loading="eager"
-                      fetchPriority={i === 0 ? "high" : "auto"}
-                      className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
-                    />
-                    {/* Neutral dark scrim, not navy — just enough to keep the
-                        white text legible so the product photo's own color
-                        shows through instead of everything reading as navy. */}
-                    <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
-                    <div className="absolute bottom-2 left-2 right-2">
-                      <div className="font-bold text-white text-[13px] sm:text-sm leading-tight">{hero}</div>
-                      <div className="text-[10px] font-semibold text-[#F0E9DD]/90 mt-0.5 leading-tight">{sub}</div>
-                    </div>
-                  </>
-                ) : (
-                  // No product in this band yet (sparse catalog) — a LIGHT
-                  // cream/tint fallback (not a dark navy slab): navy text, a
-                  // small orange accent mark. An empty tile should read as
-                  // quiet, not the heaviest, darkest element on the page.
-                  // Fills in automatically once inventory lands in range.
-                  <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-1.5 px-2 text-center">
-                    <div className="w-8 h-8 rounded-full bg-[#E68910]/15 flex items-center justify-center">
-                      <Sparkles size={14} className="text-[#E68910]" />
-                    </div>
-                    <div>
-                      <div className="font-bold text-[#0A1F5C] text-[13px] sm:text-sm leading-tight">{hero}</div>
-                      <div className="text-[10px] font-semibold text-[#0A1F5C]/55 mt-0.5 leading-tight">{sub}</div>
-                    </div>
-                  </div>
-                )}
-              </Link>
-            );
-          })}
-        </div>
-      </div>
-    ),
+    gendered_stores: <GenderedStoreSections key="gendered-stores" categories={categories} l1Slug="women" />,
+
+    under_499: <ShopByPriceSection key="shop-by-price" priceBento={priceBento} />,
 
     // category_pills is now desktop-only — the mobile circular tile strip
     // this section used to render (via CategoryTileRow) moved to the

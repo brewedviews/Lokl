@@ -3032,6 +3032,7 @@ DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "try_and_buy",    "label": "Try & Buy",                "enabled": True,  "rank": 60},
     {"id": "for_her",        "label": "For Her",                  "enabled": True,  "rank": 70},
     {"id": "for_him",        "label": "For Him",                  "enabled": True,  "rank": 72},
+    {"id": "gendered_stores", "label": "Footwear / Ethnic / Lingerie Stores", "enabled": True, "rank": 73},
     {"id": "merchant_cta",   "label": "Open a store",             "enabled": True,  "rank": 80},
     {"id": "premium_picks",  "label": "Premium picks",            "enabled": True,  "rank": 90},
     {"id": "shop_by_area",   "label": "Shop by Area",             "enabled": True,  "rank": 100},
