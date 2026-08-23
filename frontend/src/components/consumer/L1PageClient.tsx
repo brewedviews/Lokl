@@ -108,11 +108,16 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 // id hasn't been synced to it yet. Keep in sync with the backend's
 // DEFAULT_HOMEPAGE_SECTIONS (server.py), id-for-id/rank-for-rank.
 //
-// LOCKED SEQUENCE (Phase D): Hero -> Shop by Category -> Best Deals ->
-// Shop by Price -> Shop by Area -> Shops near you -> Footwear Store ->
-// Ethnic Store -> Premium picks -> Lingerie/Innerwear Store -> Browse
-// All. Everything after that block predates the redesign and was never
-// part of the locked sequence — kept in its prior relative order.
+// LOCKED SEQUENCE (Phase F, superseding Phase D's): Hero -> Shop by
+// Category -> Best Deals -> Shop by Price -> Shop by Store -> Premium
+// Picks -> Shop by Area -> Shops near you -> Footwear Store -> Ethnic
+// Store -> Lingerie/Innerwear Store -> Browse All. Two changes from Phase
+// D's order: (1) the new Shop by Store carousel inserted right after Shop
+// by Price, (2) Premium Picks moved up to sit right after Shop by Store
+// instead of being sandwiched between Ethnic Store and Lingerie/Innerwear
+// Store — the three gendered Store modules now run consecutively.
+// Everything after Browse All predates the redesign and was never part
+// of the locked sequence — kept in its prior relative order.
 //
 // Section-id cheat sheet (each toggle's real-world meaning — id alone
 // doesn't explain L1/gender targeting):
@@ -126,35 +131,42 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 //     corresponding tile/module simply doesn't render — same graceful
 //     per-tile drop these already used before Phase E, just no longer
 //     limited to Women.
+//   shop_by_store — L1-scoped (GET /categories/{l1_id}/stores, no l2_id)
+//     editorial store carousel, Phase F. Real production volume is sparse
+//     today (at most 1 real store per L1 — see ShopByStoreSection's own
+//     doc comment) so this renders nothing on most L1s right now; that's
+//     expected, not a bug.
 //   under_499 — kept its pre-rename id from the pre-overlapping-bands era
 //     (see PRICE_BANDS_SEED in server.py); the CMS label reads "Shop by
-//     Price" so this only matters to someone reading raw ids.
+//     Price" so this only matters to someone reading raw ids. Now
+//     genuinely L1-scoped too (Phase F fix — see ShopByPriceSection).
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills",  label: "Category pills",              enabled: true,  rank: 10 },
   { id: "hero",             label: "Hero",                        enabled: true,  rank: 20 },
   { id: "shop_by_category", label: "Shop by Category",            enabled: true,  rank: 25 },
   { id: "best_deals",       label: "Best deals",                  enabled: true,  rank: 30 },
   { id: "under_499",        label: "Shop by Price",                enabled: true,  rank: 40 },
-  { id: "shop_by_area",     label: "Shop by Area",                enabled: true,  rank: 50 },
-  { id: "meet_sellers",     label: "Shops near you",              enabled: true,  rank: 60 },
-  { id: "store_footwear",   label: "Footwear Store",              enabled: true,  rank: 70 },
-  { id: "store_ethnic",     label: "Ethnic Store",                enabled: true,  rank: 80 },
-  { id: "premium_picks",    label: "Premium picks",               enabled: true,  rank: 90 },
-  { id: "store_lingerie",   label: "Lingerie / Innerwear Store",  enabled: true,  rank: 100 },
-  { id: "browse_all",       label: "Browse All",                  enabled: true,  rank: 110 },
+  { id: "shop_by_store",    label: "Shop by Store",               enabled: true,  rank: 50 },
+  { id: "premium_picks",    label: "Premium picks",               enabled: true,  rank: 60 },
+  { id: "shop_by_area",     label: "Shop by Area",                enabled: true,  rank: 70 },
+  { id: "meet_sellers",     label: "Shops near you",              enabled: true,  rank: 80 },
+  { id: "store_footwear",   label: "Footwear Store",              enabled: true,  rank: 90 },
+  { id: "store_ethnic",     label: "Ethnic Store",                enabled: true,  rank: 100 },
+  { id: "store_lingerie",   label: "Lingerie / Innerwear Store",  enabled: true,  rank: 110 },
+  { id: "browse_all",       label: "Browse All",                  enabled: true,  rank: 120 },
 
   // Pre-redesign sections — not part of the locked sequence above.
-  { id: "try_and_buy",     label: "Try & Buy",                enabled: true,  rank: 120 },
-  { id: "shop_by_brand",   label: "Shop by Brand",            enabled: true,  rank: 130 },
-  { id: "for_her",         label: "For Her",                  enabled: true,  rank: 140 },
-  { id: "for_him",         label: "For Him",                  enabled: true,  rank: 150 },
-  { id: "merchant_cta",    label: "Open a store",             enabled: true,  rank: 160 },
-  { id: "offers",          label: "Offers for you",           enabled: true,  rank: 170 },
+  { id: "try_and_buy",     label: "Try & Buy",                enabled: true,  rank: 130 },
+  { id: "shop_by_brand",   label: "Shop by Brand",            enabled: true,  rank: 140 },
+  { id: "for_her",         label: "For Her",                  enabled: true,  rank: 150 },
+  { id: "for_him",         label: "For Him",                  enabled: true,  rank: 160 },
+  { id: "merchant_cta",    label: "Open a store",             enabled: true,  rank: 170 },
+  { id: "offers",          label: "Offers for you",           enabled: true,  rank: 180 },
 
   // Optional / Future
-  { id: "just_in",        label: "Just In",                   enabled: false, rank: 180 },
-  { id: "trending",       label: "Trending now",              enabled: false, rank: 190 },
-  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 200 },
+  { id: "just_in",        label: "Just In",                   enabled: false, rank: 190 },
+  { id: "trending",       label: "Trending now",              enabled: false, rank: 200 },
+  { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 210 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -359,18 +371,20 @@ function GenderedStoreSection({ categories, l1Slug, index }: { categories: Categ
 
 // ---------------------------------------------------------------------------
 // "Shop by Price" — mixed-weight headline, asymmetric layout (one large
-// dominant Under ₹499 card + two smaller stacked cards). NOT L1-scoped —
-// deliberately left untouched per Phase E's explicit scope (the L1-
-// scoping gap this session's discovery flagged is a Phase F fix, not
-// this one) — same overlapping-band data contract Phase A built.
+// dominant Under ₹499 card + two smaller stacked cards). Redesign Phase F:
+// now genuinely L1-scoped — each tile's href carries `l1={l1Id}` (fixing
+// the bug Phase E's own discovery flagged: previously these links had no
+// l1 param at all, so tapping a price tier from e.g. the Men page showed
+// every L1's products, not just Men's). Same overlapping-band data
+// contract Phase A built ($lt semantics, under-499/-999/-1499).
 // ---------------------------------------------------------------------------
 const PRICE_BANDS = [
-  { href: "/products?price=under-499",  price: "₹499",   sub: "Steals & deals", filter: "under_499" as const,  bentoKey: "under_499" as const,  size: "large" as const },
-  { href: "/products?price=under-999",  price: "₹999",   sub: "Everyday picks", filter: "under_999" as const,  bentoKey: "under_999" as const,  size: "small" as const },
-  { href: "/products?price=under-1499", price: "₹1,499", sub: "Best value",     filter: "under_1499" as const, bentoKey: "under_1499" as const, size: "small" as const },
+  { slug: "under-499",  price: "₹499",   sub: "Steals & deals", filter: "under_499" as const,  bentoKey: "under_499" as const,  size: "large" as const },
+  { slug: "under-999",  price: "₹999",   sub: "Everyday picks", filter: "under_999" as const,  bentoKey: "under_999" as const,  size: "small" as const },
+  { slug: "under-1499", price: "₹1,499", sub: "Best value",     filter: "under_1499" as const, bentoKey: "under_1499" as const, size: "small" as const },
 ];
 
-function ShopByPriceSection({ priceBento }: { priceBento: PriceBentoResponse | null }) {
+function ShopByPriceSection({ l1Id, priceBento }: { l1Id: string; priceBento: PriceBentoResponse | null }) {
   return (
     <div
       className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8"
@@ -381,7 +395,8 @@ function ShopByPriceSection({ priceBento }: { priceBento: PriceBentoResponse | n
         SHOP BY <span className="italic font-normal">price</span>
       </h2>
       <div className="grid grid-cols-2 gap-3">
-        {PRICE_BANDS.map(({ href, price, sub, filter, bentoKey, size }) => {
+        {PRICE_BANDS.map(({ slug, price, sub, filter, bentoKey, size }) => {
+          const href = `/products?price=${slug}&l1=${l1Id}`;
           const image = priceBento?.[bentoKey] ?? null;
           const large = size === "large";
           return (
@@ -424,6 +439,89 @@ function ShopByPriceSection({ priceBento }: { priceBento: PriceBentoResponse | n
             </Link>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// "Shop by Store" (redesign Phase F) — a new editorial, snap-to-card
+// carousel: center-aligned active card with adjacent cards peeking on
+// both sides, ~75% viewport width per card, strongly rounded corners, no
+// shadow, full-bleed image, store name overlaid near the TOP (distinct
+// from SellerCard's bottom-overlay convention used elsewhere).
+//
+// Image source, confirmed by investigation before building anything: a
+// store has TWO distinct image concepts — `logo` (small square merchant
+// mark) and `banner`/`banners` (the storefront cover photo(s), uploaded
+// via the mandatory merchant onboarding flow at a 4:3 landscape crop —
+// see app/merchant/storefront/page.tsx's own upload UI). There is no
+// portrait/tall image field on a store at all. Rather than stretch the
+// small square logo into a tall card (which would look broken) or invent
+// a portrait crop the merchant never provided, this carousel uses the
+// real landscape banner and sizes its own card to aspect-[4/3] — the
+// same aspect the source image already is, so object-cover crops barely
+// anything rather than aggressively cropping a landscape photo into a
+// portrait frame. A store lacking BOTH banner and banners[0] is skipped
+// entirely, not rendered with a stretched/broken image.
+//
+// Data: reuses Phase A's generalized GET /categories/{l1_id}/stores
+// (no l2_id — the whole L1, same endpoint the now-retired "Stores in
+// {L1}" rail and the gendered store modules both already call), NOT a
+// new backend endpoint — that endpoint already returns banner/banners.
+// Real production volume (checked before shipping, not assumed): only 3
+// real (non-test-fixture) stores exist at all today, and only ONE has any
+// visible products in any L1 — so this section renders at most 1 card on
+// Women/Men, 0 on Kids, today. That's the same "correct plumbing, sparse
+// real content" situation every other store-scoped section in this
+// redesign has shipped with — the carousel mechanics work correctly for
+// any count (a single card just centers with empty peek space on both
+// sides, which is a normal, non-broken degenerate case, not something
+// that needed a special single-card layout).
+// ---------------------------------------------------------------------------
+interface ShopByStoreEntry { id: string; slug?: string; name: string; image: string }
+
+function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
+  const { data: stores } = useQuery({
+    queryKey: ["shop-by-store", l1?.id],
+    queryFn: async () => {
+      const r = await apiClient.get<GenderedSectionStore[]>(`/api/categories/${l1!.id}/stores`, { params: { limit: 20 } });
+      return Array.isArray(r.data) ? r.data : [];
+    },
+    enabled: !!l1,
+  });
+
+  const entries: ShopByStoreEntry[] = (stores ?? [])
+    .map((s) => ({ id: s.id, slug: s.slug, name: s.name, image: s.banner || (s.banners && s.banners[0]) || "" }))
+    .filter((s) => !!s.image);
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="pt-8" data-testid="home-shop_by_store">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-3">
+        <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">Shop by Store</h2>
+      </div>
+      <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-3 px-[12.5vw] sm:px-[20%]">
+        {entries.map((s) => (
+          <Link
+            key={s.id}
+            href={`/store/${s.slug || s.id}`}
+            data-testid={`shop-by-store-card-${s.id}`}
+            className="group relative shrink-0 w-[75vw] sm:w-[60%] aspect-[4/3] rounded-3xl overflow-hidden snap-center active:scale-[0.98] transition"
+          >
+            <img
+              src={cloudinaryOptimize(s.image, "w_800,q_auto,f_auto")}
+              alt={s.name}
+              loading="lazy"
+              className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+            />
+            <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-black/65 via-black/15 to-transparent pointer-events-none" />
+            <span className="absolute top-4 left-4 right-4 font-display font-bold text-white text-lg sm:text-xl leading-tight line-clamp-2">
+              {s.name}
+            </span>
+          </Link>
+        ))}
       </div>
     </div>
   );
@@ -1022,7 +1120,9 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
     store_ethnic: <GenderedStoreSection key="store-ethnic" categories={categories} l1Slug={l1Slug} index={1} />,
     store_lingerie: <GenderedStoreSection key="store-lingerie" categories={categories} l1Slug={l1Slug} index={2} />,
 
-    under_499: <ShopByPriceSection key="shop-by-price" priceBento={priceBento} />,
+    under_499: <ShopByPriceSection key="shop-by-price" l1Id={l1Id} priceBento={priceBento} />,
+
+    shop_by_store: <ShopByStoreSection key="shop-by-store" l1={l1} />,
 
     browse_all: <BrowseAllSection key="browse-all" />,
 

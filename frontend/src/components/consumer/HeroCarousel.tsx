@@ -5,45 +5,31 @@
  * since Women is the default-active tab there — see CategoryTileRow's own
  * doc comment) and on every /c/[slug] page (l1Id = that page's own L1).
  *
- * Redesign Phase B: this component now self-fetches from the real backend
- * HeroSlide collection (GET /api/hero-slides?l1_id=..., Phase A's model,
- * public-read endpoint added alongside this change) instead of taking a
- * `slides` prop — DEFAULT_HERO_SLIDES and l1HeroConfig.ts's static per-L1
- * copy are both gone, replaced by whatever an admin has published for that
- * L1 in CMS -> Homepage Assets -> Hero slides. An L1 with zero active
- * slides published (everything except Women today — see migration
- * 017_seed_hero_slides.py, the only seeded row) simply renders nothing;
- * this is real, expected, and matches the same "correct plumbing, sparse
- * data" situation Phase A's L2 store-aggregation work already surfaced —
- * not a bug, just content an admin hasn't entered yet.
+ * Redesign Phase B: self-fetches from the real backend HeroSlide
+ * collection (GET /api/hero-slides?l1_id=..., Phase A's model) instead of
+ * a static per-L1 config. An L1 with zero active slides published simply
+ * renders nothing — real, expected, matches the same "correct plumbing,
+ * sparse data" situation elsewhere in this redesign, not a bug.
  *
- * Visual rebuild: full-bleed (edge-to-edge, no rounded-2xl card/no max-w
- * padded tray around the image — unlike ProductGallery's PDP treatment,
- * which IS a padded/cornered card), replacing the old two-tier default/
- * compact sizing split entirely — there's now only one size, and it's the
- * same fixed `min-h-[200px]` at every breakpoint (a single shared
- * component property, not per-L1/per-breakpoint styling — Men/Kids will
- * inherit it automatically the moment either has a real published slide).
+ * Redesign Phase F: visual REVERT from Phase B/D's full-bleed thin-banner
+ * treatment back to a padded card, matching HeroV2's own visual language
+ * (rounded-2xl card inside a max-w-7xl padded container, cream gradient
+ * scrim, min-h-[300px]/[320px]) — NOT a revival of HeroV2 itself, and NOT
+ * a return to a site-wide hero: this still self-fetches per-L1 HeroSlide
+ * data exactly as Phase B built it, only the container/sizing/type-scale
+ * changed. The "full-bleed, edge-to-edge, no card" idea Phase B tried
+ * turned out not to earn its keep visually once seen against the rest of
+ * the (still-cornered, still-padded) page — this reverts specifically
+ * that call, not the underlying per-L1 data model, which stays.
  *
- * height=200px, not the original ~92-104px "thin banner" first shipped:
- * that height was picked in the abstract and turned out to be a real
- * regression once tested against actual content — at 92-104px the
- * headline was already AT its 2-line clamp limit with the current
- * seeded copy ("Delivered in minutes from stores next door.", 45 chars)
- * and provably truncated on anything longer (measured live: a 62-char
- * headline clamped mid-word). 200px + text-lg headline + line-clamp-3
- * was arrived at by actually laying out both the real seeded headline and
- * a realistic longer one (screenshotted both) until neither clamped and
- * neither looked sparse — not a number picked in the abstract twice.
- * There is no separate CTA button/pill — the entire slide (full viewport
- * width × 200px) is itself the tap target via `cta_link`, which clears a
- * 44×44px minimum by a wide margin on its own; the HeroSlide backend
- * model has no subtitle or CTA-label field to render one from anyway.
+ * Text at this size was re-verified the same way the earlier thin-hero
+ * fix was: laid out against both the real seeded headline and a longer
+ * synthetic one at the new size before shipping, not assumed to "obviously
+ * fit" just because the box got bigger.
  *
- * Scroll-snap + dot-indicator + autoplay mechanics are unchanged from the
- * pre-Phase-B version (still lifted from ProductGallery's own pattern —
- * see git history for the fuller rationale); only sizing/data-source
- * changed.
+ * Scroll-snap + dot-indicator + autoplay mechanics are unchanged from
+ * every prior version (still lifted from ProductGallery's own pattern —
+ * see git history); only sizing/container/type-scale changed.
  */
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
@@ -55,7 +41,11 @@ import type { HeroSlide } from "@/types";
 const AUTOPLAY_MS = 4500;
 
 function HeroSkeleton() {
-  return <div className="w-full min-h-[180px] bg-[#E5E2DC] animate-pulse" />;
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 md:pt-6">
+      <div className="rounded-2xl min-h-[300px] md:min-h-[320px] bg-[#E5E2DC] animate-pulse" />
+    </div>
+  );
 }
 
 export function HeroCarousel({ l1Id }: { l1Id: string }) {
@@ -88,9 +78,6 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
     if (autoplayTimer.current) { clearInterval(autoplayTimer.current); autoplayTimer.current = null; }
   };
 
-  // Autoplay — stop-permanently (not pause/resume) once the user has
-  // touched the strip; see this file's own history for why that's simpler
-  // than a resume-after-inactivity model.
   useEffect(() => {
     if (slides.length <= 1) return;
     autoplayTimer.current = setInterval(() => {
@@ -115,70 +102,71 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
   if (slides.length === 0) return null;
 
   return (
-    <section data-testid="hero-carousel" className="relative w-full overflow-hidden bg-[#0A1F5C]">
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        onPointerDown={stopAutoplay}
-        onTouchStart={stopAutoplay}
-        className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory"
-      >
-        {slides.map((slide, i) => {
-          const content = (
-            <>
-              <Image
-                src={slide.image}
-                alt={slide.headline || ""}
-                fill
-                priority={i === 0}
-                sizes="100vw"
-                className="object-cover object-center"
-              />
-              <div className="absolute inset-0 bg-gradient-to-r from-[#FDFBF7]/95 via-[#FDFBF7]/55 to-transparent" />
-              <div className="relative h-full flex flex-col justify-center max-w-[75%] sm:max-w-md px-5 sm:px-8">
-                {slide.eyebrow && (
-                  <span className="text-[11px] sm:text-xs font-bold uppercase tracking-wide text-[#E68910]">{slide.eyebrow}</span>
-                )}
-                {slide.headline && (
-                  <h1 className="font-display font-bold text-[#0A1F5C] text-lg sm:text-xl leading-snug line-clamp-3 mt-1.5">
-                    {slide.headline}
-                  </h1>
-                )}
-              </div>
-            </>
-          );
-          const slideClassName = "relative snap-start shrink-0 w-full min-h-[200px]";
-          return slide.cta_link ? (
-            <Link key={slide.id} href={slide.cta_link} data-testid={`hero-carousel-slide-${i}`} className={slideClassName}>
-              {content}
-            </Link>
-          ) : (
-            <div key={slide.id} data-testid={`hero-carousel-slide-${i}`} className={slideClassName}>
-              {content}
-            </div>
-          );
-        })}
-      </div>
+    <section data-testid="hero-carousel" className="relative">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 md:pt-6">
+        <div className="relative rounded-2xl overflow-hidden bg-[#0A1F5C]">
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            onPointerDown={stopAutoplay}
+            onTouchStart={stopAutoplay}
+            className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory"
+          >
+            {slides.map((slide, i) => {
+              const content = (
+                <>
+                  <Image
+                    src={slide.image}
+                    alt={slide.headline || ""}
+                    fill
+                    priority={i === 0}
+                    sizes="(max-width: 768px) 100vw, 1200px"
+                    className="object-cover object-[60%_45%] md:object-center"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/95 via-[#FDFBF7]/80 to-[#FDFBF7]/30 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
+                  <div className="relative flex flex-col justify-center max-w-2xl px-5 md:px-10 lg:px-12 py-6 md:py-10 min-h-[300px] md:min-h-[320px]">
+                    {slide.eyebrow && (
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-[#E68910]">{slide.eyebrow}</span>
+                    )}
+                    {slide.headline && (
+                      <h1 className="font-display font-bold text-[#0A1F5C] mt-1 text-[28px] leading-[1.1] md:text-4xl lg:text-5xl tracking-tight line-clamp-4">
+                        {slide.headline}
+                      </h1>
+                    )}
+                  </div>
+                </>
+              );
+              const slideClassName = "relative snap-start shrink-0 w-full min-h-[300px] md:min-h-[320px]";
+              return slide.cta_link ? (
+                <Link key={slide.id} href={slide.cta_link} data-testid={`hero-carousel-slide-${i}`} className={slideClassName}>
+                  {content}
+                </Link>
+              ) : (
+                <div key={slide.id} data-testid={`hero-carousel-slide-${i}`} className={slideClassName}>
+                  {content}
+                </div>
+              );
+            })}
+          </div>
 
-      {slides.length > 1 && (
-        <div className="absolute bottom-2 inset-x-0 flex justify-center gap-1">
-          {slides.map((_, i) => (
-            // p-2 padding gives each dot a real ~24px+ touch target without
-            // growing the visual mark itself — the inner span stays a slim
-            // 1.5px bar, matching the rest of this component's restraint.
-            <button
-              key={i}
-              type="button"
-              onClick={() => { stopAutoplay(); goTo(i); }}
-              data-testid={`hero-carousel-dot-${i}`}
-              aria-label={`Go to slide ${i + 1}`}
-              className="p-2 -m-2 flex items-center"
-            >
-              <span className={`h-1.5 rounded-full transition-all ${i === idx ? "bg-[#0A1F5C] w-5" : "bg-[#0A1F5C]/30 w-1.5"}`} />
-            </button>
-          ))}
+          {slides.length > 1 && (
+            <div className="absolute bottom-3 inset-x-0 flex justify-center gap-1.5">
+              {slides.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => { stopAutoplay(); goTo(i); }}
+                  data-testid={`hero-carousel-dot-${i}`}
+                  aria-label={`Go to slide ${i + 1}`}
+                  className="p-2 -m-2 flex items-center"
+                >
+                  <span className={`h-1.5 rounded-full transition-all ${i === idx ? "bg-[#0A1F5C] w-5" : "bg-[#0A1F5C]/30 w-1.5"}`} />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </section>
   );
 }

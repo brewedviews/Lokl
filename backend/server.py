@@ -3032,30 +3032,38 @@ async def stores_in_category(l1_id: str, l2_id: Optional[str] = None, limit: int
 # targeting, why "under_499" keeps its pre-rename id, etc.) — kept there
 # rather than duplicated here since the admin-facing `label` values below
 # are what a CMS user actually sees, not this comment.
+# LOCKED SEQUENCE (Phase F, superseding Phase D's): Hero -> Shop by
+# Category -> Best Deals -> Shop by Price -> Shop by Store -> Premium
+# Picks -> Shop by Area -> Shops near you -> Footwear Store -> Ethnic
+# Store -> Lingerie/Innerwear Store -> Browse All. See
+# L1PageClient.tsx's own DEFAULT_SECTIONS comment (frontend) for the full
+# per-id cheat sheet — kept there since the admin-facing `label` values
+# below are what a CMS user actually sees.
 DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "category_pills",  "label": "Category pills",             "enabled": True,  "rank": 10},
     {"id": "hero",             "label": "Hero",                       "enabled": True,  "rank": 20},
     {"id": "shop_by_category", "label": "Shop by Category",           "enabled": True,  "rank": 25},
     {"id": "best_deals",       "label": "Best deals",                 "enabled": True,  "rank": 30},
     {"id": "under_499",        "label": "Shop by Price",              "enabled": True,  "rank": 40},
-    {"id": "shop_by_area",     "label": "Shop by Area",               "enabled": True,  "rank": 50},
-    {"id": "meet_sellers",     "label": "Shops near you",             "enabled": True,  "rank": 60},
-    {"id": "store_footwear",   "label": "Footwear Store",             "enabled": True,  "rank": 70},
-    {"id": "store_ethnic",     "label": "Ethnic Store",                "enabled": True,  "rank": 80},
-    {"id": "premium_picks",    "label": "Premium picks",              "enabled": True,  "rank": 90},
-    {"id": "store_lingerie",   "label": "Lingerie / Innerwear Store", "enabled": True,  "rank": 100},
-    {"id": "browse_all",       "label": "Browse All",                 "enabled": True,  "rank": 110},
+    {"id": "shop_by_store",    "label": "Shop by Store",              "enabled": True,  "rank": 50},
+    {"id": "premium_picks",    "label": "Premium picks",              "enabled": True,  "rank": 60},
+    {"id": "shop_by_area",     "label": "Shop by Area",               "enabled": True,  "rank": 70},
+    {"id": "meet_sellers",     "label": "Shops near you",             "enabled": True,  "rank": 80},
+    {"id": "store_footwear",   "label": "Footwear Store",             "enabled": True,  "rank": 90},
+    {"id": "store_ethnic",     "label": "Ethnic Store",                "enabled": True,  "rank": 100},
+    {"id": "store_lingerie",   "label": "Lingerie / Innerwear Store", "enabled": True,  "rank": 110},
+    {"id": "browse_all",       "label": "Browse All",                 "enabled": True,  "rank": 120},
 
     # Pre-redesign sections — not part of the locked sequence above.
-    {"id": "try_and_buy",   "label": "Try & Buy",                "enabled": True,  "rank": 120},
-    {"id": "shop_by_brand", "label": "Shop by Brand",            "enabled": True,  "rank": 130},
-    {"id": "for_her",       "label": "For Her",                  "enabled": True,  "rank": 140},
-    {"id": "for_him",       "label": "For Him",                  "enabled": True,  "rank": 150},
-    {"id": "merchant_cta",  "label": "Open a store",             "enabled": True,  "rank": 160},
-    {"id": "offers",        "label": "Offers for you",           "enabled": True,  "rank": 170},
-    {"id": "just_in",       "label": "Just In",                  "enabled": False, "rank": 180},
-    {"id": "trending",      "label": "Trending now",             "enabled": False, "rank": 190},
-    {"id": "customer_love", "label": "Loved by Bhilai shoppers", "enabled": False, "rank": 200},
+    {"id": "try_and_buy",   "label": "Try & Buy",                "enabled": True,  "rank": 130},
+    {"id": "shop_by_brand", "label": "Shop by Brand",            "enabled": True,  "rank": 140},
+    {"id": "for_her",       "label": "For Her",                  "enabled": True,  "rank": 150},
+    {"id": "for_him",       "label": "For Him",                  "enabled": True,  "rank": 160},
+    {"id": "merchant_cta",  "label": "Open a store",             "enabled": True,  "rank": 170},
+    {"id": "offers",        "label": "Offers for you",           "enabled": True,  "rank": 180},
+    {"id": "just_in",       "label": "Just In",                  "enabled": False, "rank": 190},
+    {"id": "trending",      "label": "Trending now",             "enabled": False, "rank": 200},
+    {"id": "customer_love", "label": "Loved by Bhilai shoppers", "enabled": False, "rank": 210},
 ]
 DEFAULT_HERO = {
     "image": "https://customer-assets.emergentagent.com/job_bharat-fashion-os/artifacts/n1elwepz_ChatGPT%20Image%20May%2016%2C%202026%2C%2006_29_23%20PM.png",
