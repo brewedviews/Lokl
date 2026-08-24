@@ -250,6 +250,17 @@ class HeroSlideCreate(BaseModel):
     image_public_id: Optional[str] = ""
     eyebrow: Optional[str] = ""
     headline: Optional[str] = ""
+    # Phase G3 — optional secondary line rendered below the headline.
+    subheadline: Optional[str] = ""
+    # Phase G3 — a substring of `headline` to render in the functional
+    # orange (color rule 2.1) instead of navy. Chosen over a rigid
+    # headline_line_1/headline_line_2 split: a substring match keeps the
+    # headline a single editable string (no risk of the two halves being
+    # saved out of sync) and degrades safely — an empty string, or a
+    # string that no longer appears verbatim in `headline` (e.g. after an
+    # admin edits the headline but forgets to update this), simply
+    # renders the whole headline in navy, never an error.
+    highlight_text: Optional[str] = ""
     # Plain string, same shape DestinationPicker already outputs/consumes
     # for the existing site-wide Hero banner's own redirect_url field — no
     # new backend "destination" concept needed, this reuses that component
@@ -2427,7 +2438,8 @@ async def admin_delete_brand(bid: str, admin: dict = Depends(require_admin)):
 # search/pagination (unlike Brand) — likely small volume per L1, per the
 # task's own scoping call.
 ALLOWED_HERO_SLIDE_FIELDS = {
-    "l1_id", "image", "image_public_id", "eyebrow", "headline", "cta_link", "active", "order",
+    "l1_id", "image", "image_public_id", "eyebrow", "headline", "subheadline",
+    "highlight_text", "cta_link", "active", "order",
 }
 
 

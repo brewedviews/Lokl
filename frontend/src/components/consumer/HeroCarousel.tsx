@@ -30,15 +30,52 @@
  * Scroll-snap + dot-indicator + autoplay mechanics are unchanged from
  * every prior version (still lifted from ProductGallery's own pattern —
  * see git history); only sizing/container/type-scale changed.
+ *
+ * Redesign Phase G3: three additions, all backwards-compatible with
+ * existing HeroSlide docs that predate them —
+ *   1. `subheadline` — optional second line rendered below the headline.
+ *   2. `highlight_text` — a substring of `headline` rendered in the
+ *      functional orange (renderHighlightedHeadline below); empty or
+ *      non-matching just renders the whole headline in navy, same as
+ *      before this phase.
+ *   3. A floating delivery-status badge (bicycle icon, ETA, LIVE/AWAY
+ *      pill) — the SAME ETAHeaderCard component (redesign-plan 3.7) and
+ *      the SAME real GET /api/feed/delivery-status data source the
+ *      dormant HeroV2.tsx already validated this exact pattern with, not
+ *      a new trust component or a hardcoded "45 minutes". It's rendered
+ *      once per carousel (not per slide) since delivery status is
+ *      site-wide, not per-L1/per-slide content.
  */
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { Bike } from "lucide-react";
 import { api } from "@/lib/api";
+import { ETAHeaderCard } from "@/components/consumer/ETAHeaderCard";
 import type { HeroSlide } from "@/types";
 
 const AUTOPLAY_MS = 4500;
+
+/** Splits `headline` on the first occurrence of `highlight` and wraps
+ *  that occurrence in the functional-orange span. No match (empty
+ *  highlight, or a string that no longer appears verbatim in the
+ *  headline) just returns the headline untouched. */
+function renderHighlightedHeadline(headline: string, highlight?: string) {
+  if (!highlight) return headline;
+  const idx = headline.indexOf(highlight);
+  if (idx === -1) return headline;
+  const before = headline.slice(0, idx);
+  const match = headline.slice(idx, idx + highlight.length);
+  const after = headline.slice(idx + highlight.length);
+  return (
+    <>
+      {before}
+      <span className="text-[#E68910]">{match}</span>
+      {after}
+    </>
+  );
+}
 
 function HeroSkeleton() {
   return (
@@ -56,6 +93,17 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
   });
 
   const slides = [...(data ?? [])].sort((a, b) => a.order - b.order);
+
+  const { data: deliveryStatus, isLoading: deliveryLoading, isError: deliveryErrored } = useQuery({
+    queryKey: ["delivery-status"],
+    queryFn: () => api.catalog.deliveryStatus(),
+    staleTime: 60_000,
+  });
+  // CLOSED is a scheduled, forward-looking state (outside operating
+  // hours) — same call HeroV2.tsx's floating badge already made: dim the
+  // text and hide the LIVE/AWAY pill entirely rather than showing a
+  // stale/misleading status badge for it.
+  const isClosedLabel = deliveryStatus?.label === "CLOSED";
 
   const [idx, setIdx] = useState(0);
   const idxRef = useRef(0);
@@ -124,14 +172,19 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
                     className="object-cover object-[60%_45%] md:object-center"
                   />
                   <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/95 via-[#FDFBF7]/80 to-[#FDFBF7]/30 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
-                  <div className="relative flex flex-col justify-center max-w-2xl px-5 md:px-10 lg:px-12 py-6 md:py-10 min-h-[300px] md:min-h-[320px]">
+                  <div className="relative flex flex-col max-w-2xl px-5 md:px-10 lg:px-12 pt-6 md:pt-10 pb-16 md:pb-20 min-h-[300px] md:min-h-[320px]">
                     {slide.eyebrow && (
                       <span className="text-[11px] font-bold uppercase tracking-wide text-[#E68910]">{slide.eyebrow}</span>
                     )}
                     {slide.headline && (
-                      <h1 className="font-display font-bold text-[#0A1F5C] mt-1 text-[28px] leading-[1.1] md:text-4xl lg:text-5xl tracking-tight line-clamp-4">
-                        {slide.headline}
+                      <h1 className="font-display font-bold text-[#0A1F5C] mt-1 text-[28px] leading-[1.1] md:text-4xl lg:text-5xl tracking-tight">
+                        {renderHighlightedHeadline(slide.headline, slide.highlight_text)}
                       </h1>
+                    )}
+                    {slide.subheadline && (
+                      <p className="mt-2.5 md:mt-3 text-[13px] md:text-base text-[#0A1F5C]/75 md:text-[#475569] max-w-md leading-relaxed">
+                        {slide.subheadline}
+                      </p>
                     )}
                   </div>
                 </>
@@ -163,6 +216,30 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
                   <span className={`h-1.5 rounded-full transition-all ${i === idx ? "bg-[#0A1F5C] w-5" : "bg-[#0A1F5C]/30 w-1.5"}`} />
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* Floating delivery-status badge — one per carousel (site-wide
+              data, not per-slide), bottom-left per the approved reference.
+              Hidden only on a genuine fetch error; shows ETAHeaderCard's
+              own skeleton while loading rather than a guessed value. */}
+          {!deliveryErrored && (
+            <div className="absolute bottom-5 left-5 md:bottom-6 md:left-10 lg:left-12">
+              <ETAHeaderCard
+                variant="pill"
+                size="compact"
+                testId="hero-delivery-badge"
+                icon={Bike}
+                loading={deliveryLoading}
+                muted={isClosedLabel}
+                title={deliveryStatus?.eta_label || ""}
+                subtitle={deliveryStatus?.message}
+                statusBadge={
+                  deliveryLoading || isClosedLabel || !deliveryStatus
+                    ? null
+                    : { label: deliveryStatus.label, tone: deliveryStatus.label === "AWAY" ? "away" : "live" }
+                }
+              />
             </div>
           )}
         </div>

@@ -12,6 +12,12 @@ export interface HeroSlide {
   image_public_id?: string;
   eyebrow?: string;
   headline?: string;
+  /** Phase G3 — optional secondary line rendered below the headline. */
+  subheadline?: string;
+  /** Phase G3 — substring of `headline` to render in the functional
+   *  orange instead of navy. Empty, or a string no longer found verbatim
+   *  in `headline`, just renders the whole headline in navy. */
+  highlight_text?: string;
   cta_link?: string;
   active: boolean;
   order: number;
@@ -25,6 +31,8 @@ export interface HeroSlideCreatePayload {
   image_public_id?: string;
   eyebrow?: string;
   headline?: string;
+  subheadline?: string;
+  highlight_text?: string;
   cta_link?: string;
   active?: boolean;
   order?: number;

@@ -64,6 +64,7 @@ export function HeroSlidesEditor() {
       const updated = await adminApi.updateHeroSlide(row.id, {
         image: row.image, image_public_id: row.image_public_id || "",
         eyebrow: row.eyebrow || "", headline: row.headline || "",
+        subheadline: row.subheadline || "", highlight_text: row.highlight_text || "",
         cta_link: row.cta_link || "", active: row.active, order: row.order,
       });
       setRows((r) => r?.map((s) => s.id === row.id ? updated : s) || null);
@@ -133,7 +134,7 @@ export function HeroSlidesEditor() {
         <h3 className="font-display text-lg font-bold text-[#0A1F5C]">Hero slides</h3>
         <p className="text-[11px] text-[#64748B]">
           Per-category hero carousel slides. Pick a category below, then manage its slide list —
-          image, headline, redirect link, order, and active/hidden.
+          image, headline, highlighted phrase, subheadline, redirect link, order, and active/hidden.
         </p>
       </div>
 
@@ -193,6 +194,23 @@ export function HeroSlidesEditor() {
                       <input
                         type="text" value={s.headline || ""} onChange={(e) => patch(s.id, { headline: e.target.value })}
                         data-testid={`cms-hero-slide-headline-${s.id}`}
+                        className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Highlighted phrase</span>
+                      <input
+                        type="text" value={s.highlight_text || ""} onChange={(e) => patch(s.id, { highlight_text: e.target.value })}
+                        data-testid={`cms-hero-slide-highlight-${s.id}`}
+                        placeholder="must match a substring of Headline, e.g. in minutes"
+                        className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none"
+                      />
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Subheadline</span>
+                      <input
+                        type="text" value={s.subheadline || ""} onChange={(e) => patch(s.id, { subheadline: e.target.value })}
+                        data-testid={`cms-hero-slide-subheadline-${s.id}`}
                         className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none"
                       />
                     </label>

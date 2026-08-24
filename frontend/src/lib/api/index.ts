@@ -19,6 +19,15 @@ export interface ActiveCoupon {
   expires_at: string | null;
 }
 
+/** GET /api/feed/delivery-status response — real, computed store
+ *  availability, not a static claim. `label` is "LIVE" / "AWAY" / "CLOSED". */
+export interface DeliveryStatus {
+  status: string;
+  label: string;
+  eta_label: string;
+  message: string;
+}
+
 export const siteApi = {
   homepageConfig: async (): Promise<HomepageConfig> => {
     const r = await apiClient.get<HomepageConfig>("/api/site/homepage-config");
@@ -91,6 +100,16 @@ export const catalogApi = {
    *  of Phase A's admin-only HeroSlide CRUD. */
   heroSlides: async (l1_id: string): Promise<HeroSlide[]> => {
     const r = await apiClient.get<HeroSlide[]>("/api/hero-slides", { params: { l1_id } });
+    return r.data;
+  },
+
+  /** GET /api/feed/delivery-status — real-time LIVE/AWAY/CLOSED + ETA,
+   *  computed from actual store online/hours state (see server.py's own
+   *  feed_delivery_status doc comment). The real delivery-estimate source
+   *  HeroV2.tsx's floating badge already used; Phase G3 reuses it for
+   *  HeroCarousel's floating badge rather than inventing a second one. */
+  deliveryStatus: async (): Promise<DeliveryStatus> => {
+    const r = await apiClient.get<DeliveryStatus>("/api/feed/delivery-status");
     return r.data;
   },
 };
