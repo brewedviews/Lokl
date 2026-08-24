@@ -37,16 +37,20 @@ import type { CategoryNode, CmsStoreSectionOverride, CmsPinnedStoreCard } from "
 
 interface ModuleSpec { label: string; l2Slug: string }
 
+// G8 — Women/Men now only edit the two modules that actually render on
+// their L1 page (Footwear Stores was dropped from Women's page, Innerwear
+// from Men's — see L1PageClient.tsx's WOMEN_STORE_MODULES/MEN_STORE_MODULES
+// own comment for the product reasoning). Kept in sync with this file's
+// own stated principle: don't build UI for a module the consumer page
+// never renders.
 const WOMEN_MODULES: ModuleSpec[] = [
-  { label: "Footwear", l2Slug: "footwear" },
-  { label: "Ethnic", l2Slug: "ethnic-wear" },
   { label: "Lingerie", l2Slug: "lingerie" },
+  { label: "Ethnic", l2Slug: "ethnic-wear" },
 ];
 
 const MEN_MODULES: ModuleSpec[] = [
   { label: "Footwear", l2Slug: "footwear" },
   { label: "Ethnic", l2Slug: "ethnic-wear" },
-  { label: "Innerwear Store", l2Slug: "innerwear" },
 ];
 
 // G6 — Kids has no "lingerie"/"innerwear" L2 in the taxonomy, so its
@@ -59,10 +63,21 @@ const KIDS_MODULES: ModuleSpec[] = [
   { label: "Accessories", l2Slug: "accessories" },
 ];
 
+// G8 — the two new global, cross-L1 editorial modules on the Marketplace
+// Home (Ethnic Stores / Footwear Stores). `l2Slug` here IS the full
+// sentinel id ("global-ethnic"/"global-footwear") rather than a real L2
+// slug — there's no real L2 to look up for "global" (see the special-
+// casing around `activeL1Id`/`activeL2Id` below).
+const GLOBAL_MODULES: ModuleSpec[] = [
+  { label: "Ethnic", l2Slug: "global-ethnic" },
+  { label: "Footwear", l2Slug: "global-footwear" },
+];
+
 const L1_OPTIONS: { slug: string; label: string; modules: ModuleSpec[] }[] = [
   { slug: "women", label: "Women", modules: WOMEN_MODULES },
   { slug: "men", label: "Men", modules: MEN_MODULES },
   { slug: "kids", label: "Kids", modules: KIDS_MODULES },
+  { slug: "global", label: "Global", modules: GLOBAL_MODULES },
 ];
 
 const blankCard = (): CmsPinnedStoreCard => ({ id: `new-${Math.random().toString(36).slice(2, 10)}`, name: "", image: "", link: "" });
@@ -72,7 +87,7 @@ export function StoreSectionsEditor() {
   const [overrides, setOverrides] = useState<CmsStoreSectionOverride[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [activeL1Slug, setActiveL1Slug] = useState<string>("women");
-  const [activeL2Slug, setActiveL2Slug] = useState<string>("footwear");
+  const [activeL2Slug, setActiveL2Slug] = useState<string>("lingerie");
 
   const [bannerImage, setBannerImage] = useState("");
   const [pinnedStores, setPinnedStores] = useState<CmsPinnedStoreCard[]>([]);
@@ -94,12 +109,20 @@ export function StoreSectionsEditor() {
   }, []);
   useEffect(() => { void reload(); }, [reload]);
 
+  const isGlobal = activeL1Slug === "global";
   const activeL1 = useMemo(() => categories.find((c) => c.slug === activeL1Slug), [categories, activeL1Slug]);
   const activeModules = L1_OPTIONS.find((o) => o.slug === activeL1Slug)?.modules ?? [];
   const activeL2 = useMemo(() => activeL1?.l2.find((s) => s.slug === activeL2Slug), [activeL1, activeL2Slug]);
+  // G8 — "global" has no real CategoryNode/L2 (it's not a real L1 in the
+  // taxonomy — see server.py's admin_put_store_section_override own
+  // comment on the "global" sentinel). activeL2Slug IS the full sentinel
+  // id for global modules ("global-ethnic"/"global-footwear"), so no
+  // separate L2 lookup is needed there.
+  const activeL1Id = isGlobal ? "global" : activeL1?.id;
+  const activeL2Id = isGlobal ? activeL2Slug : activeL2?.id;
   const activeOverride = useMemo(
-    () => activeL1 ? overrides.find((o) => o.l1_id === activeL1.id && o.l2_id === activeL2?.id) : undefined,
-    [overrides, activeL1, activeL2],
+    () => activeL1Id && activeL2Id ? overrides.find((o) => o.l1_id === activeL1Id && o.l2_id === activeL2Id) : undefined,
+    [overrides, activeL1Id, activeL2Id],
   );
 
   // Load the selected L1+category's saved override (or a blank slate)
@@ -125,15 +148,15 @@ export function StoreSectionsEditor() {
   const removeCard = (id: string) => { setPinnedStores((rows) => rows.filter((r) => r.id !== id)); setDirty(true); };
 
   const save = async () => {
-    if (!activeL1 || !activeL2) return;
+    if (!activeL1Id || !activeL2Id) return;
     const clean = pinnedStores.filter((c) => c.name.trim());
     setBusy(true);
     try {
-      const saved = await adminApi.saveStoreSectionOverride(activeL1.id, activeL2.id, {
+      const saved = await adminApi.saveStoreSectionOverride(activeL1Id, activeL2Id, {
         banner_image: bannerImage, pinned_stores: clean, display_title: displayTitle, mode,
       });
       setOverrides((rows) => {
-        const others = rows.filter((r) => !(r.l1_id === activeL1.id && r.l2_id === activeL2.id));
+        const others = rows.filter((r) => !(r.l1_id === activeL1Id && r.l2_id === activeL2Id));
         return [...others, saved];
       });
       setPinnedStores(clean.map((c) => ({ ...c })));
@@ -147,12 +170,12 @@ export function StoreSectionsEditor() {
   };
 
   const resetToDefault = async () => {
-    if (!activeL1 || !activeL2 || !activeOverride) return;
+    if (!activeL1Id || !activeL2Id || !activeOverride) return;
     if (!confirm("Reset this section to defaults? Removes the CMS banner and every pinned card — real stores are unaffected.")) return;
     setBusy(true);
     try {
-      await adminApi.deleteStoreSectionOverride(activeL1.id, activeL2.id);
-      setOverrides((rows) => rows.filter((r) => !(r.l1_id === activeL1.id && r.l2_id === activeL2.id)));
+      await adminApi.deleteStoreSectionOverride(activeL1Id, activeL2Id);
+      setOverrides((rows) => rows.filter((r) => !(r.l1_id === activeL1Id && r.l2_id === activeL2Id)));
       toast.success("Reset — showing the default L2 banner, no pinned cards");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Reset failed");
@@ -198,7 +221,7 @@ export function StoreSectionsEditor() {
         ))}
       </div>
 
-      {!activeL1 || !activeL2 ? (
+      {!activeL1Id || !activeL2Id ? (
         <div className="p-6 text-center text-sm text-[#64748B]">This category isn&apos;t set up on this L1 yet.</div>
       ) : (
         <div className="bg-white border border-[#E5E2DC] rounded-2xl p-4 space-y-4">
@@ -266,7 +289,9 @@ export function StoreSectionsEditor() {
             testid="cms-store-section-banner"
           />
           <p className="text-[10px] text-[#94A3B8] -mt-2">
-            Leave blank to use the category&apos;s own default image ({activeL2.image ? "currently set" : "not set for this category"}).
+            {isGlobal
+              ? "This is a global module — there's no category default image, so a banner is recommended."
+              : `Leave blank to use the category's own default image (${activeL2?.image ? "currently set" : "not set for this category"}).`}
           </p>
 
           <div>
@@ -307,7 +332,7 @@ export function StoreSectionsEditor() {
                         <DestinationPicker
                           value={card.link || ""} onChange={(v) => patchCard(card.id, { link: v })}
                           testid={`cms-store-section-card-link-${card.id}`}
-                          placeholder={`defaults to /c/${activeL1Slug}/${activeL2.slug}`}
+                          placeholder={isGlobal ? "defaults to /stores" : `defaults to /c/${activeL1Slug}/${activeL2?.slug}`}
                         />
                       </div>
                     </div>

@@ -67,6 +67,9 @@ export interface PriceBentoResponse {
   under_499: string | null;
   under_999: string | null;
   under_1499: string | null;
+  /** G8 — 4th "Picks for Every Budget" bento tile (highest-priced visible
+   *  products, admin-override-first, never fabricated). */
+  premium: string | null;
 }
 
 export interface CategoryNode {

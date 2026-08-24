@@ -23,9 +23,15 @@
  * G7 — this strip no longer implies "/" IS Women's page. Before G7, Home
  * literally rendered Women's L1 content, so defaulting the active tab to
  * "women" on "/" was accurate. Now "/" is the gender-neutral Marketplace
- * Home (see MarketplaceHomeClient.tsx) — none of the three tabs are
+ * Home (see MarketplaceHomeClient.tsx) — none of the three L1 tabs are
  * "active" there; `activeSlug` is only ever set on a real /c/[slug] page
  * (including its L2 catch-all, /c/{slug}/{l2}), null on "/" itself.
+ *
+ * G8 — added a 4th "All" tab (§4), pointing at "/" itself and active
+ * exactly when `activeSlug` is null (i.e. the Marketplace Home) — makes
+ * "you're on the discovery page, not a specific L1" explicit in the nav
+ * itself rather than just "no tab happens to be highlighted." A small
+ * grid icon (not a photo) since "All" has no single representative image.
  *
  * Still fetches /api/categories (React Query, key ["categories"], the same
  * cached request CategoryClient.tsx's own ["categories"] query reuses) —
@@ -36,14 +42,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { LayoutGrid } from "lucide-react";
 import { api } from "@/lib/api";
 import { trackCategoryTileClick, trackCategoryTileImpression, observeImpression } from "@/lib/analytics";
 
 // Fixed order + fallback labels (used only until the real /api/categories
-// response resolves) — Women, Men, Kids, in that exact order, per the
-// locked decision. Not derived from the backend's own `order` field
-// (women=1, men=2, kids=6) since that would put Kids after 3 other L1s
-// this strip no longer shows at all.
+// response resolves) — All, Women, Men, Kids, in that exact order, per the
+// locked decision. "all" isn't a real L1 slug (no /c/all route, no category
+// doc) — it's a synthetic tab pointing at "/" itself; handled separately
+// from the other three below since it has no CategoryNode to look up an
+// image/name from. Women/Men/Kids order is not derived from the backend's
+// own `order` field (women=1, men=2, kids=6) since that would put Kids
+// after 3 other L1s this strip no longer shows at all.
 const PINNED_SLUGS = [
   { slug: "women", fallbackLabel: "Women" },
   { slug: "men", fallbackLabel: "Men" },
@@ -59,10 +69,27 @@ export function CategoryTileRow() {
   });
 
   const activeSlug = pathname?.match(/^\/c\/([^/]+)/)?.[1] ?? null;
+  const isAllActive = pathname === "/";
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 md:px-8 pt-3">
       <div className="w-full flex items-center gap-5 h-9 sm:h-10" data-testid="category-tile-row">
+        <Link
+          href="/"
+          ref={(el) => { if (el) { try { observeImpression(el, () => trackCategoryTileImpression("All", -1)); } catch {} } }}
+          onClick={() => { try { trackCategoryTileClick("All", -1); } catch {} }}
+          data-testid="category-tab-all"
+          aria-current={isAllActive ? "page" : undefined}
+          className="relative inline-flex items-center gap-1.5 h-full"
+        >
+          <span className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg overflow-hidden bg-[#E5E2DC] shrink-0 flex items-center justify-center ${isAllActive ? "" : "opacity-70"}`}>
+            <LayoutGrid size={14} className="text-[#0A1F5C]" />
+          </span>
+          <span className={`font-display text-sm sm:text-base tracking-tight ${isAllActive ? "font-bold text-[#0A1F5C]" : "font-semibold text-[#0A1F5C]/60"}`}>
+            All
+          </span>
+          {isAllActive && <span className="absolute left-0 right-0 -bottom-[1px] h-[2px] rounded-full bg-[#E68910]" />}
+        </Link>
         {PINNED_SLUGS.map(({ slug, fallbackLabel }, i) => {
           const cat = categories.find((c) => c.slug === slug);
           const label = cat?.name ?? fallbackLabel;

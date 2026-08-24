@@ -1492,16 +1492,25 @@ async def feed_price_bento():
     reuses an already-claimed image when no other qualifying image exists
     at all — a genuine content/inventory gap, not a code bug.
 
-    Never N+1: at most 3 DB round trips regardless of catalog size (band
-    overrides, visible store ids, one price-sorted candidate query) — and
-    if every band already has an admin override, the product lookup is
-    skipped entirely."""
+    Never N+1: at most 4 DB round trips regardless of catalog size (band
+    overrides, visible store ids, one price-sorted candidate query, one
+    high-price candidate query) — and if every band already has an admin
+    override, both product lookups are skipped entirely.
+
+    G8 — added a 4th band, `premium` (band-premium-picks, real "expensive
+    items" framing this time, not to be confused with the pre-existing
+    `band-premium`/slug `under-1499`, an old-scheme id that was never
+    actually "premium" — see PRICE_BANDS_SEED's own comment). Sourced from
+    a SEPARATE high-price candidate pool (highest-priced visible products,
+    same dedup-by-image + admin-override-first + never-fabricate-a-pick
+    contract as the three low-price bands, just sorted the other way)."""
     band_docs = await db.price_bands.find({}, {"_id": 0, "slug": 1, "image": 1}).to_list(10)
     overrides = {b["slug"]: b.get("image") for b in band_docs if b.get("image")}
     result = {
         "under_499": overrides.get("under-499"),
         "under_999": overrides.get("under-999"),
         "under_1499": overrides.get("under-1499"),
+        "premium": overrides.get("premium"),
     }
     if all(result.values()):
         return result
@@ -1513,34 +1522,46 @@ async def feed_price_bento():
 
     # Candidate pool: every visible product under the widest band's
     # threshold, cheapest (then newest) first. 1,499 is the widest
-    # threshold so this single pool covers all three bands. Deduped to one
-    # (cheapest) entry per distinct image — several listings can share a
-    # stock/placeholder photo, so uniqueness has to key on the image
-    # that's actually rendered, not the product id.
-    raw_candidates = await db.products.find(
-        {"store_id": {"$in": sids}, "price": {"$lt": 1499}, **_visible_product_filter()},
-        {"_id": 0, "image": 1, "price": 1},
-    ).sort([("price", 1), ("created_at", -1)]).to_list(200)
-    seen_images: set = set()
-    candidates = []
-    for c in raw_candidates:
-        img = c.get("image")
-        if not img or img in seen_images:
-            continue
-        seen_images.add(img)
-        candidates.append(c)
+    # threshold so this single pool covers all three low-price bands.
+    # Deduped to one (cheapest) entry per distinct image — several
+    # listings can share a stock/placeholder photo, so uniqueness has to
+    # key on the image that's actually rendered, not the product id.
+    if not result["under_499"] or not result["under_999"] or not result["under_1499"]:
+        raw_candidates = await db.products.find(
+            {"store_id": {"$in": sids}, "price": {"$lt": 1499}, **_visible_product_filter()},
+            {"_id": 0, "image": 1, "price": 1},
+        ).sort([("price", 1), ("created_at", -1)]).to_list(200)
+        seen_images: set = set()
+        candidates = []
+        for c in raw_candidates:
+            img = c.get("image")
+            if not img or img in seen_images:
+                continue
+            seen_images.add(img)
+            candidates.append(c)
 
-    claimed: set = set()
-    for key, threshold in (("under_499", 499), ("under_999", 999), ("under_1499", 1499)):
-        if result[key]:
-            continue  # admin override already set for this band
-        qualifying = [c for c in candidates if c["price"] < threshold]
-        pick = next((c for c in qualifying if c["image"] not in claimed), None)
-        if pick is None:
-            pick = qualifying[0] if qualifying else None  # inventory gap: reuse, don't fabricate
-        if pick:
-            claimed.add(pick["image"])
-        result[key] = pick["image"] if pick else None
+        claimed: set = set()
+        for key, threshold in (("under_499", 499), ("under_999", 999), ("under_1499", 1499)):
+            if result[key]:
+                continue  # admin override already set for this band
+            qualifying = [c for c in candidates if c["price"] < threshold]
+            pick = next((c for c in qualifying if c["image"] not in claimed), None)
+            if pick is None:
+                pick = qualifying[0] if qualifying else None  # inventory gap: reuse, don't fabricate
+            if pick:
+                claimed.add(pick["image"])
+            result[key] = pick["image"] if pick else None
+
+    if not result["premium"]:
+        raw_premium = await db.products.find(
+            {"store_id": {"$in": sids}, **_visible_product_filter()},
+            {"_id": 0, "image": 1, "price": 1},
+        ).sort([("price", -1), ("created_at", -1)]).to_list(50)
+        for c in raw_premium:
+            img = c.get("image")
+            if img:
+                result["premium"] = img
+                break
     return result
 
 
@@ -2791,6 +2812,12 @@ PRICE_BANDS_SEED = [
     {"id": "band-under-499", "slug": "under-499", "label": "Under ₹499", "order": 1},
     {"id": "band-most-loved", "slug": "under-999", "label": "Under ₹999", "order": 2},
     {"id": "band-premium", "slug": "under-1499", "label": "Under ₹1,499", "order": 3},
+    # G8 — genuine 4th "Picks for Every Budget" bento tile. Distinct id
+    # from the pre-existing `band-premium` above (that one's id is a
+    # leftover from the old scheme and its slug/label are really "Under
+    # ₹1,499", not premium) — new id avoids colliding with that doc's
+    # already-set image/admin overrides.
+    {"id": "band-premium-picks", "slug": "premium", "label": "Premium", "order": 4},
 ]
 
 
@@ -3137,8 +3164,20 @@ async def admin_put_store_section_override(l1_id: str, l2_id: str, payload: dict
     shape as PUT /admin/site/homepage-config, rather than separate
     per-pinned-card CRUD endpoints (pinned cards are never independently
     addressed anywhere else, so there's nothing a finer-grained API would
-    actually serve)."""
-    if l1_id not in L2_BY_L1 or l2_id not in [s["id"] for s in L2_BY_L1[l1_id]]:
+    actually serve).
+
+    G8 — `l1_id="global"` is the same allow-listed sentinel G7 introduced
+    for the marketplace hero (never added to L1_CATEGORIES/L2_BY_L1
+    itself), extended here for the two global, cross-L1 editorial store
+    modules (Ethnic/Footwear Stores on "/"). Since "global" has no real L2
+    set to validate against, its l2_id is checked against a small fixed
+    allow-list instead — namespaced ("global-ethnic"/"global-footwear",
+    not a real L2 id) so it can never collide with an actual L2."""
+    GLOBAL_STORE_SECTION_SLOTS = {"global-ethnic", "global-footwear"}
+    if l1_id == "global":
+        if l2_id not in GLOBAL_STORE_SECTION_SLOTS:
+            raise HTTPException(400, "Invalid global store-section slot")
+    elif l1_id not in L2_BY_L1 or l2_id not in [s["id"] for s in L2_BY_L1[l1_id]]:
         raise HTTPException(400, "Invalid l1_id/l2_id combination")
     mode = str(payload.get("mode") or "real_plus_editorial")
     if mode not in ("real_plus_editorial", "editorial_only"):
@@ -3216,46 +3255,60 @@ async def admin_delete_store_section_override(l1_id: str, l2_id: str, admin: dic
 # DEFAULT_SECTIONS comment (frontend) for the full per-id cheat sheet —
 # kept there since the admin-facing `label` values below are what a CMS
 # user actually sees.
-# G7 — one shared, flat list, same as always (no per-surface schema
+# G8 — one shared, flat list, same as always (no per-surface schema
 # added — see MarketplaceHomeClient.tsx / L1PageClient.tsx's own top
 # comments for why). Each surface's own frontend `sectionRenderers` map
 # only registers the ids relevant to it — an id with no renderer
-# registered on a given surface silently doesn't render there, the same
-# "unknown id -> not rendered" fallback this list already relied on for
-# forward-compat. `rank` is therefore only meaningful WITHIN whichever
-# surface's own filtered id set — ids that never coexist on the same
-# surface (e.g. `shop_by_category` vs `category_pills`) can freely share
-# numeric rank values with no ambiguity.
-#   Marketplace-only (rendered on "/" only): category_pills (promoted —
-#     heading + mobile-visible now, the "generic Shop by Category"),
-#     stores_near_you (new), shop_by_area, trending (flipped on by
-#     default), shop_by_brand, merchant_cta.
-#   L1-only (rendered on /c/[slug] only): shop_by_category, best_deals,
-#     under_499, shop_by_store (redesigned — real per-L1 store discovery,
-#     dynamic "{L1} stores near you" title), premium_picks,
-#     store_footwear/ethnic/lingerie (G4/G6 editorial CMS, unchanged).
-#   Both (rendered on both, "limited" on L1 per the product brief): hero
-#     (different data per surface — "global" hero-slide bucket on "/",
-#     per-L1 slides on /c/[slug]), offers.
+# registered on a given surface silently doesn't render there. `rank` is
+# therefore only meaningful WITHIN whichever surface's own filtered id
+# set — ids that never coexist on the same surface can freely share
+# numeric rank values with no ambiguity, and the SAME id (e.g.
+# `store_ethnic`) can carry ONE rank that's correct on every surface it
+# renders on, as long as its intended position is consistent wherever it
+# appears (true here — Ethnic Stores is always the "late" module,
+# whichever L1 is rendering).
+#
+# G8 target order:
+#   Marketplace ("/"): hero -> category_pills (3x3 mixed discovery
+#     categories) -> marketplace_offers -> best_deals (mixed) -> under_499
+#     ("Picks for Every Budget") -> stores_near_you -> global_store_ethnic
+#     -> merchant_cta -> premium_picks -> global_store_footwear.
+#     Shop by Brand/Area and Trending are REMOVED as homepage sections
+#     (their underlying endpoints/CMS tabs are untouched, just no longer
+#     linked from a homepage section — /api/areas, AreasEditor, /stores?
+#     area=, /brands, BrandsEditor all still work).
+#   L1 (/c/[slug]): hero -> shop_by_category -> best_deals -> under_499
+#     ("Picks for Every Budget") -> shop_by_store ("Stores Near You",
+#     L1-scoped real stores) -> store_footwear (Women: absent: Women has
+#     no footwear module now; Men+Kids: early "distinguishing" module) ->
+#     store_lingerie (Women: "Lingerie Stores", early; Kids: 3rd editorial
+#     module, early; Men: absent) -> premium_picks -> offers -> store_ethnic
+#     (always present, always "late", any L1) -> other_categories.
+#     Browse All stays as unranked chrome after the ranked list (unchanged
+#     from G1-G7).
+#   Both, but genuinely different ids now (position conflicts too real to
+#     share one rank — see marketplace_offers vs offers below): the offer
+#     strip is EARLY on marketplace, LATE on L1, so it's two ids pointing
+#     at the exact same <OffersSection/> component, not one shared id.
 DEFAULT_HOMEPAGE_SECTIONS = [
-    {"id": "category_pills",  "label": "Shop by Category (marketplace)", "enabled": True,  "rank": 10},
-    {"id": "hero",             "label": "Hero",                       "enabled": True,  "rank": 20},
-    {"id": "shop_by_category", "label": "Shop by Category (L1)",      "enabled": True,  "rank": 25},
-    {"id": "best_deals",       "label": "Best deals",                 "enabled": True,  "rank": 30},
-    {"id": "under_499",        "label": "Shop by Price",              "enabled": True,  "rank": 40},
-    {"id": "offers",           "label": "Offers for you",             "enabled": True,  "rank": 45},
-    {"id": "shop_by_store",    "label": "Stores near you (L1)",       "enabled": True,  "rank": 50},
-    {"id": "stores_near_you",  "label": "Stores near you (marketplace)", "enabled": True,  "rank": 50},
-    {"id": "premium_picks",    "label": "Premium picks",              "enabled": True,  "rank": 60},
-    {"id": "shop_by_area",     "label": "Shop by Area",               "enabled": True,  "rank": 60},
-    {"id": "trending",         "label": "Trending now",               "enabled": True,  "rank": 70},
-    {"id": "store_footwear",   "label": "Footwear Store",             "enabled": True,  "rank": 90},
-    {"id": "store_ethnic",     "label": "Ethnic Store",                "enabled": True,  "rank": 100},
-    {"id": "store_lingerie",   "label": "Lingerie / Innerwear Store", "enabled": True,  "rank": 110},
+    {"id": "hero",              "label": "Hero",                        "enabled": True,  "rank": 20},
+    {"id": "category_pills",    "label": "Shop by Category (marketplace, 3x3)", "enabled": True,  "rank": 25},
+    {"id": "marketplace_offers","label": "Offers for you (marketplace)","enabled": True,  "rank": 30},
+    {"id": "shop_by_category",  "label": "Shop by Category (L1)",       "enabled": True,  "rank": 25},
+    {"id": "best_deals",        "label": "Best deals",                  "enabled": True,  "rank": 30},
+    {"id": "under_499",         "label": "Picks for Every Budget",      "enabled": True,  "rank": 40},
+    {"id": "stores_near_you",   "label": "Stores near you (marketplace)","enabled": True,  "rank": 50},
+    {"id": "shop_by_store",     "label": "Stores near you (L1)",        "enabled": True,  "rank": 50},
+    {"id": "store_footwear",    "label": "Footwear Store",              "enabled": True,  "rank": 55},
+    {"id": "store_lingerie",    "label": "Lingerie / Innerwear / Kids Store", "enabled": True,  "rank": 56},
+    {"id": "global_store_ethnic","label": "Ethnic Stores (marketplace)","enabled": True,  "rank": 70},
+    {"id": "merchant_cta",      "label": "Own a store",                 "enabled": True,  "rank": 80},
+    {"id": "premium_picks",     "label": "Premium picks",               "enabled": True,  "rank": 70},
+    {"id": "offers",            "label": "Offers for you (L1)",         "enabled": True,  "rank": 80},
+    {"id": "global_store_footwear","label": "Footwear Stores (marketplace)","enabled": True, "rank": 100},
+    {"id": "store_ethnic",      "label": "Ethnic Store",                "enabled": True,  "rank": 90},
+    {"id": "other_categories",  "label": "Other Categories",            "enabled": True,  "rank": 95},
 
-    # Pre-redesign sections — not part of the locked sequence above.
-    {"id": "shop_by_brand", "label": "Shop by Brand",            "enabled": True,  "rank": 140},
-    {"id": "merchant_cta",  "label": "Open a store",             "enabled": True,  "rank": 170},
     {"id": "customer_love", "label": "Loved by Bhilai shoppers", "enabled": False, "rank": 210},
 ]
 DEFAULT_HERO = {
@@ -9407,8 +9460,8 @@ async def startup_seed():
         )
     log.info("Areas seeded: %d", len(AREAS_SEED))
 
-    # Idempotent upsert of the 3 homepage price-bento bands (Under ₹499 /
-    # Most Loved / Premium). Same $setOnInsert-for-image pattern as
+    # Idempotent upsert of the 4 homepage price-bento bands (Under ₹499 /
+    # Under ₹999 / Under ₹1,499 / Premium). Same $setOnInsert-for-image pattern as
     # categories/areas above — an admin-set override image survives
     # restarts; label/slug/order refresh from PRICE_BANDS_SEED every boot.
     for band in PRICE_BANDS_SEED:

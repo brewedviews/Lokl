@@ -73,10 +73,8 @@
  * "/c/[slug]" now, so both hooks always resolve against a real route.
  */
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { HeroCarousel } from "@/components/consumer/HeroCarousel";
@@ -87,11 +85,14 @@ import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
 import { TrustStickers } from "@/components/consumer/TrustStickers";
 import { CategoryTile } from "@/components/consumer/CategoryTile";
 import { OffersSection } from "@/components/consumer/sections/OffersSection";
+import { BudgetBentoSection } from "@/components/consumer/sections/BudgetBentoSection";
+import { OtherCategoriesSection } from "@/components/consumer/sections/OtherCategoriesSection";
+import { StoreSectionModule, type GenderedSectionStore } from "@/components/consumer/sections/StoreSectionModule";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { cloudinaryOptimize } from "@/lib/utils";
-import type { ProductCard as ProductCardType, CategoryNode, PriceBentoResponse } from "@/types";
+import type { ProductCard as ProductCardType, CategoryNode } from "@/types";
 import {
-  trackSectionImpression, trackPriceFilterClick, trackProductClick, observeImpression,
+  trackSectionImpression, trackProductClick, observeImpression,
 } from "@/lib/analytics";
 
 interface TestimonialDoc { id: string; name: string; city: string; quote?: string; message?: string; rating?: number; avatar?: string }
@@ -136,26 +137,32 @@ interface SectionDoc { id: string; label: string; enabled: boolean; rank: number
 //     doc comment) so this renders nothing on most L1s right now; that's
 //     expected, not a bug.
 //   under_499 — kept its pre-rename id from the pre-overlapping-bands era
-//     (see PRICE_BANDS_SEED in server.py); the CMS label reads "Shop by
-//     Price" so this only matters to someone reading raw ids. Now
-//     genuinely L1-scoped too (Phase F fix — see ShopByPriceSection).
-// G7 — marketplace-only ids (category_pills, shop_by_area, shop_by_brand,
-// merchant_cta, trending) are deliberately absent from this list now —
-// see MarketplaceHomeClient.tsx for those. `shop_by_store` is redesigned
-// (real per-L1 store discovery, dynamic "{L1} stores near you" title)
-// but keeps its existing id — same data source, same graceful-empty
-// behavior, only the card/title changed.
+//     (see PRICE_BANDS_SEED in server.py); the CMS label reads "Picks for
+//     Every Budget" now (G8) so this only matters to someone reading raw
+//     ids. Renders the shared BudgetBentoSection (sections/), L1-scoped
+//     via its own `l1Id` prop.
+// G8 — target order: Hero -> Shop by Category -> Best Deals -> Picks for
+// Every Budget (under_499) -> Stores Near You (shop_by_store) ->
+// store_footwear/store_lingerie (whichever the current L1 has — see
+// WOMEN_STORE_MODULES/MEN_STORE_MODULES/KIDS_STORE_MODULES below; Women
+// only has `lingerie`, Men only has `footwear`, Kids has all three) ->
+// Premium picks -> Offers -> store_ethnic (always last of the store
+// modules, every L1) -> Other Categories -> Browse All (unranked chrome).
+// Marketplace-only ids (category_pills, marketplace_offers,
+// stores_near_you, global_store_ethnic/footwear, merchant_cta) are
+// deliberately absent — see MarketplaceHomeClient.tsx.
 const DEFAULT_SECTIONS: SectionDoc[] = [
-  { id: "hero",             label: "Hero",                        enabled: true,  rank: 20 },
-  { id: "shop_by_category", label: "Shop by Category",            enabled: true,  rank: 25 },
-  { id: "best_deals",       label: "Best deals",                  enabled: true,  rank: 30 },
-  { id: "under_499",        label: "Shop by Price",                enabled: true,  rank: 40 },
-  { id: "offers",           label: "Offers for you",              enabled: true,  rank: 45 },
-  { id: "shop_by_store",    label: "Stores near you (L1)",        enabled: true,  rank: 50 },
-  { id: "premium_picks",    label: "Premium picks",               enabled: true,  rank: 60 },
-  { id: "store_footwear",   label: "Footwear Store",              enabled: true,  rank: 90 },
-  { id: "store_ethnic",     label: "Ethnic Store",                enabled: true,  rank: 100 },
-  { id: "store_lingerie",   label: "Lingerie / Innerwear Store",  enabled: true,  rank: 110 },
+  { id: "hero",              label: "Hero",                        enabled: true,  rank: 20 },
+  { id: "shop_by_category",  label: "Shop by Category",             enabled: true,  rank: 25 },
+  { id: "best_deals",        label: "Best deals",                   enabled: true,  rank: 30 },
+  { id: "under_499",         label: "Picks for Every Budget",       enabled: true,  rank: 40 },
+  { id: "shop_by_store",     label: "Stores near you (L1)",         enabled: true,  rank: 50 },
+  { id: "store_footwear",    label: "Footwear Store",               enabled: true,  rank: 55 },
+  { id: "store_lingerie",    label: "Lingerie / Innerwear / Kids Store", enabled: true,  rank: 56 },
+  { id: "premium_picks",     label: "Premium picks",                enabled: true,  rank: 70 },
+  { id: "offers",            label: "Offers for you",               enabled: true,  rank: 80 },
+  { id: "store_ethnic",      label: "Ethnic Store",                 enabled: true,  rank: 85 },
+  { id: "other_categories",  label: "Other Categories",             enabled: true,  rank: 95 },
 
   // Optional / Future
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 210 },
@@ -218,7 +225,7 @@ function ShopByCategorySection({ tiles }: { tiles: ResolvedGenderTile[] }) {
   if (tiles.length === 0) return null;
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_category">
-      <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">Shop by Category</h2>
+      <h2 className="font-display font-medium text-xl sm:text-2xl tracking-tight text-[#0A1F5C] leading-tight mb-4">Shop by Category</h2>
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
         {tiles.map((t) => (
           <CategoryTile
@@ -267,221 +274,65 @@ function ShopByCategorySection({ tiles }: { tiles: ResolvedGenderTile[] }) {
 // interaction, same as it already was before this pass.
 // ---------------------------------------------------------------------------
 interface StoreModuleSpec { bannerLabel: string; heading: string; l2Slug: string }
+type StoreSlot = "footwear" | "ethnic" | "lingerie";
 
-const WOMEN_STORE_MODULES: StoreModuleSpec[] = [
-  { bannerLabel: "Footwear", heading: "Footwear Stores", l2Slug: "footwear" },
-  { bannerLabel: "Ethnic",   heading: "Ethnic Stores",   l2Slug: "ethnic-wear" },
-  { bannerLabel: "Lingerie", heading: "Lingerie Stores", l2Slug: "lingerie" },
-];
+// G8 — restructured from positional arrays (index 0/1/2) to slot-keyed
+// objects. §17's exact target order gives each L1 a DIFFERENT subset:
+// Women shows only `lingerie` + `ethnic` (Footwear Stores dropped from
+// Women's page); Men shows only `footwear` + `ethnic` (Innerwear/
+// lingerie-slot dropped from Men's page); Kids keeps all three (its
+// third slot was never lingerie — see the standing comment below). A
+// missing key here is what makes GenderedStoreSection render nothing for
+// that slot on that L1 — same graceful-drop mechanism as always, just
+// keyed by name instead of array position now that the three slots no
+// longer share one fixed page position (`footwear`/`lingerie` render
+// early, right after Stores Near You; `ethnic` always renders late,
+// after Offers — see DEFAULT_SECTIONS' own rank comment).
+const WOMEN_STORE_MODULES: Partial<Record<StoreSlot, StoreModuleSpec>> = {
+  ethnic:   { bannerLabel: "Ethnic",   heading: "Ethnic Stores",   l2Slug: "ethnic-wear" },
+  lingerie: { bannerLabel: "Lingerie", heading: "Lingerie Stores", l2Slug: "lingerie" },
+};
 
-const MEN_STORE_MODULES: StoreModuleSpec[] = [
-  { bannerLabel: "Footwear",  heading: "Footwear Stores",  l2Slug: "footwear" },
-  { bannerLabel: "Ethnic",    heading: "Ethnic Stores",    l2Slug: "ethnic-wear" },
-  { bannerLabel: "Innerwear", heading: "Innerwear Stores", l2Slug: "innerwear" },
-];
+const MEN_STORE_MODULES: Partial<Record<StoreSlot, StoreModuleSpec>> = {
+  footwear: { bannerLabel: "Footwear", heading: "Footwear Stores", l2Slug: "footwear" },
+  ethnic:   { bannerLabel: "Ethnic",   heading: "Ethnic Stores",   l2Slug: "ethnic-wear" },
+};
 
 // G6 — Kids has no "lingerie" L2 (none exists in the taxonomy, checked
-// live before writing this), so its third module deliberately isn't one.
-// `heading` here is only ever a FALLBACK now (see StoreSectionModule
-// below) — an admin can rename any of these three via the CMS's
-// `display_title` without touching code, which is what makes the third
-// slot genuinely editorial rather than hardcoded to old gendered
-// semantics like the pre-G6 model was.
-const KIDS_STORE_MODULES: StoreModuleSpec[] = [
-  { bannerLabel: "Footwear",    heading: "Footwear Stores",    l2Slug: "footwear" },
-  { bannerLabel: "Ethnic",      heading: "Ethnic Stores",      l2Slug: "ethnic" },
-  { bannerLabel: "Accessories", heading: "Accessories Stores", l2Slug: "accessories" },
-];
+// live before writing this), so its `lingerie`-slot module deliberately
+// isn't one — `heading` here is only ever a FALLBACK (see
+// StoreSectionModule below); an admin can rename any of these three via
+// the CMS's `display_title` without touching code, which is what makes
+// this slot genuinely editorial rather than hardcoded to old gendered
+// semantics. Kids keeps all three slots (unlike Women/Men's reduced-to-2
+// set above) since none of its three content options is off-limits.
+const KIDS_STORE_MODULES: Partial<Record<StoreSlot, StoreModuleSpec>> = {
+  footwear: { bannerLabel: "Footwear",    heading: "Footwear Stores",    l2Slug: "footwear" },
+  ethnic:   { bannerLabel: "Ethnic",      heading: "Ethnic Stores",      l2Slug: "ethnic" },
+  lingerie: { bannerLabel: "Accessories", heading: "Accessories Stores", l2Slug: "accessories" },
+};
 
-interface GenderedSectionStore {
-  id: string; slug?: string; name: string;
-  logo?: string; banner?: string; banners?: string[];
-  area_label?: string; locality?: string; specialties?: string[];
-  product_count: number; availability_rank: number; next_open_label?: string;
-}
-
-function StoreSectionModule({ l1, spec }: { l1: CategoryNode; spec: StoreModuleSpec }) {
-  const l2 = (l1.l2 ?? []).find((s) => s.slug === spec.l2Slug);
-
-  const { data: stores } = useQuery({
-    queryKey: ["gendered-store-section", l2?.id],
-    queryFn: async () => {
-      const r = await apiClient.get<GenderedSectionStore[]>(`/api/categories/${l1.id}/stores`, { params: { l2_id: l2!.id, limit: 10 } });
-      return Array.isArray(r.data) ? r.data : [];
-    },
-    enabled: !!l2,
-  });
-
-  const { data: override } = useQuery({
-    queryKey: ["store-section-override", l1.id, l2?.id],
-    queryFn: () => api.catalog.storeSectionOverride(l1.id, l2!.id),
-    enabled: !!l2,
-  });
-
-  if (!l2 || !stores || !override) return null;
-
-  // G6 — `mode: "editorial_only"` skips real stores_in_category() results
-  // entirely, showing only the admin's pinned cards (e.g. a Kids module an
-  // admin wants to be purely promotional, unconnected to real merchant
-  // inventory in that L2). Default ("real_plus_editorial") is the
-  // original G4 behavior: real stores first, pinned cards after.
-  const editorialOnly = override.mode === "editorial_only";
-  const realStores = editorialOnly ? [] : stores;
-  const pinned = override.pinned_stores ?? [];
-  if (realStores.length === 0 && pinned.length === 0) return null;
-
-  const bannerImage = override.banner_image || l2.image;
-  const l2Href = `/c/${l1.slug}/${l2.slug}`;
-  // G6 — display_title is admin-controlled; spec.heading is only the
-  // fallback (unset override = identical to pre-G6 behavior). This is
-  // what makes "Kids' third module" an editorial choice rather than a
-  // hardcoded category label.
-  const heading = override.display_title || spec.heading;
-
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid={`home-store-section-${spec.l2Slug}`}>
-      <div className="rounded-2xl overflow-hidden bg-surface-tint">
-        <Link href={l2Href} className="group relative block aspect-[16/9] sm:aspect-[21/9]">
-          {bannerImage ? (
-            <img
-              src={cloudinaryOptimize(bannerImage, "w_1200,q_auto,f_auto")}
-              alt={spec.bannerLabel}
-              loading="lazy"
-              className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
-            />
-          ) : (
-            <div className="absolute inset-0 bg-[#0A1F5C]" />
-          )}
-          {/* The fade target color (surface-tint) matches the container's
-              own background exactly, so the image's bottom edge dissolves
-              into the module instead of ending in a hard line — concentrated
-              in roughly the bottom quarter (via-25%) so the photo itself
-              stays vivid (an aggressive fade across most of the image was
-              tried and rejected — it washed the photos out; the "one
-              composition" feel comes from the seam being seamless, not from
-              text overlapping the image). Text starts right at the image's
-              own bottom edge (no negative margin) so it's always on the
-              fully-resolved solid background, regardless of which of the
-              six source images is behind it. */}
-          <div className="absolute inset-0 bg-gradient-to-t from-surface-tint via-surface-tint/15 via-25% to-transparent" />
-        </Link>
-
-        <div className="px-4 sm:px-5 pb-5 pt-3">
-          <div className="flex items-center gap-1.5 mb-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-accent" />
-            <p className="text-[10px] font-bold text-brand-primary/60 uppercase tracking-[0.15em]">Bhilai stores</p>
-          </div>
-          <h2 className="font-display font-bold text-brand-primary text-xl sm:text-2xl leading-tight mb-3">{heading}</h2>
-
-          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-            {realStores.map((s) => {
-              const isOpen = s.availability_rank === 1;
-              const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
-              return <SellerCard key={s.id} s={s} source={`store_${spec.l2Slug}`} openNow={isOpen} closedLabel={closedLabel} />;
-            })}
-            {/* Phase G4 — admin-pinned display cards, always after real
-                stores. Not real store records: no logo/eta/product-count/
-                trusted status, and `href` points at the card's own link
-                (or this section's own L2 browse page when unset) rather
-                than a fabricated /store/{id}. */}
-            {pinned.map((p) => (
-              <SellerCard
-                key={p.id}
-                s={{ id: p.id, name: p.name, banner: p.image || null }}
-                source={`store_${spec.l2Slug}_pinned`}
-                href={p.link || l2Href}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// index addresses a fixed position (0=Footwear, 1=Ethnic, 2=Lingerie-or-
-// Innerwear) in whichever gendered module list applies — both lists are
-// authored in that order, so this stays correct for either gender without
-// a lookup-by-label. Split into 3 independently-ranked sections (Phase D)
-// so Premium picks can sit between Ethnic and Lingerie/Innerwear per the
-// locked sequence.
-function GenderedStoreSection({ categories, l1Slug, index }: { categories: CategoryNode[]; l1Slug: string; index: number }) {
+function GenderedStoreSection({ categories, l1Slug, slot }: { categories: CategoryNode[]; l1Slug: string; slot: StoreSlot }) {
   const l1 = categories.find((c) => c.slug === l1Slug);
   if (!l1) return null;
-  const modules = l1Slug === "men" ? MEN_STORE_MODULES : l1Slug === "women" ? WOMEN_STORE_MODULES : l1Slug === "kids" ? KIDS_STORE_MODULES : [];
-  const spec = modules[index];
+  const modules = l1Slug === "men" ? MEN_STORE_MODULES : l1Slug === "women" ? WOMEN_STORE_MODULES : l1Slug === "kids" ? KIDS_STORE_MODULES : {};
+  const spec = modules[slot];
   if (!spec) return null;
-  return <StoreSectionModule l1={l1} spec={spec} />;
-}
-
-// ---------------------------------------------------------------------------
-// "Shop by Price" — mixed-weight headline, asymmetric layout (one large
-// dominant Under ₹499 card + two smaller stacked cards). Redesign Phase F:
-// now genuinely L1-scoped — each tile's href carries `l1={l1Id}` (fixing
-// the bug Phase E's own discovery flagged: previously these links had no
-// l1 param at all, so tapping a price tier from e.g. the Men page showed
-// every L1's products, not just Men's). Same overlapping-band data
-// contract Phase A built ($lt semantics, under-499/-999/-1499).
-// ---------------------------------------------------------------------------
-const PRICE_BANDS = [
-  { slug: "under-499",  price: "₹499",   sub: "Steals & deals", filter: "under_499" as const,  bentoKey: "under_499" as const },
-  { slug: "under-999",  price: "₹999",   sub: "Everyday picks", filter: "under_999" as const,  bentoKey: "under_999" as const },
-  { slug: "under-1499", price: "₹1,499", sub: "Best value",     filter: "under_1499" as const, bentoKey: "under_1499" as const },
-];
-
-function ShopByPriceSection({ l1Id, priceBento }: { l1Id: string; priceBento: PriceBentoResponse | null }) {
+  const l2 = (l1.l2 ?? []).find((s) => s.slug === spec.l2Slug);
+  if (!l2) return null;
   return (
-    <div
-      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8"
-      data-testid="home-under_499"
-      ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}
-    >
-      <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">Shop by Price</h2>
-      <div className="grid grid-cols-3 gap-3">
-        {PRICE_BANDS.map(({ slug, price, sub, filter, bentoKey }) => {
-          const href = `/products?price=${slug}&l1=${l1Id}`;
-          const image = priceBento?.[bentoKey] ?? null;
-          return (
-            <Link
-              key={href}
-              href={href}
-              onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
-              data-testid={`price-band-${filter}`}
-              className="group relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95"
-            >
-              {image ? (
-                <>
-                  <img
-                    src={cloudinaryOptimize(image, "w_400,q_auto,f_auto")}
-                    alt={`Under ${price}`}
-                    loading="eager"
-                    className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
-                  />
-                  <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
-                  <div className="absolute text-white bottom-2.5 left-3 right-3">
-                    <div className="font-semibold uppercase tracking-wide opacity-80 text-[9px]">Under</div>
-                    <div className="font-display font-black leading-none text-xl sm:text-2xl mt-0.5">{price}</div>
-                    <div className="font-semibold opacity-90 text-[10px] mt-1">{sub}</div>
-                  </div>
-                </>
-              ) : (
-                <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-1.5 px-2 text-center">
-                  <div className="rounded-full bg-[#E68910]/15 flex items-center justify-center w-8 h-8">
-                    <Sparkles size={14} className="text-[#E68910]" />
-                  </div>
-                  <div>
-                    <div className="font-display font-black text-[#0A1F5C] leading-none text-lg">{price}</div>
-                    <div className="font-semibold text-[#0A1F5C]/55 mt-1 text-[10px]">{sub}</div>
-                  </div>
-                </div>
-              )}
-            </Link>
-          );
-        })}
-      </div>
-    </div>
+    <StoreSectionModule
+      l1Id={l1.id}
+      l2Id={l2.id}
+      l2Href={`/c/${l1.slug}/${l2.slug}`}
+      l2Image={l2.image || null}
+      defaultHeading={spec.heading}
+      bannerLabel={spec.bannerLabel}
+      testSlug={spec.l2Slug}
+    />
   );
 }
+
 
 // ---------------------------------------------------------------------------
 // L1 store discovery — "{L1} stores near you" (G7 §16, redesign of Phase
@@ -519,7 +370,7 @@ function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_store">
-      <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">{l1.name} stores near you</h2>
+      <h2 className="font-display font-medium text-xl sm:text-2xl tracking-tight text-[#0A1F5C] leading-tight mb-4">Stores Near You</h2>
       <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
         {entries.map((s) => {
           const isOpen = s.availability_rank === 1;
@@ -623,7 +474,7 @@ function BrowseGridBlock({ l1 }: { l1: CategoryNode }) {
     <>
       {l2List.length > 0 && (
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-6" data-testid="cat-l2-grid">
-          <h2 className="text-lg sm:text-xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">
+          <h2 className="font-display font-medium text-lg sm:text-xl tracking-tight text-[#0A1F5C] leading-tight mb-4">
             Shop by category
           </h2>
           <div className="grid grid-cols-4 gap-x-2 gap-y-4">
@@ -649,7 +500,7 @@ function BrowseGridBlock({ l1 }: { l1: CategoryNode }) {
 
       <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
         <div className="text-[11px] font-bold uppercase tracking-widest text-[#E68910] mb-1">Browse all</div>
-        <h1 data-testid="cat-title" className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">
+        <h1 data-testid="cat-title" className="text-2xl sm:text-3xl font-display font-medium text-[#0A1F5C] leading-tight">
           {l1.name}
           {!isLoading && (
             <span className="text-sm font-normal text-[#595959] ml-2">({products.length})</span>
@@ -722,8 +573,15 @@ export function L1PageClient({ l1Id }: { l1Id: string }) {
   });
   const l1 = useMemo(() => categories.find((c) => c.id === l1Id), [categories, l1Id]);
   const l1Slug = l1?.slug ?? "";
+  // "Other Categories" (§18) needs to know which L2 slugs the primary
+  // Shop-by-Category grid already used, so it only shows the remainder —
+  // same per-L1 spec lists that section already defines, just read here
+  // too rather than duplicated.
+  const primaryL2Slugs = useMemo(() => {
+    const specs = l1Slug === "men" ? MEN_CATEGORY_TILES : l1Slug === "kids" ? KIDS_CATEGORY_TILES : WOMEN_CATEGORY_TILES;
+    return new Set(specs.map((s) => s.l2Slug));
+  }, [l1Slug]);
 
-  const [priceBento, setPriceBento] = useState<PriceBentoResponse | null>(null);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
 
   useEffect(() => {
@@ -747,7 +605,6 @@ export function L1PageClient({ l1Id }: { l1Id: string }) {
         setSections([...fromServer, ...missing]);
       }
     }).catch(() => {});
-    api.catalog.priceBento().then((r) => setPriceBento(r)).catch(() => {});
     api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
   }, []);
 
@@ -779,13 +636,15 @@ export function L1PageClient({ l1Id }: { l1Id: string }) {
 
     shop_by_category: <ShopByCategorySection key="shop-by-category" tiles={resolveShopByCategoryTiles(categories, l1Slug)} />,
 
-    store_footwear: <GenderedStoreSection key="store-footwear" categories={categories} l1Slug={l1Slug} index={0} />,
-    store_ethnic: <GenderedStoreSection key="store-ethnic" categories={categories} l1Slug={l1Slug} index={1} />,
-    store_lingerie: <GenderedStoreSection key="store-lingerie" categories={categories} l1Slug={l1Slug} index={2} />,
+    store_footwear: <GenderedStoreSection key="store-footwear" categories={categories} l1Slug={l1Slug} slot="footwear" />,
+    store_ethnic: <GenderedStoreSection key="store-ethnic" categories={categories} l1Slug={l1Slug} slot="ethnic" />,
+    store_lingerie: <GenderedStoreSection key="store-lingerie" categories={categories} l1Slug={l1Slug} slot="lingerie" />,
 
-    under_499: <ShopByPriceSection key="shop-by-price" l1Id={l1Id} priceBento={priceBento} />,
+    under_499: <BudgetBentoSection key="budget-bento" l1Id={l1Id} />,
 
     shop_by_store: <ShopByStoreSection key="shop-by-store" l1={l1} />,
+
+    other_categories: <OtherCategoriesSection key="other-categories" l1={l1} primarySlugs={primaryL2Slugs} />,
 
     // Best deals — L1-scoped via l1Id. Canonical rail (sort=discount) —
     // see this file's own top comment for why CategoryClient's old

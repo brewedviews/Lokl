@@ -62,7 +62,7 @@ export function StoresNearYouSection() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-stores_near_you">
       <div className="flex items-end justify-between gap-3 mb-3">
         <div>
-          <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">Stores near you</h2>
+          <h2 className="font-display font-medium text-xl sm:text-2xl tracking-tight text-[#0A1F5C] leading-tight">Stores near you</h2>
           <p className="text-[13px] text-[#595959] mt-0.5">Discover stores around Bhilai</p>
         </div>
         {stores.length > 0 && (
