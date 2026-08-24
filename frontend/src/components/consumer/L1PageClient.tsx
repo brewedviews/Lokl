@@ -1,8 +1,15 @@
 "use client";
 
 /**
- * L1PageClient — the ONE shared, L1-parameterized page tree behind both
- * "/" (Home) and "/c/[slug]" (+ its L2 catch-all, "/c/[slug]/[...l2slug]").
+ * L1PageClient — the L1 Shopping Home behind "/c/[slug]" (+ its L2
+ * catch-all, "/c/[slug]/[...l2slug]"). Product/category focused: L1
+ * hero, L1 categories, deals, product rails, L1 store discovery, Browse
+ * All. Marketplace-wide activation content (Shop by Area, the generic
+ * 9-L1 category grid, Shop by Brand, "Own a store") lives exclusively on
+ * "/" now (MarketplaceHomeClient.tsx) — see that file's own top comment
+ * for the full split rationale (G7). This file used to also render "/"
+ * (hardcoded to l1Id="l1-women", mode="home") — that's retired; `mode`
+ * is gone, this is unconditionally the shopping-home + Browse-All tree.
  *
  * Redesign Phase E: before this, HomeClient.tsx and CategoryClient.tsx
  * were two genuinely separate implementations, manually kept in visual
@@ -49,35 +56,27 @@
  *    gendered-L2 store modules and Phase F's `shop_by_store` carousel
  *    now carry the whole stores-discovery job.
  *
- * `mode` — the one real difference left between the two surfaces after
- * the above: /c/[slug]'s own intrinsic browsing UI (an L2 filter grid +
+ * Browse All — /c/[slug]'s own intrinsic browsing UI (an L2 filter grid +
  * a full sortable "Browse all {L1}" product grid) is NOT part of the
  * ranked CMS section system and never should be — it's core category-
  * browsing chrome, not a merchandising/discovery section an admin
  * toggles on and off, and it needs page-local filter state the CMS
- * sections don't. Home never rendered anything like it (its own
- * `browse_all` CMS section was a small CTA banner linking OUT to
- * /products, not an inline grid, until Phase G2 removed it — see
- * DEFAULT_SECTIONS' own comment) and Phase E's regression requirement was
- * that Home renders IDENTICALLY to before — so this block is opt-in via
- * `mode: "category"` (the default, matching CategoryClient's own prior
- * always-on behavior), and Home's call site explicitly passes
- * `mode="home"` to suppress it. `l1Id` remains the only REQUIRED input;
- * `mode` is optional with a sensible default, per the spec.
+ * sections don't. Pre-G7 this was opt-in via a `mode` prop (Home passed
+ * `mode="home"` to suppress it, since Home rendered through this same
+ * component). G7 retired `mode` entirely — this file is L1-only now, so
+ * Browse All always renders, unconditionally.
  *
- * L2 deep-link preservation: this component still reads
- * useParams()/useSearchParams() directly, unconditionally, exactly as
- * CategoryClient did — on "/" those hooks simply return no slug/l2slug
- * (there's no dynytic route segment there), so `l2FromUrl` naturally
- * resolves to "" and the (mode="home"-suppressed, so moot anyway) filter
- * state never activates. No prop-plumbing needed to keep this working
- * under either route tree.
+ * L2 deep-link preservation: `BrowseGridBlock` reads
+ * useParams()/useSearchParams() directly (params.l2slug from the
+ * "/c/[slug]/[...l2slug]" catch-all, or a "?l2=" query param) to
+ * pre-select the L2 filter grid — this file is only ever mounted under
+ * "/c/[slug]" now, so both hooks always resolve against a real route.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Sparkles, Tag } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { HeroCarousel } from "@/components/consumer/HeroCarousel";
@@ -87,20 +86,16 @@ import { SellerCard } from "@/components/consumer/SellerCard";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
 import { TrustStickers } from "@/components/consumer/TrustStickers";
 import { CategoryTile } from "@/components/consumer/CategoryTile";
+import { OffersSection } from "@/components/consumer/sections/OffersSection";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { cloudinaryOptimize } from "@/lib/utils";
-import type { ProductCard as ProductCardType, CategoryNode, AreaTile, PriceBentoResponse, Brand } from "@/types";
+import type { ProductCard as ProductCardType, CategoryNode, PriceBentoResponse } from "@/types";
 import {
-  trackSectionImpression, trackCategoryTileClick, trackCategoryTileImpression,
-  trackPriceFilterClick, trackProductClick,
-  trackOfferClick, trackMerchantCTAClick, observeImpression,
+  trackSectionImpression, trackPriceFilterClick, trackProductClick, observeImpression,
 } from "@/lib/analytics";
 
-interface OfferDoc { id: string; title: string; subtitle?: string; description?: string; code?: string; image?: string; cta_label?: string; cta_link?: string; background?: string; eyebrow?: string }
 interface TestimonialDoc { id: string; name: string; city: string; quote?: string; message?: string; rating?: number; avatar?: string }
 interface SectionDoc { id: string; label: string; enabled: boolean; rank: number }
-interface HomeProductsRail { store_id: string; store_name: string; store_slug: string; store_banner?: string; store_tagline?: string; products: ProductCardType[] }
-interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: ProductCardType[]; best_deals: ProductCardType[]; premium_picks: ProductCardType[] }
 
 // CANONICAL SECTION LIST — now genuinely shared by all three routes
 // ("/", "/c/[slug]", "/c/[slug]/[...l2slug]"), not just Home. See this
@@ -144,26 +139,25 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 //     (see PRICE_BANDS_SEED in server.py); the CMS label reads "Shop by
 //     Price" so this only matters to someone reading raw ids. Now
 //     genuinely L1-scoped too (Phase F fix — see ShopByPriceSection).
+// G7 — marketplace-only ids (category_pills, shop_by_area, shop_by_brand,
+// merchant_cta, trending) are deliberately absent from this list now —
+// see MarketplaceHomeClient.tsx for those. `shop_by_store` is redesigned
+// (real per-L1 store discovery, dynamic "{L1} stores near you" title)
+// but keeps its existing id — same data source, same graceful-empty
+// behavior, only the card/title changed.
 const DEFAULT_SECTIONS: SectionDoc[] = [
-  { id: "category_pills",  label: "Category pills",              enabled: true,  rank: 10 },
   { id: "hero",             label: "Hero",                        enabled: true,  rank: 20 },
   { id: "shop_by_category", label: "Shop by Category",            enabled: true,  rank: 25 },
   { id: "best_deals",       label: "Best deals",                  enabled: true,  rank: 30 },
   { id: "under_499",        label: "Shop by Price",                enabled: true,  rank: 40 },
-  { id: "shop_by_store",    label: "Shop by Store",               enabled: true,  rank: 50 },
+  { id: "offers",           label: "Offers for you",              enabled: true,  rank: 45 },
+  { id: "shop_by_store",    label: "Stores near you (L1)",        enabled: true,  rank: 50 },
   { id: "premium_picks",    label: "Premium picks",               enabled: true,  rank: 60 },
-  { id: "shop_by_area",     label: "Shop by Area",                enabled: true,  rank: 70 },
   { id: "store_footwear",   label: "Footwear Store",              enabled: true,  rank: 90 },
   { id: "store_ethnic",     label: "Ethnic Store",                enabled: true,  rank: 100 },
   { id: "store_lingerie",   label: "Lingerie / Innerwear Store",  enabled: true,  rank: 110 },
 
-  // Pre-redesign sections — not part of the locked sequence above.
-  { id: "shop_by_brand",   label: "Shop by Brand",            enabled: true,  rank: 140 },
-  { id: "merchant_cta",    label: "Open a store",             enabled: true,  rank: 170 },
-  { id: "offers",          label: "Offers for you",           enabled: true,  rank: 180 },
-
   // Optional / Future
-  { id: "trending",       label: "Trending now",              enabled: false, rank: 200 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 210 },
 ];
 
@@ -302,7 +296,7 @@ const KIDS_STORE_MODULES: StoreModuleSpec[] = [
 interface GenderedSectionStore {
   id: string; slug?: string; name: string;
   logo?: string; banner?: string; banners?: string[];
-  area_label?: string; locality?: string;
+  area_label?: string; locality?: string; specialties?: string[];
   product_count: number; availability_rank: number; next_open_label?: string;
 }
 
@@ -490,42 +484,26 @@ function ShopByPriceSection({ l1Id, priceBento }: { l1Id: string; priceBento: Pr
 }
 
 // ---------------------------------------------------------------------------
-// "Shop by Store" (redesign Phase F) — a new editorial, snap-to-card
-// carousel: center-aligned active card with adjacent cards peeking on
-// both sides, ~75% viewport width per card, strongly rounded corners, no
-// shadow, full-bleed image, store name overlaid near the TOP (distinct
-// from SellerCard's bottom-overlay convention used elsewhere).
+// L1 store discovery — "{L1} stores near you" (G7 §16, redesign of Phase
+// F's "Shop by Store" carousel). This is the REAL-store counterpart to
+// the CMS-editorial store_footwear/ethnic/lingerie modules below — real
+// stores only, never CMS-pinned display cards (§17's "A vs B" distinction
+// is deliberate: this section is "A", StoreSectionModule below is "B").
 //
-// Image source, confirmed by investigation before building anything: a
-// store has TWO distinct image concepts — `logo` (small square merchant
-// mark) and `banner`/`banners` (the storefront cover photo(s), uploaded
-// via the mandatory merchant onboarding flow at a 4:3 landscape crop —
-// see app/merchant/storefront/page.tsx's own upload UI). There is no
-// portrait/tall image field on a store at all. Rather than stretch the
-// small square logo into a tall card (which would look broken) or invent
-// a portrait crop the merchant never provided, this carousel uses the
-// real landscape banner and sizes its own card to aspect-[4/3] — the
-// same aspect the source image already is, so object-cover crops barely
-// anything rather than aggressively cropping a landscape photo into a
-// portrait frame. A store lacking BOTH banner and banners[0] is skipped
-// entirely, not rendered with a stretched/broken image.
+// Card: SellerCard's `variant="discovery"` (G7) — the SAME component the
+// marketplace-global StoresNearYouSection uses, per §18's "one reusable
+// StoreCard, not one per surface" rule. Was a bespoke large peek-carousel
+// (top-overlay name, aspect-[4/3] ~75vw cards); now the same compact
+// horizontal-scroll-row-of-cards treatment as every other store module.
 //
-// Data: reuses Phase A's generalized GET /categories/{l1_id}/stores
-// (no l2_id — the whole L1, same endpoint the now-retired "Stores in
-// {L1}" rail and the gendered store modules both already call), NOT a
-// new backend endpoint — that endpoint already returns banner/banners.
-// Real production volume (checked before shipping, not assumed): only 3
-// real (non-test-fixture) stores exist at all today, and only ONE has any
-// visible products in any L1 — so this section renders at most 1 card on
-// Women/Men, 0 on Kids, today. That's the same "correct plumbing, sparse
-// real content" situation every other store-scoped section in this
-// redesign has shipped with — the carousel mechanics work correctly for
-// any count (a single card just centers with empty peek space on both
-// sides, which is a normal, non-broken degenerate case, not something
-// that needed a special single-card layout).
+// Data: unchanged — reuses Phase A's generalized GET /categories/{l1_id}
+// /stores (no l2_id), same endpoint the gendered store modules below
+// also call. Real production volume is sparse today (see this file's own
+// git history) — same graceful "renders nothing when empty" this always
+// had, deliberately NOT given the marketplace section's own visible
+// empty-state (that's specific to "/" being more central to the whole
+// page's purpose — see StoresNearYouSection's own comment).
 // ---------------------------------------------------------------------------
-interface ShopByStoreEntry { id: string; slug?: string; name: string; image: string }
-
 function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
   const { data: stores } = useQuery({
     queryKey: ["shop-by-store", l1?.id],
@@ -536,146 +514,34 @@ function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
     enabled: !!l1,
   });
 
-  const entries: ShopByStoreEntry[] = (stores ?? [])
-    .map((s) => ({ id: s.id, slug: s.slug, name: s.name, image: s.banner || (s.banners && s.banners[0]) || "" }))
-    .filter((s) => !!s.image);
-
-  if (entries.length === 0) return null;
+  const entries = (stores ?? []).filter((s) => !!(s.banner || (s.banners && s.banners[0])));
+  if (entries.length === 0 || !l1) return null;
 
   return (
-    <div className="pt-8" data-testid="home-shop_by_store">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-3">
-        {/* G6 — makes the "local store discovery" proposition explicit in
-            copy (same eyebrow treatment StoreSectionModule already uses,
-            reused here) rather than leaving it to the photo alone; title
-            changed from the generic "Shop by Store" to name the
-            proposition directly. Card mechanics/imagery unchanged — real
-            store banners already ARE the correct "local retail" image,
-            per the explicit "no abstract/decorative image" instruction. */}
-        <div className="flex items-center gap-1.5 mb-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand-accent" />
-          <p className="text-[10px] font-bold text-brand-primary/60 uppercase tracking-[0.15em]">Discover fashion from Bhilai stores around you</p>
-        </div>
-        <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">Shop local stores</h2>
-      </div>
-      <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-3 px-[12.5vw] sm:px-[20%]">
-        {entries.map((s) => (
-          <Link
-            key={s.id}
-            href={`/store/${s.slug || s.id}`}
-            data-testid={`shop-by-store-card-${s.id}`}
-            className="group relative shrink-0 w-[75vw] sm:w-[60%] aspect-[4/3] rounded-3xl overflow-hidden snap-center active:scale-[0.98] transition"
-          >
-            <img
-              src={cloudinaryOptimize(s.image, "w_800,q_auto,f_auto")}
-              alt={s.name}
-              loading="lazy"
-              className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_store">
+      <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">{l1.name} stores near you</h2>
+      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+        {entries.map((s) => {
+          const isOpen = s.availability_rank === 1;
+          const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
+          return (
+            <SellerCard
+              key={s.id}
+              s={{ ...s, banner: s.banner || (s.banners && s.banners[0]) || null }}
+              source="shop_by_store"
+              variant="discovery"
+              openNow={isOpen}
+              closedLabel={closedLabel}
             />
-            <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-black/65 via-black/15 to-transparent pointer-events-none" />
-            <span className="absolute top-4 left-4 right-4 font-display font-bold text-white text-lg sm:text-xl leading-tight line-clamp-2">
-              {s.name}
-            </span>
-          </Link>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
-  if (areas.length === 0) return null;
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_area">
-      <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">Shop by Area</h2>
-
-      {/* G6 — was a two-element stack (image box + a separate label row
-          below it), hand-tuned per-breakpoint to APPROXIMATE Shop by
-          Category's own aspect-[3/4] single-box tile. No aspect ratio can
-          match a 1-element card from a 2-element stack at every
-          breakpoint at once — this now renders the exact same
-          CategoryTile density="generous" component Shop by Category uses
-          (label baked into the image, not below it), so dimensions are
-          identical by construction, not by tuning. The store-count pill
-          moves into CategoryTile's own `badge` slot (added for this). */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        {areas.map((a) => (
-          <CategoryTile
-            key={a.slug}
-            density="generous"
-            href={`/stores?area=${a.slug}`}
-            testId={`shop-by-area-tile-${a.slug}`}
-            image={a.image ? cloudinaryOptimize(a.image, "w_400,q_auto,f_auto") : undefined}
-            label={a.name}
-            fallback={
-              <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center">
-                <Sparkles size={16} className="text-brand-accent" />
-              </div>
-            }
-            badge={
-              <span className="inline-flex items-center rounded-pill bg-white px-2 py-0.5 text-[10px] font-bold leading-none text-brand-primary shadow-[0_1px_4px_rgba(0,0,0,0.3)]" data-testid={`shop-by-area-count-${a.slug}`}>
-                {a.store_count} {a.store_count === 1 ? "store" : "stores"}
-              </span>
-            }
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ShopByBrandSection({ brands, ready }: { brands: Brand[]; ready: boolean }) {
-  return (
-    <div className="pt-8" data-testid="home-shop_by_brand">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-end justify-between gap-3">
-        <div>
-          <h3 className="text-lg sm:text-xl font-display font-bold text-[#0A1F5C] leading-tight">Shop by Brand</h3>
-          <p className="text-[13px] text-[#595959] mt-1">the labels your favourite local stores carry.</p>
-        </div>
-        <a href="/brands" className="text-xs font-bold text-[#0A1F5C] shrink-0 hover:underline">See all →</a>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
-        {!ready ? (
-          <div className="flex gap-4 overflow-x-auto no-scrollbar pb-1">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1.5">
-                <div className="w-16 h-16 rounded-full bg-[#E5E2DC] animate-pulse" />
-                <div className="w-14 h-2.5 rounded bg-[#E5E2DC] animate-pulse" />
-              </div>
-            ))}
-          </div>
-        ) : brands.length === 0 ? (
-          <div className="bg-[#F4F1E9] rounded-2xl px-5 py-6 text-center flex flex-col items-center gap-2" data-testid="shop-by-brand-empty">
-            <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
-              <Tag size={16} className="text-[#E68910]" />
-            </div>
-            <p className="text-[12px] font-semibold text-[#0A1F5C] max-w-xs mx-auto">
-              Brands are being added as stores tag their products — check back soon.
-            </p>
-          </div>
-        ) : (
-          <div className="flex gap-4 overflow-x-auto no-scrollbar pb-1">
-            {brands.slice(0, 10).map((b) => (
-              <CategoryTile
-                key={b.id}
-                density="dense"
-                label={b.name}
-                image={b.logo || null}
-                href={`/brand/${b.slug}`}
-                fallback={<Tag size={18} className="text-[#94A3B8]" />}
-                testId={`shop-by-brand-${b.slug}`}
-              />
-            ))}
-          </div>
-        )}
+          );
+        })}
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// mode="category" only — /c/[slug]'s own intrinsic browsing chrome: an L2
+// /c/[slug]'s own intrinsic browsing chrome: an L2
 // filter grid (all of this L1's L2s, filter-button behavior, not
 // navigation) driving a full sortable "Browse all {L1}" product grid.
 // Ported from the old CategoryClient.tsx essentially unchanged — this is
@@ -827,11 +693,8 @@ function BrowseGridBlock({ l1 }: { l1: CategoryNode }) {
   );
 }
 
-export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?: "home" | "category" }) {
+export function L1PageClient({ l1Id }: { l1Id: string }) {
   const [sections, setSections] = useState<SectionDoc[]>(DEFAULT_SECTIONS);
-  const [offers, setOffers] = useState<OfferDoc[]>([]);
-  const [trending, setTrending] = useState<ProductCardType[]>([]);
-  const [_storeRails, setStoreRails] = useState<HomeProductsRail[]>([]);
 
   // Best deals / Premium picks — L1-scoped via the page's own l1Id prop
   // directly (not the resolved `l1` object below), so these two rails can
@@ -860,111 +723,32 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
   const l1 = useMemo(() => categories.find((c) => c.id === l1Id), [categories, l1Id]);
   const l1Slug = l1?.slug ?? "";
 
-  const [areas, setAreas] = useState<AreaTile[]>([]);
   const [priceBento, setPriceBento] = useState<PriceBentoResponse | null>(null);
-  const [popularBrands, setPopularBrands] = useState<Brand[]>([]);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
-  const [loaded, setLoaded] = useState<Set<string>>(new Set());
-  const [errors, setErrors] = useState<Set<string>>(new Set());
-  const [brandsEnabled, setBrandsEnabled] = useState(
-    () => DEFAULT_SECTIONS.find((s) => s.id === "shop_by_brand")?.enabled ?? false
-  );
-  const brandsEnabledRef = useRef(brandsEnabled);
-
-  const markLoaded = (key: string) =>
-    setLoaded((prev) => { const next = new Set(prev); next.add(key); return next; });
-  const markError = (key: string) =>
-    setErrors((prev) => { const next = new Set(prev); next.add(key); return next; });
 
   useEffect(() => {
     api.site.homepageConfig().then((cfg) => {
       const c = cfg as unknown as { sections?: SectionDoc[] };
       if (Array.isArray(c.sections) && c.sections.length > 0) {
         const defaultMap = new Map(DEFAULT_SECTIONS.map((s) => [s.id, s]));
-        const serverIds = new Set(c.sections.map((s: SectionDoc) => s.id));
-        const extra = DEFAULT_SECTIONS.filter((s) => !serverIds.has(s.id));
-        const fromServer = c.sections.map((s: SectionDoc) => {
-          const fallback = defaultMap.get(s.id);
-          return {
-            id: s.id,
-            label: s.label || fallback?.label || s.id,
-            enabled: typeof s.enabled === "boolean" ? s.enabled : (fallback?.enabled ?? true),
-            rank: typeof s.rank === "number" && !Number.isNaN(s.rank) ? s.rank : (fallback?.rank ?? 999),
-          };
-        });
-        const merged = [...fromServer, ...extra];
-        const seen = new Set<string>();
-        const deduped = merged.filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
-        setSections(deduped);
-        const resolvedBrandsEnabled = deduped.find((s) => s.id === "shop_by_brand")?.enabled ?? false;
-        setBrandsEnabled(resolvedBrandsEnabled);
-        brandsEnabledRef.current = resolvedBrandsEnabled;
+        const fromServer = c.sections
+          .filter((s: SectionDoc) => defaultMap.has(s.id)) // only ids this surface knows how to render — see this file's own top comment
+          .map((s: SectionDoc) => {
+            const fallback = defaultMap.get(s.id);
+            return {
+              id: s.id,
+              label: s.label || fallback?.label || s.id,
+              enabled: typeof s.enabled === "boolean" ? s.enabled : (fallback?.enabled ?? true),
+              rank: typeof s.rank === "number" && !Number.isNaN(s.rank) ? s.rank : (fallback?.rank ?? 999),
+            };
+          });
+        const seenIds = new Set(fromServer.map((s) => s.id));
+        const missing = DEFAULT_SECTIONS.filter((s) => !seenIds.has(s.id));
+        setSections([...fromServer, ...missing]);
       }
-      markLoaded("hero");
-    }).catch(() => { markLoaded("hero"); });
-    api.catalog.areas().then((r) => setAreas(r)).catch(() => {});
+    }).catch(() => {});
     api.catalog.priceBento().then((r) => setPriceBento(r)).catch(() => {});
-
-    const _deferTimer = setTimeout(() => {
-      api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
-      api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
-      if (brandsEnabledRef.current) {
-        api.brands.list({ limit: 10, sort: "popular" })
-          .then((r) => { setPopularBrands(r.brands.filter((b) => b.product_count > 0)); markLoaded("popularBrands"); })
-          .catch(() => { markLoaded("popularBrands"); markError("popularBrands"); });
-      } else {
-        markLoaded("popularBrands");
-      }
-    }, 800);
-
-    // Trending + store_rails — genuinely site-wide, not L1-scoped (see
-    // this component's own top comment); same behavior on every route.
-    apiClient.get<HomeProductsResponse>("/api/feed/home-products").then((r) => {
-      const data = r.data || { store_rails: [], trending: [], best_deals: [], premium_picks: [] };
-      const hasProducts = (data.trending?.length || 0) + (data.store_rails?.length || 0) > 0;
-
-      if (hasProducts) {
-        setStoreRails(data.store_rails || []);
-        setTrending(data.trending || []);
-      } else {
-        apiClient.get("/api/products?limit=24&sort=newest").then((r2: any) => {
-          const products: ProductCardType[] = r2.data?.products || r2.data || [];
-          if (products.length > 0) {
-            setTrending(products.slice(0, 8));
-            const byStore: Record<string, ProductCardType[]> = {};
-            products.forEach((p: any) => {
-              if (!p.store_id) return;
-              const bucket = byStore[p.store_id] ?? (byStore[p.store_id] = []);
-              if (bucket.length < 8) bucket.push(p);
-            });
-            const rails = Object.entries(byStore).map(([sid, prods]) => ({
-              store_id: sid,
-              store_name: (prods[0] as any)?.store_name || "Local Store",
-              store_slug: (prods[0] as any)?.store_slug || sid,
-              store_banner: (prods[0] as any)?.store_banner || "",
-              store_tagline: "Shop local, delivered fast",
-              products: prods,
-            }));
-            if (rails.length > 0) setStoreRails(rails);
-          }
-        }).catch(() => {});
-      }
-
-      markLoaded("storeRails");
-      markLoaded("recent");
-    }).catch(() => {
-      apiClient.get("/api/products?limit=24").then((r2: any) => {
-        const products: ProductCardType[] = r2.data?.products || [];
-        if (products.length > 0) {
-          setTrending(products.slice(0, 8));
-        }
-      }).catch(() => {});
-      markLoaded("storeRails");
-      markLoaded("recent");
-      markError("recent");
-    });
-
-    return () => clearTimeout(_deferTimer);
+    api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
   }, []);
 
   const ProductRailSkeleton = ({ testid }: { testid: string }) => (
@@ -983,17 +767,6 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
       </div>
     </div>
   );
-  const OffersSkeleton = () => (
-    <div className="px-4 md:px-8 py-4">
-      <Skeleton className="h-24 w-full rounded-2xl" />
-    </div>
-  );
-  const SectionError = ({ minHeight }: { minHeight: string }) => (
-    <div className={`px-4 md:px-8 py-4 flex items-center justify-center ${minHeight}`}>
-      <span className="text-sm text-[#94A3B8]">Could not load</span>
-    </div>
-  );
-
   const bestDealsLink = `/products?l1=${l1Id}&sort=discount`;
   const premiumPicksLink = `/products?l1=${l1Id}&sort=price_desc`;
 
@@ -1013,66 +786,6 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
     under_499: <ShopByPriceSection key="shop-by-price" l1Id={l1Id} priceBento={priceBento} />,
 
     shop_by_store: <ShopByStoreSection key="shop-by-store" l1={l1} />,
-
-    category_pills: (
-      <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
-        <div
-          className="hidden md:grid gap-4 pb-2"
-          style={{ gridTemplateColumns: `repeat(${categories.length === 0 ? 8 : Math.min(categories.length, 9) + 1}, minmax(0, 1fr))` }}
-        >
-          {categories.length === 0 ? (
-            Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="aspect-[3/4] rounded-2xl bg-[#E5E2DC] animate-pulse" />
-            ))
-          ) : (
-            <>
-              <Link
-                href="/products"
-                className="group relative aspect-[3/4] rounded-2xl overflow-hidden bg-[#0A1F5C] flex flex-col items-center justify-center gap-2 transition hover:scale-[1.02]"
-              >
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-                  <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
-                </svg>
-                <span className="font-bold text-white text-sm">All</span>
-              </Link>
-              {(categories as any[]).slice(0, 9).map((cat, catIdx) => (
-                <Link key={cat.id} href={`/c/${cat.slug}`}
-                  onClick={() => { try { trackCategoryTileClick(cat.name, catIdx); } catch {} }}
-                  ref={(el) => { if (el) { try { observeImpression(el, () => trackCategoryTileImpression(cat.name, catIdx)); } catch {} } }}
-                  className="group relative aspect-[3/4] rounded-2xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC] transition hover:border-[#0A1F5C]"
-                >
-                  {cat.image ? (
-                    <img src={cloudinaryOptimize(cat.image, "w_400,q_auto,f_auto")} alt={cat.name}
-                      loading="eager"
-                      fetchPriority={catIdx === 0 ? "high" : "auto"}
-                      className="w-full h-full object-cover object-top transition duration-500 group-hover:scale-105" />
-                  ) : (
-                    <div className="w-full h-full bg-[#E5E2DC]" />
-                  )}
-                  <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/75 via-black/15 to-transparent pointer-events-none" />
-                  <span className="absolute bottom-3 left-3 right-3 font-bold text-white text-sm leading-tight line-clamp-2 break-words">
-                    {cat.name === "Lingerie & Innerwear" ? "Lingerie" : cat.name}
-                  </span>
-                </Link>
-              ))}
-            </>
-          )}
-        </div>
-      </div>
-    ),
-
-    trending: errors.has("recent") ? null
-      : loaded.has("recent") && trending.length >= 1 ? (
-          <HCarousel key="trending" title="Trending now" testid="home-new-arrivals" link="/products?sort=trending" linkLabel="See all">
-            {trending.slice(0, 8).map((p, pIdx) => (
-              <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "trending", position: pIdx }); } catch {} }}>
-                <ProductCard p={p} size="default" />
-              </div>
-            ))}
-          </HCarousel>
-        )
-      : !loaded.has("recent") ? <ProductRailSkeleton key="trending-skeleton" testid="home-new-arrivals-skeleton" /> : null,
 
     // Best deals — L1-scoped via l1Id. Canonical rail (sort=discount) —
     // see this file's own top comment for why CategoryClient's old
@@ -1101,83 +814,9 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
         )
       : premiumPicksPending ? <ProductRailSkeleton key="premium-picks-skeleton" testid="home-premium-picks-skeleton" /> : null,
 
-    offers: errors.has("offers") ? (
-      <SectionError key="offers-error" minHeight="min-h-[120px]" />
-    ) : loaded.has("offers") && offers.length > 0 ? (
-      <section key="offers" className="pt-8" data-testid="offers-strip" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("offers")); } catch {} } }}>
-        <div className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-          {offers.slice(0, 1).map((offer) => {
-            const href = offer.cta_link || "/categories";
-            const cardStyle = { background: offer.background || "#0A1F5C" };
-            // G6 — thinner strip (was aspect-[16/9], a near-hero-sized
-            // block) and admin-editable eyebrow (was a hardcoded "Limited
-            // time" string) completing the eyebrow/event-name -> headline
-            // (title) -> detail (subtitle) -> CTA structure the refresh
-            // asked for, using fields that already existed for the latter
-            // three. Falls back to "Limited time" for any existing offer
-            // that hasn't set eyebrow yet.
-            const inner = (
-              <div className="aspect-[21/9] sm:aspect-[28/9] relative">
-                {offer.image && (
-                  <img src={cloudinaryOptimize(offer.image, "w_600,q_auto,f_auto")} alt={offer.title} loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-70" />
-                )}
-                <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/30 to-transparent" />
-                <div className="absolute inset-0 p-4 flex flex-col justify-center text-white">
-                  <div className="text-[10px] uppercase tracking-widest font-bold opacity-90">{offer.eyebrow || "Limited time"}</div>
-                  <div className="text-lg sm:text-xl font-display font-bold mt-1 leading-tight">{offer.title}</div>
-                  {offer.subtitle && <div className="text-xs sm:text-sm opacity-95 mt-1">{offer.subtitle}</div>}
-                  <div className="mt-2 inline-flex items-center gap-1 text-xs font-bold">
-                    {offer.cta_label || "Shop now"} →
-                  </div>
-                </div>
-              </div>
-            );
-            return (
-              <Link
-                key={offer.id}
-                href={href}
-                data-testid={`offer-${offer.id}`}
-                onClick={() => { try { trackOfferClick(offer.id, offer.code || ""); } catch {} }}
-                className="block rounded-2xl overflow-hidden relative shadow-[0_8px_24px_rgba(10,31,92,0.12)] transition active:scale-[0.98]"
-                style={cardStyle}
-              >
-                {inner}
-              </Link>
-            );
-          })}
-        </div>
-      </section>
-    ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
-
-    merchant_cta: (
-      <div key="merchant-cta" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
-        <a
-          href="https://lokl.up.railway.app/merchant/register"
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
-          className="block"
-        >
-          <div className="bg-[#0A1F5C] rounded-2xl px-5 py-3 flex items-center justify-between gap-4">
-            <p className="min-w-0 text-white font-bold text-sm leading-tight truncate">
-              Own a store in Bhilai?
-            </p>
-            <div className="flex-shrink-0 flex items-center gap-2 bg-[#E68910] text-white text-xs font-bold px-3 py-2 rounded-xl">
-              <span>Join free</span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M5 12h14M12 5l7 7-7 7"/>
-              </svg>
-            </div>
-          </div>
-        </a>
-      </div>
-    ),
+    offers: <OffersSection key="offers" />,
 
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
-
-    shop_by_brand: <ShopByBrandSection key="shop-by-brand" brands={popularBrands} ready={loaded.has("popularBrands")} />,
-
-    shop_by_area: <ShopByAreaSection key="shop-by-area" areas={areas} />,
   };
 
   const orderedSections = [...sections]
@@ -1190,7 +829,7 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <main className="flex-1">
         {orderedSections}
-        {mode === "category" && (l1 ? <BrowseGridBlock l1={l1} /> : null)}
+        {l1 && <BrowseGridBlock l1={l1} />}
         <TrustStickers />
       </main>
     </div>

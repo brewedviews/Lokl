@@ -29,6 +29,18 @@
  * that aren't real store records and so have nothing sensible at
  * `/store/{id}` — every existing call site omits it and keeps the
  * original `/store/{slug|id}` destination unchanged.
+ *
+ * G7 — `variant="discovery"`: the "Stores near you" card (both the
+ * marketplace-global StoresNearYouSection and the redesigned per-L1
+ * ShopByStoreSection use this SAME component/variant — one reusable
+ * store-card system, not a card-per-surface). Image-on-top + white
+ * footer-below, aspect-[4/3] (matches the real landscape banner asset
+ * shape, same reasoning the old bespoke Shop-by-Store carousel card
+ * already established) instead of the default `"overlay"` variant's
+ * portrait scrim card — genuinely different enough visually (no
+ * scrim/overlay at all) that branching inside one component was cleaner
+ * than a second near-identical file. `"overlay"` (default) is completely
+ * unchanged — every existing G4/G6 call site renders pixel-identically.
  */
 import Link from "next/link";
 import { Sparkles, BadgeCheck } from "lucide-react";
@@ -53,13 +65,15 @@ interface SellerCardStore {
   area_label?: string | null;
   area?: string | null;
   locality?: string | null;
+  city?: string | null;
+  specialties?: string[] | null;
   distance_km?: number | null;
   eta_min?: number | null;
   product_count?: number | null;
   trusted?: boolean;
 }
 
-export function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel, href }: { s: SellerCardStore; source?: string; openNow?: boolean; closedLabel?: string; /** Phase G4 — overrides the default `/store/{slug|id}` destination; used by CMS-pinned display cards, which aren't real store records. */ href?: string }) {
+export function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel, href, variant = "overlay" }: { s: SellerCardStore; source?: string; openNow?: boolean; closedLabel?: string; /** Phase G4 — overrides the default `/store/{slug|id}` destination; used by CMS-pinned display cards, which aren't real store records. */ href?: string; variant?: "overlay" | "discovery" }) {
   const banner = s.banner || (Array.isArray(s.banners) && s.banners[0]) || s.image || null;
   const area = s.area_label || s.area || s.locality || "Bhilai";
   const logisticsParts = [
@@ -73,6 +87,55 @@ export function SellerCard({ s, source = "meet_sellers", openNow = false, closed
       {s.trusted && <BadgeCheck size={13} className="shrink-0 text-[#3B82F6]" aria-label="Verified store" />}
     </div>
   );
+
+  if (variant === "discovery") {
+    // "category · area" — real fields only, never a fabricated category
+    // like "Fashion". distance_km is shown ONLY when the caller's own
+    // endpoint actually computed it (never guessed here) — same
+    // never-fabricate-distance rule the backend's _attach_distance_and_eta
+    // already enforces.
+    const categoryArea = [
+      s.specialties && s.specialties.length > 0 ? s.specialties[0] : null,
+      s.distance_km != null ? `${s.distance_km.toFixed(1)} km` : area,
+    ].filter(Boolean).join(" · ");
+    return (
+      <Link key={s.id} href={href || `/store/${s.slug || s.id}`}
+        onClick={() => { try { trackStoreClick(s.id, s.name, source); } catch {} }}
+        data-testid={`${source}-card-${s.id}`}
+        className="group flex-shrink-0 w-40 sm:w-44 rounded-2xl overflow-hidden bg-white shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
+        <div className="relative aspect-[4/3] bg-[#F4F1E9]">
+          {banner ? (
+            <img
+              src={cloudinaryOptimize(banner, "w_320,q_auto,f_auto")}
+              alt={s.name}
+              loading="lazy"
+              className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
+                <Sparkles size={15} className="text-[#E68910]" />
+              </div>
+            </div>
+          )}
+          {s.logo && (
+            <div className="absolute bottom-1.5 left-1.5 w-7 h-7 rounded-full overflow-hidden border-2 border-white shadow-sm bg-white">
+              <img src={cloudinaryOptimize(s.logo, "w_80,q_auto,f_auto")} alt="" className="w-full h-full object-cover" />
+            </div>
+          )}
+        </div>
+        <div className="px-2.5 py-2">
+          {nameRow}
+          {categoryArea && <div className="text-[10px] text-[#64748B] mt-0.5 leading-tight line-clamp-1">{categoryArea}</div>}
+          <div className="flex items-center gap-1 mt-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${openNow ? "bg-[#22C55E]" : "bg-[#94A3B8]"}`} />
+            <span className="text-[9px] font-bold text-[#64748B]">{openNow ? "Open now" : (closedLabel || "Closed")}</span>
+          </div>
+        </div>
+      </Link>
+    );
+  }
+
   return (
     <Link key={s.id} href={href || `/store/${s.slug || s.id}`}
       onClick={() => { try { trackStoreClick(s.id, s.name, source); } catch {} }}

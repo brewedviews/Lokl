@@ -2458,7 +2458,11 @@ async def admin_list_hero_slides(l1_id: Optional[str] = None, admin: dict = Depe
 
 @api.post("/admin/hero-slides")
 async def admin_create_hero_slide(payload: HeroSlideCreate, admin: dict = Depends(require_admin)):
-    if payload.l1_id not in [c["id"] for c in L1_CATEGORIES]:
+    # G7 — "global" is a single allow-listed sentinel for the Marketplace
+    # Home's own gender-neutral hero feed, not a new taxonomy entry (it's
+    # never added to L1_CATEGORIES itself, so it can't leak into
+    # /api/categories, Shop by Category, or any other L1-driven logic).
+    if payload.l1_id != "global" and payload.l1_id not in [c["id"] for c in L1_CATEGORIES]:
         raise HTTPException(400, "Invalid l1_id")
     now = datetime.now(timezone.utc).isoformat()
     doc = {
@@ -3009,6 +3013,7 @@ async def stores_in_category(l1_id: str, l2_id: Optional[str] = None, limit: int
     fix for a measured cost, not a new general pattern being introduced
     everywhere.
     """
+    await _refresh_test_account_merchant_ids()
     cache_key = (l1_id, l2_id, limit)
     cached = _STORES_IN_CATEGORY_CACHE.get(cache_key)
     now = datetime.now(timezone.utc)
@@ -3035,7 +3040,12 @@ async def stores_in_category(l1_id: str, l2_id: Optional[str] = None, limit: int
     stores = await db.stores.find(
         {"id": {"$in": store_ids}, **_visible_store_filter()},
         {"_id": 0, "id": 1, "slug": 1, "name": 1, "logo": 1, "banner": 1, "banners": 1,
-         "area_label": 1, "locality": 1, "tagline": 1, "trusted": 1},
+         "area_label": 1, "locality": 1, "tagline": 1, "trusted": 1,
+         # G7 — the new "discovery" store card shows a "category · area"
+         # line (e.g. "Fashion · Bhilai"); specialties is the genuine
+         # per-store field for the category half. Additive projection
+         # field only, no other change to this query.
+         "specialties": 1},
     ).to_list(len(store_ids))
     for s in stores:
         avail = avail_map.get(s["id"], {})
@@ -3206,15 +3216,39 @@ async def admin_delete_store_section_override(l1_id: str, l2_id: str, admin: dic
 # DEFAULT_SECTIONS comment (frontend) for the full per-id cheat sheet —
 # kept there since the admin-facing `label` values below are what a CMS
 # user actually sees.
+# G7 — one shared, flat list, same as always (no per-surface schema
+# added — see MarketplaceHomeClient.tsx / L1PageClient.tsx's own top
+# comments for why). Each surface's own frontend `sectionRenderers` map
+# only registers the ids relevant to it — an id with no renderer
+# registered on a given surface silently doesn't render there, the same
+# "unknown id -> not rendered" fallback this list already relied on for
+# forward-compat. `rank` is therefore only meaningful WITHIN whichever
+# surface's own filtered id set — ids that never coexist on the same
+# surface (e.g. `shop_by_category` vs `category_pills`) can freely share
+# numeric rank values with no ambiguity.
+#   Marketplace-only (rendered on "/" only): category_pills (promoted —
+#     heading + mobile-visible now, the "generic Shop by Category"),
+#     stores_near_you (new), shop_by_area, trending (flipped on by
+#     default), shop_by_brand, merchant_cta.
+#   L1-only (rendered on /c/[slug] only): shop_by_category, best_deals,
+#     under_499, shop_by_store (redesigned — real per-L1 store discovery,
+#     dynamic "{L1} stores near you" title), premium_picks,
+#     store_footwear/ethnic/lingerie (G4/G6 editorial CMS, unchanged).
+#   Both (rendered on both, "limited" on L1 per the product brief): hero
+#     (different data per surface — "global" hero-slide bucket on "/",
+#     per-L1 slides on /c/[slug]), offers.
 DEFAULT_HOMEPAGE_SECTIONS = [
-    {"id": "category_pills",  "label": "Category pills",             "enabled": True,  "rank": 10},
+    {"id": "category_pills",  "label": "Shop by Category (marketplace)", "enabled": True,  "rank": 10},
     {"id": "hero",             "label": "Hero",                       "enabled": True,  "rank": 20},
-    {"id": "shop_by_category", "label": "Shop by Category",           "enabled": True,  "rank": 25},
+    {"id": "shop_by_category", "label": "Shop by Category (L1)",      "enabled": True,  "rank": 25},
     {"id": "best_deals",       "label": "Best deals",                 "enabled": True,  "rank": 30},
     {"id": "under_499",        "label": "Shop by Price",              "enabled": True,  "rank": 40},
-    {"id": "shop_by_store",    "label": "Shop by Store",              "enabled": True,  "rank": 50},
+    {"id": "offers",           "label": "Offers for you",             "enabled": True,  "rank": 45},
+    {"id": "shop_by_store",    "label": "Stores near you (L1)",       "enabled": True,  "rank": 50},
+    {"id": "stores_near_you",  "label": "Stores near you (marketplace)", "enabled": True,  "rank": 50},
     {"id": "premium_picks",    "label": "Premium picks",              "enabled": True,  "rank": 60},
-    {"id": "shop_by_area",     "label": "Shop by Area",               "enabled": True,  "rank": 70},
+    {"id": "shop_by_area",     "label": "Shop by Area",               "enabled": True,  "rank": 60},
+    {"id": "trending",         "label": "Trending now",               "enabled": True,  "rank": 70},
     {"id": "store_footwear",   "label": "Footwear Store",             "enabled": True,  "rank": 90},
     {"id": "store_ethnic",     "label": "Ethnic Store",                "enabled": True,  "rank": 100},
     {"id": "store_lingerie",   "label": "Lingerie / Innerwear Store", "enabled": True,  "rank": 110},
@@ -3222,8 +3256,6 @@ DEFAULT_HOMEPAGE_SECTIONS = [
     # Pre-redesign sections — not part of the locked sequence above.
     {"id": "shop_by_brand", "label": "Shop by Brand",            "enabled": True,  "rank": 140},
     {"id": "merchant_cta",  "label": "Open a store",             "enabled": True,  "rank": 170},
-    {"id": "offers",        "label": "Offers for you",           "enabled": True,  "rank": 180},
-    {"id": "trending",      "label": "Trending now",             "enabled": False, "rank": 200},
     {"id": "customer_love", "label": "Loved by Bhilai shoppers", "enabled": False, "rank": 210},
 ]
 DEFAULT_HERO = {
@@ -3341,14 +3373,68 @@ async def search(q: str = "", limit: int = 20):
 
 
 # ===== Public catalog =====
+# G7 store-discovery correction — integration/QA test fixtures ("Shopify
+# Sync Test Store", "VasyERP Guardrail..." etc., found during the G7
+# audit) were passing this filter and showing up as real stores in
+# consumer-facing discovery. These are real DB records other flows
+# (Shopify/VasyERP sync jobs, guardrail tests) may still depend on, so
+# they're never deleted — only excluded from what CONSUMERS ever see.
+#
+# Identification reuses an EXISTING convention already established
+# across this codebase's own test suite (tests/test_iter3_flow.py,
+# test_phaseB_kyc_phone.py, test_multi_merchant_orders.py, etc. all mint
+# merchants with a phone number in the 9999900XXX block) — not a new
+# flag invented for this fix. Every merchant behind the 6 fixture stores
+# the audit found has a phone in exactly this block; no real Bhilai
+# customer/merchant phone plausibly does.
+#
+# Merchant/admin/integration flows are UNAFFECTED: they never call
+# _visible_store_filter() — a merchant manages their own store by
+# merchant_id (their own auth session), not through this consumer
+# visibility filter, and admin list/detail endpoints are separately
+# auth-gated and unfiltered. Only what this filter feeds (consumer
+# browse/discovery/detail) changes.
+#
+# Cached (3-minute TTL, same idiom _STORES_IN_CATEGORY_CACHE below
+# already uses) rather than joined per-request, since _visible_store_
+# filter() itself is called synchronously from ~14 sites, several of
+# them inside hot paths (delivery-fee calc, order pre-checks) — an
+# async merchants-collection lookup on every single call would be much
+# more invasive than this fix's actual scope calls for. Refreshed
+# explicitly (see _refresh_test_account_merchant_ids, called from the
+# consumer-facing discovery/detail endpoints below) rather than on
+# every _visible_store_filter() call, so a cold cache never silently
+# admits a fixture — refresh runs before the filter is first read in a
+# given request.
+_TEST_ACCOUNT_PHONE_PATTERN = "9999900"
+_TEST_ACCOUNT_MERCHANT_IDS_CACHE: dict = {"ids": frozenset(), "expires_at": None}
+_TEST_ACCOUNT_MERCHANT_IDS_TTL = timedelta(minutes=3)
+
+
+async def _refresh_test_account_merchant_ids() -> None:
+    now = datetime.now(timezone.utc)
+    expires_at = _TEST_ACCOUNT_MERCHANT_IDS_CACHE["expires_at"]
+    if expires_at and expires_at > now:
+        return
+    rows = await db.merchants.find(
+        {"phone": {"$regex": _TEST_ACCOUNT_PHONE_PATTERN}}, {"_id": 0, "id": 1},
+    ).to_list(1000)
+    _TEST_ACCOUNT_MERCHANT_IDS_CACHE["ids"] = frozenset(r["id"] for r in rows)
+    _TEST_ACCOUNT_MERCHANT_IDS_CACHE["expires_at"] = now + _TEST_ACCOUNT_MERCHANT_IDS_TTL
+
+
 def _visible_store_filter():
     # `published` = approved + has products + has clicked store-level go-live (auto in current flow).
     # `paused` = admin-paused (hidden entirely).
     # `is_deleted` = soft-deleted by admin — never surfaced.
     # `online` is the merchant's self-service availability toggle — when False,
     # offline stores appear at bottom of feeds (rank=4), products are never hidden.
-    return {"kyc_status": "approved", "published": True, "paused": {"$ne": True},
+    base = {"kyc_status": "approved", "published": True, "paused": {"$ne": True},
             "is_deleted": {"$ne": True}}
+    test_ids = _TEST_ACCOUNT_MERCHANT_IDS_CACHE["ids"]
+    if test_ids:
+        base["merchant_id"] = {"$nin": list(test_ids)}
+    return base
 
 def _visible_product_filter():
     return {"paused": {"$ne": True}, "is_deleted": {"$ne": True}}
@@ -3597,6 +3683,7 @@ def _attach_distance_and_eta(stores: list, user_lat: Optional[float], user_lng: 
 @api.get("/stores")
 async def list_stores(city: Optional[str] = None, area: Optional[str] = None, limit: int = 50,
                       lat: Optional[float] = None, lng: Optional[float] = None):
+    await _refresh_test_account_merchant_ids()
     q = dict(_visible_store_filter())
     if city: q["city"] = city
     if area: q["area_slug"] = area
@@ -3620,6 +3707,7 @@ async def list_stores(city: Optional[str] = None, area: Optional[str] = None, li
 @api.get("/feed/nearby-stores")
 async def feed_nearby_stores(lat: float, lng: float, limit: int = 10):
     """Stores sorted by availability rank then distance. Requires user coords."""
+    await _refresh_test_account_merchant_ids()
     stores = await db.stores.find(_visible_store_filter(), {"_id": 0, "banner_images": 0}).to_list(200)
     stores = _attach_distance_and_eta(stores, lat, lng)
     for s in stores:
@@ -3645,6 +3733,7 @@ async def feed_popular_stores(limit: int = 10, lat: Optional[float] = None, lng:
     `lat`/`lng` are optional — when given, distance_km/eta_min are computed
     the same way feed_nearby_stores does (never fabricated when coords are
     absent). Popularity ranking itself is unaffected by location."""
+    await _refresh_test_account_merchant_ids()
     stores = await db.stores.find(_visible_store_filter(), {"_id": 0, "banner_images": 0}).to_list(200)
     stores = _attach_distance_and_eta(stores, lat, lng)
     since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
@@ -3968,6 +4057,7 @@ async def _create_brand_doc(payload: BrandCreate, created_by: str) -> dict:
 
 @api.get("/stores/{store_id}")
 async def get_store(store_id: str):
+    await _refresh_test_account_merchant_ids()
     s = await db.stores.find_one(
         {"$or": [{"slug": store_id}, {"id": store_id}], **_visible_store_filter()},
         {"_id": 0},
@@ -4031,6 +4121,7 @@ async def store_categories(store_id: str):
     L1_CATEGORIES seed constant) so admin-edited category names/images stay
     correct here too, and paused categories are excluded the same as
     everywhere else a category renders publicly."""
+    await _refresh_test_account_merchant_ids()
     store = await db.stores.find_one(
         {"$or": [{"slug": store_id}, {"id": store_id}], **_visible_store_filter()}, {"_id": 0, "id": 1},
     )

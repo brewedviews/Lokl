@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { L1PageClient } from "@/components/consumer/L1PageClient";
+import { MarketplaceHomeClient } from "@/components/consumer/MarketplaceHomeClient";
 
 export const metadata: Metadata = {
   title: "Lokl — Discover Local Fashion in Bhilai",
@@ -7,11 +7,11 @@ export const metadata: Metadata = {
     "Shop from trusted Bhilai stores. Hand-picked fashion delivered in 45 minutes. Try-at-doorstep, easy returns.",
 };
 
-// Women is Home's explicit default L1 — a fixed choice, not derived from
-// anything dynamic (see L1PageClient's own doc comment on why Home
-// unconditionally passes l1-women). mode="home" suppresses the L2 filter
-// grid + inline "Browse all" product grid that /c/[slug] renders — Home
-// never had that block before Phase E's unification and still doesn't.
+// G7 — "/" is the gender-neutral Marketplace Home now, a genuinely
+// separate section composition from any L1 shopping page (see
+// MarketplaceHomeClient's own top comment). Before G7 this rendered
+// L1PageClient hardcoded to l1Id="l1-women" mode="home" — i.e. Home was
+// Women's shopping page wearing a "home" label; that's retired.
 export default function HomePage() {
-  return <L1PageClient l1Id="l1-women" mode="home" />;
+  return <MarketplaceHomeClient />;
 }

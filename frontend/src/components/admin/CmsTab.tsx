@@ -91,6 +91,33 @@ export function CmsTab() {
   );
 }
 
+// G7 — one shared, flat sections list still backs both "/" (Marketplace
+// Home) and "/c/[slug]" (L1 Shopping Home); a section simply doesn't
+// render on a surface whose own frontend renderer map doesn't register
+// its id (see MarketplaceHomeClient.tsx / L1PageClient.tsx's own top
+// comments — no new CMS schema, this map is purely informational so an
+// admin isn't confused why toggling e.g. "Shop by Area" does nothing on
+// /c/women). Mirrors those two files' own renderer maps exactly — keep
+// in sync if a section ever moves surfaces.
+const SECTION_SCOPE: Record<string, "Marketplace" | "L1 pages" | "Both"> = {
+  category_pills: "Marketplace",
+  stores_near_you: "Marketplace",
+  shop_by_area: "Marketplace",
+  trending: "Marketplace",
+  shop_by_brand: "Marketplace",
+  merchant_cta: "Marketplace",
+  shop_by_category: "L1 pages",
+  best_deals: "L1 pages",
+  under_499: "L1 pages",
+  shop_by_store: "L1 pages",
+  premium_picks: "L1 pages",
+  store_footwear: "L1 pages",
+  store_ethnic: "L1 pages",
+  store_lingerie: "L1 pages",
+  hero: "Both",
+  offers: "Both",
+};
+
 // ─── Section order/visibility panel — reorder (up/down) + on/off toggle
 // for every homepage section, saved to site_config.homepage.sections.
 // This IS what controls the live homepage order now (see the merge fix
@@ -165,7 +192,16 @@ function SectionsPanel() {
                 className="w-6 h-5 rounded bg-white border border-[#E5E2DC] disabled:opacity-30 flex items-center justify-center"><ChevronDown size={12} /></button>
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-[#0A1F5C]">{s.label}</div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold text-[#0A1F5C]">{s.label}</span>
+                <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${
+                  SECTION_SCOPE[s.id] === "L1 pages" ? "bg-[#DBEAFE] text-[#1D4ED8]"
+                  : SECTION_SCOPE[s.id] === "Both" ? "bg-[#F3E8FF] text-[#7E22CE]"
+                  : "bg-[#FEF3C7] text-[#92400E]"
+                }`} data-testid={`cms-section-scope-${s.id}`}>
+                  {SECTION_SCOPE[s.id] || "Marketplace"}
+                </span>
+              </div>
               <div className="text-[10px] text-[#595959]">rank {s.rank} · id {s.id}</div>
             </div>
             <button onClick={() => updateSection(s.id, { enabled: !s.enabled })} data-testid={`cms-toggle-${s.id}`}

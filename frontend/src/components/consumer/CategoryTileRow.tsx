@@ -10,24 +10,22 @@
  * Redesign Phase B collapsed this from all 9 L1s down to exactly
  * Women / Men / Kids as plain text + underline tabs. The visual-
  * refinement pass then went too far the other way — full-bleed
- * `h-24..h-32` image cards read as a second hero, not a nav strip. G6
- * pulls it back to the actual spec: the existing text-tab nav (routes/
- * active-state rule below unchanged, still exactly these three, other 6
- * L1s still reachable via the bottom nav's Categories tab) with a SMALL
- * image thumbnail added per tab, not full-bleed imagery. Each L1's own
- * `image` field (the same field `/api/categories` already returns —
- * reused verbatim, not a new image source) fills a small `rounded-lg`
- * (not circular — deliberately not reusing CategoryTile's "dense" avatar
- * treatment, which is a circle) thumbnail inside a slim pill tab. Active
- * state is still the same functional orange (`bg-[#E68910]`) as a small
- * bar under the active pill.
+ * `h-24..h-32` image cards read as a second hero, not a nav strip; G6
+ * pulled it back to a slim bordered-pill treatment (~44-48px) with a
+ * small thumbnail. G7 goes one step further per the product brief's own
+ * explicit ask — "closer to `Women   Men   Kids / ──`" — dropping the
+ * pill background/border chrome entirely so this reads as plain
+ * navigation tabs, not buttons: label + small `rounded-lg` (not
+ * circular) thumbnail, active state is ONLY the orange underline now
+ * (no border box). "Subtle imagery if useful" per the brief — thumbnail
+ * kept since it's low-risk/already built, not because it's required.
  *
- * Women is the default-active tab on Home specifically (there's no "All"
- * state to fall back to anymore) — `activeSlug` defaults to "women" when
- * the path isn't a /c/[slug] page at all (i.e. on Home, "/"), and reads
- * the real slug on every /c/[slug] page as before, including the L2
- * catch-all route (/c/{slug}/{l2}) — the L1 tab stays the active one
- * there too, unchanged from the pre-this-pass behavior.
+ * G7 — this strip no longer implies "/" IS Women's page. Before G7, Home
+ * literally rendered Women's L1 content, so defaulting the active tab to
+ * "women" on "/" was accurate. Now "/" is the gender-neutral Marketplace
+ * Home (see MarketplaceHomeClient.tsx) — none of the three tabs are
+ * "active" there; `activeSlug` is only ever set on a real /c/[slug] page
+ * (including its L2 catch-all, /c/{slug}/{l2}), null on "/" itself.
  *
  * Still fetches /api/categories (React Query, key ["categories"], the same
  * cached request CategoryClient.tsx's own ["categories"] query reuses) —
@@ -60,11 +58,11 @@ export function CategoryTileRow() {
     staleTime: 5 * 60_000,
   });
 
-  const activeSlug = pathname?.match(/^\/c\/([^/]+)/)?.[1] ?? "women";
+  const activeSlug = pathname?.match(/^\/c\/([^/]+)/)?.[1] ?? null;
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 md:px-8 pt-3">
-      <div className="w-full flex items-center gap-2 h-11 sm:h-12" data-testid="category-tile-row">
+      <div className="w-full flex items-center gap-5 h-9 sm:h-10" data-testid="category-tile-row">
         {PINNED_SLUGS.map(({ slug, fallbackLabel }, i) => {
           const cat = categories.find((c) => c.slug === slug);
           const label = cat?.name ?? fallbackLabel;
@@ -77,11 +75,9 @@ export function CategoryTileRow() {
               onClick={() => { try { trackCategoryTileClick(label, i); } catch {} }}
               data-testid={`category-tab-${slug}`}
               aria-current={isActive ? "page" : undefined}
-              className={`relative inline-flex items-center gap-2 pl-1.5 pr-3.5 py-1.5 rounded-full border transition-colors ${
-                isActive ? "border-[#0A1F5C] bg-white" : "border-[#E5E2DC] bg-white"
-              }`}
+              className="relative inline-flex items-center gap-1.5 h-full"
             >
-              <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg overflow-hidden bg-[#E5E2DC] shrink-0">
+              <span className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg overflow-hidden bg-[#E5E2DC] shrink-0">
                 {cat?.image && (
                   <img
                     src={cat.image}
@@ -91,10 +87,10 @@ export function CategoryTileRow() {
                   />
                 )}
               </span>
-              <span className={`font-display text-sm sm:text-base tracking-tight ${isActive ? "font-bold text-[#0A1F5C]" : "font-semibold text-[#0A1F5C]/70"}`}>
+              <span className={`font-display text-sm sm:text-base tracking-tight ${isActive ? "font-bold text-[#0A1F5C]" : "font-semibold text-[#0A1F5C]/60"}`}>
                 {label}
               </span>
-              {isActive && <span className="absolute left-1/2 -translate-x-1/2 -bottom-[3px] w-6 h-[3px] rounded-full bg-[#E68910]" />}
+              {isActive && <span className="absolute left-0 right-0 -bottom-[1px] h-[2px] rounded-full bg-[#E68910]" />}
             </Link>
           );
         })}
