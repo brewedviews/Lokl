@@ -1461,12 +1461,30 @@ async def feed_price_bento():
     Under ₹1,499 — <499, <999, <1499, OVERLAPPING thresholds, not
     mutually-exclusive ranges — see PRICE_BANDS_SEED's own comment). Per
     band: an admin-set override in db.price_bands wins if present;
-    otherwise the cheapest visible product's image in that band (ties
-    broken by newest); otherwise null so the frontend renders a neutral
-    fallback tile instead of a broken image. Never N+1: at most 3 DB round
-    trips regardless of catalog size (band overrides, visible store ids,
-    one $facet covering all three bands) — and if every band already has
-    an admin override, the product lookup is skipped entirely."""
+    otherwise a visible product's image in that band; otherwise null so
+    the frontend renders a neutral fallback tile instead of a broken
+    image.
+
+    Distinct-image guarantee (Phase G2 fix): because the three bands
+    overlap, the single cheapest visible product in the whole catalog
+    qualifies for ALL three bands whenever it's under ₹499 — picking
+    "cheapest in band" independently per band (the old $facet approach)
+    therefore surfaced the SAME product/image three times, every time the
+    catalog had a sub-₹499 item, regardless of how much inventory existed
+    — not a sparse-inventory edge case. Fixed by pulling one price-sorted
+    candidate pool (everything under the largest threshold, ₹1,499),
+    deduping to one (cheapest) entry per distinct IMAGE — several listings
+    can legitimately share a stock/placeholder photo, and picking "cheapest
+    unclaimed product id" alone would still surface visually-identical
+    tiles in that case — then greedily assigning each band, smallest
+    threshold first, the cheapest still-unclaimed image. A band only
+    reuses an already-claimed image when no other qualifying image exists
+    at all — a genuine content/inventory gap, not a code bug.
+
+    Never N+1: at most 3 DB round trips regardless of catalog size (band
+    overrides, visible store ids, one price-sorted candidate query) — and
+    if every band already has an admin override, the product lookup is
+    skipped entirely."""
     band_docs = await db.price_bands.find({}, {"_id": 0, "slug": 1, "image": 1}).to_list(10)
     overrides = {b["slug"]: b.get("image") for b in band_docs if b.get("image")}
     result = {
@@ -1482,23 +1500,36 @@ async def feed_price_bento():
     if not sids:
         return result
 
-    pipeline = [
-        {"$match": {"store_id": {"$in": sids}, **_visible_product_filter()}},
-        {"$sort": {"price": 1, "created_at": -1}},
-        {"$facet": {
-            "under_499": [{"$match": {"price": {"$lt": 499}}}, {"$limit": 1}],
-            "under_999": [{"$match": {"price": {"$lt": 999}}}, {"$limit": 1}],
-            "under_1499": [{"$match": {"price": {"$lt": 1499}}}, {"$limit": 1}],
-        }},
-    ]
-    rows = await db.products.aggregate(pipeline).to_list(1)
-    facets = rows[0] if rows else {}
+    # Candidate pool: every visible product under the widest band's
+    # threshold, cheapest (then newest) first. 1,499 is the widest
+    # threshold so this single pool covers all three bands. Deduped to one
+    # (cheapest) entry per distinct image — several listings can share a
+    # stock/placeholder photo, so uniqueness has to key on the image
+    # that's actually rendered, not the product id.
+    raw_candidates = await db.products.find(
+        {"store_id": {"$in": sids}, "price": {"$lt": 1499}, **_visible_product_filter()},
+        {"_id": 0, "image": 1, "price": 1},
+    ).sort([("price", 1), ("created_at", -1)]).to_list(200)
+    seen_images: set = set()
+    candidates = []
+    for c in raw_candidates:
+        img = c.get("image")
+        if not img or img in seen_images:
+            continue
+        seen_images.add(img)
+        candidates.append(c)
 
-    for key in ("under_499", "under_999", "under_1499"):
+    claimed: set = set()
+    for key, threshold in (("under_499", 499), ("under_999", 999), ("under_1499", 1499)):
         if result[key]:
             continue  # admin override already set for this band
-        arr = facets.get(key) or []
-        result[key] = (arr[0].get("image") or None) if arr else None
+        qualifying = [c for c in candidates if c["price"] < threshold]
+        pick = next((c for c in qualifying if c["image"] not in claimed), None)
+        if pick is None:
+            pick = qualifying[0] if qualifying else None  # inventory gap: reuse, don't fabricate
+        if pick:
+            claimed.add(pick["image"])
+        result[key] = pick["image"] if pick else None
     return result
 
 
@@ -3032,13 +3063,18 @@ async def stores_in_category(l1_id: str, l2_id: Optional[str] = None, limit: int
 # targeting, why "under_499" keeps its pre-rename id, etc.) — kept there
 # rather than duplicated here since the admin-facing `label` values below
 # are what a CMS user actually sees, not this comment.
-# LOCKED SEQUENCE (Phase F, superseding Phase D's): Hero -> Shop by
+# LOCKED SEQUENCE (Phase G2, superseding Phase F's): Hero -> Shop by
 # Category -> Best Deals -> Shop by Price -> Shop by Store -> Premium
-# Picks -> Shop by Area -> Shops near you -> Footwear Store -> Ethnic
-# Store -> Lingerie/Innerwear Store -> Browse All. See
-# L1PageClient.tsx's own DEFAULT_SECTIONS comment (frontend) for the full
-# per-id cheat sheet — kept there since the admin-facing `label` values
-# below are what a CMS user actually sees.
+# Picks -> Shop by Area -> Footwear Store -> Ethnic Store ->
+# Lingerie/Innerwear Store. Phase G2 removed five sections outright (not
+# just disabled): "Shops near you"/meet_sellers, the standalone promo
+# "browse_all" CTA strip (the separate inline "Browse all {L1}" product
+# grid on /c/[slug] is NOT part of this ranked list at all — see
+# L1PageClient.tsx's own BrowseGridBlock comment — so it's unaffected),
+# try_and_buy, for_her, and for_him. See L1PageClient.tsx's own
+# DEFAULT_SECTIONS comment (frontend) for the full per-id cheat sheet —
+# kept there since the admin-facing `label` values below are what a CMS
+# user actually sees.
 DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "category_pills",  "label": "Category pills",             "enabled": True,  "rank": 10},
     {"id": "hero",             "label": "Hero",                       "enabled": True,  "rank": 20},
@@ -3048,17 +3084,12 @@ DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "shop_by_store",    "label": "Shop by Store",              "enabled": True,  "rank": 50},
     {"id": "premium_picks",    "label": "Premium picks",              "enabled": True,  "rank": 60},
     {"id": "shop_by_area",     "label": "Shop by Area",               "enabled": True,  "rank": 70},
-    {"id": "meet_sellers",     "label": "Shops near you",             "enabled": True,  "rank": 80},
     {"id": "store_footwear",   "label": "Footwear Store",             "enabled": True,  "rank": 90},
     {"id": "store_ethnic",     "label": "Ethnic Store",                "enabled": True,  "rank": 100},
     {"id": "store_lingerie",   "label": "Lingerie / Innerwear Store", "enabled": True,  "rank": 110},
-    {"id": "browse_all",       "label": "Browse All",                 "enabled": True,  "rank": 120},
 
     # Pre-redesign sections — not part of the locked sequence above.
-    {"id": "try_and_buy",   "label": "Try & Buy",                "enabled": True,  "rank": 130},
     {"id": "shop_by_brand", "label": "Shop by Brand",            "enabled": True,  "rank": 140},
-    {"id": "for_her",       "label": "For Her",                  "enabled": True,  "rank": 150},
-    {"id": "for_him",       "label": "For Him",                  "enabled": True,  "rank": 160},
     {"id": "merchant_cta",  "label": "Open a store",             "enabled": True,  "rank": 170},
     {"id": "offers",        "label": "Offers for you",           "enabled": True,  "rank": 180},
     {"id": "just_in",       "label": "Just In",                  "enabled": False, "rank": 190},

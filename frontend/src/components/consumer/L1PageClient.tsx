@@ -36,15 +36,18 @@
  * 2. Stores rail — CategoryClient's flat "Stores in {L1}" (one
  *    unscoped-by-L2 GET /categories/{l1}/stores call) is also dropped,
  *    not merged. It was never part of Phase D's locked homepage sequence.
- *    The unified page instead inherits the two things Phase D DID lock
+ *    The unified page instead inherited the two things Phase D locked
  *    in: `meet_sellers` ("Shops near you" — nearby/popular stores,
  *    unscoped by L1, same everywhere) and the three gendered-L2 store
  *    modules (store_footwear/store_ethnic/store_lingerie — narrower than
  *    CategoryClient's old rail, scoped to a specific L2 not the whole
- *    L1). Together these are a strict superset of what the old L1-wide
+ *    L1). Together these were a strict superset of what the old L1-wide
  *    rail was approximating with a single blunt query — not two
  *    implementations of the same feature, one already-locked pair
- *    replacing one ad hoc one.
+ *    replacing one ad hoc one. Phase G2 later removed `meet_sellers`
+ *    outright (see DEFAULT_SECTIONS' own comment below) — the three
+ *    gendered-L2 store modules and Phase F's `shop_by_store` carousel
+ *    now carry the whole stores-discovery job.
  *
  * `mode` — the one real difference left between the two surfaces after
  * the above: /c/[slug]'s own intrinsic browsing UI (an L2 filter grid +
@@ -53,8 +56,9 @@
  * browsing chrome, not a merchandising/discovery section an admin
  * toggles on and off, and it needs page-local filter state the CMS
  * sections don't. Home never rendered anything like it (its own
- * `browse_all` CMS section is a small CTA banner linking OUT to
- * /products, not an inline grid) and Phase E's regression requirement is
+ * `browse_all` CMS section was a small CTA banner linking OUT to
+ * /products, not an inline grid, until Phase G2 removed it — see
+ * DEFAULT_SECTIONS' own comment) and Phase E's regression requirement was
  * that Home renders IDENTICALLY to before — so this block is opt-in via
  * `mode: "category"` (the default, matching CategoryClient's own prior
  * always-on behavior), and Home's call site explicitly passes
@@ -73,7 +77,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Sparkles, RotateCcw, Tag } from "lucide-react";
+import { Sparkles, Tag } from "lucide-react";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { HeroCarousel } from "@/components/consumer/HeroCarousel";
@@ -85,9 +89,8 @@ import { JustInSection } from "@/components/consumer/JustInSection";
 import { TrustStickers } from "@/components/consumer/TrustStickers";
 import { CategoryTile } from "@/components/consumer/CategoryTile";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { useLocationStore } from "@/stores";
 import { cloudinaryOptimize } from "@/lib/utils";
-import type { ProductCard as ProductCardType, StoreCard, CategoryNode, AreaTile, PriceBentoResponse, Brand } from "@/types";
+import type { ProductCard as ProductCardType, CategoryNode, AreaTile, PriceBentoResponse, Brand } from "@/types";
 import {
   trackSectionImpression, trackCategoryTileClick, trackCategoryTileImpression,
   trackPriceFilterClick, trackProductClick,
@@ -108,16 +111,15 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 // id hasn't been synced to it yet. Keep in sync with the backend's
 // DEFAULT_HOMEPAGE_SECTIONS (server.py), id-for-id/rank-for-rank.
 //
-// LOCKED SEQUENCE (Phase F, superseding Phase D's): Hero -> Shop by
+// LOCKED SEQUENCE (Phase G2, superseding Phase F's): Hero -> Shop by
 // Category -> Best Deals -> Shop by Price -> Shop by Store -> Premium
-// Picks -> Shop by Area -> Shops near you -> Footwear Store -> Ethnic
-// Store -> Lingerie/Innerwear Store -> Browse All. Two changes from Phase
-// D's order: (1) the new Shop by Store carousel inserted right after Shop
-// by Price, (2) Premium Picks moved up to sit right after Shop by Store
-// instead of being sandwiched between Ethnic Store and Lingerie/Innerwear
-// Store — the three gendered Store modules now run consecutively.
-// Everything after Browse All predates the redesign and was never part
-// of the locked sequence — kept in its prior relative order.
+// Picks -> Shop by Area -> Footwear Store -> Ethnic Store ->
+// Lingerie/Innerwear Store. Phase G2 removed five sections outright (not
+// just disabled): "Shops near you"/meet_sellers, the standalone promo
+// "browse_all" CTA strip (the separate inline "Browse all {L1}" product
+// grid rendered by BrowseGridBlock below is NOT part of this ranked list
+// at all — see that component's own comment — so it's unaffected),
+// try_and_buy, for_her, and for_him.
 //
 // Section-id cheat sheet (each toggle's real-world meaning — id alone
 // doesn't explain L1/gender targeting):
@@ -149,17 +151,12 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "shop_by_store",    label: "Shop by Store",               enabled: true,  rank: 50 },
   { id: "premium_picks",    label: "Premium picks",               enabled: true,  rank: 60 },
   { id: "shop_by_area",     label: "Shop by Area",                enabled: true,  rank: 70 },
-  { id: "meet_sellers",     label: "Shops near you",              enabled: true,  rank: 80 },
   { id: "store_footwear",   label: "Footwear Store",              enabled: true,  rank: 90 },
   { id: "store_ethnic",     label: "Ethnic Store",                enabled: true,  rank: 100 },
   { id: "store_lingerie",   label: "Lingerie / Innerwear Store",  enabled: true,  rank: 110 },
-  { id: "browse_all",       label: "Browse All",                  enabled: true,  rank: 120 },
 
   // Pre-redesign sections — not part of the locked sequence above.
-  { id: "try_and_buy",     label: "Try & Buy",                enabled: true,  rank: 130 },
   { id: "shop_by_brand",   label: "Shop by Brand",            enabled: true,  rank: 140 },
-  { id: "for_her",         label: "For Her",                  enabled: true,  rank: 150 },
-  { id: "for_him",         label: "For Him",                  enabled: true,  rank: 160 },
   { id: "merchant_cta",    label: "Open a store",             enabled: true,  rank: 170 },
   { id: "offers",          label: "Offers for you",           enabled: true,  rank: 180 },
 
@@ -169,59 +166,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 210 },
 ];
 
-// ---------------------------------------------------------------------------
-// For Her / For Him bento — a curated list of L2s (+ a few standalone
-// L1s) against a FIXED gender, not the page's own l1Id — this is
-// unchanged from Home's pre-Phase-E behavior (Home already showed both
-// For Her AND For Him unconditionally, even though it's nominally
-// Women's default page) and Phase E doesn't touch it: it was never
-// L1-parameterized to begin with, on Home or anywhere else.
-// ---------------------------------------------------------------------------
-interface GenderTileSpec {
-  label: string;
-  l1Slug: string;
-  l2Slug?: string; // omit for a standalone L1 tile (e.g. Ethnic, Footwear)
-}
-
-const FOR_HER_TILES: GenderTileSpec[] = [
-  { label: "Dresses",     l1Slug: "women", l2Slug: "dresses" },
-  { label: "Tops",        l1Slug: "women", l2Slug: "tops" },
-  { label: "Bottoms",     l1Slug: "women", l2Slug: "bottoms" },
-  { label: "Ethnic",      l1Slug: "women", l2Slug: "ethnic-wear" },
-  { label: "Co-ord Sets", l1Slug: "women", l2Slug: "coords" },
-  { label: "Lingerie",    l1Slug: "women", l2Slug: "lingerie" },
-  { label: "Footwear",    l1Slug: "women", l2Slug: "footwear" },
-  { label: "Accessories", l1Slug: "accessories" },
-];
-
-const FOR_HIM_TILES: GenderTileSpec[] = [
-  { label: "T-Shirts",    l1Slug: "men", l2Slug: "tshirts" },
-  { label: "Jeans",       l1Slug: "men", l2Slug: "jeans" },
-  { label: "Shirts",      l1Slug: "men", l2Slug: "shirts" },
-  { label: "Ethnic",      l1Slug: "men", l2Slug: "ethnic-wear" },
-  { label: "Formals",     l1Slug: "men", l2Slug: "formals" },
-  { label: "Inner Wear",  l1Slug: "men", l2Slug: "innerwear" },
-  { label: "Footwear",    l1Slug: "men", l2Slug: "footwear" },
-  { label: "Accessories", l1Slug: "accessories" },
-];
-
 interface ResolvedGenderTile { key: string; href: string; image: string | null; label: string; minPrice: number | null }
-
-function resolveGenderTiles(categories: CategoryNode[], specs: GenderTileSpec[]): ResolvedGenderTile[] {
-  const out: ResolvedGenderTile[] = [];
-  for (const spec of specs) {
-    const l1 = categories.find((c) => c.slug === spec.l1Slug);
-    if (!l1) continue;
-    if (!spec.l2Slug) {
-      out.push({ key: `l1-${l1.slug}`, href: `/c/${l1.slug}`, image: l1.image || null, label: spec.label, minPrice: l1.min_price ?? null });
-      continue;
-    }
-    const l2 = (l1.l2 ?? []).find((s) => s.slug === spec.l2Slug);
-    if (!l2) continue;
-    out.push({ key: l2.id, href: `/c/${l1.slug}/${l2.slug}`, image: l2.image || null, label: spec.label, minPrice: l2.min_price ?? null });
-  }
-  return out;
-}
 
 // ---------------------------------------------------------------------------
 // "Shop by Category" — a curated 2x3 grid using CategoryTile's "generous"
@@ -260,7 +205,7 @@ function ShopByCategorySection({ tiles }: { tiles: ResolvedGenderTile[] }) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_category">
       <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">Shop by Category</h2>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         {tiles.map((t) => (
           <CategoryTile
             key={t.key}
@@ -379,9 +324,9 @@ function GenderedStoreSection({ categories, l1Slug, index }: { categories: Categ
 // contract Phase A built ($lt semantics, under-499/-999/-1499).
 // ---------------------------------------------------------------------------
 const PRICE_BANDS = [
-  { slug: "under-499",  price: "₹499",   sub: "Steals & deals", filter: "under_499" as const,  bentoKey: "under_499" as const,  size: "large" as const },
-  { slug: "under-999",  price: "₹999",   sub: "Everyday picks", filter: "under_999" as const,  bentoKey: "under_999" as const,  size: "small" as const },
-  { slug: "under-1499", price: "₹1,499", sub: "Best value",     filter: "under_1499" as const, bentoKey: "under_1499" as const, size: "small" as const },
+  { slug: "under-499",  price: "₹499",   sub: "Steals & deals", filter: "under_499" as const,  bentoKey: "under_499" as const },
+  { slug: "under-999",  price: "₹999",   sub: "Everyday picks", filter: "under_999" as const,  bentoKey: "under_999" as const },
+  { slug: "under-1499", price: "₹1,499", sub: "Best value",     filter: "under_1499" as const, bentoKey: "under_1499" as const },
 ];
 
 function ShopByPriceSection({ l1Id, priceBento }: { l1Id: string; priceBento: PriceBentoResponse | null }) {
@@ -391,48 +336,42 @@ function ShopByPriceSection({ l1Id, priceBento }: { l1Id: string; priceBento: Pr
       data-testid="home-under_499"
       ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("under_499")); } catch {} } }}
     >
-      <h2 className="text-2xl sm:text-3xl font-display font-black tracking-tight text-[#0A1F5C] leading-tight mb-3">
-        SHOP BY <span className="italic font-normal">price</span>
-      </h2>
-      <div className="grid grid-cols-2 gap-3">
-        {PRICE_BANDS.map(({ slug, price, sub, filter, bentoKey, size }) => {
+      <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">Shop by Price</h2>
+      <div className="grid grid-cols-3 gap-3">
+        {PRICE_BANDS.map(({ slug, price, sub, filter, bentoKey }) => {
           const href = `/products?price=${slug}&l1=${l1Id}`;
           const image = priceBento?.[bentoKey] ?? null;
-          const large = size === "large";
           return (
             <Link
               key={href}
               href={href}
               onClick={() => { try { trackPriceFilterClick(filter); } catch {} }}
               data-testid={`price-band-${filter}`}
-              className={`group relative rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95 ${
-                large ? "row-span-2 aspect-[4/5]" : "aspect-[16/9]"
-              }`}
+              className="group relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95"
             >
               {image ? (
                 <>
                   <img
-                    src={cloudinaryOptimize(image, large ? "w_600,q_auto,f_auto" : "w_400,q_auto,f_auto")}
+                    src={cloudinaryOptimize(image, "w_400,q_auto,f_auto")}
                     alt={`Under ${price}`}
                     loading="eager"
-                    fetchPriority={large ? "high" : "auto"}
                     className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
                   />
                   <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-[#141419]/75 via-[#141419]/30 to-transparent pointer-events-none" />
-                  <div className={`absolute text-white ${large ? "bottom-4 left-4 right-4" : "bottom-2.5 left-3 right-3"}`}>
-                    <div className={`font-semibold uppercase tracking-wide opacity-80 ${large ? "text-[11px]" : "text-[9px]"}`}>Under</div>
-                    <div className={`font-display font-black leading-none ${large ? "text-4xl sm:text-5xl mt-1" : "text-xl sm:text-2xl mt-0.5"}`}>{price}</div>
-                    <div className={`font-semibold opacity-90 ${large ? "text-[12px] mt-1.5" : "text-[10px] mt-1"}`}>{sub}</div>
+                  <div className="absolute text-white bottom-2.5 left-3 right-3">
+                    <div className="font-semibold uppercase tracking-wide opacity-80 text-[9px]">Under</div>
+                    <div className="font-display font-black leading-none text-xl sm:text-2xl mt-0.5">{price}</div>
+                    <div className="font-semibold opacity-90 text-[10px] mt-1">{sub}</div>
                   </div>
                 </>
               ) : (
                 <div className="absolute inset-0 bg-[#F4F1E9] flex flex-col items-center justify-center gap-1.5 px-2 text-center">
-                  <div className={`rounded-full bg-[#E68910]/15 flex items-center justify-center ${large ? "w-10 h-10" : "w-8 h-8"}`}>
-                    <Sparkles size={large ? 18 : 14} className="text-[#E68910]" />
+                  <div className="rounded-full bg-[#E68910]/15 flex items-center justify-center w-8 h-8">
+                    <Sparkles size={14} className="text-[#E68910]" />
                   </div>
                   <div>
-                    <div className={`font-display font-black text-[#0A1F5C] leading-none ${large ? "text-3xl" : "text-lg"}`}>{price}</div>
-                    <div className={`font-semibold text-[#0A1F5C]/55 mt-1 ${large ? "text-[12px]" : "text-[10px]"}`}>{sub}</div>
+                    <div className="font-display font-black text-[#0A1F5C] leading-none text-lg">{price}</div>
+                    <div className="font-semibold text-[#0A1F5C]/55 mt-1 text-[10px]">{sub}</div>
                   </div>
                 </div>
               )}
@@ -527,65 +466,17 @@ function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
   );
 }
 
-// "Browse All" (redesign Phase D) — a small closing CTA banner linking
-// OUT to /products, distinct from `mode="category"`'s own inline
-// browse-everything-in-this-L1 grid further below. Same on every route.
-function BrowseAllSection() {
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-browse_all">
-      <Link href="/products" className="block">
-        <div className="bg-[#0A1F5C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-white font-bold text-base leading-tight">Browse everything on Lokl</p>
-            <p className="text-[12px] text-white/70 mt-0.5">every store, every category, one grid.</p>
-          </div>
-          <div className="flex-shrink-0 flex items-center gap-2 bg-[#E68910] text-white text-xs font-bold px-3 py-2 rounded-xl">
-            <span>See all</span>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M5 12h14M12 5l7 7-7 7"/>
-            </svg>
-          </div>
-        </div>
-      </Link>
-    </div>
-  );
-}
-
-function GenderBentoSection({ id, title, tiles }: { id: string; title: string; tiles: ResolvedGenderTile[] }) {
-  if (tiles.length === 0) return null;
-  return (
-    <div key={id} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid={`home-${id}`}>
-      <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">{title}</h2>
-
-      <div className="grid grid-cols-4 gap-x-2 gap-y-4">
-        {tiles.map((t) => (
-          <CategoryTile
-            key={t.key}
-            href={t.href}
-            testId={`${id}-tile-${t.key}`}
-            image={t.image ? cloudinaryOptimize(t.image, "w_128,q_auto,f_auto") : undefined}
-            label={t.label}
-            circleClassName="bg-surface-tint border border-[#E5E2DC]"
-            labelClassName="text-brand-primary"
-            fallback={<Sparkles size={15} className="text-brand-accent" data-testid={`${id}-blank-${t.key}`} />}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
   if (areas.length === 0) return null;
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_area">
       <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">Shop by Area</h2>
 
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-3 gap-3">
         {areas.map((a) => (
           <Link key={a.slug} href={`/stores?area=${a.slug}`} data-testid={`shop-by-area-tile-${a.slug}`}
-            className="group flex flex-col gap-1 active:scale-95 transition">
-            <div className="relative aspect-[4/3] rounded-card overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] bg-surface-tint">
+            className="group flex flex-col gap-1.5 active:scale-95 transition">
+            <div className="relative aspect-square rounded-card overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] bg-surface-tint">
               {a.image ? (
                 <img
                   src={cloudinaryOptimize(a.image, "w_400,q_auto,f_auto")}
@@ -595,65 +486,18 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
                 />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center" data-testid={`shop-by-area-blank-${a.slug}`}>
-                  <div className="w-7 h-7 rounded-full bg-brand-accent/15 flex items-center justify-center">
-                    <Sparkles size={13} className="text-brand-accent" />
+                  <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center">
+                    <Sparkles size={16} className="text-brand-accent" />
                   </div>
                 </div>
               )}
-              <span className="absolute bottom-1.5 left-1.5 inline-flex items-center rounded-pill bg-white px-1.5 py-0.5 text-[8px] font-bold leading-none text-brand-primary shadow-[0_1px_4px_rgba(0,0,0,0.3)]" data-testid={`shop-by-area-count-${a.slug}`}>
+              <span className="absolute bottom-2 left-2 inline-flex items-center rounded-pill bg-white px-2 py-0.5 text-[10px] font-bold leading-none text-brand-primary shadow-[0_1px_4px_rgba(0,0,0,0.3)]" data-testid={`shop-by-area-count-${a.slug}`}>
                 {a.store_count} {a.store_count === 1 ? "store" : "stores"}
               </span>
             </div>
-            <span className="text-[11px] font-bold text-brand-primary text-center leading-tight line-clamp-1">{a.name}</span>
+            <span className="text-sm font-bold text-brand-primary text-center leading-tight line-clamp-1">{a.name}</span>
           </Link>
         ))}
-      </div>
-    </div>
-  );
-}
-
-function MeetSellersSection({ stores, ready }: { stores: StoreCard[]; ready: boolean }) {
-  return (
-    <div className="pt-8" data-testid="home-meet_sellers">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <h2 className="font-display font-bold text-[#0A1F5C] text-[22px] sm:text-2xl leading-[1.15] tracking-tight max-w-md">
-          your neighbour&apos;s shop, not a faraway <span className="text-[#E68910]">warehouse.</span>
-        </h2>
-        <p className="text-[13px] text-[#595959] mt-1.5 max-w-sm leading-relaxed">
-          real shopkeepers. real bhilai. delivered in 45 mins.
-        </p>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
-        <div className="flex items-end justify-between gap-3 mb-3">
-          <h3 className="text-lg sm:text-xl font-display font-bold text-[#0A1F5C] leading-tight">Shops near you</h3>
-          <a href="/stores" className="text-xs font-bold text-[#0A1F5C] shrink-0 hover:underline">See all →</a>
-        </div>
-
-        {!ready ? (
-          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="flex-shrink-0 w-32 sm:w-36 aspect-[3/4] rounded-2xl bg-[#E5E2DC] animate-pulse" />
-            ))}
-          </div>
-        ) : stores.length === 0 ? (
-          <div className="bg-[#F4F1E9] rounded-2xl px-5 py-6 text-center flex flex-col items-center gap-2" data-testid="meet-sellers-empty">
-            <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
-              <Sparkles size={16} className="text-[#E68910]" />
-            </div>
-            <p className="text-[12px] font-semibold text-[#0A1F5C] max-w-xs mx-auto">
-              We&apos;re onboarding your neighbourhood&apos;s shops right now — check back soon.
-            </p>
-          </div>
-        ) : (
-          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-            {stores.slice(0, 10).map((s) => {
-              const isOpen = (s as any).availability_rank === 1; // eslint-disable-line @typescript-eslint/no-explicit-any
-              const closedLabel = isOpen ? undefined : ((s as any).next_open_label || "Closed"); // eslint-disable-line @typescript-eslint/no-explicit-any
-              return <SellerCard key={s.id} s={s} source="meet_sellers" openNow={isOpen} closedLabel={closedLabel} />;
-            })}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -705,40 +549,6 @@ function ShopByBrandSection({ brands, ready }: { brands: Brand[]; ready: boolean
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function TryAndBuySection({ image }: { image: string }) {
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-try_and_buy">
-      <Link href="/try-and-buy" className="block">
-        <div className="bg-white rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] flex items-stretch active:scale-[0.99] transition-transform">
-          <div className="relative w-24 sm:w-28 shrink-0 bg-[#F4F1E9]">
-            {image ? (
-              <img
-                src={cloudinaryOptimize(image, "w_240,q_auto,f_auto")}
-                alt="Try & Buy"
-                loading="lazy"
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-            ) : (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-9 h-9 rounded-full bg-[#E68910]/15 flex items-center justify-center">
-                  <RotateCcw size={16} className="text-[#E68910]" />
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="flex-1 min-w-0 px-4 py-3 flex flex-col justify-center">
-            <p className="text-[10px] font-bold text-[#E68910] uppercase tracking-wide">Try &amp; Buy</p>
-            <p className="font-bold text-[#0A1F5C] text-sm sm:text-base leading-tight mt-0.5">try before you pay.</p>
-            <p className="text-[10px] sm:text-[11px] text-[#595959] mt-1 leading-snug">
-              order it <span className="text-[#E68910] font-bold">·</span> rider waits while you try <span className="text-[#E68910] font-bold">·</span> keep what you love
-            </p>
-          </div>
-        </div>
-      </Link>
     </div>
   );
 }
@@ -897,9 +707,6 @@ function BrowseGridBlock({ l1 }: { l1: CategoryNode }) {
 }
 
 export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?: "home" | "category" }) {
-  const lat = useLocationStore((s) => s.lat);
-  const lng = useLocationStore((s) => s.lng);
-  const [tryAndBuyImage, setTryAndBuyImage] = useState<string>("");
   const [sections, setSections] = useState<SectionDoc[]>(DEFAULT_SECTIONS);
   const [offers, setOffers] = useState<OfferDoc[]>([]);
   const [trending, setTrending] = useState<ProductCardType[]>([]);
@@ -934,16 +741,10 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
 
   const [areas, setAreas] = useState<AreaTile[]>([]);
   const [priceBento, setPriceBento] = useState<PriceBentoResponse | null>(null);
-  const [nearby, setNearby] = useState<StoreCard[]>([]);
-  const [popularStores, setPopularStores] = useState<StoreCard[]>([]);
   const [popularBrands, setPopularBrands] = useState<Brand[]>([]);
   const [testimonials, setTestimonials] = useState<TestimonialDoc[]>([]);
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Set<string>>(new Set());
-  const [storesEnabled, setStoresEnabled] = useState(
-    () => DEFAULT_SECTIONS.find((s) => s.id === "meet_sellers")?.enabled ?? false
-  );
-  const storesEnabledRef = useRef(storesEnabled);
   const [brandsEnabled, setBrandsEnabled] = useState(
     () => DEFAULT_SECTIONS.find((s) => s.id === "shop_by_brand")?.enabled ?? false
   );
@@ -956,8 +757,7 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
 
   useEffect(() => {
     api.site.homepageConfig().then((cfg) => {
-      const c = cfg as unknown as { sections?: SectionDoc[]; try_and_buy_image?: string };
-      if (c.try_and_buy_image) setTryAndBuyImage(c.try_and_buy_image);
+      const c = cfg as unknown as { sections?: SectionDoc[] };
       if (Array.isArray(c.sections) && c.sections.length > 0) {
         const defaultMap = new Map(DEFAULT_SECTIONS.map((s) => [s.id, s]));
         const serverIds = new Set(c.sections.map((s: SectionDoc) => s.id));
@@ -975,9 +775,6 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
         const seen = new Set<string>();
         const deduped = merged.filter((s) => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
         setSections(deduped);
-        const resolvedStoresEnabled = deduped.find((s) => s.id === "meet_sellers")?.enabled ?? false;
-        setStoresEnabled(resolvedStoresEnabled);
-        storesEnabledRef.current = resolvedStoresEnabled;
         const resolvedBrandsEnabled = deduped.find((s) => s.id === "shop_by_brand")?.enabled ?? false;
         setBrandsEnabled(resolvedBrandsEnabled);
         brandsEnabledRef.current = resolvedBrandsEnabled;
@@ -990,11 +787,6 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
     const _deferTimer = setTimeout(() => {
       api.catalog.offers().then((r) => { setOffers(r as unknown as OfferDoc[]); markLoaded("offers"); }).catch(() => { markLoaded("offers"); markError("offers"); });
       api.catalog.testimonials().then((r) => setTestimonials(r as unknown as TestimonialDoc[])).catch(() => {});
-      if (storesEnabledRef.current) {
-        api.stores.popular({ limit: 10 }).then((r) => { setPopularStores(r); markLoaded("popularStores"); }).catch(() => { markLoaded("popularStores"); markError("popularStores"); });
-      } else {
-        markLoaded("popularStores");
-      }
       if (brandsEnabledRef.current) {
         api.brands.list({ limit: 10, sort: "popular" })
           .then((r) => { setPopularBrands(r.brands.filter((b) => b.product_count > 0)); markLoaded("popularBrands"); })
@@ -1054,25 +846,6 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
     return () => clearTimeout(_deferTimer);
   }, []);
 
-  useEffect(() => {
-    if (!storesEnabled) return;
-    if (lat != null && lng != null) {
-      api.stores.nearby({ lat, lng, limit: 10 }).then((r) => { setNearby(r); markLoaded("nearby"); }).catch(() => { markLoaded("nearby"); });
-    }
-  }, [lat, lng, storesEnabled]);
-
-  const storesReady = loaded.has("nearby") || loaded.has("popularStores");
-  const storesRail = nearby.length > 0 ? nearby : popularStores;
-
-  const sellersSorted = [...storesRail].sort((a, b) => {
-    const aOpen = (a as any).availability_rank === 1 ? 0 : 1; // eslint-disable-line @typescript-eslint/no-explicit-any
-    const bOpen = (b as any).availability_rank === 1 ? 0 : 1; // eslint-disable-line @typescript-eslint/no-explicit-any
-    if (aOpen !== bOpen) return aOpen - bOpen;
-    const aDist = (a as any).distance_km ?? Infinity; // eslint-disable-line @typescript-eslint/no-explicit-any
-    const bDist = (b as any).distance_km ?? Infinity; // eslint-disable-line @typescript-eslint/no-explicit-any
-    return aDist - bDist;
-  });
-
   const ProductRailSkeleton = ({ testid }: { testid: string }) => (
     <div data-testid={testid} className="pt-4 px-4 sm:px-6">
       <Skeleton className="h-7 w-44 rounded-full mb-1" />
@@ -1112,10 +885,6 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
 
     shop_by_category: <ShopByCategorySection key="shop-by-category" tiles={resolveShopByCategoryTiles(categories, l1Slug)} />,
 
-    for_her: <GenderBentoSection key="for-her" id="for_her" title="For Her" tiles={resolveGenderTiles(categories, FOR_HER_TILES)} />,
-
-    for_him: <GenderBentoSection key="for-him" id="for_him" title="For Him" tiles={resolveGenderTiles(categories, FOR_HIM_TILES)} />,
-
     store_footwear: <GenderedStoreSection key="store-footwear" categories={categories} l1Slug={l1Slug} index={0} />,
     store_ethnic: <GenderedStoreSection key="store-ethnic" categories={categories} l1Slug={l1Slug} index={1} />,
     store_lingerie: <GenderedStoreSection key="store-lingerie" categories={categories} l1Slug={l1Slug} index={2} />,
@@ -1123,8 +892,6 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
     under_499: <ShopByPriceSection key="shop-by-price" l1Id={l1Id} priceBento={priceBento} />,
 
     shop_by_store: <ShopByStoreSection key="shop-by-store" l1={l1} />,
-
-    browse_all: <BrowseAllSection key="browse-all" />,
 
     category_pills: (
       <div key="category-pills" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-3">
@@ -1217,13 +984,8 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
       <SectionError key="offers-error" minHeight="min-h-[120px]" />
     ) : loaded.has("offers") && offers.length > 0 ? (
       <section key="offers" className="pt-8" data-testid="offers-strip" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("offers")); } catch {} } }}>
-        <div className="px-4 sm:px-6 lg:px-8 mb-3 max-w-7xl mx-auto">
-          <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">Offers for you</h2>
-        </div>
-        <div
-          className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 lg:scroll-pl-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto"
-        >
-          {offers.slice(0, 6).map((offer) => {
+        <div className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+          {offers.slice(0, 1).map((offer) => {
             const href = offer.cta_link || "/categories";
             const cardStyle = { background: offer.background || "#0A1F5C" };
             const inner = (
@@ -1248,7 +1010,7 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
                 href={href}
                 data-testid={`offer-${offer.id}`}
                 onClick={() => { try { trackOfferClick(offer.id, offer.code || ""); } catch {} }}
-                className="snap-start shrink-0 w-[78vw] sm:w-[340px] rounded-2xl overflow-hidden relative shadow-[0_8px_24px_rgba(10,31,92,0.12)] transition active:scale-[0.98]"
+                className="block rounded-2xl overflow-hidden relative shadow-[0_8px_24px_rgba(10,31,92,0.12)] transition active:scale-[0.98]"
                 style={cardStyle}
               >
                 {inner}
@@ -1287,11 +1049,7 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
 
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
 
-    meet_sellers: <MeetSellersSection key="meet-sellers" stores={sellersSorted} ready={storesReady} />,
-
     shop_by_brand: <ShopByBrandSection key="shop-by-brand" brands={popularBrands} ready={loaded.has("popularBrands")} />,
-
-    try_and_buy: <TryAndBuySection key="try-and-buy" image={tryAndBuyImage} />,
 
     shop_by_area: <ShopByAreaSection key="shop-by-area" areas={areas} />,
   };
