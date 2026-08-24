@@ -30,6 +30,14 @@
  * LIVE (a real positive-status signal, same family as the savings-line
  * green) vs orange for AWAY (a real caution signal) — two states that now
  * actually look different from each other.
+ *
+ * Phase G5: `size="micro"` — a single-line, no-circle, no-subtitle variant
+ * for the persistent global header (ConsumerHeader), which is rendered on
+ * every route and has far less vertical room than the hero or PDP/Checkout
+ * contexts the other three sizes were built for. Handled as an early,
+ * fully separate return so it can't regress the existing card/pill
+ * rendering the three other sizes (and their three existing call sites)
+ * already rely on.
  */
 import type { ComponentType } from "react";
 import { Bike } from "lucide-react";
@@ -47,7 +55,7 @@ interface ETAHeaderCardProps {
   subtitle?: string;
   loading?: boolean;
   variant?: "card" | "pill";
-  size?: "compact" | "default" | "roomy";
+  size?: "compact" | "default" | "roomy" | "micro";
   /** Dims the title/icon when the underlying status is a scheduled/closed
    *  state rather than "loading" — PDP/Checkout never set this. */
   muted?: boolean;
@@ -80,6 +88,27 @@ export function ETAHeaderCard({
   className = "",
   testId = "eta-header",
 }: ETAHeaderCardProps) {
+  if (size === "micro") {
+    return (
+      <div data-testid={testId} className={cn("inline-flex items-center gap-1.5 min-w-0", className)}>
+        <Icon size={13} className={cn("shrink-0", muted ? "text-[#94A3B8]" : "text-[#0A1F5C]")} />
+        {loading ? (
+          <span className="h-3 w-16 rounded bg-[#E5E2DC] animate-pulse" />
+        ) : (
+          <span className={cn(
+            "text-[11px] font-bold leading-none truncate",
+            muted ? "text-[#64748B]" : "text-[#0A1F5C]",
+          )}>
+            {title}
+          </span>
+        )}
+        {statusBadge && !loading && (
+          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", DOT_TONE[statusBadge.tone])} aria-hidden="true" />
+        )}
+      </div>
+    );
+  }
+
   const s = SIZE[size];
   const shell = variant === "pill"
     ? "bg-white/95 backdrop-blur-sm shadow-md rounded-2xl"

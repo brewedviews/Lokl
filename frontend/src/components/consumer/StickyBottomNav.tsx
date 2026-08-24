@@ -15,7 +15,7 @@
  * PdpCtaRow) stays in normal document flow, not fixed. This nav is the
  * only persistent chrome on the PDP.
  *
- *   [ Home ] [ Categories ] [ Search ] [ Stores ] [ Profile ]
+ *   [ Home ] [ Categories ] [ Search ] [ Add to Cart ] [ Profile ]
  *
  * Wishlist moved into the account page (its own boxed section, matching
  * the address box) — the standalone /wishlist route still works, it's
@@ -31,24 +31,37 @@
  * no longer a single-tap mobile bottom-nav destination; this is an
  * intentional trade-off, not an oversight — see the redesign notes.
  *
+ * Redesign Phase G5: the Stores slot is replaced by Add to Cart — same
+ * cart store (useCartStore, already used by the checkout/PDP/bag flows),
+ * same /checkout destination the header's own removed cart button used
+ * to link to, same item-count source (getItemCount()). Stores itself
+ * isn't orphaned: desktop keeps its unchanged header nav-stores link
+ * (≥lg), and mobile now finds it via a "Browse Stores" quick-link added
+ * to the Search tab's idle sheet (ConsumerHeader's MobileSearchSheet) —
+ * this same Search tab, unchanged below, is still one tap away.
+ *
  * /checkout (the merged Bag/Checkout screen, formerly two pages) is
  * EXCLUDED — it has its own sticky bottom price+CTA bar, and stacking that
  * on top of this generic 5-tab nav is exactly the "two competing
  * fixed-chrome models" the PDP already tried and reverted once (see the
  * /product/ note above) — same resolution applied here instead of
- * repeating that mistake.
+ * repeating that mistake. (Also means the new Cart tab never has to render
+ * "active" on the very page it links to.)
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Grid3x3, Store, Search, User } from "lucide-react";
+import { Home, Grid3x3, ShoppingBag, Search, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { trackNavClick } from "@/lib/analytics";
-import { useSearchOverlay } from "@/stores";
+import { useSearchOverlay, useCartStore } from "@/stores";
+import { useMounted } from "@/hooks/useMounted";
 
 export function StickyBottomNav() {
   const pathname = usePathname();
   const searchOpen = useSearchOverlay((s) => s.open);
   const openSearch = useSearchOverlay((s) => s.show);
+  const mounted = useMounted();
+  const cartCount = useCartStore((s) => s.getItemCount());
 
   if (pathname.startsWith("/merchant") || pathname.startsWith("/admin") || pathname.startsWith("/rider") || pathname.startsWith("/checkout")) return null;
 
@@ -80,9 +93,19 @@ export function StickyBottomNav() {
           </button>
         </li>
         <li className="flex items-center justify-center">
-          <Link href="/stores" data-testid="nav-stores" onClick={() => { try { trackNavClick("stores"); } catch {} }} className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/stores") ? "text-brand-accent" : "text-slate-600")}>
-            <Store size={20} />
-            <span className="text-[10px] font-medium">Stores</span>
+          <Link href="/checkout" data-testid="nav-cart" onClick={() => { try { trackNavClick("cart"); } catch {} }} className={cn("relative w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/checkout") ? "text-brand-accent" : "text-slate-600")}>
+            <span className="relative inline-flex">
+              <ShoppingBag size={20} />
+              {mounted && cartCount > 0 && (
+                <span
+                  data-testid="cart-badge"
+                  className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-brand-accent text-white text-[9px] font-bold leading-4 text-center"
+                >
+                  {cartCount}
+                </span>
+              )}
+            </span>
+            <span className="text-[10px] font-medium">Add to Cart</span>
           </Link>
         </li>
         <li className="flex items-center justify-center">

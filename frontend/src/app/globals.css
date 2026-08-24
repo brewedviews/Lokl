@@ -166,6 +166,15 @@
      name since it's a different feature. */
   .location-sheet-in    { animation: location-sheet-slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
   .location-dropdown-in { animation: location-dropdown-fade 140ms ease-out both; }
+
+  /* Header promo ticker (HeaderPromoTicker) — small in-place message swap,
+     not a page/sheet transition, so a shorter travel distance than
+     bf-fadeup's 16px (this sits inside a ~20px-tall header row). Skipped
+     entirely under prefers-reduced-motion — messages still rotate, they
+     just swap instantly instead of animating. */
+  @media (prefers-reduced-motion: no-preference) {
+    .header-promo-fade-in { animation: header-promo-fade 220ms ease-out both; }
+  }
 }
 
 @keyframes bf-fadeup  { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
@@ -176,3 +185,4 @@
 @keyframes location-sheet-slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
 @keyframes location-dropdown-fade  { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes search-sheet-drop { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes header-promo-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }

@@ -3,40 +3,57 @@
 /**
  * ConsumerHeader — sticky glass header.
  *
- * Mobile (<lg): ONE row — Logo · LocationChip (flex-1) · Cart. Redesign
- *   Phase B removed the persistent pinned search bar that used to sit in a
- *   second row here — search's entry point is now the bottom nav's Search
- *   tab (see StickyBottomNav.tsx), which calls the same useSearchOverlay
- *   store's `show()` this header used to call from its own bar. Opening it
- *   still renders the same SHEET dropping down from directly below the
- *   header (over a dimmed backdrop covering the rest of the page), with
- *   the same recent/trending/live-suggestion experience — the sheet just
- *   now owns its own search input directly (see MobileSearchSheet below)
- *   instead of reading it from a header row that no longer exists. Dismiss
- *   via backdrop tap, the X, Escape, or the device back gesture (a history
+ * Mobile (<lg): ONE row — Logo · LocationChip · HeaderPromoTicker ·
+ *   ETAHeaderCard(micro). Redesign Phase B removed the persistent pinned
+ *   search bar that used to sit in a second row here — search's entry
+ *   point is now the bottom nav's Search tab (see StickyBottomNav.tsx),
+ *   which calls the same useSearchOverlay store's `show()` this header
+ *   used to call from its own bar. Opening it still renders the same
+ *   SHEET dropping down from directly below the header (over a dimmed
+ *   backdrop covering the rest of the page), with the same
+ *   recent/trending/live-suggestion experience — the sheet just now owns
+ *   its own search input directly (see MobileSearchSheet below) instead
+ *   of reading it from a header row that no longer exists. Dismiss via
+ *   backdrop tap, the X, Escape, or the device back gesture (a history
  *   entry is pushed while the sheet is open specifically so back-gesture
  *   has something to intercept — see the popstate effect below).
- * Desktop (≥lg): single row — Logo · LocationChip · big Search · Stores
- *   · For Merchants · Profile · Cart. Untouched by the above — desktop has
- *   no bottom nav, so its inline Search input + SuggestPanel dropdown stay
- *   exactly where they were.
+ * Desktop (≥lg): single row — Logo · LocationChip · HeaderPromoTicker ·
+ *   big Search · Stores · For Merchants · Profile · ETAHeaderCard(micro).
+ *   Untouched otherwise — desktop has no bottom nav, so its inline Search
+ *   input + SuggestPanel dropdown stay exactly where they were.
  *
  * LocationChip handles its own auto-detect on mount and its own popover —
  * see the LocationChip component below.
+ *
+ * Phase G5: the header's own cart button (`nav-cart`, ->/checkout) is
+ * removed — cart access moves to StickyBottomNav's own new Cart tab (same
+ * cart store, same /checkout destination, just relocated; see that
+ * file's own comment). That reclaimed space now holds HeaderPromoTicker
+ * (a small rotating value-prop callout) and a persistent
+ * ETAHeaderCard(size="micro") delivery-status indicator — the SAME real
+ * GET /api/feed/delivery-status source and react-query cache key
+ * ("delivery-status") HeroCarousel.tsx already established in Phase G3,
+ * so mounting both on the same page (true on every /c/[slug] route,
+ * since HeroCarousel renders there too) shares one underlying request via
+ * react-query's own key-based caching (app/providers.tsx's single
+ * QueryClient) rather than issuing two.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Loader2, MapPin, Search, ShoppingBag, Store as StoreIcon, User, X, Crosshair, Home as HomeIcon, Clock, TrendingUp, Check } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Loader2, MapPin, Search, Store as StoreIcon, User, X, Crosshair, Home as HomeIcon, Clock, TrendingUp, Check } from "lucide-react";
 import {
-  useCartStore, useLocationStore, useCustomerAuthStore, useSearchOverlay,
+  useLocationStore, useCustomerAuthStore, useSearchOverlay,
 } from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { useMounted } from "@/hooks/useMounted";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
+import { ETAHeaderCard } from "@/components/consumer/ETAHeaderCard";
+import { HeaderPromoTicker } from "@/components/consumer/HeaderPromoTicker";
 
 interface SearchProduct { id: string; name: string; price?: number; image?: string }
 interface SearchStore { id: string; name: string; locality?: string; banner?: string }
@@ -75,12 +92,21 @@ interface SavedAddress {
 
 export function ConsumerHeader() {
   const router = useRouter();
-  const mounted = useMounted();
-  const cartCount = useCartStore((s) => s.getItemCount());
   const customerPhone = useCustomerAuthStore((s) => s.phone);
   useHeartbeat(customerPhone ? "customer" : "guest", { phone: customerPhone });
   const mobileSearchOpen = useSearchOverlay((s) => s.open);
   const closeMobileSearch = useSearchOverlay((s) => s.hide);
+
+  // Phase G5 — persistent header ETA. Same queryKey + queryFn HeroCarousel
+  // already uses (see that file's own Phase G3 comment); react-query's
+  // shared QueryClient dedupes this to one request when both are mounted
+  // (true on every /c/[slug] route), not two.
+  const { data: deliveryStatus, isLoading: deliveryLoading, isError: deliveryErrored } = useQuery({
+    queryKey: ["delivery-status"],
+    queryFn: () => api.catalog.deliveryStatus(),
+    staleTime: 60_000,
+  });
+  const isClosedLabel = deliveryStatus?.label === "CLOSED";
 
   // Header height, tracked live so the mobile sheet/backdrop can anchor
   // exactly below it via an inline `top` (ConsumerHeader is always the
@@ -236,10 +262,23 @@ export function ConsumerHeader() {
           </span>
         </Link>
 
-        {/* Location chip — fills the row on mobile, fixed-ish on desktop so
-            the search input claims as much of the free row as possible. */}
+        {/* Location chip — flex-1 on mobile (same as before Phase G5;
+            HeaderPromoTicker moved to its own thin row below on mobile
+            instead of competing for room here — seed 388px-wide math
+            showed four legible elements don't fit one mobile row at
+            once), unchanged fixed 200px on desktop. */}
         <div className="flex-1 lg:flex-none lg:w-[200px] min-w-0">
           <LocationChip phone={customerPhone} />
+        </div>
+
+        {/* Phase G5 — rotating promo callout, reclaimed from the removed
+            cart button. Desktop only here (small fixed slot between
+            location and search); mobile renders it in its own thin row
+            below the main row instead (see the lg:hidden block after
+            </header>'s main row div), where it doesn't have to compete
+            with location/ETA for width. */}
+        <div className="hidden lg:block lg:w-[150px] min-w-0">
+          <HeaderPromoTicker />
         </div>
 
         {/* Desktop search — flex-1 to expand into ALL remaining space, with
@@ -297,15 +336,39 @@ export function ConsumerHeader() {
             from those entry points; it's just not a permanent header slot
             anymore. gap-2/lg:gap-4 on the row above already closes the
             space this left behind — no separate spacer needed. */}
-        <Link
-          href="/checkout"
-          data-testid="nav-cart"
-          aria-label="Bag"
-          className="relative flex items-center gap-1 px-3 py-2 rounded-full bg-brand-primary text-white hover:bg-brand-primary/90 transition shrink-0"
-        >
-          <ShoppingBag size={16} />
-          {mounted && cartCount > 0 && <span className="text-xs font-semibold" data-testid="cart-badge">{cartCount}</span>}
-        </Link>
+        {/* Phase G5 — persistent ETA, in the cart button's old slot. Hidden
+            only on a genuine fetch error, matching HeroCarousel's own
+            delivery-status badge; shows ETAHeaderCard's own skeleton while
+            loading rather than a guessed value. CLOSED dims the text and
+            drops the LIVE/AWAY dot, same call HeroCarousel already makes. */}
+        {!deliveryErrored && (
+          <div className="shrink-0" data-testid="header-eta">
+            <ETAHeaderCard
+              size="micro"
+              testId="header-eta-badge"
+              loading={deliveryLoading}
+              muted={isClosedLabel}
+              title={(deliveryStatus?.eta_label || "").replace(/\bminutes\b/, "min")}
+              statusBadge={
+                deliveryLoading || isClosedLabel || !deliveryStatus
+                  ? null
+                  : { label: deliveryStatus.label, tone: deliveryStatus.label === "AWAY" ? "away" : "live" }
+              }
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Phase G5 — mobile-only thin second row for the rotating promo
+          callout. Centered, full-width, its own hairline divider — same
+          "Swiggy/Zepto-style persistent status bar" spirit ActiveOrderPill
+          already cites elsewhere in this app. Keeps the main row above
+          (logo/location/ETA) at the same comfortable widths it had before
+          Phase G5 touched anything; the ticker gets genuine breathing
+          room instead of fighting three other elements for a sliver of a
+          388px-wide row. */}
+      <div className="lg:hidden border-t border-card-border/60 px-4 py-1 flex justify-center">
+        <HeaderPromoTicker />
       </div>
     </header>
 
@@ -320,6 +383,7 @@ export function ConsumerHeader() {
         trending={mobileTrending}
         trendingProducts={mobileTrendingProducts}
         onClose={dismissMobileSearch}
+        onNavigate={closeMobileSearch}
         onSubmit={submitMobileSearch}
         onClearRecent={clearMobileRecent}
       />
@@ -340,7 +404,7 @@ export function ConsumerHeader() {
 // StickyBottomNav's z-50, so on a short page the sheet renders OVER the
 // bottom nav rather than being hidden behind it.
 function MobileSearchSheet({
-  topOffset, q, onChange, loading, suggestions, recent, trending, trendingProducts, onClose, onSubmit, onClearRecent,
+  topOffset, q, onChange, loading, suggestions, recent, trending, trendingProducts, onClose, onNavigate, onSubmit, onClearRecent,
 }: {
   topOffset: number;
   q: string;
@@ -351,6 +415,15 @@ function MobileSearchSheet({
   trending: TrendingRow[];
   trendingProducts: SearchProduct[];
   onClose: () => void;
+  /** Dismisses the sheet WITHOUT going through history.back() (unlike
+   *  `onClose`) — for Link-based navigation away from the page (Browse
+   *  Stores below). `onClose` races a Link's own client-side navigation:
+   *  both call the History API in the same click, and back() can win,
+   *  landing the user back on the page they clicked away from instead of
+   *  where the Link pointed. `onSubmit`'s own search navigation already
+   *  avoids this by closing directly instead of via history.back(); this
+   *  prop lets a plain navigating Link do the same. */
+  onNavigate: () => void;
   onSubmit: (term?: string) => void;
   onClearRecent: () => void;
 }) {
@@ -471,6 +544,24 @@ function MobileSearchSheet({
             </div>
           ) : (
             <div className="px-3 py-4 space-y-5">
+              {/* Phase G5 — Stores' mobile entry point, now that the bottom
+                  nav's Stores tab is Add to Cart instead. Desktop keeps its
+                  unchanged header nav-stores link; this is the mobile
+                  equivalent, one tap in from the still-present Search tab. */}
+              <Link
+                href="/stores"
+                onClick={onNavigate}
+                data-testid="search-sheet-browse-stores"
+                className="flex items-center gap-3 px-3 py-2.5 rounded-2xl border border-card-border hover:bg-[#FDFBF7] transition"
+              >
+                <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center shrink-0">
+                  <StoreIcon size={16} className="text-brand-accent" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-brand-primary">Browse Stores</div>
+                  <div className="text-[11px] text-text-secondary">Every local seller on Lokl</div>
+                </div>
+              </Link>
               <section>
                 <div className="flex flex-wrap gap-2">
                   {["Kurta", "Jeans", "Sneakers", "Saree", "Kids wear", "Ethnic"].map((term) => (
