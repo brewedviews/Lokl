@@ -3046,6 +3046,105 @@ async def stores_in_category(l1_id: str, l2_id: Optional[str] = None, limit: int
     return result
 
 
+# ---- Store Section Overrides (redesign Phase G4) — admin-curated banner
+# + pinned display cards layered ON TOP OF (never instead of) the real
+# store aggregation stores_in_category() above already powers for the
+# Footwear/Ethnic/Lingerie-or-Innerwear Store sections
+# (StoreSectionModule on the frontend). One doc per (l1_id, l2_id) pair —
+# the SAME scoping key stores_in_category() itself already matches on, so
+# "Women's Footwear" vs "Men's Footwear" (different l1_id) and "Women's
+# Lingerie" vs "Men's Inner Wear" (different l2_id — there's no
+# l2-men-lingerie) can never collide. Enforced by a unique compound index
+# (see migrations/022_store_section_overrides.py) as well as this
+# endpoint's own upsert query being keyed on the exact same pair.
+#
+# `pinned_stores` are CMS display cards, NOT real stores — they never
+# touch db.stores/db.merchants/db.products, carry no KYC/trusted/
+# product-count status, and are purely additive: the frontend always
+# renders real stores_in_category() results first, pinned cards after.
+ALLOWED_PINNED_STORE_FIELDS = {"id", "name", "image", "link"}
+
+
+def _clean_pinned_stores(raw) -> list[dict]:
+    """Keeps only well-formed cards (a non-empty `name` is the one hard
+    requirement — image/link are cosmetic and optional). Assigns a stable
+    id to any card the admin just added client-side (no id yet); an
+    existing id is preserved as-is so edits don't silently create
+    duplicates."""
+    out = []
+    for item in (raw or []):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        if not name:
+            continue
+        out.append({
+            "id": str(item.get("id") or f"psc-{uuid.uuid4().hex[:8]}"),
+            "name": name,
+            "image": str(item.get("image") or ""),
+            "link": str(item.get("link") or ""),
+        })
+    return out
+
+
+@api.get("/store-section-overrides/{l1_id}/{l2_id}")
+async def get_store_section_override(l1_id: str, l2_id: str):
+    """Public read — StoreSectionModule fetches this ALONGSIDE (not
+    instead of) GET /categories/{l1_id}/stores?l2_id=.... Always returns a
+    well-formed doc even when no override exists yet (no 404 branch the
+    frontend has to special-case), matching _get_site_config()'s own
+    "always return something render-ready" convention."""
+    doc = await db.store_section_overrides.find_one({"l1_id": l1_id, "l2_id": l2_id}, {"_id": 0})
+    if not doc:
+        return {"l1_id": l1_id, "l2_id": l2_id, "banner_image": "", "pinned_stores": []}
+    doc["pinned_stores"] = doc.get("pinned_stores") or []
+    return doc
+
+
+@api.get("/admin/store-section-overrides")
+async def admin_list_store_section_overrides(admin: dict = Depends(require_admin)):
+    rows = await db.store_section_overrides.find({}, {"_id": 0}).to_list(200)
+    return rows
+
+
+@api.put("/admin/store-section-overrides/{l1_id}/{l2_id}")
+async def admin_put_store_section_override(l1_id: str, l2_id: str, payload: dict, admin: dict = Depends(require_admin)):
+    """Single whole-doc upsert — banner + the entire pinned_stores list are
+    saved together in one call, same "one PUT replaces the whole doc"
+    shape as PUT /admin/site/homepage-config, rather than separate
+    per-pinned-card CRUD endpoints (pinned cards are never independently
+    addressed anywhere else, so there's nothing a finer-grained API would
+    actually serve)."""
+    if l1_id not in L2_BY_L1 or l2_id not in [s["id"] for s in L2_BY_L1[l1_id]]:
+        raise HTTPException(400, "Invalid l1_id/l2_id combination")
+    now = datetime.now(timezone.utc).isoformat()
+    update = {
+        "l1_id": l1_id,
+        "l2_id": l2_id,
+        "banner_image": str(payload.get("banner_image") or ""),
+        "pinned_stores": _clean_pinned_stores(payload.get("pinned_stores")),
+        "updated_at": now,
+    }
+    await db.store_section_overrides.update_one(
+        {"l1_id": l1_id, "l2_id": l2_id},
+        {"$set": update, "$setOnInsert": {"id": f"sso-{uuid.uuid4().hex[:8]}", "created_at": now}},
+        upsert=True,
+    )
+    doc = await db.store_section_overrides.find_one({"l1_id": l1_id, "l2_id": l2_id}, {"_id": 0})
+    return doc
+
+
+@api.delete("/admin/store-section-overrides/{l1_id}/{l2_id}")
+async def admin_delete_store_section_override(l1_id: str, l2_id: str, admin: dict = Depends(require_admin)):
+    """Resets the section back to defaults — no CMS banner override, no
+    pinned cards. Real stores_in_category() results are entirely
+    unaffected either way; this only ever touches the CMS layer."""
+    r = await db.store_section_overrides.delete_one({"l1_id": l1_id, "l2_id": l2_id})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Override not found")
+    return {"ok": True}
+
+
 # ============ Lokl V2 — Site CMS ============
 # Canonical homepage section list — MUST be kept in sync with
 # HomeClient.tsx's DEFAULT_SECTIONS (frontend), id-for-id, label-for-label,

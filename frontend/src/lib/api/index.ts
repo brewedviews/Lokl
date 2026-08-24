@@ -5,7 +5,7 @@
 import { apiClient } from "@/lib/api-client";
 import type {
   AreaTile, CategoryCount, CategoryNode, HomeStats, HomepageConfig, HeroSlide, Offer,
-  PriceBentoResponse, SearchResults, Testimonial,
+  PriceBentoResponse, SearchResults, Testimonial, CmsStoreSectionOverride,
 } from "@/types";
 
 export interface ActiveCoupon {
@@ -110,6 +110,17 @@ export const catalogApi = {
    *  HeroCarousel's floating badge rather than inventing a second one. */
   deliveryStatus: async (): Promise<DeliveryStatus> => {
     const r = await apiClient.get<DeliveryStatus>("/api/feed/delivery-status");
+    return r.data;
+  },
+
+  /** GET /api/store-section-overrides/:l1_id/:l2_id — admin-curated
+   *  banner + pinned display cards for a Footwear/Ethnic/Lingerie-or-
+   *  Innerwear Store section (Phase G4). Always well-formed (empty
+   *  banner_image + pinned_stores) when no override has been saved yet —
+   *  StoreSectionModule fetches this ALONGSIDE, never instead of, the
+   *  real store list from stores() below. */
+  storeSectionOverride: async (l1Id: string, l2Id: string): Promise<CmsStoreSectionOverride> => {
+    const r = await apiClient.get<CmsStoreSectionOverride>(`/api/store-section-overrides/${l1Id}/${l2Id}`);
     return r.data;
   },
 };

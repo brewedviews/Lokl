@@ -16,7 +16,7 @@
  */
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Eye, EyeOff, ChevronUp, ChevronDown, Save, Loader2, LayoutTemplate, Image as ImgIcon, Images, Folder, Layers, Sparkles, MapPin, Tag, RotateCcw } from "lucide-react";
+import { Eye, EyeOff, ChevronUp, ChevronDown, Save, Loader2, LayoutTemplate, Image as ImgIcon, Images, Folder, Layers, Sparkles, MapPin, Tag, RotateCcw, Store } from "lucide-react";
 import { adminApi } from "@/lib/api/admin";
 import { HeroEditor } from "@/components/admin/cms/HeroEditor";
 import { HeroSlidesEditor } from "@/components/admin/cms/HeroSlidesEditor";
@@ -27,12 +27,13 @@ import { PriceBandsEditor } from "@/components/admin/cms/PriceBandsEditor";
 import { TryAndBuyEditor } from "@/components/admin/cms/TryAndBuyEditor";
 import { OffersEditor } from "@/components/admin/cms/OffersEditor";
 import { BrandsEditor } from "@/components/admin/cms/BrandsEditor";
+import { StoreSectionsEditor } from "@/components/admin/cms/StoreSectionsEditor";
 import { TopClicksWidget } from "@/components/admin/cms/TopClicksWidget";
 import type { HomepageConfig } from "@/types";
 
 interface Section { id: string; label: string; enabled: boolean; rank: number }
 
-type SubTab = "sections" | "hero" | "hero_slides" | "l1" | "l2" | "areas" | "price_bands" | "try_and_buy" | "offers" | "brands";
+type SubTab = "sections" | "hero" | "hero_slides" | "l1" | "l2" | "areas" | "price_bands" | "try_and_buy" | "offers" | "brands" | "store_sections";
 
 const SUB_TABS: { id: SubTab; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
   { id: "sections",     label: "Sections",      icon: LayoutTemplate },
@@ -45,6 +46,7 @@ const SUB_TABS: { id: SubTab; label: string; icon: React.ComponentType<{ size?: 
   { id: "try_and_buy",  label: "Try & Buy",     icon: RotateCcw },
   { id: "offers",       label: "Offers",        icon: Sparkles },
   { id: "brands",       label: "Brands",        icon: Tag },
+  { id: "store_sections", label: "Store sections", icon: Store },
 ];
 
 export function CmsTab() {
@@ -81,6 +83,7 @@ export function CmsTab() {
         {tab === "try_and_buy" && <TryAndBuyEditor />}
         {tab === "offers"      && <OffersEditor />}
         {tab === "brands"      && <BrandsEditor />}
+        {tab === "store_sections" && <StoreSectionsEditor />}
       </div>
 
       <TopClicksWidget />

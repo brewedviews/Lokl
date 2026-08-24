@@ -231,6 +231,17 @@ function ShopByCategorySection({ tiles }: { tiles: ResolvedGenderTile[] }) {
 // gendered module list at all, so all three sections cleanly render
 // nothing there — same as they already did for every non-Women L1 before
 // Phase E generalized l1Slug.
+//
+// Phase G4: layers an admin-curated CMS override on top, fetched from
+// GET /store-section-overrides/{l1_id}/{l2_id} ALONGSIDE (never instead
+// of) the real store query above — same (l1_id, l2_id) scoping key
+// stores_in_category() itself matches on, so overrides are correctly
+// isolated per L1+category (see that endpoint's own doc comment in
+// server.py). Two effects: `banner_image`, when set, replaces the
+// section's default L2-image banner; `pinned_stores` (admin display
+// cards, not real stores) render in the SAME horizontal row, after the
+// real stores. The section now only hides when BOTH lists are empty —
+// previously it hid whenever there were zero real stores.
 // ---------------------------------------------------------------------------
 interface StoreModuleSpec { bannerLabel: string; l2Slug: string }
 
@@ -265,17 +276,29 @@ function StoreSectionModule({ l1, spec }: { l1: CategoryNode; spec: StoreModuleS
     enabled: !!l2,
   });
 
-  if (!l2 || !stores || stores.length === 0) return null;
+  const { data: override } = useQuery({
+    queryKey: ["store-section-override", l1.id, l2?.id],
+    queryFn: () => api.catalog.storeSectionOverride(l1.id, l2!.id),
+    enabled: !!l2,
+  });
+
+  if (!l2 || !stores || !override) return null;
+
+  const pinned = override.pinned_stores ?? [];
+  if (stores.length === 0 && pinned.length === 0) return null;
+
+  const bannerImage = override.banner_image || l2.image;
+  const l2Href = `/c/${l1.slug}/${l2.slug}`;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid={`home-store-section-${spec.l2Slug}`}>
       <Link
-        href={`/c/${l1.slug}/${l2.slug}`}
+        href={l2Href}
         className="group relative block aspect-[21/9] sm:aspect-[3/1] rounded-2xl overflow-hidden"
       >
-        {l2.image ? (
+        {bannerImage ? (
           <img
-            src={cloudinaryOptimize(l2.image, "w_1200,q_auto,f_auto")}
+            src={cloudinaryOptimize(bannerImage, "w_1200,q_auto,f_auto")}
             alt={spec.bannerLabel}
             loading="lazy"
             className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
@@ -294,6 +317,19 @@ function StoreSectionModule({ l1, spec }: { l1: CategoryNode; spec: StoreModuleS
           const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
           return <SellerCard key={s.id} s={s} source={`store_${spec.l2Slug}`} openNow={isOpen} closedLabel={closedLabel} />;
         })}
+        {/* Phase G4 — admin-pinned display cards, always after real
+            stores. Not real store records: no logo/eta/product-count/
+            trusted status, and `href` points at the card's own link (or
+            this section's own L2 browse page when unset) rather than a
+            fabricated /store/{id}. */}
+        {pinned.map((p) => (
+          <SellerCard
+            key={p.id}
+            s={{ id: p.id, name: p.name, banner: p.image || null }}
+            source={`store_${spec.l2Slug}_pinned`}
+            href={p.link || l2Href}
+          />
+        ))}
       </div>
     </div>
   );

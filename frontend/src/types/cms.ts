@@ -70,6 +70,33 @@ export interface CmsOffer {
   non_clickable?: boolean;
 }
 
+/** A single admin-curated display card pinned to a store section — NOT a
+ *  real store/merchant record. See CmsStoreSectionOverride. */
+export interface CmsPinnedStoreCard {
+  id: string;
+  name: string;
+  image?: string;
+  link?: string;
+}
+
+/** Footwear/Ethnic/Lingerie-or-Innerwear "Store" section CMS override —
+ *  GET /api/store-section-overrides/:l1_id/:l2_id (public read, always
+ *  well-formed even with no override saved yet),
+ *  GET/PUT/DELETE /api/admin/store-section-overrides[/:l1_id/:l2_id].
+ *  One doc per (l1_id, l2_id) pair. `banner_image` replaces the section's
+ *  default L2-image banner when set; `pinned_stores` render alongside
+ *  (never instead of) the real stores GET /categories/:l1_id/stores
+ *  already returns for that same l2_id. */
+export interface CmsStoreSectionOverride {
+  id?: string;
+  l1_id: string;
+  l2_id: string;
+  banner_image?: string;
+  pinned_stores: CmsPinnedStoreCard[];
+  created_at?: string;
+  updated_at?: string;
+}
+
 export type CmsDestinationKind =
   | "stores"
   | "products"

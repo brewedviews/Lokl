@@ -23,6 +23,12 @@
  * user lat/lng, which the cached stores_in_category rail deliberately
  * doesn't accept (a per-user value can't live in a shared TTL cache); see
  * that endpoint's own doc comment.
+ *
+ * Phase G4: optional `href` override, for CMS-pinned display cards
+ * (StoreSectionModule's admin-curated supplement to its real store list)
+ * that aren't real store records and so have nothing sensible at
+ * `/store/{id}` — every existing call site omits it and keeps the
+ * original `/store/{slug|id}` destination unchanged.
  */
 import Link from "next/link";
 import { Sparkles, BadgeCheck } from "lucide-react";
@@ -53,7 +59,7 @@ interface SellerCardStore {
   trusted?: boolean;
 }
 
-export function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel }: { s: SellerCardStore; source?: string; openNow?: boolean; closedLabel?: string }) {
+export function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel, href }: { s: SellerCardStore; source?: string; openNow?: boolean; closedLabel?: string; /** Phase G4 — overrides the default `/store/{slug|id}` destination; used by CMS-pinned display cards, which aren't real store records. */ href?: string }) {
   const banner = s.banner || (Array.isArray(s.banners) && s.banners[0]) || s.image || null;
   const area = s.area_label || s.area || s.locality || "Bhilai";
   const logisticsParts = [
@@ -68,7 +74,7 @@ export function SellerCard({ s, source = "meet_sellers", openNow = false, closed
     </div>
   );
   return (
-    <Link key={s.id} href={`/store/${s.slug || s.id}`}
+    <Link key={s.id} href={href || `/store/${s.slug || s.id}`}
       onClick={() => { try { trackStoreClick(s.id, s.name, source); } catch {} }}
       data-testid={`${source}-card-${s.id}`}
       className="group flex-shrink-0 w-32 sm:w-36 relative aspect-[3/4] rounded-2xl overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">

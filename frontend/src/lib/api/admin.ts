@@ -11,6 +11,7 @@ import type {
   CmsUploadResponse, AnalyticsAssetType, TopClicksResponse,
   Rider, RiderStatus, Brand, BrandListResponse,
   HeroSlide, HeroSlideCreatePayload,
+  CmsStoreSectionOverride,
 } from "@/types";
 
 export interface AdminCreateRiderPayload {
@@ -105,6 +106,29 @@ export const adminApi = {
 
   deleteOffer: async (id: string): Promise<void> => {
     await apiClient.delete(`/api/admin/offers/${id}`);
+  },
+
+  // ── Store section overrides (Footwear/Ethnic/Lingerie-or-Innerwear
+  // Store CMS layer, Phase G4) — one whole-doc upsert per (l1_id, l2_id),
+  // same shape as saveHomepageConfig, rather than separate pinned-card
+  // CRUD endpoints (see server.py's own admin_put_store_section_override
+  // doc comment for why). ─────────────────────────────────────
+  listStoreSectionOverrides: async (): Promise<CmsStoreSectionOverride[]> => {
+    const r = await apiClient.get<CmsStoreSectionOverride[]>("/api/admin/store-section-overrides");
+    return r.data;
+  },
+
+  saveStoreSectionOverride: async (
+    l1Id: string, l2Id: string, patch: Pick<CmsStoreSectionOverride, "banner_image" | "pinned_stores">,
+  ): Promise<CmsStoreSectionOverride> => {
+    const r = await apiClient.put<CmsStoreSectionOverride>(
+      `/api/admin/store-section-overrides/${l1Id}/${l2Id}`, patch,
+    );
+    return r.data;
+  },
+
+  deleteStoreSectionOverride: async (l1Id: string, l2Id: string): Promise<void> => {
+    await apiClient.delete(`/api/admin/store-section-overrides/${l1Id}/${l2Id}`);
   },
 
   // ── CMS shared helpers ──────────────────────────────────────
