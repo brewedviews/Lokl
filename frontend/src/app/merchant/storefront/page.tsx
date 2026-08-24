@@ -33,6 +33,12 @@ export default function MerchantStorefrontPage() {
   // button OR loads an existing record that already has coords.
   const [pinPlaced, setPinPlaced] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  // Public_ids removed from `banners` in THIS session but not yet confirmed
+  // via Save — see removeBanner's own comment. The actual Cloudinary delete
+  // only fires once save() confirms the storefront was persisted; simply
+  // navigating away without saving (there's no explicit discard button on
+  // this page) leaves this queue un-actioned, so nothing gets deleted.
+  const [pendingDeletePublicIds, setPendingDeletePublicIds] = useState<string[]>([]);
 
   useEffect(() => {
     api.merchant.getStorefront().then((s) => {
@@ -89,6 +95,10 @@ export default function MerchantStorefrontPage() {
       setUploading(false);
     }
   };
+  // Removes a banner from local form state only — the Cloudinary asset is
+  // NOT deleted here (that was the bug: deleting on click regardless of
+  // whether the page was ever saved could orphan the still-persisted
+  // storefront's logo/banner reference). Queued instead; see save().
   const removeBanner = (idx: number) => {
     const pid = form.banner_public_ids[idx];
     setForm((f) => ({
@@ -96,7 +106,7 @@ export default function MerchantStorefrontPage() {
       banners: f.banners.filter((_, i) => i !== idx),
       banner_public_ids: f.banner_public_ids.filter((_, i) => i !== idx),
     }));
-    if (pid) void deleteUploadedImage(pid);
+    if (pid) setPendingDeletePublicIds((ids) => [...ids, pid]);
   };
 
   // iter-29 (Item 2) — area pick auto-fills pincode + seeds the map centre.
@@ -146,6 +156,10 @@ export default function MerchantStorefrontPage() {
         upi_qr_url: form.upi_qr_url || "",
         weekly_off: form.weekly_off,
       } as unknown as Parameters<typeof api.merchant.saveStorefront>[0]);
+      // Only NOW — once the storefront is confirmed persisted — actually
+      // delete any banners the merchant removed this session.
+      for (const pid of pendingDeletePublicIds) void deleteUploadedImage(pid);
+      setPendingDeletePublicIds([]);
       toast.success("Storefront saved");
       router.replace("/merchant/products");
     } catch (e) { toast.error(getErrorMessage(e)); }

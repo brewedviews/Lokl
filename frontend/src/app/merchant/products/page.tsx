@@ -62,6 +62,14 @@ export default function MerchantProductsPage() {
   const [editingPrice, setEditingPrice] = useState<string | null>(null);
   const [priceInput, setPriceInput] = useState("");
   const [step, setStep] = useState(1);
+  // Public_ids the merchant has removed from the form in THIS edit session
+  // but not yet confirmed via Save — see removeImage's own comment for why
+  // the actual Cloudinary delete is deferred to submit() instead of firing
+  // the moment the "X" is clicked (that eager-delete was a real bug: it
+  // deleted the asset regardless of whether the edit was ever saved or
+  // discarded, silently orphaning still-referenced product images whenever
+  // a merchant removed-then-abandoned an edit).
+  const [pendingDeletePublicIds, setPendingDeletePublicIds] = useState<string[]>([]);
   const bulkInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = async () => {
@@ -93,14 +101,20 @@ export default function MerchantProductsPage() {
     finally { setImageBusy(false); }
   };
 
-  const removeImage = async (idx: number) => {
+  // Removes an image from local form state only — the Cloudinary asset
+  // itself is NOT deleted here. It's queued in pendingDeletePublicIds and
+  // only actually deleted once submit() confirms the edit was saved (see
+  // that function). Removing then discarding (backdrop/X close, or the
+  // "Discard changes?" confirm) clears the queue without ever calling
+  // Cloudinary — the whole point of deferring this.
+  const removeImage = (idx: number) => {
     const pid = form.image_public_ids[idx];
     setForm((f) => ({
       ...f,
       images: f.images.filter((_, i) => i !== idx),
       image_public_ids: f.image_public_ids.filter((_, i) => i !== idx),
     }));
-    if (pid) void deleteUploadedImage(pid);
+    if (pid) setPendingDeletePublicIds((ids) => [...ids, pid]);
   };
 
   const toggleSize = (sz: string) => setForm((f) => {
@@ -147,6 +161,13 @@ export default function MerchantProductsPage() {
         await api.merchant.createProduct(body as Partial<Product>);
         toast.success("Product created");
       }
+      // Only NOW — once the edit is confirmed persisted — actually delete
+      // any images the merchant removed during this session. Fire-and-
+      // forget is fine here (same as the old eager call): the product
+      // itself no longer references these, so a failed delete just leaves
+      // an unused Cloudinary asset, not a broken customer-facing image.
+      for (const pid of pendingDeletePublicIds) void deleteUploadedImage(pid);
+      setPendingDeletePublicIds([]);
       setOpenAdd(false); setEditingId(null); setForm(blankForm); setCustomSizesInput(""); setStep(1);
       void load();
     } catch (e) { toast.error(getErrorMessage(e)); }
@@ -191,6 +212,7 @@ export default function MerchantProductsPage() {
         size_type: sizeType,
       });
       setStep(1);
+      setPendingDeletePublicIds([]);
       setOpenAdd(true);
     } catch (e) { toast.error(getErrorMessage(e)); }
   };
@@ -274,7 +296,7 @@ export default function MerchantProductsPage() {
               onChange={(e) => { handleBulkUpload(e.target.files?.[0]); if (bulkInputRef.current) bulkInputRef.current.value = ""; }} />
           </label>
           <button
-            onClick={() => { setEditingId(null); setForm(blankForm); setStep(1); setOpenAdd(true); }}
+            onClick={() => { setEditingId(null); setForm(blankForm); setStep(1); setPendingDeletePublicIds([]); setOpenAdd(true); }}
             data-testid="add-product-btn"
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#E68910] text-white text-sm font-semibold hover:bg-[#C9770E]"
           >
@@ -412,7 +434,10 @@ export default function MerchantProductsPage() {
           <div
             className="fixed inset-0 bg-black/40 z-[55]"
             onClick={() => {
-              if (confirm("Discard changes?")) { setOpenAdd(false); setStep(1); }
+              // Discarding drops the pending-delete queue untouched — any
+              // images removed during this session stay exactly as they
+              // were in Cloudinary, since nothing was actually saved.
+              if (confirm("Discard changes?")) { setOpenAdd(false); setStep(1); setPendingDeletePublicIds([]); }
             }}
           />
 
@@ -429,7 +454,7 @@ export default function MerchantProductsPage() {
                 {editingId ? "Edit product" : "Add product"}
               </h2>
               <button
-                onClick={() => { setOpenAdd(false); setStep(1); }}
+                onClick={() => { setOpenAdd(false); setStep(1); setPendingDeletePublicIds([]); }}
                 className="w-8 h-8 rounded-full bg-[#F5F5F5] flex items-center justify-center text-[#595959]"
               >
                 ✕
