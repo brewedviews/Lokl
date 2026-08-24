@@ -68,6 +68,11 @@ export interface CmsOffer {
   expires_at?: string | null;
   paused?: boolean;
   non_clickable?: boolean;
+  /** G6 — event/campaign name (e.g. "Raksha Bandhan Special"), rendered as
+   *  the offer strip's eyebrow. Falls back to "Limited time" when unset —
+   *  same additive-optional-field pattern HeroSlide's subheadline/
+   *  highlight_text already used. */
+  eyebrow?: string;
 }
 
 /** A single admin-curated display card pinned to a store section — NOT a
@@ -93,6 +98,17 @@ export interface CmsStoreSectionOverride {
   l2_id: string;
   banner_image?: string;
   pinned_stores: CmsPinnedStoreCard[];
+  /** G6 — admin-controlled section heading; empty falls back to the
+   *  frontend's own default label for this module (unchanged pre-G6
+   *  behavior). Decouples what's SHOWN from the L2 slug used as the
+   *  storage/aggregation key, which is what lets e.g. Kids' third module
+   *  be titled anything (not forced to "Lingerie"). */
+  display_title?: string;
+  /** G6 — "real_plus_editorial" (default: real stores_in_category()
+   *  results first, then pinned cards — the original G4 behavior) or
+   *  "editorial_only" (skip real-store aggregation, show only
+   *  pinned_stores) — lets an admin make a module purely promotional. */
+  mode?: "real_plus_editorial" | "editorial_only";
   created_at?: string;
   updated_at?: string;
 }

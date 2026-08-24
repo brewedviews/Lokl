@@ -56,7 +56,13 @@ _CARD_IMG_FOOTWEAR_1 = "https://images.unsplash.com/photo-1543163521-1bf539c55dd
 _CARD_IMG_FOOTWEAR_2 = "https://images.unsplash.com/photo-1549298916-b41d501d3772?w=600&q=80"
 _CARD_IMG_FOOTWEAR_3 = "https://images.unsplash.com/photo-1560769629-975ec94e6a86?w=600&q=80"
 _CARD_IMG_ETHNIC_1 = "https://images.unsplash.com/photo-1610189012906-4c0aa9b9781e?w=600&q=80"
-_CARD_IMG_ETHNIC_2 = "https://images.unsplash.com/photo-1601925260368-ae2f83cf8b7f?w=600&q=80"
+# Content-quality fix (caught during G6's own audit): the original value
+# here loaded fine but was actually a photo of rolled-up yoga mats, not
+# ethnic wear. Replaced with the real, already-vetted asset this codebase
+# already uses as l2-women-ethnic's own category image (seed_data.py) —
+# same reuse-not-a-new-image pattern the Bloom Intimates fix used for the
+# Lingerie section's own equivalent mismatch.
+_CARD_IMG_ETHNIC_2 = "https://images.unsplash.com/photo-1597983073750-16f5ded1321f?w=600&q=80"
 _CARD_IMG_ETHNIC_3 = "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600&q=80"
 _CARD_IMG_LINGERIE_1 = "https://images.unsplash.com/photo-1571513722275-4b41940f54b8?w=600&q=80"
 _CARD_IMG_LINGERIE_2 = "https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=600&q=80"

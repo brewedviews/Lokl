@@ -2345,6 +2345,10 @@ async def admin_create_offer(payload: dict, admin: dict = Depends(require_admin)
         "id": f"off-{uuid.uuid4().hex[:8]}",
         "title": payload.get("title", "").strip(),
         "subtitle": payload.get("subtitle", "").strip(),
+        # G6 — event/campaign name (e.g. "Raksha Bandhan Special"), the
+        # offer strip's eyebrow. Same additive-optional-field shape
+        # HeroSlide's subheadline/highlight_text already used.
+        "eyebrow": payload.get("eyebrow", "").strip(),
         "image": payload.get("image", ""),
         "cta_label": payload.get("cta_label", "Shop now"),
         "cta_link": payload.get("cta_link", "/products"),
@@ -2499,6 +2503,8 @@ ALLOWED_OFFER_FIELDS = {
     # iter-27 (Item 7): admin can pause an offer (hides from public feed)
     # or make it non-clickable (renders as <div>, no link).
     "paused", "non_clickable",
+    # G6 — event/campaign eyebrow, see admin_create_offer's own comment.
+    "eyebrow",
 }
 
 
@@ -3096,8 +3102,15 @@ async def get_store_section_override(l1_id: str, l2_id: str):
     "always return something render-ready" convention."""
     doc = await db.store_section_overrides.find_one({"l1_id": l1_id, "l2_id": l2_id}, {"_id": 0})
     if not doc:
-        return {"l1_id": l1_id, "l2_id": l2_id, "banner_image": "", "pinned_stores": []}
+        return {"l1_id": l1_id, "l2_id": l2_id, "banner_image": "", "pinned_stores": [], "display_title": "", "mode": "real_plus_editorial"}
     doc["pinned_stores"] = doc.get("pinned_stores") or []
+    # G6 — both optional, backward-compatible: a doc saved before this
+    # phase simply has neither key, and these defaults reproduce its exact
+    # pre-G6 rendering (empty display_title -> frontend falls back to its
+    # own default heading; "real_plus_editorial" -> real stores + pinned,
+    # the original G4 behavior).
+    doc["display_title"] = doc.get("display_title") or ""
+    doc["mode"] = doc.get("mode") or "real_plus_editorial"
     return doc
 
 
@@ -3117,12 +3130,19 @@ async def admin_put_store_section_override(l1_id: str, l2_id: str, payload: dict
     actually serve)."""
     if l1_id not in L2_BY_L1 or l2_id not in [s["id"] for s in L2_BY_L1[l1_id]]:
         raise HTTPException(400, "Invalid l1_id/l2_id combination")
+    mode = str(payload.get("mode") or "real_plus_editorial")
+    if mode not in ("real_plus_editorial", "editorial_only"):
+        mode = "real_plus_editorial"
     now = datetime.now(timezone.utc).isoformat()
     update = {
         "l1_id": l1_id,
         "l2_id": l2_id,
         "banner_image": str(payload.get("banner_image") or ""),
         "pinned_stores": _clean_pinned_stores(payload.get("pinned_stores")),
+        # G6 — see get_store_section_override's own comment for the
+        # backward-compat defaults an unset doc falls back to.
+        "display_title": str(payload.get("display_title") or ""),
+        "mode": mode,
         "updated_at": now,
     }
     await db.store_section_overrides.update_one(
@@ -3203,7 +3223,6 @@ DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "shop_by_brand", "label": "Shop by Brand",            "enabled": True,  "rank": 140},
     {"id": "merchant_cta",  "label": "Open a store",             "enabled": True,  "rank": 170},
     {"id": "offers",        "label": "Offers for you",           "enabled": True,  "rank": 180},
-    {"id": "just_in",       "label": "Just In",                  "enabled": False, "rank": 190},
     {"id": "trending",      "label": "Trending now",             "enabled": False, "rank": 200},
     {"id": "customer_love", "label": "Loved by Bhilai shoppers", "enabled": False, "rank": 210},
 ]

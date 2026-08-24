@@ -13,7 +13,7 @@ import { DestinationPicker } from "./DestinationPicker";
 import type { CmsOffer } from "@/types";
 
 const BLANK_OFFER: Partial<CmsOffer> = {
-  title: "New offer", subtitle: "", image: "",
+  title: "New offer", subtitle: "", image: "", eyebrow: "",
   cta_label: "Shop now", cta_link: "", redirect_url: "",
   background: "#0A1F5C", rank: 100, published: false,
 };
@@ -35,7 +35,7 @@ export function OffersEditor() {
     setBusy((b) => ({ ...b, [row.id]: true }));
     try {
       const r = await adminApi.updateOffer(row.id, {
-        title: row.title, subtitle: row.subtitle, image: row.image,
+        title: row.title, subtitle: row.subtitle, image: row.image, eyebrow: row.eyebrow || "",
         cta_label: row.cta_label, cta_link: row.cta_link, redirect_url: row.redirect_url || "",
         background: row.background, rank: row.rank, published: row.published,
         paused: !!row.paused, non_clickable: !!row.non_clickable,
@@ -120,6 +120,13 @@ export function OffersEditor() {
             />
             <div className="space-y-2.5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <label className="block">
+                  <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Eyebrow / event name</span>
+                  <input type="text" value={o.eyebrow || ""} onChange={(e) => patch(o.id, { eyebrow: e.target.value })}
+                    placeholder="Limited time"
+                    data-testid={`cms-offer-eyebrow-${o.id}`}
+                    className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none" />
+                </label>
                 <label className="block">
                   <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Title</span>
                   <input type="text" value={o.title} onChange={(e) => patch(o.id, { title: e.target.value })}

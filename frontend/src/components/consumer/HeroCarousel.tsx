@@ -114,11 +114,23 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
 
   useEffect(() => { idxRef.current = idx; }, [idx]);
 
+  // G6 fix: this used to call `.scrollIntoView({ block: "nearest" })` on the
+  // slide element itself. When the hero was scrolled off-screen (user
+  // scrolled down the page) and autoplay fired, the browser had to move the
+  // PAGE's own vertical scroll to satisfy "nearest" — the element had zero
+  // visibility, so "nearest" still meant "bring it minimally into view",
+  // i.e. scroll the whole page back toward the hero. Scrolling the
+  // container's own `scrollLeft` directly (not scrollIntoView on a child)
+  // only ever touches this element's internal horizontal scroll — it can't
+  // touch the page's vertical position, structurally, regardless of where
+  // the hero sits in the viewport.
   const goTo = (i: number) => {
     const el = scrollRef.current;
     const clamped = ((i % slides.length) + slides.length) % slides.length;
-    if (!el || !el.children[clamped]) { setIdx(clamped); return; }
-    (el.children[clamped] as HTMLElement).scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
+    setIdx(clamped);
+    if (!el || !el.children[0]) return;
+    const itemWidth = (el.children[0] as HTMLElement).offsetWidth;
+    el.scrollTo({ left: itemWidth * clamped, behavior: "smooth" });
   };
 
   const stopAutoplay = () => {

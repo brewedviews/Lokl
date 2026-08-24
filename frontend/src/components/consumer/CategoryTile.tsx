@@ -61,6 +61,11 @@ export interface CategoryTileProps {
   testId?: string;
   /** For impression-observer refs (CategoryTileRow only). */
   tileRef?: (el: HTMLAnchorElement | HTMLButtonElement | null) => void;
+  /** G6 — small overlay pill, top-left, "generous" variant only. Lets a
+   *  caller (ShopByAreaSection's store-count pill) reuse this component
+   *  verbatim instead of re-implementing the generous-variant markup just
+   *  to add one extra badge. No effect on "dense". */
+  badge?: ReactNode;
 }
 
 export function CategoryTile({
@@ -77,6 +82,7 @@ export function CategoryTile({
   imageLoading = "lazy",
   testId,
   tileRef,
+  badge,
 }: CategoryTileProps) {
   const Wrapper = href ? Link : "button";
   const wrapperProps = href
@@ -103,6 +109,7 @@ export function CategoryTile({
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
         {active && <div className="absolute inset-0 ring-2 ring-inset ring-[#E68910] rounded-2xl" />}
+        {badge && <div className="absolute top-2 left-2">{badge}</div>}
         <span className="absolute bottom-2.5 left-2.5 right-2.5 text-white font-display font-bold text-sm leading-tight line-clamp-2">
           {label}
         </span>

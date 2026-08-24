@@ -114,7 +114,7 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
 
   return (
     <div
-      className={`group relative bg-white rounded-2xl overflow-hidden transition ${
+      className={`group relative bg-white rounded-2xl overflow-hidden transition h-full flex flex-col ${
         isCompact
           ? "shadow-[0_1px_4px_rgba(26,43,76,0.08)] hover:shadow-[0_4px_12px_rgba(26,43,76,0.12)]"
           : "shadow-[0_2px_8px_rgba(26,43,76,0.06)] hover:shadow-[0_8px_24px_rgba(26,43,76,0.12)]"
@@ -172,10 +172,13 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
             </div>
           )}
 
-          {/* Product name */}
+          {/* Product name — min-h reserves 2 lines' worth of space
+              regardless of actual line count, so a short name and a long
+              name produce the same box height (line-clamp-2 alone only
+              caps the max, it doesn't reserve the min). */}
           <div
             className={`font-semibold text-[#0A1F5C] leading-tight ${
-              isCompact ? "text-[11px] truncate" : "text-[12px] line-clamp-2"
+              isCompact ? "text-[11px] truncate" : "text-[12px] line-clamp-2 min-h-[2.4em]"
             }`}
           >
             {p.name}
@@ -199,9 +202,9 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
               {storeBadge === "Away" && (
                 <div className="text-[10px] font-semibold text-brand-accent">Back soon</div>
               )}
-              {storeBadge === "Closed" && storeOpensAt && (
+              {storeBadge === "Closed" && (
                 <p className="text-[11px] text-[#9CA3AF] truncate">
-                  Available from {storeOpensAt.replace(/^Opens\s+(at\s+)?/i, "")}
+                  {storeOpensAt ? `Available from ${storeOpensAt.replace(/^Opens\s+(at\s+)?/i, "")}` : "Closed"}
                 </p>
               )}
               {storeBadge === "Store Offline" && (
@@ -223,8 +226,11 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
         </div>
       </Link>
 
-      {/* Cart controls */}
-      <div className={isCompact ? "px-1.5 pb-1.5 pt-1" : "px-2 pb-2.5"}>
+      {/* Cart controls — mt-auto pushes this to the bottom of the now
+          h-full card, absorbing whatever stretch height a taller sibling
+          in the same rail/grid row contributes, so the CTA/qty control
+          lands at the same Y position across every card in a row. */}
+      <div className={`mt-auto ${isCompact ? "px-1.5 pb-1.5 pt-1" : "px-2 pb-2.5"}`}>
         {pickingSize && qty === 0 ? (
           <div
             data-testid={`p-card-sizes-${p.id}`}

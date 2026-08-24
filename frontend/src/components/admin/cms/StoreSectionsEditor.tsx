@@ -6,12 +6,18 @@
  * Store sections (StoreSectionModule in L1PageClient.tsx).
  *
  * Deliberately narrow, not a generic CMS: the module list below mirrors
- * L1PageClient's own WOMEN_STORE_MODULES/MEN_STORE_MODULES exactly
- * (same three L2 slugs per gender) because that's the ONLY place this
- * override is ever consumed — building UI for L2s the consumer component
- * never renders would be pure noise. If that module list ever changes,
- * both places need the coordinated edit, same as SHOP_BY_CATEGORY_TILES's
- * own hardcoded spec already does.
+ * L1PageClient's own WOMEN_STORE_MODULES/MEN_STORE_MODULES/
+ * KIDS_STORE_MODULES exactly (same three L2 slugs per L1) because that's
+ * the ONLY place this override is ever consumed — building UI for L2s the
+ * consumer component never renders would be pure noise. If that module
+ * list ever changes, both places need the coordinated edit, same as
+ * SHOP_BY_CATEGORY_TILES's own hardcoded spec already does.
+ *
+ * G6: `display_title` and `mode` make the module's TITLE and whether it
+ * shows real stores at all fully admin-controlled — only the underlying
+ * L2 "slot" (which (l1_id,l2_id) doc this is) stays code-defined, as the
+ * storage/real-store-aggregation join key. This is what lets Kids' third
+ * module be titled anything other than "Lingerie" without a code change.
  *
  * One doc per (l1_id, l2_id), saved as a single whole-doc PUT (banner +
  * the entire pinned_stores array together) rather than per-card CRUD —
@@ -43,9 +49,20 @@ const MEN_MODULES: ModuleSpec[] = [
   { label: "Innerwear Store", l2Slug: "innerwear" },
 ];
 
+// G6 — Kids has no "lingerie"/"innerwear" L2 in the taxonomy, so its
+// third module is Accessories instead — a structural placement only, not
+// a semantic requirement, since `display_title` below lets an admin
+// rename any module to anything (e.g. "Trending Kids Stores").
+const KIDS_MODULES: ModuleSpec[] = [
+  { label: "Footwear", l2Slug: "footwear" },
+  { label: "Ethnic", l2Slug: "ethnic" },
+  { label: "Accessories", l2Slug: "accessories" },
+];
+
 const L1_OPTIONS: { slug: string; label: string; modules: ModuleSpec[] }[] = [
   { slug: "women", label: "Women", modules: WOMEN_MODULES },
   { slug: "men", label: "Men", modules: MEN_MODULES },
+  { slug: "kids", label: "Kids", modules: KIDS_MODULES },
 ];
 
 const blankCard = (): CmsPinnedStoreCard => ({ id: `new-${Math.random().toString(36).slice(2, 10)}`, name: "", image: "", link: "" });
@@ -59,6 +76,8 @@ export function StoreSectionsEditor() {
 
   const [bannerImage, setBannerImage] = useState("");
   const [pinnedStores, setPinnedStores] = useState<CmsPinnedStoreCard[]>([]);
+  const [displayTitle, setDisplayTitle] = useState("");
+  const [mode, setMode] = useState<"real_plus_editorial" | "editorial_only">("real_plus_editorial");
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -88,6 +107,8 @@ export function StoreSectionsEditor() {
   useEffect(() => {
     setBannerImage(activeOverride?.banner_image || "");
     setPinnedStores(activeOverride?.pinned_stores ? activeOverride.pinned_stores.map((c) => ({ ...c })) : []);
+    setDisplayTitle(activeOverride?.display_title || "");
+    setMode(activeOverride?.mode === "editorial_only" ? "editorial_only" : "real_plus_editorial");
     setDirty(false);
   }, [activeOverride]);
 
@@ -109,7 +130,7 @@ export function StoreSectionsEditor() {
     setBusy(true);
     try {
       const saved = await adminApi.saveStoreSectionOverride(activeL1.id, activeL2.id, {
-        banner_image: bannerImage, pinned_stores: clean,
+        banner_image: bannerImage, pinned_stores: clean, display_title: displayTitle, mode,
       });
       setOverrides((rows) => {
         const others = rows.filter((r) => !(r.l1_id === activeL1.id && r.l2_id === activeL2.id));
@@ -199,6 +220,44 @@ export function StoreSectionsEditor() {
                 {busy ? "Saving…" : dirty ? "Save" : "Saved"}
               </button>
             </div>
+          </div>
+
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Section title</span>
+            <input
+              type="text" value={displayTitle} onChange={(e) => { setDisplayTitle(e.target.value); setDirty(true); }}
+              placeholder={`Defaults to "${activeModules.find((m) => m.l2Slug === activeL2Slug)?.label} Stores"`}
+              data-testid="cms-store-section-title"
+              className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none"
+            />
+            <p className="text-[10px] text-[#94A3B8] mt-1">
+              What shoppers see as this module&apos;s heading — independent of the category slot it&apos;s stored under, so this can be any editorial title (e.g. &quot;Trending Kids Stores&quot;), not necessarily the category&apos;s literal name.
+            </p>
+          </label>
+
+          <div>
+            <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C] mb-1 block">Content</span>
+            <div className="flex gap-1.5">
+              {([
+                { key: "real_plus_editorial", label: "Real stores + editorial cards" },
+                { key: "editorial_only", label: "Editorial cards only" },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => { setMode(opt.key); setDirty(true); }}
+                  data-testid={`cms-store-section-mode-${opt.key}`}
+                  className={`px-3 py-1.5 rounded-full text-[11px] font-semibold border ${
+                    mode === opt.key ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white text-[#595959] border-[#E5E2DC]"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-[#94A3B8] mt-1">
+              &quot;Editorial cards only&quot; hides real stores with products here, showing just the pinned cards below — useful for a purely promotional module.
+            </p>
           </div>
 
           <ImageUploadField

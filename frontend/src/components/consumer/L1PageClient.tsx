@@ -85,7 +85,6 @@ import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { SellerCard } from "@/components/consumer/SellerCard";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
-import { JustInSection } from "@/components/consumer/JustInSection";
 import { TrustStickers } from "@/components/consumer/TrustStickers";
 import { CategoryTile } from "@/components/consumer/CategoryTile";
 import { Skeleton } from "@/components/ui/Skeleton";
@@ -97,7 +96,7 @@ import {
   trackOfferClick, trackMerchantCTAClick, observeImpression,
 } from "@/lib/analytics";
 
-interface OfferDoc { id: string; title: string; subtitle?: string; description?: string; code?: string; image?: string; cta_label?: string; cta_link?: string; background?: string }
+interface OfferDoc { id: string; title: string; subtitle?: string; description?: string; code?: string; image?: string; cta_label?: string; cta_link?: string; background?: string; eyebrow?: string }
 interface TestimonialDoc { id: string; name: string; city: string; quote?: string; message?: string; rating?: number; avatar?: string }
 interface SectionDoc { id: string; label: string; enabled: boolean; rank: number }
 interface HomeProductsRail { store_id: string; store_name: string; store_slug: string; store_banner?: string; store_tagline?: string; products: ProductCardType[] }
@@ -119,7 +118,10 @@ interface HomeProductsResponse { store_rails: HomeProductsRail[]; trending: Prod
 // "browse_all" CTA strip (the separate inline "Browse all {L1}" product
 // grid rendered by BrowseGridBlock below is NOT part of this ranked list
 // at all — see that component's own comment — so it's unaffected),
-// try_and_buy, for_her, and for_him.
+// try_and_buy, for_her, and for_him. G6 removes "just_in" the same way —
+// it was already enabled:false everywhere, but the component/id/route
+// still existed; see JustInSection's own git history for the removed
+// component (this section used to fetch GET /api/feed/just-in).
 //
 // Section-id cheat sheet (each toggle's real-world meaning — id alone
 // doesn't explain L1/gender targeting):
@@ -161,7 +163,6 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "offers",          label: "Offers for you",           enabled: true,  rank: 180 },
 
   // Optional / Future
-  { id: "just_in",        label: "Just In",                   enabled: false, rank: 190 },
   { id: "trending",       label: "Trending now",              enabled: false, rank: 200 },
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 210 },
 ];
@@ -169,17 +170,20 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
 interface ResolvedGenderTile { key: string; href: string; image: string | null; label: string; minPrice: number | null }
 
 // ---------------------------------------------------------------------------
-// "Shop by Category" — a curated 2x3 grid using CategoryTile's "generous"
+// "Shop by Category" — a curated grid using CategoryTile's "generous"
 // density. Redesign Phase E: `l1Slug` is now the PAGE's own resolved L1
-// slug (was hardcoded "women" pre-unification) — Dresses/Tops/Bottoms/
-// Footwear/Ethnic/Lingerie is still a Women-shaped spec list (that's what
-// the locked design approved), so on Men/Kids only the slugs that happen
-// to match (e.g. "footwear") render — fewer tiles, never a crash, same
-// per-tile-drop mechanism this always had.
+// slug (was hardcoded "women" pre-unification). G6: each L1 now has its
+// OWN spec list (was one Women-shaped list reused everywhere, so Men/Kids
+// only rendered whichever slugs happened to coincidentally match, e.g.
+// "footwear") — activates the real, requested Men (6) and Kids (3) sets
+// against the actual taxonomy (checked live in Mongo before writing this,
+// not assumed). Kids intentionally has 3 entries, not 6 — the grid below
+// is `grid-cols-3`, so 3 tiles fill one full row naturally; no placeholder
+// tiles are added just to force a 2-row layout.
 // ---------------------------------------------------------------------------
 interface ShopByCategorySpec { label: string; l2Slug: string }
 
-const SHOP_BY_CATEGORY_TILES: ShopByCategorySpec[] = [
+const WOMEN_CATEGORY_TILES: ShopByCategorySpec[] = [
   { label: "Dresses",  l2Slug: "dresses" },
   { label: "Tops",     l2Slug: "tops" },
   { label: "Bottoms",  l2Slug: "bottoms" },
@@ -188,11 +192,27 @@ const SHOP_BY_CATEGORY_TILES: ShopByCategorySpec[] = [
   { label: "Lingerie", l2Slug: "lingerie" },
 ];
 
+const MEN_CATEGORY_TILES: ShopByCategorySpec[] = [
+  { label: "T-Shirts",   l2Slug: "tshirts" },
+  { label: "Jeans",      l2Slug: "jeans" },
+  { label: "Shirts",     l2Slug: "shirts" },
+  { label: "Ethnic",     l2Slug: "ethnic-wear" },
+  { label: "Footwear",   l2Slug: "footwear" },
+  { label: "Inner Wear", l2Slug: "innerwear" },
+];
+
+const KIDS_CATEGORY_TILES: ShopByCategorySpec[] = [
+  { label: "Girls Clothing",      l2Slug: "girls" },
+  { label: "Boys Clothing",       l2Slug: "boys" },
+  { label: "Infant and Toddler",  l2Slug: "infant" },
+];
+
 function resolveShopByCategoryTiles(categories: CategoryNode[], l1Slug: string): ResolvedGenderTile[] {
   const l1 = categories.find((c) => c.slug === l1Slug);
   if (!l1) return [];
+  const specs = l1Slug === "men" ? MEN_CATEGORY_TILES : l1Slug === "kids" ? KIDS_CATEGORY_TILES : WOMEN_CATEGORY_TILES;
   const out: ResolvedGenderTile[] = [];
-  for (const spec of SHOP_BY_CATEGORY_TILES) {
+  for (const spec of specs) {
     const l2 = (l1.l2 ?? []).find((s) => s.slug === spec.l2Slug);
     if (!l2) continue;
     out.push({ key: l2.id, href: `/c/${l1.slug}/${l2.slug}`, image: l2.image || null, label: spec.label, minPrice: l2.min_price ?? null });
@@ -266,6 +286,19 @@ const MEN_STORE_MODULES: StoreModuleSpec[] = [
   { bannerLabel: "Innerwear", heading: "Innerwear Stores", l2Slug: "innerwear" },
 ];
 
+// G6 — Kids has no "lingerie" L2 (none exists in the taxonomy, checked
+// live before writing this), so its third module deliberately isn't one.
+// `heading` here is only ever a FALLBACK now (see StoreSectionModule
+// below) — an admin can rename any of these three via the CMS's
+// `display_title` without touching code, which is what makes the third
+// slot genuinely editorial rather than hardcoded to old gendered
+// semantics like the pre-G6 model was.
+const KIDS_STORE_MODULES: StoreModuleSpec[] = [
+  { bannerLabel: "Footwear",    heading: "Footwear Stores",    l2Slug: "footwear" },
+  { bannerLabel: "Ethnic",      heading: "Ethnic Stores",      l2Slug: "ethnic" },
+  { bannerLabel: "Accessories", heading: "Accessories Stores", l2Slug: "accessories" },
+];
+
 interface GenderedSectionStore {
   id: string; slug?: string; name: string;
   logo?: string; banner?: string; banners?: string[];
@@ -293,11 +326,23 @@ function StoreSectionModule({ l1, spec }: { l1: CategoryNode; spec: StoreModuleS
 
   if (!l2 || !stores || !override) return null;
 
+  // G6 — `mode: "editorial_only"` skips real stores_in_category() results
+  // entirely, showing only the admin's pinned cards (e.g. a Kids module an
+  // admin wants to be purely promotional, unconnected to real merchant
+  // inventory in that L2). Default ("real_plus_editorial") is the
+  // original G4 behavior: real stores first, pinned cards after.
+  const editorialOnly = override.mode === "editorial_only";
+  const realStores = editorialOnly ? [] : stores;
   const pinned = override.pinned_stores ?? [];
-  if (stores.length === 0 && pinned.length === 0) return null;
+  if (realStores.length === 0 && pinned.length === 0) return null;
 
   const bannerImage = override.banner_image || l2.image;
   const l2Href = `/c/${l1.slug}/${l2.slug}`;
+  // G6 — display_title is admin-controlled; spec.heading is only the
+  // fallback (unset override = identical to pre-G6 behavior). This is
+  // what makes "Kids' third module" an editorial choice rather than a
+  // hardcoded category label.
+  const heading = override.display_title || spec.heading;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid={`home-store-section-${spec.l2Slug}`}>
@@ -332,10 +377,10 @@ function StoreSectionModule({ l1, spec }: { l1: CategoryNode; spec: StoreModuleS
             <span className="w-1.5 h-1.5 rounded-full bg-brand-accent" />
             <p className="text-[10px] font-bold text-brand-primary/60 uppercase tracking-[0.15em]">Bhilai stores</p>
           </div>
-          <h2 className="font-display font-bold text-brand-primary text-xl sm:text-2xl leading-tight mb-3">{spec.heading}</h2>
+          <h2 className="font-display font-bold text-brand-primary text-xl sm:text-2xl leading-tight mb-3">{heading}</h2>
 
           <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-            {stores.map((s) => {
+            {realStores.map((s) => {
               const isOpen = s.availability_rank === 1;
               const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
               return <SellerCard key={s.id} s={s} source={`store_${spec.l2Slug}`} openNow={isOpen} closedLabel={closedLabel} />;
@@ -369,7 +414,7 @@ function StoreSectionModule({ l1, spec }: { l1: CategoryNode; spec: StoreModuleS
 function GenderedStoreSection({ categories, l1Slug, index }: { categories: CategoryNode[]; l1Slug: string; index: number }) {
   const l1 = categories.find((c) => c.slug === l1Slug);
   if (!l1) return null;
-  const modules = l1Slug === "men" ? MEN_STORE_MODULES : l1Slug === "women" ? WOMEN_STORE_MODULES : [];
+  const modules = l1Slug === "men" ? MEN_STORE_MODULES : l1Slug === "women" ? WOMEN_STORE_MODULES : l1Slug === "kids" ? KIDS_STORE_MODULES : [];
   const spec = modules[index];
   if (!spec) return null;
   return <StoreSectionModule l1={l1} spec={spec} />;
@@ -500,7 +545,18 @@ function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
   return (
     <div className="pt-8" data-testid="home-shop_by_store">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-3">
-        <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">Shop by Store</h2>
+        {/* G6 — makes the "local store discovery" proposition explicit in
+            copy (same eyebrow treatment StoreSectionModule already uses,
+            reused here) rather than leaving it to the photo alone; title
+            changed from the generic "Shop by Store" to name the
+            proposition directly. Card mechanics/imagery unchanged — real
+            store banners already ARE the correct "local retail" image,
+            per the explicit "no abstract/decorative image" instruction. */}
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-brand-accent" />
+          <p className="text-[10px] font-bold text-brand-primary/60 uppercase tracking-[0.15em]">Discover fashion from Bhilai stores around you</p>
+        </div>
+        <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight">Shop local stores</h2>
       </div>
       <div className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory gap-3 px-[12.5vw] sm:px-[20%]">
         {entries.map((s) => (
@@ -533,43 +589,35 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_area">
       <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-3">Shop by Area</h2>
 
-      <div className="grid grid-cols-3 gap-3">
+      {/* G6 — was a two-element stack (image box + a separate label row
+          below it), hand-tuned per-breakpoint to APPROXIMATE Shop by
+          Category's own aspect-[3/4] single-box tile. No aspect ratio can
+          match a 1-element card from a 2-element stack at every
+          breakpoint at once — this now renders the exact same
+          CategoryTile density="generous" component Shop by Category uses
+          (label baked into the image, not below it), so dimensions are
+          identical by construction, not by tuning. The store-count pill
+          moves into CategoryTile's own `badge` slot (added for this). */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         {areas.map((a) => (
-          <Link key={a.slug} href={`/stores?area=${a.slug}`} data-testid={`shop-by-area-tile-${a.slug}`}
-            className="group flex flex-col gap-1.5 active:scale-95 transition">
-            {/* Not aspect-square — visual-refinement pass: calibrated
-                (measured actual rendered pixel heights at 390/768/1440,
-                not guessed from classes) so the image box + the name
-                label below it together land at the same total card
-                height as Shop by Category's own aspect-[3/4] tile (whose
-                label sits INSIDE the image, not below it, so its whole
-                card IS the image box) at each breakpoint's own column
-                width. The label below is a fixed-px row regardless of
-                column width, so it's a shrinking proportion of the total
-                card as columns get wider — one aspect ratio can't match
-                Category's fixed 3:4 at every width, hence the three
-                breakpoint values instead of one. */}
-            <div className="relative aspect-[8/9] sm:aspect-[4/5] lg:aspect-[7/9] rounded-card overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] bg-surface-tint">
-              {a.image ? (
-                <img
-                  src={cloudinaryOptimize(a.image, "w_400,q_auto,f_auto")}
-                  alt={a.name}
-                  loading="lazy"
-                  className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
-                />
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center" data-testid={`shop-by-area-blank-${a.slug}`}>
-                  <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center">
-                    <Sparkles size={16} className="text-brand-accent" />
-                  </div>
-                </div>
-              )}
-              <span className="absolute bottom-2 left-2 inline-flex items-center rounded-pill bg-white px-2 py-0.5 text-[10px] font-bold leading-none text-brand-primary shadow-[0_1px_4px_rgba(0,0,0,0.3)]" data-testid={`shop-by-area-count-${a.slug}`}>
+          <CategoryTile
+            key={a.slug}
+            density="generous"
+            href={`/stores?area=${a.slug}`}
+            testId={`shop-by-area-tile-${a.slug}`}
+            image={a.image ? cloudinaryOptimize(a.image, "w_400,q_auto,f_auto") : undefined}
+            label={a.name}
+            fallback={
+              <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center">
+                <Sparkles size={16} className="text-brand-accent" />
+              </div>
+            }
+            badge={
+              <span className="inline-flex items-center rounded-pill bg-white px-2 py-0.5 text-[10px] font-bold leading-none text-brand-primary shadow-[0_1px_4px_rgba(0,0,0,0.3)]" data-testid={`shop-by-area-count-${a.slug}`}>
                 {a.store_count} {a.store_count === 1 ? "store" : "stores"}
               </span>
-            </div>
-            <span className="text-sm font-bold text-brand-primary text-center leading-tight line-clamp-1">{a.name}</span>
-          </Link>
+            }
+          />
         ))}
       </div>
     </div>
@@ -1061,17 +1109,24 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
           {offers.slice(0, 1).map((offer) => {
             const href = offer.cta_link || "/categories";
             const cardStyle = { background: offer.background || "#0A1F5C" };
+            // G6 — thinner strip (was aspect-[16/9], a near-hero-sized
+            // block) and admin-editable eyebrow (was a hardcoded "Limited
+            // time" string) completing the eyebrow/event-name -> headline
+            // (title) -> detail (subtitle) -> CTA structure the refresh
+            // asked for, using fields that already existed for the latter
+            // three. Falls back to "Limited time" for any existing offer
+            // that hasn't set eyebrow yet.
             const inner = (
-              <div className="aspect-[16/9] relative">
+              <div className="aspect-[21/9] sm:aspect-[28/9] relative">
                 {offer.image && (
                   <img src={cloudinaryOptimize(offer.image, "w_600,q_auto,f_auto")} alt={offer.title} loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-70" />
                 )}
                 <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/30 to-transparent" />
-                <div className="absolute inset-0 p-5 flex flex-col justify-center text-white">
-                  <div className="text-[10px] uppercase tracking-widest font-bold opacity-90">Limited time</div>
-                  <div className="text-xl font-display font-bold mt-1 leading-tight">{offer.title}</div>
-                  {offer.subtitle && <div className="text-sm opacity-95 mt-1">{offer.subtitle}</div>}
-                  <div className="mt-3 inline-flex items-center gap-1 text-xs font-bold">
+                <div className="absolute inset-0 p-4 flex flex-col justify-center text-white">
+                  <div className="text-[10px] uppercase tracking-widest font-bold opacity-90">{offer.eyebrow || "Limited time"}</div>
+                  <div className="text-lg sm:text-xl font-display font-bold mt-1 leading-tight">{offer.title}</div>
+                  {offer.subtitle && <div className="text-xs sm:text-sm opacity-95 mt-1">{offer.subtitle}</div>}
+                  <div className="mt-2 inline-flex items-center gap-1 text-xs font-bold">
                     {offer.cta_label || "Shop now"} →
                   </div>
                 </div>
@@ -1093,8 +1148,6 @@ export function L1PageClient({ l1Id, mode = "category" }: { l1Id: string; mode?:
         </div>
       </section>
     ) : !loaded.has("offers") ? <OffersSkeleton key="offers-skeleton" /> : null,
-
-    just_in: <JustInSection key="just-in" />,
 
     merchant_cta: (
       <div key="merchant-cta" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">

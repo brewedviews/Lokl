@@ -119,7 +119,8 @@ export const adminApi = {
   },
 
   saveStoreSectionOverride: async (
-    l1Id: string, l2Id: string, patch: Pick<CmsStoreSectionOverride, "banner_image" | "pinned_stores">,
+    l1Id: string, l2Id: string,
+    patch: Pick<CmsStoreSectionOverride, "banner_image" | "pinned_stores"> & Partial<Pick<CmsStoreSectionOverride, "display_title" | "mode">>,
   ): Promise<CmsStoreSectionOverride> => {
     const r = await apiClient.put<CmsStoreSectionOverride>(
       `/api/admin/store-section-overrides/${l1Id}/${l2Id}`, patch,
