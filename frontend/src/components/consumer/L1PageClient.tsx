@@ -223,14 +223,11 @@ function ShopByCategorySection({ tiles }: { tiles: ResolvedGenderTile[] }) {
 
 // ---------------------------------------------------------------------------
 // Footwear / Ethnic / Lingerie(-or-Innerwear) Store sections — three
-// independent modules, each an editorial banner + horizontal SellerCard
-// row, sourced from GET /categories/{l1_id}/stores?l2_id=. `l1Slug` is now
-// the page's own resolved L1 slug (was hardcoded "women"). Men swaps the
-// third module to "Innerwear Store" (l2-men-innerwear — no l2-men-
-// lingerie exists). Any other L1 (Kids, Ethnic, Footwear, ...) has no
-// gendered module list at all, so all three sections cleanly render
-// nothing there — same as they already did for every non-Women L1 before
-// Phase E generalized l1Slug.
+// independent modules, sourced from GET /categories/{l1_id}/stores?l2_id=.
+// `l1Slug` is the page's own resolved L1 slug. Men swaps the third module
+// to "Innerwear" (l2-men-innerwear — no l2-men-lingerie exists). Any other
+// L1 (Kids, Ethnic, Footwear, ...) has no gendered module list at all, so
+// all three sections cleanly render nothing there.
 //
 // Phase G4: layers an admin-curated CMS override on top, fetched from
 // GET /store-section-overrides/{l1_id}/{l2_id} ALONGSIDE (never instead
@@ -240,21 +237,33 @@ function ShopByCategorySection({ tiles }: { tiles: ResolvedGenderTile[] }) {
 // server.py). Two effects: `banner_image`, when set, replaces the
 // section's default L2-image banner; `pinned_stores` (admin display
 // cards, not real stores) render in the SAME horizontal row, after the
-// real stores. The section now only hides when BOTH lists are empty —
-// previously it hid whenever there were zero real stores.
+// real stores. The section only hides when BOTH lists are empty.
+//
+// Visual-refinement pass: was "editorial banner, then a gap, then a
+// separate store-card row" — two visibly distinct elements. Now ONE
+// rounded module (matching JustInSection's own "one composed section"
+// language): the banner image sits at the top of the SAME container and
+// fades into the container's own background via a gradient that ends in
+// that exact color (surface-tint, `#F4F1E9` — the app's own established
+// "section separation" neutral, not a new color; see globals.css's own
+// definition), so there's no hard edge between image and content, and
+// the store-card row shares the same background/padding as the heading
+// instead of floating in a `mt-4` gap below a separate bordered banner.
+// No "See all"/CTA — the horizontal scroll of the card row is the only
+// interaction, same as it already was before this pass.
 // ---------------------------------------------------------------------------
-interface StoreModuleSpec { bannerLabel: string; l2Slug: string }
+interface StoreModuleSpec { bannerLabel: string; heading: string; l2Slug: string }
 
 const WOMEN_STORE_MODULES: StoreModuleSpec[] = [
-  { bannerLabel: "Footwear", l2Slug: "footwear" },
-  { bannerLabel: "Ethnic",   l2Slug: "ethnic-wear" },
-  { bannerLabel: "Lingerie", l2Slug: "lingerie" },
+  { bannerLabel: "Footwear", heading: "Footwear Stores", l2Slug: "footwear" },
+  { bannerLabel: "Ethnic",   heading: "Ethnic Stores",   l2Slug: "ethnic-wear" },
+  { bannerLabel: "Lingerie", heading: "Lingerie Stores", l2Slug: "lingerie" },
 ];
 
 const MEN_STORE_MODULES: StoreModuleSpec[] = [
-  { bannerLabel: "Footwear",        l2Slug: "footwear" },
-  { bannerLabel: "Ethnic",          l2Slug: "ethnic-wear" },
-  { bannerLabel: "Innerwear Store", l2Slug: "innerwear" },
+  { bannerLabel: "Footwear",  heading: "Footwear Stores",  l2Slug: "footwear" },
+  { bannerLabel: "Ethnic",    heading: "Ethnic Stores",    l2Slug: "ethnic-wear" },
+  { bannerLabel: "Innerwear", heading: "Innerwear Stores", l2Slug: "innerwear" },
 ];
 
 interface GenderedSectionStore {
@@ -292,44 +301,60 @@ function StoreSectionModule({ l1, spec }: { l1: CategoryNode; spec: StoreModuleS
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid={`home-store-section-${spec.l2Slug}`}>
-      <Link
-        href={l2Href}
-        className="group relative block aspect-[21/9] sm:aspect-[3/1] rounded-2xl overflow-hidden"
-      >
-        {bannerImage ? (
-          <img
-            src={cloudinaryOptimize(bannerImage, "w_1200,q_auto,f_auto")}
-            alt={spec.bannerLabel}
-            loading="lazy"
-            className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
-          />
-        ) : (
-          <div className="absolute inset-0 bg-[#0A1F5C]" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-        <span className="absolute bottom-4 left-4 sm:left-6 font-display font-black text-white uppercase tracking-tight text-2xl sm:text-4xl leading-none">
-          {spec.bannerLabel}
-        </span>
-      </Link>
-      <div className="mt-4 flex gap-3 overflow-x-auto no-scrollbar pb-1">
-        {stores.map((s) => {
-          const isOpen = s.availability_rank === 1;
-          const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
-          return <SellerCard key={s.id} s={s} source={`store_${spec.l2Slug}`} openNow={isOpen} closedLabel={closedLabel} />;
-        })}
-        {/* Phase G4 — admin-pinned display cards, always after real
-            stores. Not real store records: no logo/eta/product-count/
-            trusted status, and `href` points at the card's own link (or
-            this section's own L2 browse page when unset) rather than a
-            fabricated /store/{id}. */}
-        {pinned.map((p) => (
-          <SellerCard
-            key={p.id}
-            s={{ id: p.id, name: p.name, banner: p.image || null }}
-            source={`store_${spec.l2Slug}_pinned`}
-            href={p.link || l2Href}
-          />
-        ))}
+      <div className="rounded-2xl overflow-hidden bg-surface-tint">
+        <Link href={l2Href} className="group relative block aspect-[16/9] sm:aspect-[21/9]">
+          {bannerImage ? (
+            <img
+              src={cloudinaryOptimize(bannerImage, "w_1200,q_auto,f_auto")}
+              alt={spec.bannerLabel}
+              loading="lazy"
+              className="absolute inset-0 w-full h-full object-cover transition duration-500 group-hover:scale-105"
+            />
+          ) : (
+            <div className="absolute inset-0 bg-[#0A1F5C]" />
+          )}
+          {/* The fade target color (surface-tint) matches the container's
+              own background exactly, so the image's bottom edge dissolves
+              into the module instead of ending in a hard line — concentrated
+              in roughly the bottom quarter (via-25%) so the photo itself
+              stays vivid (an aggressive fade across most of the image was
+              tried and rejected — it washed the photos out; the "one
+              composition" feel comes from the seam being seamless, not from
+              text overlapping the image). Text starts right at the image's
+              own bottom edge (no negative margin) so it's always on the
+              fully-resolved solid background, regardless of which of the
+              six source images is behind it. */}
+          <div className="absolute inset-0 bg-gradient-to-t from-surface-tint via-surface-tint/15 via-25% to-transparent" />
+        </Link>
+
+        <div className="px-4 sm:px-5 pb-5 pt-3">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-brand-accent" />
+            <p className="text-[10px] font-bold text-brand-primary/60 uppercase tracking-[0.15em]">Bhilai stores</p>
+          </div>
+          <h2 className="font-display font-bold text-brand-primary text-xl sm:text-2xl leading-tight mb-3">{spec.heading}</h2>
+
+          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+            {stores.map((s) => {
+              const isOpen = s.availability_rank === 1;
+              const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
+              return <SellerCard key={s.id} s={s} source={`store_${spec.l2Slug}`} openNow={isOpen} closedLabel={closedLabel} />;
+            })}
+            {/* Phase G4 — admin-pinned display cards, always after real
+                stores. Not real store records: no logo/eta/product-count/
+                trusted status, and `href` points at the card's own link
+                (or this section's own L2 browse page when unset) rather
+                than a fabricated /store/{id}. */}
+            {pinned.map((p) => (
+              <SellerCard
+                key={p.id}
+                s={{ id: p.id, name: p.name, banner: p.image || null }}
+                source={`store_${spec.l2Slug}_pinned`}
+                href={p.link || l2Href}
+              />
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -512,7 +537,19 @@ function ShopByAreaSection({ areas }: { areas: AreaTile[] }) {
         {areas.map((a) => (
           <Link key={a.slug} href={`/stores?area=${a.slug}`} data-testid={`shop-by-area-tile-${a.slug}`}
             className="group flex flex-col gap-1.5 active:scale-95 transition">
-            <div className="relative aspect-square rounded-card overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] bg-surface-tint">
+            {/* Not aspect-square — visual-refinement pass: calibrated
+                (measured actual rendered pixel heights at 390/768/1440,
+                not guessed from classes) so the image box + the name
+                label below it together land at the same total card
+                height as Shop by Category's own aspect-[3/4] tile (whose
+                label sits INSIDE the image, not below it, so its whole
+                card IS the image box) at each breakpoint's own column
+                width. The label below is a fixed-px row regardless of
+                column width, so it's a shrinking proportion of the total
+                card as columns get wider — one aspect ratio can't match
+                Category's fixed 3:4 at every width, hence the three
+                breakpoint values instead of one. */}
+            <div className="relative aspect-[8/9] sm:aspect-[4/5] lg:aspect-[7/9] rounded-card overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] bg-surface-tint">
               {a.image ? (
                 <img
                   src={cloudinaryOptimize(a.image, "w_400,q_auto,f_auto")}

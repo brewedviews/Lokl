@@ -60,7 +60,14 @@ _CARD_IMG_ETHNIC_2 = "https://images.unsplash.com/photo-1601925260368-ae2f83cf8b
 _CARD_IMG_ETHNIC_3 = "https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=600&q=80"
 _CARD_IMG_LINGERIE_1 = "https://images.unsplash.com/photo-1571513722275-4b41940f54b8?w=600&q=80"
 _CARD_IMG_LINGERIE_2 = "https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?w=600&q=80"
-_CARD_IMG_LINGERIE_3 = "https://images.unsplash.com/photo-1587560699334-cc4ff634909a?w=600&q=80"
+# Content-quality fix: the original value here loaded fine (200, correct
+# naturalWidth — the only things checked at the time) but was actually a
+# laptop/office-desk photo, not lingerie — a real image mismatch, not a
+# broken link, so it slipped past that check. Replaced with the same
+# lingerie flat-lay already used elsewhere in this codebase as
+# l2-women-lingerie's own category image (seed_data.py) — a real,
+# already-vetted asset, not a new external image.
+_CARD_IMG_LINGERIE_3 = "https://images.unsplash.com/photo-1568441556126-f36ae0900180?w=600&q=80"
 _CARD_IMG_INNERWEAR_1 = "https://images.unsplash.com/photo-1640765937555-6f413ed1d936?w=600&q=80"
 _CARD_IMG_INNERWEAR_2 = "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=600&q=80"
 _CARD_IMG_INNERWEAR_3 = "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=600&q=80"

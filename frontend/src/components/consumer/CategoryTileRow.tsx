@@ -7,32 +7,35 @@
  * [slug], so it never remounts navigating between them or between two
  * different L1s).
  *
- * Redesign Phase B: collapsed from all 9 L1s (+ a prepended "All" tile,
- * circular-avatar style) down to exactly Women / Men / Kids, plain
- * text + underline — no photo, no circle, no "All" tile at all. This is a
- * genuinely new visual treatment for this component, not a filter applied
- * to the old avatar markup (see CategoryTile.tsx's "dense"/"generous"
- * variants for that — this row deliberately doesn't use either). The
- * other 6 L1s (Ethnic Wear, Footwear, Lingerie & Innerwear, Accessories,
- * Beauty, Sports) are no longer reachable from this strip — they're still
- * fully reachable via the bottom nav's Categories tab (/categories), which
- * lists all 9 in its own filled-tab treatment per the redesign plan's own
- * "tab styling is context-dependent" rule (3.8: the dedicated Categories
- * page keeps a more prominent treatment since it IS the primary content
- * there).
+ * Redesign Phase B collapsed this from all 9 L1s down to exactly
+ * Women / Men / Kids as plain text + underline tabs. This visual-
+ * refinement pass keeps that same collapse (still exactly these three,
+ * still the same routes/active-state rule below — the other 6 L1s stay
+ * reachable via the bottom nav's Categories tab, unchanged) but replaces
+ * the text-tab treatment with image-led navigation: each L1's own
+ * `image` field (the same field `/api/categories` already returns and
+ * the desktop category_pills grid in L1PageClient.tsx already renders
+ * with `object-cover object-top` — reused verbatim here, not a new image
+ * source) fills a flex-1 segment, all three sitting edge-to-edge inside
+ * one rounded container so the strip reads as ONE seamless band rather
+ * than three separate image cards. Active state is the same orange bar
+ * the old text-tab treatment used (`bg-[#E68910]`), now along the
+ * segment's bottom edge instead of under a text label, plus a lighter
+ * dim overlay on the inactive two so the active segment reads as
+ * brighter/selected without a heavy border.
  *
  * Women is the default-active tab on Home specifically (there's no "All"
  * state to fall back to anymore) — `activeSlug` defaults to "women" when
  * the path isn't a /c/[slug] page at all (i.e. on Home, "/"), and reads
  * the real slug on every /c/[slug] page as before, including the L2
  * catch-all route (/c/{slug}/{l2}) — the L1 tab stays the active one
- * there too, unchanged from the pre-Phase-B behavior.
+ * there too, unchanged from the pre-this-pass behavior.
  *
  * Still fetches /api/categories (React Query, key ["categories"], the same
  * cached request CategoryClient.tsx's own ["categories"] query reuses) —
  * only what's rendered from that response changed, not how it's fetched —
- * so real admin-configured names (in case "Women"/"Men"/"Kids" ever change
- * upstream) still drive the tab labels rather than a hardcoded string.
+ * so real admin-configured names/images (in case "Women"/"Men"/"Kids" ever
+ * change upstream) still drive the tabs rather than hardcoded values.
  */
 import { useQuery } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
@@ -63,7 +66,10 @@ export function CategoryTileRow() {
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 md:px-8 pt-3">
-      <div className="w-full flex items-center gap-6 border-b border-[#E5E2DC]" data-testid="category-tile-row">
+      <div
+        className="w-full flex items-stretch rounded-2xl overflow-hidden h-24 sm:h-28 lg:h-32"
+        data-testid="category-tile-row"
+      >
         {PINNED_SLUGS.map(({ slug, fallbackLabel }, i) => {
           const cat = categories.find((c) => c.slug === slug);
           const label = cat?.name ?? fallbackLabel;
@@ -76,12 +82,27 @@ export function CategoryTileRow() {
               onClick={() => { try { trackCategoryTileClick(label, i); } catch {} }}
               data-testid={`category-tab-${slug}`}
               aria-current={isActive ? "page" : undefined}
-              className={`relative pb-2.5 pt-1 text-sm transition-colors ${
-                isActive ? "font-bold text-[#0A1F5C]" : "font-medium text-[#94A3B8] hover:text-[#0A1F5C]"
-              }`}
+              className="group relative flex-1 min-w-0 bg-[#E5E2DC]"
             >
-              {label}
-              {isActive && <span className="absolute left-0 right-0 -bottom-px h-[2.5px] rounded-full bg-[#E68910]" />}
+              {cat?.image && (
+                <img
+                  src={cat.image}
+                  alt=""
+                  loading="eager"
+                  className={`absolute inset-0 w-full h-full object-cover object-top transition-[filter,transform] duration-300 ${
+                    isActive ? "" : "brightness-[0.78] saturate-[0.85]"
+                  } group-hover:scale-105`}
+                />
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
+              <span
+                className={`absolute inset-x-0 bottom-0 pb-2.5 text-center font-display font-bold text-sm sm:text-base text-white tracking-tight transition-opacity ${
+                  isActive ? "opacity-100" : "opacity-85"
+                }`}
+              >
+                {label}
+              </span>
+              {isActive && <span className="absolute inset-x-3 bottom-0 h-[3px] rounded-full bg-[#E68910]" />}
             </Link>
           );
         })}

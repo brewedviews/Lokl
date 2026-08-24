@@ -3,57 +3,56 @@
 /**
  * ConsumerHeader — sticky glass header.
  *
- * Mobile (<lg): ONE row — Logo · LocationChip · HeaderPromoTicker ·
- *   ETAHeaderCard(micro). Redesign Phase B removed the persistent pinned
- *   search bar that used to sit in a second row here — search's entry
- *   point is now the bottom nav's Search tab (see StickyBottomNav.tsx),
- *   which calls the same useSearchOverlay store's `show()` this header
- *   used to call from its own bar. Opening it still renders the same
- *   SHEET dropping down from directly below the header (over a dimmed
- *   backdrop covering the rest of the page), with the same
- *   recent/trending/live-suggestion experience — the sheet just now owns
- *   its own search input directly (see MobileSearchSheet below) instead
- *   of reading it from a header row that no longer exists. Dismiss via
- *   backdrop tap, the X, Escape, or the device back gesture (a history
- *   entry is pushed while the sheet is open specifically so back-gesture
- *   has something to intercept — see the popstate effect below).
- * Desktop (≥lg): single row — Logo · LocationChip · HeaderPromoTicker ·
- *   big Search · Stores · For Merchants · Profile · ETAHeaderCard(micro).
- *   Untouched otherwise — desktop has no bottom nav, so its inline Search
- *   input + SuggestPanel dropdown stay exactly where they were.
+ * Mobile (<lg): ONE row — Logo · LocationChip (flex-1) · Wishlist.
+ *   Redesign Phase B removed the persistent pinned search bar that used to
+ *   sit in a second row here — search's entry point is now the bottom
+ *   nav's Search tab (see StickyBottomNav.tsx), which calls the same
+ *   useSearchOverlay store's `show()` this header used to call from its
+ *   own bar. Opening it still renders the same SHEET dropping down from
+ *   directly below the header (over a dimmed backdrop covering the rest
+ *   of the page), with the same recent/trending/live-suggestion
+ *   experience — the sheet just now owns its own search input directly
+ *   (see MobileSearchSheet below) instead of reading it from a header row
+ *   that no longer exists. Dismiss via backdrop tap, the X, Escape, or
+ *   the device back gesture (a history entry is pushed while the sheet
+ *   is open specifically so back-gesture has something to intercept —
+ *   see the popstate effect below).
+ * Desktop (≥lg): single row — Logo · LocationChip · big Search · Stores
+ *   · For Merchants · Profile · Wishlist. Untouched otherwise — desktop
+ *   has no bottom nav, so its inline Search input + SuggestPanel dropdown
+ *   stay exactly where they were.
  *
  * LocationChip handles its own auto-detect on mount and its own popover —
  * see the LocationChip component below.
  *
- * Phase G5: the header's own cart button (`nav-cart`, ->/checkout) is
- * removed — cart access moves to StickyBottomNav's own new Cart tab (same
- * cart store, same /checkout destination, just relocated; see that
- * file's own comment). That reclaimed space now holds HeaderPromoTicker
- * (a small rotating value-prop callout) and a persistent
- * ETAHeaderCard(size="micro") delivery-status indicator — the SAME real
- * GET /api/feed/delivery-status source and react-query cache key
- * ("delivery-status") HeroCarousel.tsx already established in Phase G3,
- * so mounting both on the same page (true on every /c/[slug] route,
- * since HeroCarousel renders there too) shares one underlying request via
- * react-query's own key-based caching (app/providers.tsx's single
- * QueryClient) rather than issuing two.
+ * Phase G5 removed the header's cart button (moved to StickyBottomNav's
+ * own Cart tab) and used the reclaimed space for a persistent ETA badge
+ * + a rotating promo ticker. This visual-refinement pass removes BOTH of
+ * those from the header in turn — not the underlying systems: ETAHeaderCard
+ * itself is untouched and still renders on the hero (HeroCarousel.tsx),
+ * PDP (DeliveryServiceability.tsx), and Checkout; GET /api/feed/delivery-
+ * status is untouched. HeaderPromoTicker.tsx is deleted outright — it had
+ * exactly one caller (this file) and no other reason to exist once removed
+ * here, so keeping the file around unused would just be dead code. The
+ * reclaimed space now holds a Wishlist link, reusing the existing
+ * useWishlistStore (already used by ProductCard's per-card heart and the
+ * standalone /wishlist page) rather than a new system — see WishlistLink
+ * below for the hydration-safe read pattern, copied from ProductCard's
+ * own established approach to the same store.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, MapPin, Search, Store as StoreIcon, User, X, Crosshair, Home as HomeIcon, Clock, TrendingUp, Check } from "lucide-react";
+import { Loader2, MapPin, Search, Store as StoreIcon, User, Heart, X, Crosshair, Home as HomeIcon, Clock, TrendingUp, Check } from "lucide-react";
 import {
-  useLocationStore, useCustomerAuthStore, useSearchOverlay,
+  useLocationStore, useCustomerAuthStore, useSearchOverlay, useWishlistStore,
 } from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { useMounted } from "@/hooks/useMounted";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
-import { ETAHeaderCard } from "@/components/consumer/ETAHeaderCard";
-import { HeaderPromoTicker } from "@/components/consumer/HeaderPromoTicker";
 
 interface SearchProduct { id: string; name: string; price?: number; image?: string }
 interface SearchStore { id: string; name: string; locality?: string; banner?: string }
@@ -96,17 +95,6 @@ export function ConsumerHeader() {
   useHeartbeat(customerPhone ? "customer" : "guest", { phone: customerPhone });
   const mobileSearchOpen = useSearchOverlay((s) => s.open);
   const closeMobileSearch = useSearchOverlay((s) => s.hide);
-
-  // Phase G5 — persistent header ETA. Same queryKey + queryFn HeroCarousel
-  // already uses (see that file's own Phase G3 comment); react-query's
-  // shared QueryClient dedupes this to one request when both are mounted
-  // (true on every /c/[slug] route), not two.
-  const { data: deliveryStatus, isLoading: deliveryLoading, isError: deliveryErrored } = useQuery({
-    queryKey: ["delivery-status"],
-    queryFn: () => api.catalog.deliveryStatus(),
-    staleTime: 60_000,
-  });
-  const isClosedLabel = deliveryStatus?.label === "CLOSED";
 
   // Header height, tracked live so the mobile sheet/backdrop can anchor
   // exactly below it via an inline `top` (ConsumerHeader is always the
@@ -262,23 +250,11 @@ export function ConsumerHeader() {
           </span>
         </Link>
 
-        {/* Location chip — flex-1 on mobile (same as before Phase G5;
-            HeaderPromoTicker moved to its own thin row below on mobile
-            instead of competing for room here — seed 388px-wide math
-            showed four legible elements don't fit one mobile row at
-            once), unchanged fixed 200px on desktop. */}
+        {/* Location chip — flex-1 on mobile, fixed 200px on desktop. Back
+            to its pre-Phase-G5 sizing now that neither the ticker nor the
+            ETA badge compete with it for row width. */}
         <div className="flex-1 lg:flex-none lg:w-[200px] min-w-0">
           <LocationChip phone={customerPhone} />
-        </div>
-
-        {/* Phase G5 — rotating promo callout, reclaimed from the removed
-            cart button. Desktop only here (small fixed slot between
-            location and search); mobile renders it in its own thin row
-            below the main row instead (see the lg:hidden block after
-            </header>'s main row div), where it doesn't have to compete
-            with location/ETA for width. */}
-        <div className="hidden lg:block lg:w-[150px] min-w-0">
-          <HeaderPromoTicker />
         </div>
 
         {/* Desktop search — flex-1 to expand into ALL remaining space, with
@@ -329,46 +305,11 @@ export function ConsumerHeader() {
         >
           <User size={16} />
         </Link>
-        {/* Wishlist nav icon removed from the global header — wishlist
-            access now lives contextually: the icon-only Save button in
-            PdpCtaRow on the PDP, and the per-card heart on ProductCard in
-            every rail. /wishlist itself is unchanged and still reachable
-            from those entry points; it's just not a permanent header slot
-            anymore. gap-2/lg:gap-4 on the row above already closes the
-            space this left behind — no separate spacer needed. */}
-        {/* Phase G5 — persistent ETA, in the cart button's old slot. Hidden
-            only on a genuine fetch error, matching HeroCarousel's own
-            delivery-status badge; shows ETAHeaderCard's own skeleton while
-            loading rather than a guessed value. CLOSED dims the text and
-            drops the LIVE/AWAY dot, same call HeroCarousel already makes. */}
-        {!deliveryErrored && (
-          <div className="shrink-0" data-testid="header-eta">
-            <ETAHeaderCard
-              size="micro"
-              testId="header-eta-badge"
-              loading={deliveryLoading}
-              muted={isClosedLabel}
-              title={(deliveryStatus?.eta_label || "").replace(/\bminutes\b/, "min")}
-              statusBadge={
-                deliveryLoading || isClosedLabel || !deliveryStatus
-                  ? null
-                  : { label: deliveryStatus.label, tone: deliveryStatus.label === "AWAY" ? "away" : "live" }
-              }
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Phase G5 — mobile-only thin second row for the rotating promo
-          callout. Centered, full-width, its own hairline divider — same
-          "Swiggy/Zepto-style persistent status bar" spirit ActiveOrderPill
-          already cites elsewhere in this app. Keeps the main row above
-          (logo/location/ETA) at the same comfortable widths it had before
-          Phase G5 touched anything; the ticker gets genuine breathing
-          room instead of fighting three other elements for a sliver of a
-          388px-wide row. */}
-      <div className="lg:hidden border-t border-card-border/60 px-4 py-1 flex justify-center">
-        <HeaderPromoTicker />
+        {/* Wishlist — reclaimed from the header ETA badge/ticker this pass
+            removes. Same slot the header's old cart button, then the ETA
+            badge, occupied — the one persistent icon at the end of the
+            row on every breakpoint. */}
+        <WishlistLink />
       </div>
     </header>
 
@@ -393,6 +334,42 @@ export function ConsumerHeader() {
 }
 
 // ─── Subcomponents ─────────────────────────────────────────────────
+
+// WishlistLink — reuses useWishlistStore verbatim (the same store
+// ProductCard's per-card heart and the standalone /wishlist page already
+// read/write; no second wishlist system). Count read the same
+// hydration-safe way ProductCard already established for this exact
+// store: the store's own initializer reads localStorage SYNCHRONOUSLY on
+// the client (unlike the zustand/persist-backed cart store, which only
+// rehydrates post-mount), so a naive direct read would mismatch the
+// server's always-empty SSR render. Starting local state at 0 and syncing
+// it via useEffect (which never runs during SSR) keeps the first client
+// render identical to the server's, then flips to the real count right
+// after — same shape as ProductCard's own `wished` state.
+function WishlistLink() {
+  const liveCount = useWishlistStore((s) => s.products.length);
+  const [count, setCount] = useState(0);
+  useEffect(() => { setCount(liveCount); }, [liveCount]);
+
+  return (
+    <Link
+      href="/wishlist"
+      data-testid="nav-wishlist"
+      aria-label="Wishlist"
+      className="relative flex items-center justify-center w-9 h-9 rounded-full bg-white border border-card-border hover:border-brand-primary transition shrink-0"
+    >
+      <Heart size={16} />
+      {count > 0 && (
+        <span
+          data-testid="wishlist-badge"
+          className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-brand-accent text-white text-[9px] font-bold leading-4 text-center"
+        >
+          {count}
+        </span>
+      )}
+    </Link>
+  );
+}
 
 // The top sheet itself — dropped below the header (topOffset = header's
 // live height), over a dimmed backdrop. Reuses the exact recent/trending/
