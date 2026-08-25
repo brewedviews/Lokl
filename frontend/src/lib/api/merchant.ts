@@ -144,10 +144,16 @@ export const merchantApi = {
     return r.data;
   },
 
-  storeState: async (): Promise<{ online: boolean; published: boolean }> => {
-    const r = await apiClient.get<{ online: boolean; published: boolean }>(
-      "/api/merchant/store/state",
-    );
+  storeState: async (): Promise<{
+    online: boolean; published: boolean;
+    /** Why the store is offline right now — null while online. Set by the
+     *  backend's 12h-live-cap / closing-time self-heal (G12 P0-5) as well as
+     *  a manual toggle-off, so the UI can explain instead of just showing
+     *  a bare "Offline". */
+    offline_reason?: "manual" | "closed" | "12h" | null;
+    paused?: boolean; product_count?: number; can_toggle?: boolean;
+  }> => {
+    const r = await apiClient.get("/api/merchant/store/state");
     return r.data;
   },
 

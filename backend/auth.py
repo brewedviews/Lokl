@@ -48,12 +48,22 @@ def create_token(user_id: str, role: str = "merchant", token_type: str = "access
     and the short JWT_ACCESS_MIN we use for customers/merchants made the panel
     silently 401 mid-task (the visible 'Signature has expired' bug in iter-26).
 
+    Merchant access tokens get the same 8h TTL, for the same reason (G12):
+    a merchant keeps their dashboard open through a full shift. This is
+    session length only — it is orthogonal to the store's LIVE/offline
+    business state (see `_merchant_live_status` in server.py), which is tracked
+    server-side and survives token expiry entirely; the silent refresh flow
+    below (via /api/auth/refresh, unchanged) renews the access token itself
+    well past this 8h mark for as long as the merchant's refresh cookie
+    (JWT_REFRESH_DAYS) is valid, so an 8h access-token TTL does not cap how
+    long a merchant can stay authenticated or LIVE.
+
     `extra` merges additional claims onto the payload (e.g. `is_admin: True`
     so `require_admin` can distinguish real admin-account tokens from any
     other role="admin" token shape)."""
     if token_type == "refresh":
         delta = timedelta(days=JWT_REFRESH_DAYS)
-    elif role == "admin":
+    elif role in ("admin", "merchant"):
         delta = timedelta(hours=8)
     elif role in ("customer", "rider"):
         # Riders are phone-first field workers mid-delivery — a 15-minute

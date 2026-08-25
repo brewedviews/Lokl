@@ -8,7 +8,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
 import os, logging, uuid, base64, io, csv, json, random, secrets, hmac, hashlib, asyncio
 from pathlib import Path
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -209,7 +209,23 @@ class ProductCreate(BaseModel):
     image_public_id: Optional[str] = ""
     image_public_ids: List[str] = []
     ai_enhanced: bool = False; try_at_doorstep: bool = False
-    return_eligible: bool = False  # if True, customer can return within 24h of delivery
+    return_eligible: bool = False  # if True, customer can return within return_window_hours of delivery
+    # Per-product return window in hours (G12 P1-8) — merchant-set, but
+    # ALWAYS capped at 24 server-side regardless of client input (defense in
+    # depth; the field validator below enforces it on create/import, and
+    # `_can_return_order` re-clamps it again at eligibility-check time).
+    # None on a product predating this field, or when return_eligible=False —
+    # `_can_return_order` treats a missing value as the historical 24h default.
+    return_window_hours: Optional[int] = None
+
+    @field_validator("return_window_hours")
+    @classmethod
+    def _validate_return_window(cls, v):
+        if v is None:
+            return v
+        if v < 1 or v > 24:
+            raise ValueError("return_window_hours must be between 1 and 24")
+        return v
     stock: Optional[dict] = None
     size_type: Optional[str] = ""  # alpha|numeric_shirt|numeric_bottom|numeric_shoe|free_size|custom
     # Merchant-authored fit guidance ("runs slightly large, size down").
@@ -419,10 +435,18 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
 @_limit(_LIMIT_REFRESH)
 async def refresh_token(request: Request, response: Response):
     """Exchange a valid refresh token (httpOnly cookie OR Authorization header)
-    for a fresh 15-minute access token. Rotating refresh tokens — every refresh
-    issues a new one and invalidates the old by virtue of overwriting the cookie.
-    Additionally consults `revoked_refresh_jti` so explicitly-revoked tokens
-    (via logout) cannot be replayed even if the cookie was captured.
+    for a fresh access token — TTL depends on role (see auth.create_token:
+    15 min generic default, 8h for admin/merchant, 365d for customer/rider).
+    Rotating refresh tokens — every refresh issues a new one and invalidates
+    the old by virtue of overwriting the cookie. Additionally consults
+    `revoked_refresh_jti` so explicitly-revoked tokens (via logout) cannot be
+    replayed even if the cookie was captured.
+
+    Purely a token-issuance endpoint — it never touches `db.stores`, so a
+    merchant's LIVE/offline business state (`online`/`live_since`, see
+    `_merchant_live_status`) is completely unaffected by silent refreshes,
+    by design (G12 P0-2/P0-5: token expiry, session expiry, and store LIVE
+    state are separate concepts).
     """
     token = request.cookies.get("refresh_token")
     if not token:
@@ -3728,6 +3752,56 @@ def _store_availability(store: dict) -> dict:
                 "can_order": True, "eta_message": "Delivery in ~45 mins", "opens_at_label": None}
 
 
+def _merchant_live_status(store: dict) -> dict:
+    """Merchant-facing LIVE/offline computation (G12 P0-5) — layered ON TOP
+    of the manual `online` toggle, not a replacement for it. LIVE is a
+    business state independent of auth/session; this only asks two questions
+    once `online` is True: has the store been continuously LIVE for more
+    than 12h (`live_since`), or has the store's own closing time (reusing
+    `_store_availability`'s existing opens_at/closes_at/weekly_off math) since
+    passed? Either one auto-expires LIVE. Callers are expected to self-heal
+    the DB (`online: False`) when `needs_persist` is True — same "compute on
+    read" pattern `_store_availability` already uses, no background job.
+    """
+    if store.get("online") is False:
+        return {
+            "online": False,
+            "offline_reason": store.get("offline_reason") or "manual",
+            "live_since": store.get("live_since"),
+            "needs_persist": False,
+        }
+
+    live_since_raw = store.get("live_since")
+    now = datetime.now(timezone.utc)
+    if not live_since_raw:
+        # Pre-existing online store from before this field existed (or a
+        # toggle call that raced the write) — start the clock now rather
+        # than retroactively expiring a store whose LIVE start was never
+        # tracked.
+        return {
+            "online": True, "offline_reason": None,
+            "live_since": now.isoformat(), "needs_persist": True,
+        }
+
+    try:
+        live_since = datetime.fromisoformat(live_since_raw.replace("Z", "+00:00"))
+        elapsed_hours = (now - live_since).total_seconds() / 3600
+    except Exception:
+        elapsed_hours = 0
+
+    if elapsed_hours >= 12:
+        return {"online": False, "offline_reason": "12h", "live_since": live_since_raw, "needs_persist": True}
+
+    # Force online=True on the probe copy so `_store_availability` gives the
+    # pure opens/closes/weekly_off verdict rather than short-circuiting on
+    # the (already-True) online flag.
+    probe = {**store, "online": True}
+    if _store_availability(probe).get("badge") == "Closed":
+        return {"online": False, "offline_reason": "closed", "live_since": live_since_raw, "needs_persist": True}
+
+    return {"online": True, "offline_reason": None, "live_since": live_since_raw, "needs_persist": False}
+
+
 async def _availability_map() -> dict[str, dict]:
     """Return {store_id: availability_dict} for ALL non-deleted/paused stores.
     Includes toggle-OFF stores so feeds can rank them at the bottom (rank=4)."""
@@ -5016,7 +5090,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             p = await db.products.find_one(
                 {"id": pid, "is_deleted": {"$ne": True}, "paused": {"$ne": True}},
                 {"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
-                 "return_eligible": 1, "name": 1, "stock": 1},
+                 "return_eligible": 1, "return_window_hours": 1, "name": 1, "stock": 1},
             )
             if not p:
                 raise HTTPException(400, f"Product {pid} is unavailable")
@@ -5031,7 +5105,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                  stock_field: {"$gte": qty}},
                 {"$inc": {stock_field: -qty}},
                 projection={"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
-                            "return_eligible": 1, "name": 1, stock_field: 1,
+                            "return_eligible": 1, "return_window_hours": 1, "name": 1, stock_field: 1,
                             "provider": 1, "remote_variant_ids": 1},
                 return_document=True,
             )
@@ -5061,6 +5135,12 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                 merchant_ids.append(updated["merchant_id"])
             new_it = dict(it)
             new_it["return_eligible"] = bool(updated.get("return_eligible", False))
+            # Snapshotted the same way return_eligible already is — the
+            # eligibility check at return time must use the window that was
+            # live when the order was placed, not whatever the merchant has
+            # set since (G12 P1-8). None means "predates this field / not
+            # set" — _can_return_order falls back to the historical 24h.
+            new_it["return_window_hours"] = updated.get("return_window_hours")
             new_it["merchant_id"] = updated.get("merchant_id")
             new_it["store_id"] = updated.get("store_id")
             if updated.get("store_name") and not new_it.get("store_name"):
@@ -6551,15 +6631,38 @@ async def merchant_publish(user: dict = Depends(get_current_user)):
 
 @api.get("/merchant/store/state")
 async def merchant_store_state(user: dict = Depends(get_current_user)):
-    """Returns just what the sidebar needs: is the merchant fully launched + their online toggle."""
+    """Returns just what the sidebar needs: is the merchant fully launched + their online toggle.
+
+    `online` here is the LIVE-with-12h-cap-and-closing-time-aware computed
+    value (see `_merchant_live_status`), not the raw DB flag — a store past
+    its 12h window or closing time self-heals to offline on this read so the
+    merchant's own dashboard never shows a stale "Live" that the consumer
+    side has already stopped honoring. `offline_reason` lets the UI explain
+    *why* ("manual" | "closed" | "12h") per G12's explicit requirement that
+    a merchant never appears offline without a clear cause.
+    """
     sid = f"store-m-{user['sub']}"
-    s = await db.stores.find_one({"id": sid}, {"_id": 0, "published": 1, "online": 1, "paused": 1, "product_count": 1})
+    s = await db.stores.find_one(
+        {"id": sid},
+        {"_id": 0, "published": 1, "online": 1, "paused": 1, "product_count": 1,
+         "live_since": 1, "offline_reason": 1, "opens_at": 1, "closes_at": 1, "weekly_off": 1},
+    )
     if not s:
-        return {"published": False, "online": True, "can_toggle": False, "product_count": 0}
+        return {"published": False, "online": True, "can_toggle": False, "product_count": 0, "offline_reason": None}
     pc = await db.products.count_documents({"store_id": sid, "paused": {"$ne": True}})
+    live = _merchant_live_status(s)
+    if live["needs_persist"]:
+        await db.stores.update_one(
+            {"id": sid},
+            {"$set": {"online": live["online"], "offline_reason": live["offline_reason"], "live_since": live["live_since"]}},
+        )
+        if not live["online"]:
+            try: await cache_service.invalidate_geo()
+            except Exception: pass
     return {
         "published": bool(s.get("published")),
-        "online": s.get("online") is not False,
+        "online": live["online"],
+        "offline_reason": live["offline_reason"],
         "paused": bool(s.get("paused")),
         "product_count": pc,
         # Only show the big sidebar toggle once the merchant is fully launched (approved +
@@ -6573,17 +6676,29 @@ async def merchant_store_online(payload: dict, user: dict = Depends(get_current_
     """Merchant self-service availability toggle. Body: {online: bool}.
     When `online=False`: store stays visible on the listing but is marked
     "Offline — back soon" and all products from this store are hidden from the
-    public products listing."""
+    public products listing.
+
+    `live_since` is stamped ONLY on an actual False→True transition (never
+    reset on a redundant True→True call) so a page refresh or a repeat
+    "go live" click never restarts — or silently extends — the 12h LIVE
+    window (G12 P0-5)."""
     online = bool(payload.get("online"))
     sid = f"store-m-{user['sub']}"
-    s = await db.stores.find_one({"id": sid}, {"_id": 0, "published": 1})
+    s = await db.stores.find_one({"id": sid}, {"_id": 0, "published": 1, "online": 1})
     if not s:
         raise HTTPException(400, "Set up your storefront first")
     if not s.get("published"):
         raise HTTPException(400, "Take your store live before toggling availability")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    was_online = s.get("online") is not False
     update_fields: dict = {"online": online}
     if online:
-        update_fields["last_seen_at"] = datetime.now(timezone.utc).isoformat()
+        update_fields["last_seen_at"] = now_iso
+        update_fields["offline_reason"] = None
+        if not was_online:
+            update_fields["live_since"] = now_iso
+    else:
+        update_fields["offline_reason"] = "manual"
     await db.stores.update_one({"id": sid}, {"$set": update_fields})
     # Bust geo cache so the new online/offline state surfaces immediately
     try: await cache_service.invalidate_geo()
@@ -6689,6 +6804,14 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
     p = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0})
     if not p: raise HTTPException(404, "Product not found")
     payload.pop("id", None); payload.pop("merchant_id", None)
+    if "return_window_hours" in payload and payload["return_window_hours"] is not None:
+        try:
+            rwh = int(payload["return_window_hours"])
+        except (TypeError, ValueError):
+            raise HTTPException(400, "return_window_hours must be a number")
+        if rwh < 1 or rwh > 24:
+            raise HTTPException(400, "return_window_hours must be between 1 and 24")
+        payload["return_window_hours"] = rwh
     if isinstance(payload.get("stock"), dict):
         payload["total_stock"] = sum(int(v) for v in payload["stock"].values() if isinstance(v, (int, float)))
     # If the cover Cloudinary asset is being replaced (different public_id),
@@ -6869,30 +6992,53 @@ _GENDER_NORMALIZE = {
 }
 
 
-def _row_to_product(row: dict, l1_by_name: dict, l2_by_name: dict) -> tuple[dict | None, str | None]:
+_L1_ID_TO_NAME = {c["id"]: c["name"] for c in L1_CATEGORIES}
+
+
+def _row_to_product(row: dict, l1_by_name: dict, l2_by_name: dict, l2_flat_by_name: Optional[dict] = None) -> tuple[dict | None, str | None]:
     """Parse one bulk-upload row (from xlsx or csv) into a product doc fragment.
-    Returns (doc, skip_reason). doc is None when the row should be skipped."""
+    Returns (doc, skip_reason). doc is None when the row should be skipped.
+
+    Every skip reason is prefixed "Row N: " by the caller (G12 P1-10/11) —
+    this function itself stays row-number-agnostic and just returns the
+    specific, human-readable cause (e.g. "L2 'Dresses' is not valid for L1
+    'Men'" instead of the old, misleading "L2 required for category" that
+    fired identically whether the cell was blank or simply wrong)."""
     name = str(row.get("product name") or row.get("name") or row.get("product_name") or "").strip()
     if not name:
-        return None, "blank-name"
+        return None, "Product name is required"
     l1_raw = (row.get("l1_category") or row.get("l1 category") or row.get("l1") or row.get("category") or "").strip().lower()
     l1_id = _L1_NORMALIZE.get(l1_raw) or l1_by_name.get(l1_raw)
     if not l1_id:
-        return None, f"{name}: unknown L1 '{l1_raw}'"
+        return None, f"{name}: unknown L1 category '{l1_raw}'"
     l2_raw = str(row.get("l2 category") or row.get("l2_category") or row.get("l2") or row.get("subcategory") or "").strip().lower()
     l2_id = l2_by_name.get((l1_id, l2_raw), "") if l2_raw else ""
     gender_raw = (row.get("gender") or "").strip().lower()
     gender = _GENDER_NORMALIZE.get(gender_raw, str(row.get("gender") or "N/A").strip())
     if l1_id in L2_BY_L1 and not l2_id:
-        return None, f"{name}: L2 required for category"
+        l1_name = _L1_ID_TO_NAME.get(l1_id, l1_raw)
+        if l2_raw:
+            # Cell wasn't blank — it just doesn't belong under this L1. Tell
+            # the merchant exactly which L1 it DOES belong under, if we can
+            # find it, rather than the old blank-vs-wrong-ambiguous message.
+            match = (l2_flat_by_name or {}).get(l2_raw)
+            if match:
+                correct_l1 = _L1_ID_TO_NAME.get(match[0], match[0])
+                return None, f"{name}: L2 category '{l2_raw}' is not valid for L1 '{l1_name}' — it belongs under L1 '{correct_l1}'"
+            return None, f"{name}: L2 category '{l2_raw}' is not a recognized sub-category"
+        return None, f"{name}: L2 category is required for L1 '{l1_name}'"
     if l1_id not in L2_BY_L1 and gender == "N/A":
         gender = "Unisex"
     sizes_raw = row.get("sizes") or row.get("size") or ""
     sizes = [s.strip() for s in _re.split(r"[,;|]+", str(sizes_raw)) if s.strip()]
     try: price = float((row.get("selling price") or row.get("price") or row.get("selling_price") or 0) or 0)
-    except (ValueError, TypeError): price = 0
+    except (ValueError, TypeError): return None, f"{name}: selling price is not a valid number"
+    if price <= 0:
+        return None, f"{name}: selling price must be greater than 0"
     try: mrp = float(row.get("mrp") or 0)
-    except (ValueError, TypeError): mrp = 0
+    except (ValueError, TypeError): return None, f"{name}: MRP is not a valid number"
+    if mrp and mrp < 0:
+        return None, f"{name}: MRP cannot be negative"
     stock_raw = str(row.get("stock_per_size") or row.get("stock per size") or row.get("stock") or "").strip()
     stock_dict: dict = {}
     if stock_raw:
@@ -6910,14 +7056,30 @@ def _row_to_product(row: dict, l1_by_name: dict, l2_by_name: dict) -> tuple[dict
             except (ValueError, TypeError): stock_dict = {"default": 0}
         else:
             return None, f"{name}: sizes/stock count mismatch"
+    if any(v < 0 for v in stock_dict.values()):
+        return None, f"{name}: stock cannot be negative"
     returnable_raw = str(row.get("returnable") or "").strip().lower()
     return_eligible = returnable_raw in ("yes", "y", "true", "1")
+    return_window_hours = None
+    if return_eligible:
+        rwh_raw = row.get("return_window_hours")
+        if rwh_raw not in (None, ""):
+            try:
+                return_window_hours = int(float(rwh_raw))
+            except (ValueError, TypeError):
+                return None, f"{name}: return window (hours) is not a valid number"
+            if return_window_hours < 1 or return_window_hours > 24:
+                return None, f"{name}: return window (hours) must be between 1 and 24"
+    try_at_doorstep_raw = str(row.get("try_at_doorstep") or "").strip().lower()
+    try_at_doorstep = try_at_doorstep_raw in ("yes", "y", "true", "1")
     return {
         "name": name, "price": price, "mrp": mrp or None,
         "l1_id": l1_id, "l2_id": l2_id, "gender": gender,
         "description": str(row.get("description") or "").strip(),
         "sizes": sizes, "stock": stock_dict or {"default": 0},
         "return_eligible": return_eligible,
+        "return_window_hours": return_window_hours,
+        "try_at_doorstep": try_at_doorstep,
     }, None
 
 
@@ -6954,11 +7116,17 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
     else:
         try:
             raw = raw_bytes.decode("utf-8", errors="ignore")
-            rows = list(csv.DictReader(io.StringIO(raw)))
+            # Row 1 is the header, so the first data row is spreadsheet row 2 —
+            # matches parse_uploaded_xlsx's own `_row_num` convention so error
+            # messages are identically row-indexed regardless of upload format.
+            rows = []
+            for i, r in enumerate(csv.DictReader(io.StringIO(raw)), start=2):
+                r["_row_num"] = i
+                rows.append(r)
         except Exception as e:
             raise HTTPException(400, f"Could not read csv: {e}")
 
-    l1_by_name, l2_by_name, _l2_flat_by_name = _category_name_maps()
+    l1_by_name, l2_by_name, l2_flat_by_name = _category_name_maps()
 
     # Brand column: name-matched lookup like L1/L2 — but unlike L1/L2, a
     # miss never skips or fails the row. Brand is a CLOSED, admin-curated
@@ -6994,16 +7162,19 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
     slots_used = 0
     limit_hit = False
     for row in rows:
-        # Skip blank rows
-        if not any((v not in (None, "") for v in row.values())):
+        row_num = row.get("_row_num")
+        # Skip blank rows — `_row_num` itself is always set, so it must be
+        # excluded from this check or every row would look "non-blank".
+        if not any(v not in (None, "") for k, v in row.items() if k != "_row_num"):
             continue
         if slots_used >= remaining_slots:
             limit_hit = True
-            skipped.append("plan product limit reached")
+            skipped.append(f"Row {row_num}: plan product limit reached" if row_num else "plan product limit reached")
             continue
-        doc_frag, reason = _row_to_product(row, l1_by_name, l2_by_name)
+        doc_frag, reason = _row_to_product(row, l1_by_name, l2_by_name, l2_flat_by_name)
         if doc_frag is None:
-            skipped.append(reason or "unknown")
+            msg = reason or "unknown error"
+            skipped.append(f"Row {row_num}: {msg}" if row_num else msg)
             continue
         doc_frag["brand_id"] = await _resolve_brand_id(row)
         pid = f"prod-{uuid.uuid4().hex[:10]}"
@@ -7013,7 +7184,7 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
             "id": pid, "merchant_id": user["sub"], "store_id": store_id,
             "store_name": m["store_name"], "store_city": m.get("city", ""),
             "rating": 4.5, "paused": True, "needs_image": True,
-            "image": "", "ai_enhanced": False, "try_at_doorstep": False,
+            "image": "", "ai_enhanced": False,
             "created_at": datetime.now(timezone.utc).isoformat(),
             **doc_frag,
         })
@@ -7971,15 +8142,33 @@ async def merchant_analytics(period: str = "30d", user: dict = Depends(get_curre
         try: d = datetime.fromisoformat(o["created_at"]).date().isoformat()
         except Exception: continue
         by_day[d] = by_day.get(d, 0) + float(o.get("total", 0))
-    # Gap-fill the trend so the chart shows a continuous timeline (last N days of the period,
-    # capped at 14 points for a clean bar chart). Empty days show as 0-height bars which
-    # gives the merchant a clear "no orders that day" signal.
-    span_days = max(1, min(14, (end.date() - start.date()).days or 1))
+    # Gap-fill the trend so the chart shows a continuous timeline. G12 P1-11:
+    # this used to hard-cap at 14 points regardless of the selected period,
+    # so "Last quarter" showed a 14-day chart sitting under a 90-day revenue
+    # total — two numbers that could never agree. Uncapped here so the chart
+    # always covers the exact same days the headline figures below are
+    # computed over. Empty days show as 0-height bars, a clear "no orders
+    # that day" signal rather than a gap.
+    span_days = max(1, (end.date() - start.date()).days or 1)
     trend = []
     for i in range(span_days, 0, -1):
         d = (end.date() - timedelta(days=i - 1)).isoformat()
         trend.append({"date": d, "revenue": round(by_day.get(d, 0), 2)})
-    repeat_rate = min(58, int(count * 0.42)) if count >= 4 else 0
+    # Real repeat-customer rate (G12 P1-11) — was a synthetic formula off raw
+    # order count with no actual customer-history query behind it
+    # (`min(58, int(count*0.42))`). Now: % of this window's distinct
+    # customers (by phone) who placed ≥2 delivered orders in this SAME
+    # window — scoped identically to revenue/orders above so it's not yet
+    # another figure computed over a different, silently mismatched range.
+    customer_order_counts: dict[str, int] = {}
+    for o in orders:
+        phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+        if not phone:
+            continue
+        customer_order_counts[phone] = customer_order_counts.get(phone, 0) + 1
+    distinct_customers = len(customer_order_counts)
+    repeating_customers = sum(1 for c in customer_order_counts.values() if c >= 2)
+    repeat_rate = round(100 * repeating_customers / distinct_customers) if distinct_customers else 0
     agg = {}
     for o in orders:
         for it in o.get("items", []):
@@ -7991,7 +8180,11 @@ async def merchant_analytics(period: str = "30d", user: dict = Depends(get_curre
     top = sorted(agg.values(), key=lambda x: x["revenue"], reverse=True)[:5]
     return {"period": period, "revenue": round(revenue, 2), "orders": count,
         "avg_order_value": round(revenue / count, 2) if count else 0,
-        "repeat_rate": repeat_rate, "conversion": 0,
+        "repeat_rate": repeat_rate,
+        # No pageview/visit tracking exists to compute a real conversion
+        # rate (G12 P1-11) — null/"not tracked yet" is honest; the old
+        # hardcoded 0 looked like a real, computed 0% conversion.
+        "conversion": None,
         "trend": trend,
         "top_products": top, "demo_mode": False}
 
@@ -8805,30 +8998,67 @@ RETURN_STATUS_FLOW = ["requested", "pickup_assigned", "arriving", "picked_up", "
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
-async def _can_return_order(order: dict):
-    """Returns (ok, reason). Order must be delivered, have at least 1 return_eligible item, and be within 24h window."""
-    if not order:
-        return False, "Order not found"
-    if order.get("status") != "delivered":
-        return False, "Only delivered orders can be returned"
+def _item_return_deadline_hours(item: dict) -> int:
+    """Per-item return window, hours (G12 P1-8). This is the value snapshotted
+    onto the order line at checkout time — see create_order's items_snap —
+    NOT whatever the merchant has the product set to today. Re-clamped to the
+    server-side 24h ceiling regardless of what's stored (defense in depth
+    against any pre-validator data). Falls back to the historical global
+    RETURN_WINDOW_HOURS for items/orders that predate this field."""
+    raw = item.get("return_window_hours")
+    if raw is None:
+        return RETURN_WINDOW_HOURS
+    try:
+        hours = int(raw)
+    except (TypeError, ValueError):
+        return RETURN_WINDOW_HOURS
+    return max(1, min(hours, RETURN_WINDOW_HOURS))
+
+
+def _returnable_items_now(order: dict, delivered_at: datetime) -> list[dict]:
+    """Return-eligible items whose OWN snapshotted window hasn't expired yet —
+    replaces the old single order-wide 24h cutoff that ignored per-item
+    windows entirely."""
+    now = datetime.now(timezone.utc)
+    return [
+        it for it in (order.get("items") or [])
+        if it.get("return_eligible")
+        and now <= delivered_at + timedelta(hours=_item_return_deadline_hours(it))
+    ]
+
+
+def _parse_delivered_at(order: dict) -> Optional[datetime]:
     delivered_at_str = order.get("delivered_at")
     if not delivered_at_str:
-        # Fall back to the timeline 'Delivered' entry if delivered_at wasn't set (older orders)
         for t in order.get("timeline", []):
             if t.get("label") == "Delivered" and t.get("time"):
                 delivered_at_str = t["time"]
                 break
     if not delivered_at_str:
-        return False, "Delivery time not recorded — please contact customer care"
+        return None
     try:
-        delivered_at = datetime.fromisoformat(delivered_at_str.replace("Z", "+00:00"))
+        return datetime.fromisoformat(delivered_at_str.replace("Z", "+00:00"))
     except ValueError:
-        return False, "Invalid delivery timestamp"
-    if datetime.now(timezone.utc) > delivered_at + timedelta(hours=RETURN_WINDOW_HOURS):
-        return False, f"Return window of {RETURN_WINDOW_HOURS}h has expired"
+        return None
+
+
+async def _can_return_order(order: dict):
+    """Returns (ok, reason). Order must be delivered, have ≥1 return_eligible
+    item, and at least one such item must still be within ITS OWN snapshotted
+    return window (G12 P1-8 — previously every item shared a single global
+    24h cutoff regardless of what the merchant configured per-product)."""
+    if not order:
+        return False, "Order not found"
+    if order.get("status") != "delivered":
+        return False, "Only delivered orders can be returned"
+    delivered_at = _parse_delivered_at(order)
+    if delivered_at is None:
+        return False, "Delivery time not recorded — please contact customer care"
     eligible_items = [it for it in (order.get("items") or []) if it.get("return_eligible")]
     if not eligible_items:
         return False, "None of the items in this order are return-eligible"
+    if not _returnable_items_now(order, delivered_at):
+        return False, "The return window for the items in this order has expired"
     return True, None
 
 
@@ -8847,8 +9077,12 @@ async def create_return(oid: str, payload: dict, user: dict = Depends(customer_u
     ret_reason = (payload.get("reason") or "").strip()
     if not ret_reason:
         raise HTTPException(400, "Reason required")
-    # Filter to only return-eligible items in this order
-    elig_ids = {it.get("id") for it in (o.get("items") or []) if it.get("return_eligible")}
+    # Filter to only items that are BOTH return-eligible and still within
+    # their own snapshotted return window (G12 P1-8) — not just any
+    # return_eligible item on the order, since one item's window may have
+    # lapsed while another's (e.g. a longer merchant-configured window) hasn't.
+    delivered_at = _parse_delivered_at(o)
+    elig_ids = {it.get("id") for it in _returnable_items_now(o, delivered_at)} if delivered_at else set()
     chosen = [iid for iid in item_ids if iid in elig_ids]
     if not chosen:
         # Default: include all eligible items

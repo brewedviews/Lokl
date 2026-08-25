@@ -7,11 +7,13 @@ a Yes/No dropdown. Sizes + stock are typed manually because they are per-product
 from __future__ import annotations
 
 import io
+import re
 from typing import Iterable
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from seed_data import L1_CATEGORIES, L2_BY_L1
@@ -31,16 +33,17 @@ HEADERS = [
     "l1 category", "l2 category", "gender",
     "mrp", "selling price",
     "sizes", "stock_per_size",
-    "returnable", "brand",
+    "returnable", "return window (hours)", "try & buy",
+    "brand",
 ]
 # 10 example rows the merchant can replace.
 EXAMPLES = [
     ["Indigo Block-Print Kurta", "Pure cotton hand-block",
-     "Women", "Kurtas & Suits", "", 3499, 1899, "S;M;L;XL", "50;100;39;10", "Yes"],
+     "Women", "Kurtas & Suits", "", 3499, 1899, "S;M;L;XL", "50;100;39;10", "Yes", 24, "No"],
     ["Oversized Tee", "240GSM oversized graphic tee",
-     "Men", "T-Shirts", "", 1499, 899, "M;L;XL", "30;45;20", "Yes"],
+     "Men", "T-Shirts", "", 1499, 899, "M;L;XL", "30;45;20", "Yes", 24, "No"],
     ["White Court Sneakers", "Classic low-top court sneakers",
-     "Footwear", "Casual Shoes", "", 4999, 3499, "7;8;9;10", "8;12;10;6", "No"],
+     "Footwear", "Casual Shoes", "", 4999, 3499, "7;8;9;10", "8;12;10;6", "No", "", "Yes"],
 ]
 
 
@@ -48,6 +51,54 @@ def _add_dropdown(ws, col_letter: str, options: list[str], first_row: int = 2, l
     formula = '"' + ",".join(options) + '"'
     dv = DataValidation(type="list", formula1=formula, allow_blank=True, showDropDown=False)
     dv.add(f"{col_letter}{first_row}:{col_letter}{last_row}")
+    ws.add_data_validation(dv)
+
+
+def _l1_range_name(l1_name: str) -> str:
+    """Excel defined names can't contain spaces/most punctuation and can't
+    start with a digit — sanitize the L1 display name into a stable,
+    collision-free range name (e.g. "Lingerie & Innerwear" -> L2_Lingerie___Innerwear)."""
+    cleaned = re.sub(r"[^A-Za-z0-9_]", "_", l1_name)
+    if cleaned[:1].isdigit():
+        cleaned = "_" + cleaned
+    return f"L2_{cleaned}"
+
+
+def _add_l2_dependent_dropdown(wb, ws, l1_col: str, l2_col: str, first_row: int = 2, last_row: int = 200):
+    """Real Excel-native L1→L2 dependent dropdown (G12 P1-9) — replaces the
+    old flat, unfiltered "every L2 in the whole taxonomy" list, which let a
+    merchant pick e.g. "Sarees" under L1 "Men" with zero warning until the
+    server silently skipped the row. Standard technique: one named range per
+    L1 on a hidden helper sheet, L2 column validated via an INDIRECT formula
+    keyed off that row's own L1 cell — so the visible dropdown itself only
+    ever offers L2 values valid for whatever L1 the merchant already chose.
+    """
+    helper = wb.create_sheet("L2Lists")
+    helper.sheet_state = "hidden"
+    for col_idx, l1 in enumerate(L1_CATEGORIES, start=1):
+        subs = L2_BY_L1.get(l1["id"], [])
+        col_letter = get_column_letter(col_idx)
+        helper.cell(row=1, column=col_idx, value=l1["name"])
+        if not subs:
+            # No L2s for this L1 — still define a (single blank-cell) named
+            # range so INDIRECT resolves to something valid rather than a
+            # #REF! error when the merchant opens the L2 dropdown for it.
+            helper.cell(row=2, column=col_idx, value=None)
+            ref = f"'L2Lists'!${col_letter}$2:${col_letter}$2"
+        else:
+            for i, s in enumerate(subs, start=2):
+                helper.cell(row=i, column=col_idx, value=s["name"])
+            ref = f"'L2Lists'!${col_letter}$2:${col_letter}${len(subs) + 1}"
+        wb.defined_names[_l1_range_name(l1["name"])] = DefinedName(_l1_range_name(l1["name"]), attr_text=ref)
+
+    # Excel formulas can't regex-replace arbitrary characters the way
+    # `_l1_range_name` does in Python — this chains one SUBSTITUTE per
+    # special character actually present in today's L1 names (space, &).
+    # A future L1 name introducing a new punctuation character needs a
+    # matching SUBSTITUTE added here to stay in sync with `_l1_range_name`.
+    formula = f'INDIRECT("L2_"&SUBSTITUTE(SUBSTITUTE(${l1_col}{first_row}," ","_"),"&","_"))'
+    dv = DataValidation(type="list", formula1=formula, allow_blank=True, showDropDown=False, showErrorMessage=False)
+    dv.add(f"{l2_col}{first_row}:{l2_col}{last_row}")
     ws.add_data_validation(dv)
 
 
@@ -64,7 +115,7 @@ def build_template_xlsx() -> bytes:
         c.font = header_font
         c.alignment = Alignment(vertical="center")
     ws.row_dimensions[1].height = 26
-    widths = [28, 30, 14, 22, 12, 10, 10, 22, 22, 12, 20]
+    widths = [28, 30, 14, 22, 12, 10, 10, 22, 22, 12, 18, 12, 20]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -74,9 +125,10 @@ def build_template_xlsx() -> bytes:
 
     # Dropdowns
     _add_dropdown(ws, "C", L1_NAMES)
-    _add_dropdown(ws, "D", ALL_L2_NAMES)
+    _add_l2_dependent_dropdown(wb, ws, l1_col="C", l2_col="D")
     _add_dropdown(ws, "E", GENDERS)
     _add_dropdown(ws, "J", YES_NO)
+    _add_dropdown(ws, "L", YES_NO)
 
     # Instructions sheet
     info = wb.create_sheet("How to fill")
@@ -85,17 +137,22 @@ def build_template_xlsx() -> bytes:
     info_lines = [
         "",
         "• Fill one row per product on the 'Products' sheet.",
-        "• Click into the l1 category / l2 category / gender / returnable cells — a DROPDOWN arrow appears on the right.",
+        "• Click into the l1 category cell first — a DROPDOWN arrow appears on the right.",
+        "  Then click into l2 category: its dropdown automatically shows ONLY the sub-categories",
+        "  valid for whatever l1 category you picked on that row. Pick l1 before l2, or the l2",
+        "  dropdown will still be showing the previous row's options.",
         "  You cannot type custom categories: only listed values are accepted.",
-        "• See the 'L1 → L2 reference' sheet for which sub-category belongs to which category.",
-        "• For categories without sub-categories (Footwear, Streetwear, Kids, etc.) leave l2 category blank.",
+        "• See the 'L1 → L2 reference' sheet for the full category tree at a glance.",
         "• sizes: comma or semicolon-separated, e.g.  S,M,L,XL  or  S;M;L;XL  or  7;8;9;10",
         "• stock_per_size: same count as sizes, e.g. 50,100,39,10 — quantity per size.",
         "• returnable: Yes / No. Defaults to No if blank. (Innerwear, perishables: keep No.)",
+        "• return window (hours): only used when returnable is Yes. Whole number, 1-24. Defaults to 24 if blank.",
+        "• try & buy: Yes / No — can the customer try this on at the door and only pay for what they keep?",
+        "  Defaults to No if blank.",
         "• brand: optional. Matches an existing brand by name (case-insensitive) from Lokl's brand list.",
         "  Brands can't be created from this sheet — an unrecognized name is noted in the upload summary",
         "  and the product is still created, just without a brand tag. Check spelling or ask Lokl to add it.",
-        "• mrp / price are in INR.",
+        "• mrp / price are in INR and must be positive numbers.",
         "• After upload, every row appears in Products as a draft — add images & tweak before go-live.",
     ]
     for i, line in enumerate(info_lines, start=2):
@@ -147,6 +204,12 @@ _HEADER_ALIAS = {
     "product description": "description",
     "brand name":          "brand",
     "brand_name":          "brand",
+    "return window (hours)": "return_window_hours",
+    "return_window_hours":   "return_window_hours",
+    "return window":         "return_window_hours",
+    "try & buy":             "try_at_doorstep",
+    "try and buy":           "try_at_doorstep",
+    "try_at_doorstep":       "try_at_doorstep",
 }
 
 
@@ -155,6 +218,11 @@ def parse_uploaded_xlsx(data: bytes) -> list[dict]:
     Tolerates extra/blank columns and the 'How to fill' sheet.
     Maps l1_category → l1 and l2_subcategory → l2 so _row_to_product in
     server.py can consume the output without modification.
+
+    Each row dict carries `_row_num` — the real spreadsheet row number
+    (1-indexed, matching what a merchant sees in Excel) — so server.py can
+    produce row-specific error messages instead of a bare, unindexed reason
+    (G12 P1-10/11).
     """
     wb = load_workbook(io.BytesIO(data), data_only=True)
     ws = wb["Products"] if "Products" in wb.sheetnames else wb.active
@@ -168,5 +236,6 @@ def parse_uploaded_xlsx(data: bytes) -> list[dict]:
         if not any(v not in (None, "") for v in row):
             continue
         d = {h: row[i] if i < len(row) else None for i, h in enumerate(headers) if h}
+        d["_row_num"] = row_idx
         rows.append(d)
     return rows

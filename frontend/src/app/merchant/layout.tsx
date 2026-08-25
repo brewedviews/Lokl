@@ -24,6 +24,7 @@ import { useMerchantAuthStore } from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { api } from "@/lib/api";
 import { OnlineToggle } from "@/components/merchant/OnlineToggle";
+import type { Order } from "@/types";
 
 type WinWithWebkit = Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext };
 
@@ -116,14 +117,13 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
 
   useEffect(() => {
     if (!isApproved) return;
-    const raw = typeof window !== "undefined" ? localStorage.getItem("lokl_merchant_auth") : null;
-    if (!raw) return;
-    let tok: string | null = null;
-    try { tok = (JSON.parse(raw) as { state?: { token?: string } })?.state?.token ?? null; } catch { return; }
-    if (!tok) return;
-    fetch("/api/merchant/store/state", { headers: { Authorization: `Bearer ${tok}` } })
-      .then(r => r.json())
-      .then((d: { online?: boolean }) => { if (d.online !== undefined) setIsOnline(d.online); })
+    // Routed through apiClient (not raw fetch) so an expired access token is
+    // silently refreshed-and-retried instead of leaving `isOnline` stuck on
+    // its optimistic `true` default when this call fails (G12 P0 fix — the
+    // frontend/reality desync that made the store *look* offline/online
+    // independent of the real server-side value).
+    api.merchant.storeState()
+      .then((d) => { if (d.online !== undefined) setIsOnline(d.online); })
       .catch(() => {});
   }, [isApproved]);
 
@@ -156,15 +156,15 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
       Notification.requestPermission();
     }
     const poll = async () => {
-      const raw = typeof window !== "undefined" ? localStorage.getItem("lokl_merchant_auth") : null;
-      if (!raw) return;
-      let tok: string | null = null;
-      try { tok = (JSON.parse(raw) as { state?: { token?: string } })?.state?.token ?? null; } catch { return; }
-      if (!tok) return;
+      // Routed through apiClient — a raw fetch here silently 401ed forever
+      // once the access token expired (empty catch swallowed it), starving
+      // the merchant of new-order alerts until something else forced a
+      // reload. apiClient's interceptor refreshes-and-retries transparently.
       try {
-        const resp = await fetch("/api/merchant/orders", { headers: { Authorization: `Bearer ${tok}` } });
-        if (!resp.ok) return;
-        const orders = (await resp.json()) as Array<{ id: string; status: string; my_state?: string }>;
+        // `my_state` isn't on the shared Order type (it's a per-merchant
+        // flattening the backend adds only on this listing endpoint) — same
+        // cast orders/page.tsx already uses for the identical response shape.
+        const orders = await api.merchant.listOrders() as Array<Order & { my_state?: string }>;
         const newPending = orders.filter(
           (o) => (o.my_state === "pending" || o.status === "pending_merchant") && !prevOrderIds.current.has(o.id)
         );
@@ -228,20 +228,13 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
       ];
 
   const toggleOnline = async () => {
-    const raw = typeof window !== "undefined" ? localStorage.getItem("lokl_merchant_auth") : null;
-    if (!raw) return;
-    let tok: string | null = null;
-    try { tok = (JSON.parse(raw) as { state?: { token?: string } })?.state?.token ?? null; } catch { return; }
-    if (!tok) return;
     const next = !isOnline;
     setIsOnline(next);
     try {
-      await fetch("/api/merchant/store/online", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ online: next }),
-      });
-    } catch { setIsOnline(!next); }
+      await api.merchant.setOnline(next);
+    } catch {
+      setIsOnline(!next);
+    }
   };
 
   const signOut = async () => {

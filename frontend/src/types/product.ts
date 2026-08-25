@@ -58,6 +58,10 @@ export interface Product {
   ai_enhanced: boolean;
   try_at_doorstep: boolean;
   return_eligible: boolean;
+  /** Per-product return window in hours, merchant-set (1-24), null on
+   *  products predating this field or when return_eligible is false — the
+   *  return flow falls back to the historical 24h default. See G12 P1-8. */
+  return_window_hours?: number | null;
   paused: boolean;
 
   /** Merchant-authored fit guidance ("runs slightly large, size down").

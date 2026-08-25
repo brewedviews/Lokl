@@ -160,11 +160,30 @@ export function getToken(scope: Scope): string | null {
   return unwrapPersistEnvelope(localStorage.getItem(key));
 }
 
+/**
+ * Scopes whose token key is owned EXCLUSIVELY by zustand/persist (single-key
+ * design: merchant-auth.store.ts / admin-auth.store.ts). These stores read
+ * back this exact key via `persist.rehydrate()` / their own JSON.parse-based
+ * sync and expect the envelope shape `{"state":{"token":"eyJ..."},"version":0}`
+ * at all times — writing a bare JWT here corrupts the very next rehydrate.
+ *
+ * Customer and rider deliberately use a TWO-key split (a raw-JWT mirror this
+ * function writes to, plus a separately-named persist envelope key the store
+ * owns) specifically to avoid this collision — see customer-auth.store.ts's
+ * doc comment. Wrapping their key in an envelope would break their own
+ * `_syncFromStorage`, which requires a bare JWT. Do not extend this set to
+ * customer/rider.
+ */
+const ENVELOPE_OWNED_SCOPES: ReadonlySet<Scope> = new Set(["merchant", "admin"]);
+
 export function setToken(scope: Scope, token: string): void {
   if (!isBrowser()) return;
   const key = tokenKeyFor(scope);
   if (!key) return;
-  localStorage.setItem(key, token);
+  const value = ENVELOPE_OWNED_SCOPES.has(scope)
+    ? JSON.stringify({ state: { token }, version: 0 })
+    : token;
+  localStorage.setItem(key, value);
   const evt = authEventFor(scope);
   if (evt) window.dispatchEvent(new Event(evt));
 }
@@ -282,10 +301,13 @@ function createApiClient(): AxiosInstance {
         return client(originalRequest);
       } catch (refreshErr) {
         refreshInFlight = null;
-        // For customers: only clear the token when the server explicitly says
-        // it's revoked — not on every 401 (e.g. network blip, server restart).
-        // Merchants and admins always get cleared so they're bounced to login.
-        if (scope === "customer") {
+        // For customers AND merchants: only clear the token when the server
+        // explicitly says it's revoked/invalid — not on every 401 (network
+        // blip, server restart, a slow cold-start). A merchant silently
+        // logged out (and bounced off their LIVE toggle) by a transient
+        // failure is exactly the P0 bug this carve-out exists to prevent.
+        // Admins/riders keep the stricter always-clear behavior.
+        if (scope === "customer" || scope === "merchant") {
           const body = (refreshErr as { response?: { data?: { detail?: string } } })?.response?.data;
           const detail = ((body?.detail) ?? "").toLowerCase();
           if (detail.includes("revoked") || detail.includes("invalid_token")) {

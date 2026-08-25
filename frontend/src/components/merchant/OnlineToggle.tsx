@@ -17,10 +17,17 @@ import { api } from "@/lib/api";
 interface StoreState {
   online: boolean;
   published: boolean;
+  offline_reason?: "manual" | "closed" | "12h" | null;
   paused?: boolean;
   product_count?: number;
   can_toggle: boolean;
 }
+
+const OFFLINE_REASON_LABEL: Record<string, string> = {
+  closed: "Closed for the day",
+  "12h": "Live limit reached — go live again",
+  manual: "Tap to go online",
+};
 
 export function OnlineToggle() {
   const [state, setState] = useState<StoreState | null>(null);
@@ -73,7 +80,7 @@ export function OnlineToggle() {
             {on ? "Online" : "Offline"}
           </div>
           <div className="text-[11px] text-[#1A2B4C] font-semibold">
-            {on ? "Tap to go offline" : "Tap to go online"}
+            {on ? "Tap to go offline" : (OFFLINE_REASON_LABEL[state.offline_reason ?? "manual"] ?? "Tap to go online")}
           </div>
         </div>
         <div className={`w-9 h-5 rounded-full relative transition ${on ? "bg-[#4F7363]" : "bg-[#595959]/40"}`}>

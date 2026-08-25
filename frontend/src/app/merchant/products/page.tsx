@@ -41,6 +41,7 @@ const blankForm = {
   sizes: [] as string[], stock: {} as Record<string, number>,
   images: [] as string[], image_public_ids: [] as string[],
   return_eligible: false,
+  return_window_hours: "24",
   try_at_doorstep: false,
   size_type: "",
 };
@@ -152,6 +153,9 @@ export default function MerchantProductsPage() {
         images: form.images,
         image_public_ids: form.image_public_ids,
         return_eligible: form.return_eligible,
+        return_window_hours: form.return_eligible
+          ? Math.min(24, Math.max(1, Number(form.return_window_hours) || 24))
+          : undefined,
         try_at_doorstep: form.try_at_doorstep,
       };
       if (editingId) {
@@ -179,7 +183,7 @@ export default function MerchantProductsPage() {
       // GET /api/products/{pid} returns { product, similar }, so we have to
       // unwrap before populating the form. Reading the top-level fields was
       // the iter-44 regression that opened the edit modal blank.
-      const r = await apiClient.get<{ product: Product & { image_public_id?: string; image_public_ids?: string[]; stock?: Record<string, number>; sizes?: string[]; l1_id?: string; l2_id?: string; gender?: string; mrp?: number; return_eligible?: boolean; try_at_doorstep?: boolean; images?: string[]; size_type?: string; brand_id?: string | null } }>(`/api/products/${p.id}`);
+      const r = await apiClient.get<{ product: Product & { image_public_id?: string; image_public_ids?: string[]; stock?: Record<string, number>; sizes?: string[]; l1_id?: string; l2_id?: string; gender?: string; mrp?: number; return_eligible?: boolean; return_window_hours?: number | null; try_at_doorstep?: boolean; images?: string[]; size_type?: string; brand_id?: string | null } }>(`/api/products/${p.id}`);
       const d = r.data.product;
       let sizeType = d.size_type || "";
       if (!sizeType && d.sizes && d.sizes.length > 0) {
@@ -208,6 +212,7 @@ export default function MerchantProductsPage() {
         images: d.images && d.images.length ? d.images : (d.image ? [d.image] : []),
         image_public_ids: d.image_public_ids && d.image_public_ids.length ? d.image_public_ids : (d.image_public_id ? [d.image_public_id] : []),
         return_eligible: !!d.return_eligible,
+        return_window_hours: d.return_window_hours != null ? String(d.return_window_hours) : "24",
         try_at_doorstep: !!d.try_at_doorstep,
         size_type: sizeType,
       });
@@ -328,6 +333,34 @@ export default function MerchantProductsPage() {
             <button onClick={() => bulkAction("delete")} disabled={bulkBusy} data-testid="bulk-delete" className="px-3 py-1.5 rounded-full bg-red-500 text-xs font-semibold disabled:opacity-50">Delete</button>
             <button onClick={() => setSelected([])} className="px-3 py-1.5 rounded-full bg-white/10 text-xs">Cancel</button>
           </div>
+        </div>
+      )}
+
+      {/* Select all — the bulk-action bar above already supports go live/
+          pause/delete on a selection, but had no way to select every row at
+          once (G12 P1-7). Scoped to the currently-filtered/searched list,
+          not the full catalog, so selecting doesn't silently grab hidden rows. */}
+      {filtered.length > 0 && (
+        <div className="flex items-center gap-2 mb-2 px-1">
+          <input
+            type="checkbox"
+            data-testid="select-all"
+            checked={filtered.length > 0 && filtered.every((p) => selected.includes(p.id))}
+            ref={(el) => {
+              if (el) {
+                const allSelected = filtered.every((p) => selected.includes(p.id));
+                const someSelected = filtered.some((p) => selected.includes(p.id));
+                el.indeterminate = someSelected && !allSelected;
+              }
+            }}
+            onChange={() => {
+              const ids = filtered.map((p) => p.id);
+              const allSelected = ids.every((id) => selected.includes(id));
+              setSelected(allSelected ? [] : ids);
+            }}
+            className="w-4 h-4 accent-[#E68910]"
+          />
+          <label className="text-xs font-semibold text-[#595959]">Select all</label>
         </div>
       )}
 
@@ -663,8 +696,24 @@ export default function MerchantProductsPage() {
 
                   <label className="flex items-start gap-2 text-xs">
                     <input data-testid="prod-return-eligible" type="checkbox" checked={form.return_eligible} onChange={(e) => setForm({ ...form, return_eligible: e.target.checked })} className="mt-0.5 w-4 h-4 accent-[#E68910]" />
-                    <span><strong>Return eligible</strong> — customers can return this within 24 hours of delivery</span>
+                    <span><strong>Return eligible</strong> — customers can return this within a set window after delivery</span>
                   </label>
+
+                  {form.return_eligible && (
+                    <label className="flex items-center gap-2 text-xs pl-6">
+                      <span className="text-[#595959]">Return window (hours, max 24)</span>
+                      <input
+                        data-testid="prod-return-window-hours"
+                        type="number"
+                        min={1}
+                        max={24}
+                        value={form.return_window_hours}
+                        onChange={(e) => setForm({ ...form, return_window_hours: e.target.value })}
+                        onBlur={() => setForm((f) => ({ ...f, return_window_hours: String(Math.min(24, Math.max(1, Number(f.return_window_hours) || 24))) }))}
+                        className="w-20 px-2 py-1 rounded-lg border border-[#E5E2DC] outline-none text-sm"
+                      />
+                    </label>
+                  )}
 
                   <label className="flex items-start gap-2 text-xs">
                     <input data-testid="prod-try-at-doorstep" type="checkbox" checked={form.try_at_doorstep} onChange={(e) => setForm({ ...form, try_at_doorstep: e.target.checked })} className="mt-0.5 w-4 h-4 accent-[#E68910]" />
