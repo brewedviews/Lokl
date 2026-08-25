@@ -39,12 +39,17 @@
  * same Search tab.
  *
  * /checkout (the merged Bag/Checkout screen, formerly two pages) is
- * EXCLUDED — it has its own sticky bottom price+CTA bar, and stacking that
- * on top of this generic 5-tab nav is exactly the "two competing
- * fixed-chrome models" the PDP already tried and reverted once (see the
- * /product/ note above) — same resolution applied here instead of
- * repeating that mistake. (Also means the new Cart tab never has to render
- * "active" on the very page it links to.)
+ * EXCLUDED ONLY WHILE THE BAG HAS ITEMS — it then has its own sticky
+ * bottom price+CTA bar, and stacking that on top of this generic 5-tab
+ * nav is exactly the "two competing fixed-chrome models" the PDP already
+ * tried and reverted once (see the /product/ note above) — same
+ * resolution applied here. (Also means the Cart tab never has to render
+ * "active" on the very page it links to, in that state.)
+ *
+ * G13 — when the bag is EMPTY, /checkout renders no sticky CTA bar at all
+ * (there's nothing to check out), so there is no second fixed bar to
+ * compete with — this nav is shown in that state so an empty Bag page
+ * isn't left with no navigation at all.
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -59,7 +64,8 @@ export function StickyBottomNav() {
   const mounted = useMounted();
   const cartCount = useCartStore((s) => s.getItemCount());
 
-  if (pathname.startsWith("/merchant") || pathname.startsWith("/admin") || pathname.startsWith("/rider") || pathname.startsWith("/checkout")) return null;
+  if (pathname.startsWith("/merchant") || pathname.startsWith("/admin") || pathname.startsWith("/rider")) return null;
+  if (pathname.startsWith("/checkout") && cartCount > 0) return null;
 
   const isActive = (href: string) => href === "/" ? pathname === "/" : pathname.startsWith(href);
 

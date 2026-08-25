@@ -94,6 +94,7 @@ export default function CheckoutPage() {
   const clearCart = useCartStore((s) => s.clearCart);
   const updateQty = useCartStore((s) => s.updateQty);
   const removeItem = useCartStore((s) => s.removeItem);
+  const setFulfillmentType = useCartStore((s) => s.setFulfillmentType);
   // Cart items live in localStorage (zustand-persist), restored async after
   // first paint — `items` reads as [] for one frame even on a populated
   // cart. Gate the empty-state on hydration so that frame never renders
@@ -231,6 +232,17 @@ export default function CheckoutPage() {
   useEffect(() => {
     if (!pickupEligible && orderType === "pickup") setOrderType("delivery");
   }, [pickupEligible, orderType]);
+
+  // G13 §1 — Standard vs Try & Buy. Eligibility is per-line (`try_at_doorstep`,
+  // snapshotted onto the cart item at add-time from the real product flag) —
+  // the selector only appears when at least one line is eligible, and only
+  // ever toggles eligible lines. This is intent-capture only: no payment
+  // hold, rider workflow, trial timer, or return-to-store logic exists
+  // downstream yet (see create_order's own comment in server.py).
+  const eligibleItems = useMemo(() => items.filter((it) => it.try_at_doorstep), [items]);
+  const hasTryAndBuyEligible = eligibleItems.length > 0;
+  const allEligible = hasTryAndBuyEligible && eligibleItems.length === items.length;
+  const anyTryAndBuySelected = eligibleItems.some((it) => it.fulfillment_type === "try_and_buy");
 
   // One-store-per-bag ⇒ cartStoreId is unambiguous, so the impulse rail
   // never needs cross-store filtering. Exclude anything already in the bag.
@@ -530,7 +542,7 @@ export default function CheckoutPage() {
                 <ShoppingBag size={20} className="text-[#E68910]" />
               </div>
               <div>
-                <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">Your bag</h1>
+                <h1 className="text-2xl sm:text-3xl font-display font-medium text-[#0A1F5C] leading-tight">Your bag</h1>
                 <p className="text-xs sm:text-sm text-[#64748B] mt-0.5">Items you add will appear here.</p>
               </div>
             </div>
@@ -538,7 +550,7 @@ export default function CheckoutPage() {
           <section className="max-w-2xl mx-auto px-4 sm:px-8 pt-6" data-testid="cart-empty">
             <div className="bg-white border border-dashed border-[#E5E2DC] rounded-3xl p-6 sm:p-8 text-center">
               <ShoppingBag size={28} className="text-[#94A3B8] mx-auto mb-2" />
-              <div className="text-base sm:text-lg font-display font-bold text-[#0A1F5C]">Your bag is empty</div>
+              <div className="text-base sm:text-lg font-display font-medium text-[#0A1F5C]">Your bag is empty</div>
               <p className="text-xs sm:text-sm text-[#64748B] mt-1 max-w-md mx-auto">
                 Add items from your nearby Bhilai stores below — or jump straight to discovery.
               </p>
@@ -607,7 +619,42 @@ export default function CheckoutPage() {
             image/name/store/size/qty stepper/remove all unchanged, now with
             strikethrough MRP where the line has one. */}
         <div className="bg-white rounded-2xl border border-[#E5E2DC] p-4" data-testid="bag-items">
-          <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-3">Your bag ({items.length})</h2>
+          <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-3">Your bag ({items.length})</h2>
+
+          {/* Standard vs Try & Buy (G13 §1) — only rendered when at least
+              one line is try_at_doorstep-eligible. Intent-capture only: no
+              trial timer/payment-hold/rider-workflow exists yet, so the
+              copy stays generic (no fabricated duration) and never implies
+              an operational trial process is already running. */}
+          {hasTryAndBuyEligible && (
+            <div className="mb-3 p-3 rounded-xl border border-[#E5E2DC] bg-[#FDFBF7]" data-testid="fulfillment-intent-picker">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  data-testid="try-and-buy-select-standard"
+                  onClick={() => eligibleItems.forEach((it) => setFulfillmentType(it.key, "standard"))}
+                  className={`text-left p-2.5 rounded-lg border-2 transition ${!anyTryAndBuySelected ? "border-[#0A1F5C] bg-[#0A1F5C]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}
+                >
+                  <div className="font-semibold text-sm text-[#0A1F5C]">Standard</div>
+                  <p className="text-[11px] text-[#595959] mt-0.5">No trials</p>
+                </button>
+                <button
+                  type="button"
+                  data-testid="try-and-buy-select-tryandbuy"
+                  onClick={() => eligibleItems.forEach((it) => setFulfillmentType(it.key, "try_and_buy"))}
+                  className={`text-left p-2.5 rounded-lg border-2 transition ${anyTryAndBuySelected ? "border-[#E68910] bg-[#E68910]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}
+                >
+                  <div className="font-semibold text-sm text-[#0A1F5C]">Try &amp; Buy</div>
+                  <p className="text-[11px] text-[#595959] mt-0.5">Try it on, pay only for what you keep</p>
+                </button>
+              </div>
+              {!allEligible && (
+                <p className="text-[10px] text-[#94A3B8] mt-2">
+                  Applies to {eligibleItems.length} of {items.length} item{items.length === 1 ? "" : "s"} in your bag — the rest ship Standard.
+                </p>
+              )}
+            </div>
+          )}
 
           {uniqueStoreNames.length > 1 && (
             <div data-testid="multi-store-notice" className="mb-3 rounded-xl border border-[#E68910]/30 bg-[#E68910]/10 px-3 py-2 text-[12px] text-[#0A1F5C]">
@@ -635,6 +682,17 @@ export default function CheckoutPage() {
                     {it.store_name && <div className="text-[10px] uppercase tracking-wider text-[#595959]">{it.store_name}</div>}
                     <h3 className="font-semibold text-[#0A1F5C] text-sm leading-tight truncate">{it.name}</h3>
                     {it.size && <div className="text-xs text-[#595959] mt-1">Size: {it.size}</div>}
+                    {/* Per-line fulfillment tag — only shown in a mixed-
+                        eligibility bag, so it's clear which items follow
+                        the Try & Buy selection above and which don't (never
+                        silently switched). */}
+                    {hasTryAndBuyEligible && !allEligible && (
+                      <div className="mt-1">
+                        <span className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-full ${it.try_at_doorstep && it.fulfillment_type === "try_and_buy" ? "bg-[#E68910]/10 text-[#E68910]" : "bg-[#E5E2DC] text-[#595959]"}`}>
+                          {it.try_at_doorstep && it.fulfillment_type === "try_and_buy" ? "Try & Buy" : "Standard"}
+                        </span>
+                      </div>
+                    )}
                     {storeStatus?.badge === "Away" && (
                       <div className="text-xs text-amber-600 mt-0.5 font-semibold">May be delayed today</div>
                     )}
@@ -688,7 +746,7 @@ export default function CheckoutPage() {
         {/* c. Delivery/Pickup selector */}
         {pickupEligible && (
           <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="fulfillment-picker">
-            <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-2">How would you like to get it?</h2>
+            <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-2">How would you like to get it?</h2>
             <div className="grid grid-cols-2 gap-2.5">
               <button type="button" data-testid="fulfillment-delivery" onClick={() => setOrderType("delivery")}
                 className={`text-left p-3 rounded-xl border-2 transition ${orderType === "delivery" ? "border-[#E68910] bg-[#E68910]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
@@ -706,7 +764,7 @@ export default function CheckoutPage() {
 
         {/* d. Coupon/offers — own bordered card */}
         <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="coupon-section">
-          <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-2">Coupon</h2>
+          <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-2">Coupon</h2>
           {couponResult ? (
             <div className="flex items-center justify-between text-sm">
               <span>
@@ -770,7 +828,7 @@ export default function CheckoutPage() {
 
         {selectedId === "__new__" && (
           <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]">
-            <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-1">New delivery address</h2>
+            <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-1">New delivery address</h2>
             <p className="text-xs text-[#595959] mb-3">Saved addresses appear in your account for one-tap checkout next time.</p>
             <div className="grid md:grid-cols-2 gap-2.5">
               <input data-testid="addr-name" value={addr.name} onChange={(e) => setAddr({ ...addr, name: e.target.value })} placeholder="Full name" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
@@ -788,7 +846,7 @@ export default function CheckoutPage() {
 
         {/* f. Payment method */}
         <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]">
-          <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-2">Payment</h2>
+          <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-2">Payment</h2>
           <div className="grid grid-cols-2 gap-2.5">
             <button type="button" data-testid="pay-online" onClick={() => setPayment("RAZORPAY")}
               className={`flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 transition ${payment === "RAZORPAY" ? "border-[#E68910] bg-[#E68910]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
@@ -808,7 +866,7 @@ export default function CheckoutPage() {
           </>
         ) : (
           <div id="guest-login-gate" className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="guest-login-gate">
-            <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-1">Sign in to add your address and pay</h2>
+            <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-1">Sign in to add your address and pay</h2>
             <p className="text-xs text-[#595959] mb-3">We use your number to deliver, send order updates, and process returns.</p>
             <CustomerOtpLogin />
           </div>
@@ -873,7 +931,7 @@ export default function CheckoutPage() {
             payment logic above already computes — this section only
             changes how it's displayed. */}
         <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="bill-breakdown">
-          <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-2">Bill details</h2>
+          <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-2">Bill details</h2>
           <div className="space-y-1.5 text-sm">
             <div className="flex justify-between">
               <span className="text-[#595959]">MRP total</span>
@@ -951,7 +1009,7 @@ export default function CheckoutPage() {
         <div className="max-w-2xl mx-auto px-4 pt-3 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10px] uppercase tracking-wider text-[#64748B]">Total</p>
-            <p className="font-display font-bold text-lg text-[#0A1F5C] truncate" data-testid="sticky-total">₹{grandTotal.toLocaleString()}</p>
+            <p className="font-display font-medium text-xl sm:text-2xl text-[#0A1F5C] truncate" data-testid="sticky-total">₹{grandTotal.toLocaleString()}</p>
           </div>
           <Button
             variant="cta"

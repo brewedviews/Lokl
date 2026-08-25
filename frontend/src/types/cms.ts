@@ -44,13 +44,15 @@ export interface CmsArea {
 }
 
 /** Homepage price-bento tile ("Under ₹499" / "Most Loved" / "Premium") —
- *  GET/PUT /api/admin/price-bands[/:id]. Only `image` is admin-editable;
- *  label/slug/order are fixed by the band definitions. */
+ *  GET/PUT /api/admin/price-bands[/:id]. `image` (global) and
+ *  `l1_overrides` (G13 §10 — per-surface: "women"/"men"/"kids" keys) are
+ *  admin-editable; label/slug/order are fixed by the band definitions. */
 export interface CmsPriceBand {
   id: string;
   slug: string;
   label: string;
   image?: string;
+  l1_overrides?: Partial<Record<"women" | "men" | "kids", string>>;
   order?: number;
 }
 

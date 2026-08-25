@@ -38,8 +38,13 @@ function statusTone(s: string) {
   return "text-[#0A1F5C] bg-[#0A1F5C]/10";
 }
 
-type TileKey = "orders" | "addresses" | "wishlist" | "wallet" | "coupons" | "support" | "profile";
-const VALID_TILES: TileKey[] = ["orders", "addresses", "wishlist", "wallet", "coupons", "support", "profile"];
+// G13 §14 — "support" is intentionally NOT a real panel state: the Support
+// tile always hard-navigates to /account/support (see its onClick below),
+// same as before. "legal" replaces the old always-rendered 7-row policy
+// list with an on-demand panel, the same way every other tile already
+// works — this is what actually shortens the page, not just tighter CSS.
+type TileKey = "orders" | "addresses" | "wishlist" | "profile" | "legal";
+const VALID_TILES: TileKey[] = ["orders", "addresses", "wishlist", "profile", "legal"];
 
 // Legal/support pages — previously only linked from the dead, unimported
 // Footer.tsx (Terms/Privacy) or not linked anywhere at all (the other 5).
@@ -150,14 +155,19 @@ export default function CustomerAccountPage() {
 
   const addresses = customer?.addresses ?? [];
 
-  const tiles: Array<{ key: TileKey; label: string; icon: typeof Package; count: number; soon?: boolean }> = [
+  // G13 §14 — real information-architecture rework, not a shrink of the
+  // same 7 equal-weight tiles. Three visual tiers, in order:
+  //   ACCOUNT (prominent, unchanged size/weight) -> orders/addresses/wishlist
+  //   SUPPORT (its own row) -> Help & Support, hard-navigates as before
+  //   SETTINGS (compact list) -> Profile, Legal & Policies, Logout
+  // Wallet/Coupons are demoted to a small muted strip — visibly secondary,
+  // not equal weight to the functional Account tiles, but not removed
+  // (removing them would delete the only discoverability path for a real
+  // future feature; nothing else surfaces them today).
+  const accountTiles: Array<{ key: TileKey; label: string; icon: typeof Package; count: number }> = [
     { key: "orders", label: "Orders", icon: Package, count: orders.length },
     { key: "addresses", label: "Addresses", icon: MapPin, count: addresses.length },
     { key: "wishlist", label: "Wishlist", icon: Heart, count: wishlist.length },
-    { key: "wallet", label: "Wallet", icon: Wallet, count: 0, soon: true },
-    { key: "coupons", label: "Coupons", icon: TicketPercent, count: 0, soon: true },
-    { key: "support", label: "Support", icon: HelpCircle, count: 0 },
-    { key: "profile", label: "Profile", icon: Settings, count: 0 },
   ];
 
   if (loading) return <AccountSkeleton />;
@@ -173,7 +183,7 @@ export default function CustomerAccountPage() {
             </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
-              <h2 className="text-lg sm:text-2xl font-display font-bold text-[#0A1F5C] leading-tight">{form.name || "Welcome"}</h2>
+              <h2 className="text-lg sm:text-2xl font-display font-medium text-[#0A1F5C] leading-tight">{form.name || "Welcome"}</h2>
               <button data-testid="edit-profile-inline" onClick={() => setActiveTile("profile")} className="text-[#64748B] hover:text-[#0A1F5C] transition" aria-label="Edit profile">
                 <Pencil size={14} />
               </button>
@@ -183,104 +193,123 @@ export default function CustomerAccountPage() {
           </div>
         </section>
 
-        <section data-testid="quick-actions" className="grid grid-cols-4 gap-3 sm:gap-4 pt-8">
-          {tiles.map((t) => {
+        {/* ACCOUNT — kept prominent; Orders especially is an important
+            post-purchase action. */}
+        <SectionLabel>Account</SectionLabel>
+        <section data-testid="quick-actions" className="grid grid-cols-3 gap-3 sm:gap-4">
+          {accountTiles.map((t) => {
             const Icon = t.icon;
-            const active = !t.soon && activeTile === t.key;
+            const active = activeTile === t.key;
             return (
               <button
                 key={t.key}
                 type="button"
                 data-testid={`tile-${t.key}`}
                 aria-pressed={active}
-                onClick={() => {
-                  if (t.soon) { toast.message(`${t.label} — coming soon`); return; }
-                  if (t.key === "support") { window.location.href = "/account/support"; return; }
-                  setActiveTile(t.key);
-                }}
+                onClick={() => setActiveTile(t.key)}
                 className={`relative bg-white rounded-2xl p-3 sm:p-4 flex flex-col items-center justify-center gap-2 transition-all
                   ${active ? "border-2 border-[#0A1F5C] bg-[#0A1F5C]/[0.04] shadow-md" : "border border-[#E5E2DC] hover:border-[#0A1F5C] hover:shadow-md"}`}
               >
-                <Icon size={22} strokeWidth={1.6} className={`${t.soon ? "text-[#94A3B8]" : "text-[#0A1F5C]"}`} />
-                <span className={`text-[11px] sm:text-xs font-semibold text-center leading-tight ${t.soon ? "text-[#94A3B8]" : "text-[#0A1F5C]"}`}>{t.label}</span>
-                {t.soon ? (
-                  <span className="absolute -top-1.5 -right-1.5 bg-slate-400 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full shadow-sm ring-2 ring-white uppercase tracking-wider">Soon</span>
-                ) : t.count > 0 ? (
+                <Icon size={22} strokeWidth={1.6} className="text-[#0A1F5C]" />
+                <span className="text-[11px] sm:text-xs font-semibold text-center leading-tight text-[#0A1F5C]">{t.label}</span>
+                {t.count > 0 && (
                   <span className="absolute -top-1.5 -right-1.5 bg-[#E68910] text-white text-[10px] font-bold px-1.5 py-0.5 min-w-[18px] text-center rounded-full shadow-sm ring-2 ring-white">{t.count > 99 ? "99+" : t.count}</span>
-                ) : null}
+                )}
               </button>
             );
           })}
         </section>
 
-        <section data-testid={`panel-${activeTile}`} className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm mt-8">
-          {activeTile === "orders" && <OrdersPanel orders={orders} />}
-          {activeTile === "addresses" && (
-            <AddressesPanel
-              addresses={addresses}
-              onAdd={() => setAddrModal({ ...BLANK_ADDR, name: form.name, phone: phone.slice(-10) })}
-              onRemove={removeAddress}
-              phone={phone}
-            />
-          )}
-          {activeTile === "wishlist" && <WishlistPanel items={wishlist} onRemove={(id) => { const p = wishlist.find((x) => x.id === id); if (p) removeFromWishlist(p); }} />}
-          {activeTile === "wallet" && <ComingSoon title="Lokl Wallet" copy="Earn cashback on every Lokl order. Use credits at checkout. Launching soon." cta="Browse stores" to="/stores" />}
-          {activeTile === "coupons" && <ComingSoon title="Coupons & offers" copy="Personal coupons from your favourite Bhilai stores will land here." cta="See offers" to="/" />}
-          {activeTile === "support" && <SupportPanel />}
-          {activeTile === "profile" && <ProfilePanel form={form} setForm={setForm} onSave={saveProfile} busy={busy} />}
+        {(activeTile === "orders" || activeTile === "addresses" || activeTile === "wishlist") && (
+          <section data-testid={`panel-${activeTile}`} className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm mt-4">
+            {activeTile === "orders" && <OrdersPanel orders={orders} />}
+            {activeTile === "addresses" && (
+              <AddressesPanel
+                addresses={addresses}
+                onAdd={() => setAddrModal({ ...BLANK_ADDR, name: form.name, phone: phone.slice(-10) })}
+                onRemove={removeAddress}
+                phone={phone}
+              />
+            )}
+            {activeTile === "wishlist" && <WishlistPanel items={wishlist} onRemove={(id) => { const p = wishlist.find((x) => x.id === id); if (p) removeFromWishlist(p); }} />}
+          </section>
+        )}
+
+        {/* Wallet/Coupons — visibly secondary: small, muted, grouped apart
+            from the functional Account tiles above. Not removed (a real
+            future feature would otherwise have no discoverable entry
+            point), but never equal visual weight to Orders/Addresses/
+            Wishlist. */}
+        <section className="flex gap-2 mt-3" data-testid="coming-soon-strip">
+          <button type="button" data-testid="tile-wallet" onClick={() => toast.message("Wallet — coming soon")}
+            className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-[#E5E2DC] text-[#94A3B8] hover:border-[#0A1F5C]/30 transition">
+            <Wallet size={15} />
+            <span className="text-xs font-semibold">Wallet</span>
+            <span className="ml-auto text-[9px] font-bold uppercase tracking-wider bg-slate-100 px-1.5 py-0.5 rounded-full">Soon</span>
+          </button>
+          <button type="button" data-testid="tile-coupons" onClick={() => toast.message("Coupons — coming soon")}
+            className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-[#E5E2DC] text-[#94A3B8] hover:border-[#0A1F5C]/30 transition">
+            <TicketPercent size={15} />
+            <span className="text-xs font-semibold">Coupons</span>
+            <span className="ml-auto text-[9px] font-bold uppercase tracking-wider bg-slate-100 px-1.5 py-0.5 rounded-full">Soon</span>
+          </button>
         </section>
 
-        <Link
-          href="/try-and-buy"
-          data-testid="how-try-and-buy-works"
-          className="mt-4 w-full flex items-center gap-3 bg-white border border-[#E5E2DC] hover:border-[#0A1F5C] rounded-2xl px-4 py-3.5 transition"
+        {/* SUPPORT */}
+        <SectionLabel>Support</SectionLabel>
+        <button
+          type="button"
+          data-testid="tile-support"
+          onClick={() => { window.location.href = "/account/support"; }}
+          className="w-full flex items-center gap-3 bg-white border border-[#E5E2DC] hover:border-[#0A1F5C] rounded-2xl px-4 py-3.5 transition"
         >
-          <div className="w-9 h-9 rounded-full bg-[#E68910]/10 flex items-center justify-center shrink-0">
-            <RotateCcw size={16} className="text-[#E68910]" />
+          <div className="w-9 h-9 rounded-full bg-[#0A1F5C]/8 flex items-center justify-center shrink-0">
+            <HelpCircle size={16} className="text-[#0A1F5C]" />
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-[#0A1F5C]">How Try &amp; Buy works</div>
-            <div className="text-[11px] text-[#64748B]">Try it on at your door, keep what you love</div>
+          <div className="flex-1 min-w-0 text-left">
+            <div className="text-sm font-semibold text-[#0A1F5C]">Help &amp; Support</div>
+            <div className="text-[11px] text-[#64748B]">Chat with us, track a ticket, or browse FAQs</div>
           </div>
           <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
-        </Link>
+        </button>
 
-        <section className="mt-4 bg-white border border-[#E5E2DC] rounded-3xl p-2 sm:p-3" data-testid="account-policy-links">
-          {POLICY_LINKS.map((l) => {
-            const Icon = l.icon;
-            return (
-              <Link
-                key={l.href}
-                href={l.href}
-                data-testid={`account-link-${l.href.replace(/\//g, "")}`}
-                className="flex items-center gap-3 px-3 py-3 hover:bg-[#FDFBF7] rounded-xl transition"
-              >
-                <div className="w-9 h-9 rounded-full bg-[#0A1F5C]/8 flex items-center justify-center shrink-0">
-                  <Icon size={16} className="text-[#0A1F5C]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-[#0A1F5C]">{l.label}</div>
-                  <div className="text-[11px] text-[#64748B]">{l.sub}</div>
-                </div>
-                <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
-              </Link>
-            );
-          })}
+        {/* SETTINGS — Profile/Edit, Legal & Policies (the old always-on
+            7-row list collapsed into one on-demand panel), Logout. */}
+        <SectionLabel>Settings</SectionLabel>
+        <section className="bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden divide-y divide-[#E5E2DC]" data-testid="settings-list">
+          <button type="button" data-testid="tile-profile" onClick={() => setActiveTile("profile")} className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#FDFBF7] transition text-left">
+            <Settings size={16} className="text-[#0A1F5C] shrink-0" />
+            <span className="flex-1 text-sm font-semibold text-[#0A1F5C]">Profile</span>
+            <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
+          </button>
+          <button type="button" data-testid="tile-legal" onClick={() => setActiveTile("legal")} className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#FDFBF7] transition text-left">
+            <FileText size={16} className="text-[#0A1F5C] shrink-0" />
+            <span className="flex-1 text-sm font-semibold text-[#0A1F5C]">Legal &amp; Policies</span>
+            <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
+          </button>
+          <button onClick={logout} data-testid="logout-button" className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-[#E68910]/[0.04] transition text-left">
+            <LogOut size={16} className="text-[#E68910] shrink-0" />
+            <span className="flex-1 text-sm font-semibold text-[#E68910]">Sign out</span>
+          </button>
         </section>
 
-        <button
-          onClick={logout}
-          data-testid="logout-button"
-          className="mt-8 w-full flex items-center justify-center gap-2 bg-white border border-[#E5E2DC] hover:border-[#E68910] hover:bg-[#E68910]/[0.04] text-[#E68910] rounded-2xl py-3.5 sm:py-4 font-semibold text-sm transition shadow-sm"
-        >
-          <LogOut size={15} /> Sign out
-        </button>
+        {(activeTile === "profile" || activeTile === "legal") && (
+          <section data-testid={`panel-${activeTile}`} className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm mt-4">
+            {activeTile === "profile" && <ProfilePanel form={form} setForm={setForm} onSave={saveProfile} busy={busy} />}
+            {activeTile === "legal" && <LegalPanel />}
+          </section>
+        )}
+
         <div className="pb-8" />
       </main>
 
       {addrModal && <AddressModal address={addrModal} onCancel={() => setAddrModal(null)} onSave={saveAddress} />}
     </div>
   );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <h3 className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#94A3B8] mt-6 mb-2">{children}</h3>;
 }
 
 // Shape-matching skeleton for the initial fetch (same animate-pulse +
@@ -300,8 +329,9 @@ function AccountSkeleton() {
           </div>
         </section>
 
-        <section className="grid grid-cols-4 gap-3 sm:gap-4 pt-8">
-          {Array.from({ length: 7 }).map((_, i) => (
+        <div className="h-2.5 w-20 bg-[#E5E2DC] rounded animate-pulse mt-6 mb-2" />
+        <section className="grid grid-cols-3 gap-3 sm:gap-4">
+          {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="bg-white border border-[#E5E2DC] rounded-2xl p-3 sm:p-4 flex flex-col items-center justify-center gap-2">
               <div className="w-[22px] h-[22px] rounded-md bg-[#E5E2DC] animate-pulse" />
               <div className="h-2.5 w-10 bg-[#E5E2DC] rounded animate-pulse" />
@@ -309,7 +339,7 @@ function AccountSkeleton() {
           ))}
         </section>
 
-        <section className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm mt-8 space-y-1">
+        <section className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm mt-4 space-y-1">
           <div className="h-5 w-32 bg-[#E5E2DC] rounded-lg animate-pulse mb-3" />
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="flex items-center gap-3 py-3">
@@ -330,7 +360,7 @@ function PanelHeader({ title, subtitle, action }: { title: string; subtitle?: st
   return (
     <div className="flex items-start justify-between gap-3 mb-3 sm:mb-4">
       <div>
-        <h2 className="text-lg sm:text-xl font-display font-bold text-[#0A1F5C]">{title}</h2>
+        <h2 className="text-lg sm:text-xl font-display font-medium text-[#0A1F5C]">{title}</h2>
         {subtitle && <p className="text-xs text-[#64748B] mt-0.5">{subtitle}</p>}
       </div>
       {action}
@@ -341,7 +371,7 @@ function PanelHeader({ title, subtitle, action }: { title: string; subtitle?: st
 function EmptyState({ title, body, ctaTo, ctaLabel }: { title: string; body: string; ctaTo?: string; ctaLabel?: string }) {
   return (
     <div className="py-10 text-center">
-      <div className="text-[#0A1F5C] font-display text-base font-bold">{title}</div>
+      <div className="text-[#0A1F5C] font-display text-base font-medium">{title}</div>
       <p className="text-sm text-[#64748B] mt-1">{body}</p>
       {ctaTo && (
         <Link href={ctaTo} className="inline-block mt-4 text-sm font-semibold text-[#E68910] hover:underline">{ctaLabel} →</Link>
@@ -484,26 +514,44 @@ function ProfilePanel({ form, setForm, onSave, busy }: { form: { name: string; g
   );
 }
 
-function SupportPanel() {
+// G13 §14 — replaces the old always-rendered 7-row policy-link section
+// (account-policy-links) with an on-demand panel reached via the Settings
+// list's "Legal & Policies" row — same links, same destinations, just not
+// occupying permanent vertical space on every page load. The Try & Buy
+// explainer (previously its own standalone banner between the panel and
+// the policy list) is folded in here too, rather than dropped.
+function LegalPanel() {
+  const links = [
+    { href: "/try-and-buy", label: "How Try & Buy works", sub: "Try it on at your door, keep what you love", icon: RotateCcw },
+    ...POLICY_LINKS,
+  ];
   return (
     <>
-      <PanelHeader title="Support" subtitle="We typically respond within an hour during store hours." />
-      <div className="grid sm:grid-cols-2 gap-3">
-        <a href="mailto:hello@shoplokl.in" className="border border-[#E5E2DC] rounded-2xl p-4 hover:border-[#0A1F5C] transition" data-testid="support-email">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B]">Email</div>
-          <div className="text-sm font-semibold text-[#0A1F5C] mt-0.5">hello@shoplokl.in</div>
-        </a>
-        <a href="tel:+917719052107" className="border border-[#E5E2DC] rounded-2xl p-4 hover:border-[#0A1F5C] transition" data-testid="support-phone">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B]">Phone</div>
-          <div className="text-sm font-semibold text-[#0A1F5C] mt-0.5">+91 77190 52107</div>
-        </a>
+      <PanelHeader title="Legal & Policies" />
+      <div className="-mx-2">
+        {links.map((l) => {
+          const Icon = l.icon;
+          return (
+            <Link
+              key={l.href}
+              href={l.href}
+              data-testid={`account-link-${l.href.replace(/\//g, "")}`}
+              className="flex items-center gap-3 px-2 py-3 hover:bg-[#FDFBF7] rounded-xl transition"
+            >
+              <div className="w-9 h-9 rounded-full bg-[#0A1F5C]/8 flex items-center justify-center shrink-0">
+                <Icon size={16} className="text-[#0A1F5C]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold text-[#0A1F5C]">{l.label}</div>
+                <div className="text-[11px] text-[#64748B]">{l.sub}</div>
+              </div>
+              <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
+            </Link>
+          );
+        })}
       </div>
     </>
   );
-}
-
-function ComingSoon({ title, copy, cta, to }: { title: string; copy: string; cta: string; to: string }) {
-  return <><PanelHeader title={title} subtitle="Coming soon" /><EmptyState title={title} body={copy} ctaTo={to} ctaLabel={cta} /></>;
 }
 
 function AddressModal({ address, onCancel, onSave }: { address: AddressForm; onCancel: () => void; onSave: (a: AddressForm) => void }) {
@@ -512,7 +560,7 @@ function AddressModal({ address, onCancel, onSave }: { address: AddressForm; onC
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-4" onClick={onCancel}>
       <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" data-testid="address-modal">
-        <h3 className="text-xl font-display font-bold text-[#0A1F5C] mb-4">Add address</h3>
+        <h3 className="text-xl font-display font-medium text-[#0A1F5C] mb-4">Add address</h3>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Label">

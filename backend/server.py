@@ -1491,14 +1491,18 @@ async def feed_above_1099(limit: int = 12):
 
 
 @api.get("/feed/price-bento")
-async def feed_price_bento():
+async def feed_price_bento(l1: Optional[str] = None):
     """Image for each homepage price-bento tile (Under ₹499 / Under ₹999 /
     Under ₹1,499 — <499, <999, <1499, OVERLAPPING thresholds, not
     mutually-exclusive ranges — see PRICE_BANDS_SEED's own comment). Per
-    band: an admin-set override in db.price_bands wins if present;
+    band, resolution order (G13 §10): an L1-specific override in
+    `l1_overrides.<l1>` (only when `l1` is passed and set) wins first;
+    otherwise the existing GLOBAL admin-set override in db.price_bands;
     otherwise a visible product's image in that band; otherwise null so
     the frontend renders a neutral fallback tile instead of a broken
-    image.
+    image. The product-fallback pool itself stays global (not re-scoped
+    per L1) — the brief only asks imagery to vary, with a graceful
+    fallback, not a per-L1 fallback pool.
 
     Distinct-image guarantee (Phase G2 fix): because the three bands
     overlap, the single cheapest visible product in the whole catalog
@@ -1528,8 +1532,15 @@ async def feed_price_bento():
     a SEPARATE high-price candidate pool (highest-priced visible products,
     same dedup-by-image + admin-override-first + never-fabricate-a-pick
     contract as the three low-price bands, just sorted the other way)."""
-    band_docs = await db.price_bands.find({}, {"_id": 0, "slug": 1, "image": 1}).to_list(10)
-    overrides = {b["slug"]: b.get("image") for b in band_docs if b.get("image")}
+    band_docs = await db.price_bands.find({}, {"_id": 0, "slug": 1, "image": 1, "l1_overrides": 1}).to_list(10)
+    l1_key = l1 if l1 in PRICE_BAND_L1_SLUGS else None
+    overrides = {}
+    for b in band_docs:
+        slug = b["slug"]
+        l1_img = (b.get("l1_overrides") or {}).get(l1_key) if l1_key else None
+        img = l1_img or b.get("image")
+        if img:
+            overrides[slug] = img
     result = {
         "under_499": overrides.get("under-499"),
         "under_999": overrides.get("under-999"),
@@ -2852,12 +2863,29 @@ async def admin_list_price_bands(admin: dict = Depends(require_admin)):
 
 
 ALLOWED_PRICE_BAND_FIELDS = {"image"}
+# G13 §10 — the only L1 surfaces the Budget Bento renders on. Anything else
+# is rejected rather than silently accepted into l1_overrides, since a typo'd
+# key would otherwise sit in the doc forever with no surface ever reading it.
+PRICE_BAND_L1_SLUGS = {"women", "men", "kids"}
 
 
 @api.put("/admin/price-bands/{bid}")
 async def admin_update_price_band(bid: str, payload: dict, admin: dict = Depends(require_admin)):
-    update = {k: v for k, v in payload.items() if k in ALLOWED_PRICE_BAND_FIELDS}
-    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    """Updates one Budget Bento band's image. Global (no `l1` key, existing
+    behavior) writes the top-level `image` field. G13 §10 — an optional
+    `l1` key (must be "women"/"men"/"kids") instead writes
+    `l1_overrides.<l1>`, so Marketplace/Women/Men/Kids can each carry their
+    own override independently, without a second CMS system: same doc, same
+    endpoint, same ImageUploadField-driven flow — see feed_price_bento()'s
+    resolution order (L1 override -> global image -> product fallback)."""
+    l1 = payload.get("l1")
+    if l1 is not None and l1 not in PRICE_BAND_L1_SLUGS:
+        raise HTTPException(400, f"l1 must be one of {sorted(PRICE_BAND_L1_SLUGS)}")
+    update: dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if l1:
+        update[f"l1_overrides.{l1}"] = payload.get("image")
+    else:
+        update.update({k: v for k, v in payload.items() if k in ALLOWED_PRICE_BAND_FIELDS})
     r = await db.price_bands.update_one({"id": bid}, {"$set": update})
     if r.matched_count == 0:
         raise HTTPException(404, "Price band not found")
@@ -5090,7 +5118,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             p = await db.products.find_one(
                 {"id": pid, "is_deleted": {"$ne": True}, "paused": {"$ne": True}},
                 {"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
-                 "return_eligible": 1, "return_window_hours": 1, "name": 1, "stock": 1},
+                 "return_eligible": 1, "return_window_hours": 1, "try_at_doorstep": 1, "name": 1, "stock": 1},
             )
             if not p:
                 raise HTTPException(400, f"Product {pid} is unavailable")
@@ -5105,7 +5133,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                  stock_field: {"$gte": qty}},
                 {"$inc": {stock_field: -qty}},
                 projection={"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
-                            "return_eligible": 1, "return_window_hours": 1, "name": 1, stock_field: 1,
+                            "return_eligible": 1, "return_window_hours": 1, "try_at_doorstep": 1, "name": 1, stock_field: 1,
                             "provider": 1, "remote_variant_ids": 1},
                 return_document=True,
             )
@@ -5141,6 +5169,18 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             # set since (G12 P1-8). None means "predates this field / not
             # set" — _can_return_order falls back to the historical 24h.
             new_it["return_window_hours"] = updated.get("return_window_hours")
+            # G13 §1 — Standard vs Try & Buy intent capture. The product's
+            # OWN try_at_doorstep flag is the source of truth, never the
+            # client-sent line (defense in depth, same pattern as
+            # return_window_hours above) — a client claiming eligibility
+            # the real product doesn't have is silently downgraded to
+            # "standard" rather than trusted. This is intent-capture ONLY:
+            # no payment-hold/rider-workflow/trial-timer/return-to-store
+            # logic reads this field anywhere yet.
+            product_try_at_doorstep = bool(updated.get("try_at_doorstep", False))
+            requested_fulfillment = it.get("fulfillment_type")
+            new_it["try_at_doorstep"] = product_try_at_doorstep
+            new_it["fulfillment_type"] = "try_and_buy" if (requested_fulfillment == "try_and_buy" and product_try_at_doorstep) else "standard"
             new_it["merchant_id"] = updated.get("merchant_id")
             new_it["store_id"] = updated.get("store_id")
             if updated.get("store_name") and not new_it.get("store_name"):

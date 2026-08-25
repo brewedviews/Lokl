@@ -211,6 +211,12 @@ export function MarketplaceHomeClient() {
     ),
 
     merchant_cta: (
+      // G13 §7 — polish only, section order unchanged (the G8-G11 rank
+      // order was deliberately established; this brief only asked to
+      // improve presentation, not move it). A supporting line + slightly
+      // more breathing room makes this read as a deliberate content block
+      // in the local-discovery narrative rather than a thin ad strip
+      // dropped between two unrelated rails.
       <div key="merchant-cta" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
         <a
           href="https://lokl.up.railway.app/merchant/register"
@@ -219,8 +225,11 @@ export function MarketplaceHomeClient() {
           onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
           className="block"
         >
-          <div className="bg-[#0A1F5C] rounded-2xl px-5 py-3 flex items-center justify-between gap-4">
-            <p className="min-w-0 text-white font-medium text-sm leading-tight truncate">Own a store in Bhilai?</p>
+          <div className="bg-[#0A1F5C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-white font-display font-medium text-base leading-tight truncate">Own a store in Bhilai?</p>
+              <p className="text-white/70 text-xs mt-0.5 leading-snug line-clamp-2">Put your store on Lokl and reach nearby shoppers.</p>
+            </div>
             <div className="flex-shrink-0 flex items-center gap-2 bg-[#E68910] text-white text-xs font-bold px-3 py-2 rounded-xl">
               <span>Join free</span>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

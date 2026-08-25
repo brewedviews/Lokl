@@ -73,7 +73,7 @@ interface SellerCardStore {
   trusted?: boolean;
 }
 
-export function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel, href, variant = "overlay" }: { s: SellerCardStore; source?: string; openNow?: boolean; closedLabel?: string; /** Phase G4 — overrides the default `/store/{slug|id}` destination; used by CMS-pinned display cards, which aren't real store records. */ href?: string; variant?: "overlay" | "discovery" }) {
+export function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel, href, variant = "overlay", fitToContainer = false }: { s: SellerCardStore; source?: string; openNow?: boolean; closedLabel?: string; /** Phase G4 — overrides the default `/store/{slug|id}` destination; used by CMS-pinned display cards, which aren't real store records. */ href?: string; variant?: "overlay" | "discovery"; /** G13 — discovery variant only. Fills the parent grid/flex cell (`w-full h-full`) instead of the card's own fixed `w-40 sm:w-44` rail width, for callers that lay cards out in a CSS grid (e.g. StoresNearYouSection's 2-col mobile grid) rather than a horizontal-scroll rail. Every other caller omits this and is unaffected. */ fitToContainer?: boolean }) {
   const banner = s.banner || (Array.isArray(s.banners) && s.banners[0]) || s.image || null;
   const area = s.area_label || s.area || s.locality || "Bhilai";
   const logisticsParts = [
@@ -102,8 +102,8 @@ export function SellerCard({ s, source = "meet_sellers", openNow = false, closed
       <Link key={s.id} href={href || `/store/${s.slug || s.id}`}
         onClick={() => { try { trackStoreClick(s.id, s.name, source); } catch {} }}
         data-testid={`${source}-card-${s.id}`}
-        className="group flex-shrink-0 w-40 sm:w-44 rounded-2xl overflow-hidden bg-white shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95">
-        <div className="relative aspect-[4/3] bg-[#F4F1E9]">
+        className={`group ${fitToContainer ? "w-full h-full flex flex-col" : "flex-shrink-0 w-40 sm:w-44"} rounded-2xl overflow-hidden bg-white shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-95`}>
+        <div className="relative aspect-[4/3] bg-[#F4F1E9] shrink-0">
           {banner ? (
             <img
               src={cloudinaryOptimize(banner, "w_320,q_auto,f_auto")}
@@ -124,7 +124,7 @@ export function SellerCard({ s, source = "meet_sellers", openNow = false, closed
             </div>
           )}
         </div>
-        <div className="px-2.5 py-2">
+        <div className={`px-2.5 py-2 ${fitToContainer ? "flex-1 flex flex-col justify-center" : ""}`}>
           {nameRow}
           {categoryArea && <div className="text-[10px] text-[#64748B] mt-0.5 leading-tight line-clamp-1">{categoryArea}</div>}
           <div className="flex items-center gap-1 mt-1">

@@ -48,13 +48,17 @@
  * Still fetches /api/categories (React Query, key ["categories"], the same
  * cached request CategoryClient.tsx's own ["categories"] query reuses) —
  * only what's rendered from that response changed, not how it's fetched —
- * so real admin-configured names/images (in case "Women"/"Men"/"Kids" ever
- * change upstream) still drive the tabs rather than hardcoded values.
+ * so real admin-configured names (in case "Women"/"Men"/"Kids" ever change
+ * upstream) still drive the tab labels rather than hardcoded values.
+ *
+ * G13 — dropped the per-tab thumbnail entirely (including "All"'s grid
+ * icon): primarily typography-led per the redesign brief, no image boxes.
+ * `cat.image` is no longer read for rendering; the query itself is kept
+ * unchanged since `cat.name` (the label) still comes from it.
  */
 import { useQuery } from "@tanstack/react-query";
 import { useSelectedLayoutSegments } from "next/navigation";
 import Link from "next/link";
-import { LayoutGrid } from "lucide-react";
 import { api } from "@/lib/api";
 import { trackCategoryTileClick, trackCategoryTileImpression, observeImpression } from "@/lib/analytics";
 
@@ -100,9 +104,6 @@ export function CategoryTileRow() {
           aria-current={isAllActive ? "page" : undefined}
           className="relative inline-flex items-center gap-1.5 h-full"
         >
-          <span className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg overflow-hidden bg-[#E5E2DC] shrink-0 flex items-center justify-center ${isAllActive ? "" : "opacity-70"}`}>
-            <LayoutGrid size={14} className="text-[#0A1F5C]" />
-          </span>
           <span className={`font-display font-medium text-sm sm:text-base tracking-tight ${isAllActive ? "text-[#0A1F5C]" : "text-[#0A1F5C]/60"}`}>
             All
           </span>
@@ -122,16 +123,6 @@ export function CategoryTileRow() {
               aria-current={isActive ? "page" : undefined}
               className="relative inline-flex items-center gap-1.5 h-full"
             >
-              <span className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg overflow-hidden bg-[#E5E2DC] shrink-0">
-                {cat?.image && (
-                  <img
-                    src={cat.image}
-                    alt=""
-                    loading="eager"
-                    className={`w-full h-full object-cover object-top transition-[filter] duration-300 ${isActive ? "" : "brightness-90"}`}
-                  />
-                )}
-              </span>
               <span className={`font-display font-medium text-sm sm:text-base tracking-tight ${isActive ? "text-[#0A1F5C]" : "text-[#0A1F5C]/60"}`}>
                 {label}
               </span>

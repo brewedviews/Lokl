@@ -52,6 +52,18 @@ export interface OrderItem {
   store_id?: Id;
   store_name?: string;
   return_eligible?: boolean;
+  /** Snapshotted server-side at order time — see create_order in server.py.
+   *  Not declared here before G13, though the backend already snapshotted
+   *  it (a pre-existing type/reality drift, fixed while adding the two
+   *  fields below). */
+  return_window_hours?: number | null;
+  /** G13 §1 — real product flag, snapshotted at order time (server-verified,
+   *  never trusted from the client alone). */
+  try_at_doorstep?: boolean;
+  /** G13 §1 — customer's captured fulfillment intent for this line. Only
+   *  ever "try_and_buy" when `try_at_doorstep` is true. Intent-capture
+   *  only — no operational logic reads this yet. */
+  fulfillment_type?: "standard" | "try_and_buy";
 }
 
 /** Embedded customer snapshot saved on the order. */

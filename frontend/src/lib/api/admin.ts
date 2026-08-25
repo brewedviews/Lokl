@@ -94,7 +94,10 @@ export const adminApi = {
     return r.data;
   },
 
-  updatePriceBand: async (id: string, patch: Partial<CmsPriceBand>): Promise<CmsPriceBand> => {
+  /** `l1` (G13 §10) writes `l1_overrides.<l1>` server-side instead of the
+   *  top-level global `image` — omit it to edit the global/Marketplace image
+   *  exactly as before. */
+  updatePriceBand: async (id: string, patch: { image?: string; l1?: "women" | "men" | "kids" }): Promise<CmsPriceBand> => {
     const r = await apiClient.put<CmsPriceBand>(`/api/admin/price-bands/${id}`, patch);
     return r.data;
   },

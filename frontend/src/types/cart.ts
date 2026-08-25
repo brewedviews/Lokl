@@ -25,6 +25,17 @@ export interface CartItem {
   store_id: string;
   store_name?: string;
   return_eligible?: boolean;
+  /** Snapshotted from the product at add-to-cart time (G13) — whether THIS
+   *  product supports Try & Buy at all. Purely eligibility; the customer's
+   *  actual checkout choice is `fulfillment_type` below. */
+  try_at_doorstep?: boolean;
+  /** Customer's fulfillment choice for this line, captured at checkout
+   *  (G13 §1). Absent/"standard" is the default. Only ever meaningfully
+   *  "try_and_buy" when `try_at_doorstep` is true for this line — ineligible
+   *  items are never silently switched. This is INTENT CAPTURE ONLY: no
+   *  payment-hold, rider-workflow, trial-timer, or return-to-store logic
+   *  exists downstream yet (see create_order's own comment in server.py). */
+  fulfillment_type?: "standard" | "try_and_buy";
 }
 
 /** One store per bag. Adding an item from a different store than what's

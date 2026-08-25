@@ -80,7 +80,13 @@ export function StoresNearYouSection() {
           </p>
         </div>
       ) : (
-        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+        // G13 — 2-column grid on mobile (was a horizontal scroll-carousel).
+        // `fitToContainer` makes each SellerCard fill its grid cell instead
+        // of using its own fixed rail width; CSS Grid's default row-stretch
+        // plus the card's own `h-full flex flex-col` keeps both cards the
+        // same height regardless of name length / whether categoryArea is
+        // present. sm+ widens to 3 columns since there's more room.
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {stores.map((s) => {
             const isOpen = (s as unknown as { is_open?: boolean }).is_open ?? false;
             const closedLabel = (s as unknown as { next_open_label?: string }).next_open_label || "Closed";
@@ -92,6 +98,7 @@ export function StoresNearYouSection() {
                 variant="discovery"
                 openNow={isOpen}
                 closedLabel={closedLabel}
+                fitToContainer
               />
             );
           })}

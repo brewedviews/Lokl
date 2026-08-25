@@ -193,7 +193,12 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
                     sizes="(max-width: 768px) 100vw, 1200px"
                     className="object-cover object-[60%_45%] md:object-center"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/95 via-[#FDFBF7]/80 to-[#FDFBF7]/30 md:bg-gradient-to-r md:from-[#FDFBF7]/95 md:via-[#FDFBF7]/55 md:to-transparent" />
+                  {/* G13 — reduced from /95 /80 /30 (mobile) and /95 /55
+                      (desktop): the scrim was washing out the source photo
+                      well past what text legibility needs. Chosen after
+                      comparing against the actual seeded hero image at both
+                      viewports, not a blind guess. */}
+                  <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/75 via-[#FDFBF7]/45 to-[#FDFBF7]/10 md:bg-gradient-to-r md:from-[#FDFBF7]/70 md:via-[#FDFBF7]/30 md:to-transparent" />
                   <div className="relative flex flex-col max-w-2xl px-5 md:px-10 lg:px-12 pt-6 md:pt-10 pb-16 md:pb-20 min-h-[300px] md:min-h-[320px]">
                     {slide.eyebrow && (
                       <span className="text-[11px] font-bold uppercase tracking-wide text-[#E68910]">{slide.eyebrow}</span>

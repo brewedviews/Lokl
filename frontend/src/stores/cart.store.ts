@@ -48,6 +48,10 @@ interface CartActions {
   ) => { success: boolean; conflict?: CartConflict };
   removeItem: (productId: string, size: string) => void;
   updateQty: (productId: string, size: string, qty: number) => void;
+  /** G13 §1 — set this line's checkout fulfillment choice. Silently no-ops
+   *  if the line isn't try_at_doorstep-eligible, so a caller can never
+   *  accidentally flip an ineligible item to "try_and_buy". */
+  setFulfillmentType: (key: string, type: "standard" | "try_and_buy") => void;
   clearCart: () => void;
   getTotal: () => RupeeAmount;
   getItemCount: () => number;
@@ -147,6 +151,8 @@ export const useCartStore = create<CartStore>()(
             store_id: itemStoreId,
             store_name: product.store_name,
             return_eligible: product.return_eligible,
+            try_at_doorstep: product.try_at_doorstep,
+            fulfillment_type: "standard",
           };
           nextItems = [...state.items, line];
         }
@@ -170,6 +176,14 @@ export const useCartStore = create<CartStore>()(
         }
         const key = cartKeyFor(productId, size);
         const nextItems = get().items.map((i) => (i.key === key ? { ...i, qty } : i));
+        set({ items: nextItems });
+        mirrorToLegacyBareArray(nextItems);
+      },
+
+      setFulfillmentType: (key, type) => {
+        const nextItems = get().items.map((i) =>
+          i.key === key && (type === "standard" || i.try_at_doorstep) ? { ...i, fulfillment_type: type } : i,
+        );
         set({ items: nextItems });
         mirrorToLegacyBareArray(nextItems);
       },

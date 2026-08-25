@@ -80,9 +80,11 @@ export const catalogApi = {
 
   /** GET /api/feed/price-bento — one representative (cheapest visible)
    *  product per homepage price-bento band. A band is `null` when the
-   *  catalog has nothing in that range yet. */
-  priceBento: async (): Promise<PriceBentoResponse> => {
-    const r = await apiClient.get<PriceBentoResponse>("/api/feed/price-bento");
+   *  catalog has nothing in that range yet. `l1` (G13 §10 — bare slug:
+   *  "women"/"men"/"kids", not "l1-women") requests that surface's own
+   *  CMS override first; omit for the global/Marketplace set. */
+  priceBento: async (l1?: string): Promise<PriceBentoResponse> => {
+    const r = await apiClient.get<PriceBentoResponse>("/api/feed/price-bento", { params: l1 ? { l1 } : undefined });
     return r.data;
   },
 
