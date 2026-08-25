@@ -1,74 +1,47 @@
 "use client";
 
 /**
- * Delivery + serviceability line for the product page, positioned near the
- * CTA. Pincode-based — NOT GPS — reusing the exact same isServiceablePincode()
- * check checkout uses (lib/serviceability.ts) against the logged-in
- * customer's default (first) saved address, so this line and checkout's own
- * serviceability banner can never disagree.
+ * Delivery + serviceability line for the product page. Pincode-based —
+ * NOT GPS — via the shared useServiceability() hook (lib/serviceability.ts
+ * under the hood), so this and checkout's own serviceability banner can
+ * never disagree.
  *
  * Guests, and customers with no saved address yet, get a generic Bhilai-wide
  * line instead of a false "unserviceable" — a negative result only ever
  * shows once a real saved pincode has actually failed the check.
  *
- * redesign-plan 3.7 retrofit: the open+serviceable happy path used to render
- * NOTHING here — the ETA lived instead as an inline text fragment inside
- * ProductDetailPanel's store-identity row ("{store} · {area} · ~45 min"),
- * specifically to avoid a second competing ETA box. Retrofitting the shared
- * ETAHeaderCard component here (per 3.7) would have recreated exactly that
- * duplication if the inline fragment stayed — so this component is now the
- * SINGLE owner of ETA display on the PDP for every state (happy path,
- * closed, unserviceable), and the inline store-row fragment was removed
- * (see ProductDetailPanel's own store-info-row comment). Same resolution
- * checkout already uses: one ETA surface per page, not two.
+ * redesign-plan 3.7 retrofit moved the happy-path ETA out of
+ * ProductDetailPanel's store-info row and into a standalone card here, to
+ * avoid two competing ETA surfaces. G11 §12 reverses that specific call —
+ * the standalone "Delivers in ~45 min" card read as a separate product
+ * selling point rather than store metadata — so the happy path renders
+ * NOTHING here now; ProductDetailPanel's store-info row shows the real ETA
+ * inline instead ("{store} · {area} · {eta} min delivery"), via the same
+ * useServiceability() hook this component uses, so there is still only
+ * ONE serviceability check and only one place ETA actually renders on the
+ * happy path — it just moved back to metadata instead of a dedicated card.
+ * This component remains the sole owner of the unserviceable-pincode and
+ * closed-store messages, which G11 does not ask to change.
  *
  * The closed-state duplicated-string bug fix ("opens at Opens at 9:30 AM")
  * is unchanged — see the comment on opensAtTime below.
  */
-import { useEffect, useState } from "react";
 import { Bike, MapPin } from "lucide-react";
-import { api } from "@/lib/api";
-import { useCustomerAuthStore } from "@/stores";
-import { isServiceablePincode } from "@/lib/serviceability";
-import { ETAHeaderCard } from "./ETAHeaderCard";
+import { useServiceability } from "@/hooks/useServiceability";
 
 export function DeliveryServiceability({
   isClosed = false,
   isOffline = false,
   opensAtLabel,
-  etaMin,
 }: {
   isClosed?: boolean;
   /** Store-Offline is a distinct state from Closed (see ProductDetailPanel's
-   *  own isOffline/isClosed split) — the happy-path ETA card must not show
-   *  "Delivers in ~N min" for a store that's offline, same as the original
-   *  inline fragment this replaced explicitly excluded it too
-   *  (`!isClosed && !isOffline`). Offline gets no message here at all; the
-   *  CTA row's own "Notify Me" state already covers that case. */
+   *  own isOffline/isClosed split) — offline gets no message here at all;
+   *  the CTA row's own "Notify Me" state already covers that case. */
   isOffline?: boolean;
   opensAtLabel?: string | null;
-  /** Only used for the happy-path ETAHeaderCard — closed/unserviceable
-   *  states have their own dedicated messages that don't need it. */
-  etaMin?: number | null;
 }) {
-  const phone = useCustomerAuthStore((s) => s.phone);
-  const [area, setArea] = useState<string | null>(null);
-  const [pincode, setPincode] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!phone) return;
-    api.customers.get(phone)
-      .then(({ customer }) => {
-        const addr = customer.addresses?.[0];
-        if (!addr) return;
-        setArea(addr.label || addr.city || null);
-        setPincode(addr.pincode || null);
-      })
-      .catch(() => {});
-  }, [phone]);
-
-  const hasConfirmedAddress = !!pincode;
-  const serviceable = hasConfirmedAddress ? isServiceablePincode(pincode) : true;
+  const { area, hasConfirmedAddress, serviceable } = useServiceability();
 
   if (hasConfirmedAddress && !serviceable) {
     return (
@@ -82,22 +55,11 @@ export function DeliveryServiceability({
     );
   }
 
-  // Open + serviceable — the happy path. Now the one place the PDP's ETA
-  // renders at all (redesign-plan 3.7 retrofit — see this file's doc
-  // comment for why the old inline store-row fragment was removed instead
-  // of kept alongside this).
+  // Open + serviceable — the happy path. G11 §12: ETA now renders inline
+  // in ProductDetailPanel's store-info row instead of a standalone card
+  // here — see this file's own top comment.
   if (isOffline) return null;
-  if (!isClosed) {
-    return (
-      <ETAHeaderCard
-        variant="card"
-        size="compact"
-        testId="pdp-delivery-line"
-        icon={Bike}
-        title={`Delivers in ~${etaMin || 45} min`}
-      />
-    );
-  }
+  if (!isClosed) return null;
 
   // `opensAtLabel` arrives from the backend already as a full phrase
   // ("Opens at 9:30 AM" / "Opens tomorrow at 9:30 AM") — prefixing another

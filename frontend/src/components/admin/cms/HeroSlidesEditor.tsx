@@ -190,7 +190,7 @@ export function HeroSlidesEditor() {
               {rows.map((s, i) => (
                 <div key={s.id} data-testid={`cms-hero-slide-row-${s.id}`} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-[180px_1fr_auto] gap-4 items-start">
                   <ImageUploadField
-                    label="Slide image" recommended="1200×500"
+                    label="Slide image" recommended="1080 × 900 px (6:5)"
                     value={s.image || ""} onChange={(v) => patch(s.id, { image: v })}
                     testid={`cms-hero-slide-image-${s.id}`}
                   />

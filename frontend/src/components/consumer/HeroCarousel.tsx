@@ -45,6 +45,16 @@
  *      a new trust component or a hardcoded "45 minutes". It's rendered
  *      once per carousel (not per slide) since delivery status is
  *      site-wide, not per-L1/per-slide content.
+ *
+ * G11 §8/§9 — headline weight dropped from `font-bold` to `font-medium`:
+ * the hero now uses the SAME heading role/weight as every other page
+ * heading (was previously carved out as "campaign artwork" — G11
+ * explicitly reverses that exception, the hero should read as part of
+ * Lokl, not an independently-designed campaign). The `eyebrow` field/
+ * rendering mechanism itself is untouched and still generic (any slide
+ * COULD set one) — G11 §8 only asked to remove the specific "Serving
+ * Bhilai" content, which was cleared at the data level (migration 028)
+ * on all four hero slides, not hardcoded out of this component.
  */
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
@@ -189,7 +199,7 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
                       <span className="text-[11px] font-bold uppercase tracking-wide text-[#E68910]">{slide.eyebrow}</span>
                     )}
                     {slide.headline && (
-                      <h1 className="font-display font-bold text-[#0A1F5C] mt-1 text-[28px] leading-[1.1] md:text-4xl lg:text-5xl tracking-tight">
+                      <h1 className="font-display font-medium text-[#0A1F5C] mt-1 text-[28px] leading-[1.1] md:text-4xl lg:text-5xl tracking-tight">
                         {renderHighlightedHeadline(slide.headline, slide.highlight_text)}
                       </h1>
                     )}

@@ -34,6 +34,7 @@ import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { useStoreConflict } from "@/hooks/useStoreConflict";
+import { useServiceability } from "@/hooks/useServiceability";
 import { StoreConflictDialog } from "./StoreConflictDialog";
 import { DeliveryServiceability } from "./DeliveryServiceability";
 import { LocalSocialProof } from "./LocalSocialProof";
@@ -108,6 +109,7 @@ export function ProductDetailPanel({
   const [reservation, setReservation] = useState<{ orderId: string; pickupCode: string; expiresAt: string } | null>(null);
   const [showPickupSheet, setShowPickupSheet] = useState(false);
   const { conflict, promptConflict, confirmClearAndAdd, dismiss } = useStoreConflict();
+  const { hasConfirmedAddress, serviceable } = useServiceability();
 
   const badge = storeBadge ?? product.store_badge ?? "LIVE";
   const sName = storeName ?? product.store_name ?? "this store";
@@ -214,6 +216,14 @@ export function ProductDetailPanel({
   };
 
   const etaMin = product.store_eta_min || 45;
+  // G11 §12 — ETA now shows as store metadata inline in the store-info
+  // row, not a standalone card (see DeliveryServiceability's own comment
+  // for what moved and why). Same happy-path condition that component
+  // used internally: not offline, not closed, and not a confirmed-
+  // unserviceable address — never fabricated, `etaMin` is real store data
+  // with only its numeric fallback (45) staying honest-default the same
+  // way it already was before this change.
+  const showInlineEta = !isOffline && !isClosed && !(hasConfirmedAddress && !serviceable);
 
   // Handlers passed to both PdpCtaRow instances — identical behavior either
   // time, only the surrounding position in the page differs.
@@ -225,24 +235,32 @@ export function ProductDetailPanel({
     <>
       {/* ── Store info row: name + area + ETA, title, price, availability ── */}
       <div className="px-4 pt-4 pb-2 md:px-0 md:pt-0">
-        {/* Store identity row — name, then locality. The delivery ETA used
-            to render here too as a third inline fact ("· 🚲 delivers in ~45
-            min"), but redesign-plan 3.7's retrofit made DeliveryServiceability
-            (below, via the shared ETAHeaderCard) the single ETA surface on
-            this page instead of splitting it across two places — see that
-            component's own doc comment. Area is omitted entirely (not a
-            placeholder) when the store predates that field. */}
+        {/* Store identity row — name, then locality, then ETA. G11 §12: ETA
+            is metadata belonging to this row, not a separate product
+            selling point — moved back here from the standalone
+            DeliveryServiceability card (redesign-plan 3.7 had moved it out
+            specifically to avoid two ETA surfaces; that card's happy path
+            now renders nothing at all, see its own doc comment, so there's
+            still only one place ETA shows on the happy path — just here
+            instead). `etaMin` is real store data (product.store_eta_min,
+            45 only as an honest fallback, never fabricated) and only shows
+            when genuinely applicable (not offline/closed/unserviceable).
+            Area is omitted entirely (not a placeholder) when the store
+            predates that field. */}
         <div className="flex items-center flex-wrap gap-x-1.5" data-testid="store-info-row">
           {product.store_id ? (
             <Link href={`/store/${product.store_id}`} data-testid="store-name-link"
               className="text-[11px] text-brand-accent font-medium uppercase tracking-[0.02em] hover:underline">
-              {product.store_name}
+              {product.store_name || "Lokl Store"}
             </Link>
           ) : (
-            <span className="text-[11px] text-slate-gray font-medium uppercase tracking-[0.02em]">{product.store_name}</span>
+            <span className="text-[11px] text-slate-gray font-medium uppercase tracking-[0.02em]">{product.store_name || "Lokl Store"}</span>
           )}
           {storeAreaLabel && (
             <span className="text-[11px] text-slate-gray">· {storeAreaLabel}</span>
+          )}
+          {showInlineEta && (
+            <span className="text-[11px] text-slate-gray" data-testid="pdp-inline-eta">· {etaMin} min delivery</span>
           )}
         </div>
 
@@ -401,13 +419,13 @@ export function ProductDetailPanel({
       {/* ── Below-fold trust/logistics signals + pickup + banners ── */}
       <div className="mt-4">
 
-        {/* Delivery + serviceability — pincode-based (not GPS), see
-            DeliveryServiceability's own doc comment. Now the single ETA
-            surface on the page (redesign-plan 3.7): the happy-path shared
-            ETAHeaderCard, or the closed-store "Opens X" message, or the
-            unserviceable-pincode alert. */}
+        {/* Serviceability — pincode-based (not GPS), see
+            DeliveryServiceability's own doc comment. Happy-path ETA moved
+            to the store-info row above (G11 §12); this now only ever
+            renders the closed-store "Opens X" message or the
+            unserviceable-pincode alert — nothing on the happy path. */}
         <div className="px-4 md:px-0">
-          <DeliveryServiceability isClosed={isClosed} isOffline={isOffline} opensAtLabel={storeOpensAtLabel} etaMin={etaMin} />
+          <DeliveryServiceability isClosed={isClosed} isOffline={isOffline} opensAtLabel={storeOpensAtLabel} />
         </div>
 
         {/* All four trust signals, one consistent list style (see

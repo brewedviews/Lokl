@@ -194,7 +194,7 @@ export default async function ProductDetailPage(
 
         {similar.length > 0 && (
           <section id="similar-products" className="px-4 mt-8 md:px-8 pb-8" data-testid="similar-products">
-            <h2 className="text-xl sm:text-2xl font-display font-medium tracking-tight text-[#0A1F5C] leading-tight mb-4">You might also like</h2>
+            <h2 className="text-xl sm:text-2xl font-display font-medium tracking-tight text-[#0A1F5C] leading-tight mb-4">Similar products</h2>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
               {similar.slice(0, 8).map((p) => (
                 <div key={p.id} className="shrink-0 w-[calc(45.5%-7px)] sm:w-[180px]"><ProductCard p={p} size="default" /></div>

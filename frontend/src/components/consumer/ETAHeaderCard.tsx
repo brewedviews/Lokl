@@ -31,6 +31,14 @@
  * green) vs orange for AWAY (a real caution signal) — two states that now
  * actually look different from each other.
  *
+ * G11 §10 — the badge pill itself used to be `bg-[#0A1F5C]` (navy) with
+ * white text, which put the dark-green LIVE dot on a dark navy background
+ * — two dark colors, genuinely low contrast, confirmed by reading the
+ * actual values rather than assumed. Flipped to a light pill (white +
+ * a hairline navy border, navy text) so the dot reads clearly against it
+ * regardless of tone — the DOT_TONE colors themselves are unchanged, only
+ * the pill's own background/text flipped from dark to light.
+ *
  * Phase G5: `size="micro"` — a single-line, no-circle, no-subtitle variant
  * for the persistent global header (ConsumerHeader), which is rendered on
  * every route and has far less vertical room than the hero or PDP/Checkout
@@ -132,7 +140,7 @@ export function ETAHeaderCard({
         )}
       </div>
       {statusBadge && !loading && (
-        <span className="px-2 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[9px] font-bold flex items-center gap-1 shrink-0">
+        <span className="px-2 py-0.5 rounded-full bg-white border border-[#0A1F5C]/15 text-[#0A1F5C] text-[9px] font-bold flex items-center gap-1 shrink-0">
           <span className={`w-1.5 h-1.5 rounded-full ${DOT_TONE[statusBadge.tone]}`} />
           {statusBadge.label}
         </span>

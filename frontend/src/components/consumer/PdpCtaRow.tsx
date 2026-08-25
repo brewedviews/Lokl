@@ -1,14 +1,24 @@
 "use client";
 
 /**
- * PdpCtaRow — the PDP's Buy now / Add to bag button row, plus the
- * icon-only Save (wishlist) / Share pair. Rendered once, directly below
- * the size selector (an earlier version repeated the CTA below the price
- * block too; user testing called that a duplicate and it was removed —
- * this is the only CTA instance on the page now). Save/Share used to live
- * as a labeled text+icon row above the store name, up near the gallery —
- * moved here, icon-only, so they sit beside the action they're most
- * related to instead of competing with the store-name row for space.
+ * PdpCtaRow — the PDP's unified action group: Save (wishlist) + Share on
+ * their own row, directly above Buy now / Add to bag (or the Notify Me /
+ * Store Unavailable / qty-stepper states that slot can become). Rendered
+ * once, directly below the size selector (an earlier version repeated the
+ * CTA below the price block too; user testing called that a duplicate and
+ * it was removed — this is the only CTA instance on the page now).
+ *
+ * G11 §13 — previously Save/Share sat in the SAME `flex-wrap` row as
+ * Buy now/Add to bag, pushed right via `ml-auto`; on mobile widths they
+ * routinely wrapped onto their own line, leaving a stray icon pair
+ * floating below the buttons with dead space above it (confirmed via a
+ * fresh screenshot, not assumed). Restructured into two explicit rows in
+ * ONE shared container (`space-y-2.5`) instead of relying on incidental
+ * wrap — same spacing/alignment scale as the purchase-action row below
+ * it, so Save/Share reads as part of the same action group, not a
+ * detached control. `SaveShareIcons` now renders exactly ONCE (was
+ * duplicated 3x across the isOffline/!storeCanOrder/happy-path branches)
+ * — the branching only decides what the PURCHASE row shows.
  *
  * Not fixed/sticky — this scrolls away with the rest of the page like
  * everything else on the PDP (see ProductDetailPanel's own doc comment for
@@ -78,7 +88,7 @@ function SaveShareIcons({ product }: { product: Product }) {
   };
 
   return (
-    <div className="flex items-center gap-2 ml-auto">
+    <div className="flex items-center gap-2">
       <button
         type="button"
         aria-label="Wishlist"
@@ -133,38 +143,24 @@ export function PdpCtaRow({
   const key = cartKeyFor(productId, size);
   const qty = mounted ? items.find((i) => i.key === key)?.qty ?? 0 : 0;
 
-  if (isOffline) {
-    return (
-      <div className="flex items-center gap-3" data-testid="pdp-cta-row">
-        <Button
-          variant="cta"
-          onClick={onNotify}
-          data-testid="notify-me-btn"
-          className="gap-1.5 text-sm whitespace-nowrap"
-        >
-          <Bell size={15} /> Notify Me
-        </Button>
-        <SaveShareIcons product={product} />
-      </div>
-    );
-  }
-
-  if (!storeCanOrder) {
-    return (
-      <div className="flex items-center gap-3" data-testid="pdp-cta-row">
-        <div
-          data-testid="store-unavailable-btn"
-          className="inline-flex items-center px-6 py-2.5 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold"
-        >
-          Store Unavailable
-        </div>
-        <SaveShareIcons product={product} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-3 flex-wrap" data-testid="pdp-cta-row">
+  const purchaseRow = isOffline ? (
+    <Button
+      variant="cta"
+      onClick={onNotify}
+      data-testid="notify-me-btn"
+      className="gap-1.5 text-sm whitespace-nowrap"
+    >
+      <Bell size={15} /> Notify Me
+    </Button>
+  ) : !storeCanOrder ? (
+    <div
+      data-testid="store-unavailable-btn"
+      className="inline-flex items-center px-6 py-2.5 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold"
+    >
+      Store Unavailable
+    </div>
+  ) : (
+    <>
       <button
         onClick={onBuyNow}
         data-testid="buy-now"
@@ -208,8 +204,16 @@ export function PdpCtaRow({
           </button>
         </div>
       )}
+    </>
+  );
 
+  // One shared action group, two rows, same left alignment/spacing scale
+  // — Save/Share is never a detached floating control (G11 §13). The
+  // branching above only decides what the purchase row itself contains.
+  return (
+    <div className="space-y-2.5" data-testid="pdp-cta-row">
       <SaveShareIcons product={product} />
+      <div className="flex items-center gap-3 flex-wrap">{purchaseRow}</div>
     </div>
   );
 }

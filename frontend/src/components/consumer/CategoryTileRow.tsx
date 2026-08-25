@@ -33,6 +33,18 @@
  * itself rather than just "no tab happens to be highlighted." A small
  * grid icon (not a photo) since "All" has no single representative image.
  *
+ * G11 §2/§5 — this strip must show on "/" and bare "/c/[slug]" but NOT on
+ * an L2 product-listing route ("/c/[slug]/[l2slug]") — a PLP is
+ * product-first, not a category-browsing surface. Uses
+ * `useSelectedLayoutSegments()` rather than pathname regex-parsing: this
+ * component is mounted directly inside (consumer)/(shop)/layout.tsx, so
+ * the hook returns exactly the segments THAT LAYOUT'S OWN children
+ * resolve to — `[]` on "/", `["c","women"]` on a bare L1, `["c","women",
+ * "dresses"]` on an L2 PLP — which is the framework's own purpose-built
+ * "how deep below this layout are we" signal, not a string pattern that
+ * could drift from the actual route tree. `segments.length > 2` is the
+ * one, precise "this is a PLP" check.
+ *
  * Still fetches /api/categories (React Query, key ["categories"], the same
  * cached request CategoryClient.tsx's own ["categories"] query reuses) —
  * only what's rendered from that response changed, not how it's fetched —
@@ -40,7 +52,7 @@
  * change upstream) still drive the tabs rather than hardcoded values.
  */
 import { useQuery } from "@tanstack/react-query";
-import { usePathname } from "next/navigation";
+import { useSelectedLayoutSegments } from "next/navigation";
 import Link from "next/link";
 import { LayoutGrid } from "lucide-react";
 import { api } from "@/lib/api";
@@ -61,15 +73,21 @@ const PINNED_SLUGS = [
 ];
 
 export function CategoryTileRow() {
-  const pathname = usePathname();
+  const segments = useSelectedLayoutSegments();
   const { data: categories = [] } = useQuery({
     queryKey: ["categories"],
     queryFn: () => api.catalog.categories(),
     staleTime: 5 * 60_000,
   });
 
-  const activeSlug = pathname?.match(/^\/c\/([^/]+)/)?.[1] ?? null;
-  const isAllActive = pathname === "/";
+  // segments: [] on "/", ["c", slug] on a bare L1, ["c", slug, l2, ...] on
+  // an L2 PLP — see this file's own top comment for why this hook (not a
+  // pathname string check) is the right tool here.
+  const isPlpRoute = segments.length > 2;
+  const activeSlug = segments[0] === "c" ? (segments[1] ?? null) : null;
+  const isAllActive = segments.length === 0;
+
+  if (isPlpRoute) return null;
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 md:px-8 pt-3">
@@ -85,7 +103,7 @@ export function CategoryTileRow() {
           <span className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg overflow-hidden bg-[#E5E2DC] shrink-0 flex items-center justify-center ${isAllActive ? "" : "opacity-70"}`}>
             <LayoutGrid size={14} className="text-[#0A1F5C]" />
           </span>
-          <span className={`font-display text-sm sm:text-base tracking-tight ${isAllActive ? "font-bold text-[#0A1F5C]" : "font-semibold text-[#0A1F5C]/60"}`}>
+          <span className={`font-display font-medium text-sm sm:text-base tracking-tight ${isAllActive ? "text-[#0A1F5C]" : "text-[#0A1F5C]/60"}`}>
             All
           </span>
           {isAllActive && <span className="absolute left-0 right-0 -bottom-[1px] h-[2px] rounded-full bg-[#E68910]" />}
@@ -114,7 +132,7 @@ export function CategoryTileRow() {
                   />
                 )}
               </span>
-              <span className={`font-display text-sm sm:text-base tracking-tight ${isActive ? "font-bold text-[#0A1F5C]" : "font-semibold text-[#0A1F5C]/60"}`}>
+              <span className={`font-display font-medium text-sm sm:text-base tracking-tight ${isActive ? "text-[#0A1F5C]" : "text-[#0A1F5C]/60"}`}>
                 {label}
               </span>
               {isActive && <span className="absolute left-0 right-0 -bottom-[1px] h-[2px] rounded-full bg-[#E68910]" />}

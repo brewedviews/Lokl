@@ -16,7 +16,7 @@ export function CustomerLove({ items }: { items: Testimonial[] }) {
   return (
     <section className="pt-8 pb-10 bg-[#0A1F5C] text-white" data-testid="customer-love">
       <div className="px-4 sm:px-6 lg:px-8 mb-4 max-w-7xl mx-auto">
-        <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight">Loved by Bhilai shoppers</h2>
+        <h2 className="text-xl sm:text-2xl font-display font-medium tracking-tight">Loved by Bhilai shoppers</h2>
       </div>
       <div className="flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory scroll-pl-4 sm:scroll-pl-6 lg:scroll-pl-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
         {items.map((t) => (

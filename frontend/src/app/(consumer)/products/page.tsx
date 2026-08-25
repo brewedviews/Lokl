@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
 import type { ProductCard as ProductCardType } from "@/types";
 import { ProductCard } from "@/components/consumer/ProductCard";
+import { PlpHeader } from "@/components/consumer/sections/PlpHeader";
 
 interface L1Cat { id: string; name: string; slug: string; image?: string; }
 
@@ -73,16 +74,12 @@ function ProductsInner() {
   const activeL1 = categories.find((c) => c.id === categoryFilter);
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 sm:px-8 pt-4">
-      <h1 className="text-xl sm:text-2xl font-display font-medium text-[#0A1F5C] leading-tight mb-2">
-        {pageTitle(activeL1, searchFilter)}
-        {!loading && (
-          <span className="text-sm font-normal text-[#9CA3AF] ml-2">
-            ({products.length} products)
-          </span>
-        )}
-      </h1>
+    <div className="flex-1 flex flex-col bg-[#FDFBF7]">
+      {/* Compact header — same shared bar the L2 PLP uses (G11 §3/§4),
+          not a large "All Products in Bhilai" title block. */}
+      <PlpHeader title={pageTitle(activeL1, searchFilter)} count={loading ? undefined : products.length} />
 
+      <div className="flex-1 max-w-7xl mx-auto w-full px-3 sm:px-6 pt-3 pb-8">
       {/* Category pills */}
       <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
         {categories.length === 0 ? (
@@ -145,7 +142,7 @@ function ProductsInner() {
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="aspect-[3/4] bg-[#E5E2DC] rounded-2xl animate-pulse" />
           ))}
@@ -157,12 +154,13 @@ function ProductsInner() {
           <p className="text-sm mt-1">Try a different filter</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div data-testid="plp-product-grid" className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
           {products.map((p) => (
             <ProductCard key={p.id} p={p} size="default" />
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }

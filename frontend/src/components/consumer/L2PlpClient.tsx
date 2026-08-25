@@ -8,20 +8,26 @@
  * pre-set at the very bottom.
  *
  * Compact header (back + small L2 name + search shortcut, no giant page
- * title), sort pills, then the product grid immediately — no dense
- * category-tile wall repeated a third time (that's `BrowseGridBlock`'s own
- * job on the bare L1 page, already trimmed down in the same G9 pass — see
- * that file's own comment). Data via the SAME `/api/products?l1=&l2=&sort=`
- * endpoint `BrowseGridBlock` already used for its filtered view — no new
- * backend endpoint. `ProductCard` reused as-is (not reimplemented) so the
- * G8 equal-height fix applies for free.
+ * title) — G11 §3 extracted this into the shared `PlpHeader` component so
+ * /products renders through the exact same header instead of a slowly-
+ * diverging copy — then sort pills, then the product grid immediately —
+ * no dense category-tile wall repeated a third time (that's
+ * `BrowseGridBlock`'s own job on the bare L1 page, already trimmed down
+ * in the same G9 pass — see that file's own comment). Data via the SAME
+ * `/api/products?l1=&l2=&sort=` endpoint `BrowseGridBlock` already used
+ * for its filtered view — no new backend endpoint. `ProductCard` reused
+ * as-is (not reimplemented) so the G8 equal-height fix applies for free.
+ *
+ * G11 §5 — the All/Women/Men/Kids selector must NOT show here (PLPs are
+ * product-first, not category-browsing surfaces). Nothing to do in this
+ * file itself for that — CategoryTileRow.tsx (mounted once at the shared
+ * (shop) layout level) detects an L2 route via `useSelectedLayoutSegments
+ * ()` and renders null there; see that component's own comment.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { ChevronLeft, Search as SearchIcon } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { ProductCard } from "@/components/consumer/ProductCard";
+import { PlpHeader } from "@/components/consumer/sections/PlpHeader";
 import type { CategoryNode, ProductCard as ProductCardType } from "@/types";
 
 type L2 = CategoryNode["l2"][number];
@@ -44,7 +50,6 @@ function SkeletonGrid() {
 }
 
 export function L2PlpClient({ l1, l2 }: { l1: CategoryNode; l2: L2 }) {
-  const router = useRouter();
   const [sort, setSort] = useState<SortKey>("nearest");
   const [products, setProducts] = useState<ProductCardType[] | null>(null);
 
@@ -66,28 +71,9 @@ export function L2PlpClient({ l1, l2 }: { l1: CategoryNode; l2: L2 }) {
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       {/* Compact header — back + small category name + search shortcut,
-          per §12: no giant title, no huge whitespace before products. */}
-      <div className="sticky top-0 z-10 bg-[#FDFBF7]/95 backdrop-blur border-b border-[#E5E2DC]">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => router.back()}
-            data-testid="plp-back"
-            aria-label="Back"
-            className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center hover:bg-[#E5E2DC]/60 transition"
-          >
-            <ChevronLeft size={20} className="text-[#0A1F5C]" />
-          </button>
-          <h1 data-testid="plp-title" className="flex-1 min-w-0 font-display font-medium text-base sm:text-lg text-[#0A1F5C] truncate">
-            {l2.name}
-            {!isLoading && <span className="text-sm font-normal text-[#595959] ml-1.5">({list.length})</span>}
-          </h1>
-          <Link href="/search" data-testid="plp-search" aria-label="Search"
-            className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center hover:bg-[#E5E2DC]/60 transition">
-            <SearchIcon size={18} className="text-[#0A1F5C]" />
-          </Link>
-        </div>
-      </div>
+          per §12/§3: no giant title, no huge whitespace before products.
+          Shared with /products (see PlpHeader's own doc comment). */}
+      <PlpHeader title={l2.name} count={isLoading ? undefined : list.length} />
 
       <div className="flex-1 max-w-7xl mx-auto w-full px-3 sm:px-6 pt-3 pb-8">
         {/* Compact sort row — kept accessible per §13 without consuming
