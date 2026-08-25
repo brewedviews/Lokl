@@ -172,7 +172,7 @@ export default async function ProductDetailPage(
                 ordersThisMonth={storeInfo?.orders_this_month}
               />
             )}
-            <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-4">More from {product.store_name}</h2>
+            <h2 className="text-xl sm:text-2xl font-display font-medium tracking-tight text-[#0A1F5C] leading-tight mb-4">More from {product.store_name}</h2>
             {/* Card width is solved algebraically, not guessed: 2.2 cards +
                 1.2 gaps (gap-3 = 12px) should fill the row exactly, so the
                 3rd card's peek is always the same intentional ~0.2-card
@@ -194,7 +194,7 @@ export default async function ProductDetailPage(
 
         {similar.length > 0 && (
           <section id="similar-products" className="px-4 mt-8 md:px-8 pb-8" data-testid="similar-products">
-            <h2 className="text-xl sm:text-2xl font-display font-bold tracking-tight text-[#0A1F5C] leading-tight mb-4">You might also like</h2>
+            <h2 className="text-xl sm:text-2xl font-display font-medium tracking-tight text-[#0A1F5C] leading-tight mb-4">You might also like</h2>
             <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
               {similar.slice(0, 8).map((p) => (
                 <div key={p.id} className="shrink-0 w-[calc(45.5%-7px)] sm:w-[180px]"><ProductCard p={p} size="default" /></div>

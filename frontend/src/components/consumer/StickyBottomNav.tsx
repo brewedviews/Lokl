@@ -15,30 +15,28 @@
  * PdpCtaRow) stays in normal document flow, not fixed. This nav is the
  * only persistent chrome on the PDP.
  *
- *   [ Home ] [ Categories ] [ Search ] [ Add to Cart ] [ Profile ]
+ *   [ Home ] [ Categories ] [ Search ] [ Bag ] [ Profile ]
  *
  * Wishlist moved into the account page (its own boxed section, matching
  * the address box) — the standalone /wishlist route still works, it's
  * just no longer the primary entry point.
  *
- * Redesign Phase B: the middle slot used to be "All" (a Link to
- * /products); ConsumerHeader's persistent pinned search bar was removed in
- * the same pass, so this slot is now Search's entry point instead — a
- * button (not a Link; it doesn't navigate) that opens the exact same
- * useSearchOverlay-driven sheet the header bar used to open, via the same
- * store. /products itself is still reachable (desktop header's own
- * "Products" nav link, Home's category/price-band tiles, etc.) — it's just
- * no longer a single-tap mobile bottom-nav destination; this is an
- * intentional trade-off, not an oversight — see the redesign notes.
+ * G9 §16 — the Search tab is now a plain `<Link href="/search">`, same
+ * `isActive()` pathname pattern every other tab already uses. It used to
+ * be a button calling `useSearchOverlay.show()`, opening `MobileSearchSheet`
+ * (a header-anchored overlay in ConsumerHeader.tsx) — that overlay's own
+ * recent/suggestion/trending logic has been ported into `/search/page.tsx`
+ * itself (see that file's own top comment), so nothing was lost, only
+ * relocated to a real, back-navigable, directly-linkable page. `/products`
+ * itself is still reachable the same way it always was (desktop header's
+ * "Products" nav link, Home's category tiles) — this tab was never it.
  *
- * Redesign Phase G5: the Stores slot is replaced by Add to Cart — same
- * cart store (useCartStore, already used by the checkout/PDP/bag flows),
- * same /checkout destination the header's own removed cart button used
- * to link to, same item-count source (getItemCount()). Stores itself
- * isn't orphaned: desktop keeps its unchanged header nav-stores link
- * (≥lg), and mobile now finds it via a "Browse Stores" quick-link added
- * to the Search tab's idle sheet (ConsumerHeader's MobileSearchSheet) —
- * this same Search tab, unchanged below, is still one tap away.
+ * G9 label change — "Add to Cart" -> "Bag" (text only; same useCartStore,
+ * same /checkout destination, same badge/item-count source below).
+ * Stores itself isn't orphaned: desktop keeps its unchanged header
+ * nav-stores link (≥lg), and mobile finds it via the "Browse Stores"
+ * quick-link now on `/search`'s own idle state — still one tap from this
+ * same Search tab.
  *
  * /checkout (the merged Bag/Checkout screen, formerly two pages) is
  * EXCLUDED — it has its own sticky bottom price+CTA bar, and stacking that
@@ -53,13 +51,11 @@ import { usePathname } from "next/navigation";
 import { Home, Grid3x3, ShoppingBag, Search, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { trackNavClick } from "@/lib/analytics";
-import { useSearchOverlay, useCartStore } from "@/stores";
+import { useCartStore } from "@/stores";
 import { useMounted } from "@/hooks/useMounted";
 
 export function StickyBottomNav() {
   const pathname = usePathname();
-  const searchOpen = useSearchOverlay((s) => s.open);
-  const openSearch = useSearchOverlay((s) => s.show);
   const mounted = useMounted();
   const cartCount = useCartStore((s) => s.getItemCount());
 
@@ -87,10 +83,10 @@ export function StickyBottomNav() {
           </Link>
         </li>
         <li className="flex items-center justify-center">
-          <button type="button" onClick={() => { try { trackNavClick("search"); } catch {} openSearch(); }} data-testid="nav-search" className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", searchOpen ? "text-brand-accent" : "text-slate-600")}>
+          <Link href="/search" data-testid="nav-search" onClick={() => { try { trackNavClick("search"); } catch {} }} className={cn("w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/search") ? "text-brand-accent" : "text-slate-600")}>
             <Search size={20} />
             <span className="text-[10px] font-medium">Search</span>
-          </button>
+          </Link>
         </li>
         <li className="flex items-center justify-center">
           <Link href="/checkout" data-testid="nav-cart" onClick={() => { try { trackNavClick("cart"); } catch {} }} className={cn("relative w-full flex flex-col items-center gap-1 px-2 py-2 rounded-2xl transition", isActive("/checkout") ? "text-brand-accent" : "text-slate-600")}>
@@ -105,7 +101,7 @@ export function StickyBottomNav() {
                 </span>
               )}
             </span>
-            <span className="text-[10px] font-medium">Add to Cart</span>
+            <span className="text-[10px] font-medium">Bag</span>
           </Link>
         </li>
         <li className="flex items-center justify-center">

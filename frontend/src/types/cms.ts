@@ -75,13 +75,21 @@ export interface CmsOffer {
   eyebrow?: string;
 }
 
-/** A single admin-curated display card pinned to a store section — NOT a
- *  real store/merchant record. See CmsStoreSectionOverride. */
+/** A single admin-curated display card pinned to a store section. Two
+ *  kinds, distinguished by `store_id` (G9 §6):
+ *   - Store card: `store_id` set, references a real store entity.
+ *     `name`/`image`/`link` are populated FROM that store at save time
+ *     (never hand-typed) so the card always reflects real store data.
+ *   - Editorial card: `store_id` unset — the original manually-typed
+ *     image+title+link, for a promotional destination that isn't a
+ *     merchant. See CmsStoreSectionOverride. */
 export interface CmsPinnedStoreCard {
   id: string;
   name: string;
   image?: string;
   link?: string;
+  /** Set only for a "Store card" — the real store this card represents. */
+  store_id?: string;
 }
 
 /** Footwear/Ethnic/Lingerie-or-Innerwear "Store" section CMS override —

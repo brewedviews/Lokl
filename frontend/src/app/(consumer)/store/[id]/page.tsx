@@ -116,7 +116,7 @@ export default async function StorePage(
               </div>
             )}
             <div className="min-w-0">
-              <h1 data-testid="store-name" className="font-display text-2xl sm:text-4xl md:text-6xl font-bold leading-[1.05]">{store.name}</h1>
+              <h1 data-testid="store-name" className="font-display text-xl sm:text-2xl md:text-3xl font-medium leading-[1.1]">{store.name}</h1>
               {store.tagline && <p className="text-white/80 mt-1 sm:mt-2 max-w-xl text-xs sm:text-base line-clamp-1 sm:line-clamp-none">{store.tagline}</p>}
             </div>
           </div>
@@ -131,7 +131,7 @@ export default async function StorePage(
           nothing when the store has no products yet. */}
       {categoriesSold && categoriesSold.length > 0 && (
         <div className="max-w-7xl mx-auto px-4 md:px-8 pt-5 sm:pt-8" data-testid="store-categories-sold">
-          <h2 className="text-sm font-display font-bold text-[#0A1F5C] mb-3">Shop by category</h2>
+          <h2 className="text-sm font-display font-medium text-[#0A1F5C] mb-3">Shop by category</h2>
           <div className="flex gap-4 overflow-x-auto no-scrollbar pb-1">
             {categoriesSold.map((c) => (
               <CategoryTile key={c.id} density="dense" label={c.name} image={c.image} href={`/c/${c.slug}`} testId={`store-category-${c.slug}`} />
@@ -144,12 +144,12 @@ export default async function StorePage(
         <aside className="hidden md:block space-y-5">
           {store.story && (
             <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC]">
-              <h3 className="font-display text-xl font-bold text-[#0A1F5C] mb-2">The Story</h3>
+              <h3 className="font-display text-xl font-medium text-[#0A1F5C] mb-2">The Story</h3>
               <p className="text-sm text-[#595959] leading-relaxed">{store.story}</p>
             </div>
           )}
           <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC] text-sm">
-            <h3 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">Delivery</h3>
+            <h3 className="font-display text-xl font-medium text-[#0A1F5C] mb-3">Delivery</h3>
             <div className="space-y-2 text-[#595959]">
               <div className="flex items-center gap-2">
                 <Bike size={14} className={store.badge === "Away" ? "text-amber-500" : store.badge === "Store Offline" ? "text-slate-400" : "text-[#E68910]"} />
@@ -175,7 +175,7 @@ export default async function StorePage(
               4-item TrustSignalsCompact reused verbatim, not a second
               store-specific version. */}
           <div className="bg-white rounded-2xl p-6 border border-[#E5E2DC]">
-            <h3 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">Store policies</h3>
+            <h3 className="font-display text-xl font-medium text-[#0A1F5C] mb-3">Store policies</h3>
             <TrustSignalsCompact />
           </div>
         </aside>
@@ -205,7 +205,7 @@ export default async function StorePage(
             <div className="space-y-8">
               {newArrivals && newArrivals.length > 0 && (
                 <div data-testid="store-new-arrivals">
-                  <h2 className="font-display text-xl sm:text-3xl font-bold text-[#0A1F5C] mb-3 sm:mb-6">New arrivals</h2>
+                  <h2 className="font-display text-xl sm:text-2xl font-medium text-[#0A1F5C] mb-3 sm:mb-6">New arrivals</h2>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
                     {newArrivals.map((p) => (
                       <ProductCard key={p.id} p={{ ...p, store_name: store.name }} size="default" />
@@ -215,7 +215,7 @@ export default async function StorePage(
               )}
               {bestsellers && bestsellers.length > 0 && (
                 <div data-testid="store-bestsellers">
-                  <h2 className="font-display text-xl sm:text-3xl font-bold text-[#0A1F5C] mb-3 sm:mb-6">Bestsellers</h2>
+                  <h2 className="font-display text-xl sm:text-2xl font-medium text-[#0A1F5C] mb-3 sm:mb-6">Bestsellers</h2>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
                     {bestsellers.map((p) => (
                       <ProductCard key={p.id} p={{ ...p, store_name: store.name }} size="default" />
@@ -226,7 +226,7 @@ export default async function StorePage(
             </div>
           ) : (
             <div data-testid="store-all-products">
-              <h2 className="font-display text-xl sm:text-3xl font-bold text-[#0A1F5C] mb-3 sm:mb-6">From this store ({products.length})</h2>
+              <h2 className="font-display text-xl sm:text-2xl font-medium text-[#0A1F5C] mb-3 sm:mb-6">From this store ({products.length})</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
                 {products.map((p) => (
                   <ProductCard key={p.id} p={{ ...p, store_name: store.name }} size="default" />
@@ -238,7 +238,7 @@ export default async function StorePage(
           {/* Mobile-only: the aside's policies card is hidden below md, so
               trust signals still need a home in the main column here. */}
           <div className="md:hidden mt-8 bg-white rounded-2xl p-5 border border-[#E5E2DC]">
-            <h3 className="font-display text-lg font-bold text-[#0A1F5C] mb-3">Store policies</h3>
+            <h3 className="font-display text-lg font-medium text-[#0A1F5C] mb-3">Store policies</h3>
             <TrustSignalsCompact />
           </div>
         </div>

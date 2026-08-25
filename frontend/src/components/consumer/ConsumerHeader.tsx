@@ -5,18 +5,13 @@
  *
  * Mobile (<lg): ONE row — Logo · LocationChip (flex-1) · Wishlist.
  *   Redesign Phase B removed the persistent pinned search bar that used to
- *   sit in a second row here — search's entry point is now the bottom
- *   nav's Search tab (see StickyBottomNav.tsx), which calls the same
- *   useSearchOverlay store's `show()` this header used to call from its
- *   own bar. Opening it still renders the same SHEET dropping down from
- *   directly below the header (over a dimmed backdrop covering the rest
- *   of the page), with the same recent/trending/live-suggestion
- *   experience — the sheet just now owns its own search input directly
- *   (see MobileSearchSheet below) instead of reading it from a header row
- *   that no longer exists. Dismiss via backdrop tap, the X, Escape, or
- *   the device back gesture (a history entry is pushed while the sheet
- *   is open specifically so back-gesture has something to intercept —
- *   see the popstate effect below).
+ *   sit in a second row here. G9 §16 finished that line of work: search's
+ *   entry point is the bottom nav's Search tab (StickyBottomNav.tsx),
+ *   which is now a plain `<Link href="/search">` — the mobile overlay
+ *   sheet this header used to open via `useSearchOverlay` (recent/
+ *   trending/live-suggestion UI) has been removed from here entirely; its
+ *   logic was ported into `/search/page.tsx` itself, which now owns that
+ *   whole experience as a real page instead of a header-anchored overlay.
  * Desktop (≥lg): single row — Logo · LocationChip · big Search · Stores
  *   · For Merchants · Profile · Wishlist. Untouched otherwise — desktop
  *   has no bottom nav, so its inline Search input + SuggestPanel dropdown
@@ -40,14 +35,14 @@
  * below for the hydration-safe read pattern, copied from ProductCard's
  * own established approach to the same store.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Loader2, MapPin, Search, Store as StoreIcon, User, Heart, X, Crosshair, Home as HomeIcon, Clock, TrendingUp, Check } from "lucide-react";
+import { Loader2, MapPin, Search, Store as StoreIcon, User, Heart, X, Crosshair, Home as HomeIcon, Check } from "lucide-react";
 import {
-  useLocationStore, useCustomerAuthStore, useSearchOverlay, useWishlistStore,
+  useLocationStore, useCustomerAuthStore, useWishlistStore,
 } from "@/stores";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
 import { useMounted } from "@/hooks/useMounted";
@@ -57,27 +52,6 @@ import { apiClient } from "@/lib/api-client";
 interface SearchProduct { id: string; name: string; price?: number; image?: string }
 interface SearchStore { id: string; name: string; locality?: string; banner?: string }
 interface SuggestResponse { products: SearchProduct[]; stores: SearchStore[] }
-interface TrendingRow { q: string; count?: number }
-
-/** Recent-search chips, mobile sheet only — same localStorage key/shape the
- *  old SearchOverlay used, so a user's recent list survives this rework. */
-const RECENT_KEY = "lokl_recent_searches";
-const MAX_RECENT = 6;
-
-function readRecent(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(RECENT_KEY);
-    return raw ? (JSON.parse(raw) as string[]) : [];
-  } catch { return []; }
-}
-function pushRecent(q: string) {
-  if (typeof window === "undefined") return;
-  try {
-    const list = [q, ...readRecent().filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, MAX_RECENT);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
-  } catch { /* private-mode */ }
-}
 
 interface SavedAddress {
   address_id: string;
@@ -93,110 +67,6 @@ export function ConsumerHeader() {
   const router = useRouter();
   const customerPhone = useCustomerAuthStore((s) => s.phone);
   useHeartbeat(customerPhone ? "customer" : "guest", { phone: customerPhone });
-  const mobileSearchOpen = useSearchOverlay((s) => s.open);
-  const closeMobileSearch = useSearchOverlay((s) => s.hide);
-
-  // Header height, tracked live so the mobile sheet/backdrop can anchor
-  // exactly below it via an inline `top` (ConsumerHeader is always the
-  // first element on the page, so its rendered height IS how far down the
-  // sheet should start — no scroll-position math needed).
-  const headerRef = useRef<HTMLElement | null>(null);
-  const [headerHeight, setHeaderHeight] = useState(0);
-  useEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    const update = () => setHeaderHeight(el.getBoundingClientRect().height);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // ─── Mobile search sheet ────────────────────────────────────────
-  const [mobileQ, setMobileQ] = useState("");
-  const [mobileSuggestions, setMobileSuggestions] = useState<SuggestResponse | null>(null);
-  const [mobileSuggLoading, setMobileSuggLoading] = useState(false);
-  const [mobileRecent, setMobileRecent] = useState<string[]>([]);
-  const [mobileTrending, setMobileTrending] = useState<TrendingRow[]>([]);
-  const [mobileTrendingProducts, setMobileTrendingProducts] = useState<SearchProduct[]>([]);
-
-  // Reset + load idle-state content every time the sheet opens.
-  useEffect(() => {
-    if (!mobileSearchOpen) return;
-    setMobileQ("");
-    setMobileSuggestions(null);
-    setMobileSuggLoading(false);
-    setMobileRecent(readRecent());
-    api.search.trending(10).then((r) => setMobileTrending(r as unknown as TrendingRow[])).catch(() => setMobileTrending([]));
-    setMobileTrendingProducts([]);
-    api.products.popularInCity(8).then((r) => setMobileTrendingProducts(r as unknown as SearchProduct[])).catch(() => {});
-  }, [mobileSearchOpen]);
-
-  // Debounced live suggestions as the user types in the pinned bar.
-  useEffect(() => {
-    if (!mobileSearchOpen) return;
-    const term = mobileQ.trim();
-    if (term.length < 2) { setMobileSuggestions(null); setMobileSuggLoading(false); return; }
-    let cancelled = false;
-    setMobileSuggLoading(true);
-    const t = setTimeout(() => {
-      api.search.suggest(term)
-        .then((r) => { if (!cancelled) setMobileSuggestions(r as unknown as SuggestResponse); })
-        .catch(() => { if (!cancelled) setMobileSuggestions({ products: [], stores: [] }); })
-        .finally(() => { if (!cancelled) setMobileSuggLoading(false); });
-    }, 250);
-    return () => { cancelled = true; clearTimeout(t); };
-  }, [mobileQ, mobileSearchOpen]);
-
-  // Lock body scroll while the sheet is open — the backdrop already implies
-  // the page underneath is inert, don't let it ghost-scroll too.
-  useEffect(() => {
-    if (!mobileSearchOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [mobileSearchOpen]);
-
-  // Back-gesture dismiss: push one history entry when the sheet opens so
-  // there's something for the gesture/hardware-back to pop. Every dismissal
-  // path (backdrop tap, X, Escape) also routes through history.back() below
-  // instead of calling closeMobileSearch() directly, so popstate is the
-  // single source of truth for "the sheet just closed" — no double-closes,
-  // no drift between what the browser's back stack thinks and what's shown.
-  useEffect(() => {
-    if (!mobileSearchOpen) return;
-    window.history.pushState({ loklSearchSheet: true }, "");
-    const onPopState = () => closeMobileSearch();
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, [mobileSearchOpen, closeMobileSearch]);
-
-  const dismissMobileSearch = useCallback(() => {
-    if (mobileSearchOpen) window.history.back();
-  }, [mobileSearchOpen]);
-
-  useEffect(() => {
-    if (!mobileSearchOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") dismissMobileSearch(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [mobileSearchOpen, dismissMobileSearch]);
-
-  const submitMobileSearch = useCallback((termRaw?: string) => {
-    const term = (termRaw ?? mobileQ).trim();
-    if (!term) return;
-    pushRecent(term);
-    api.search.track(term).catch(() => { /* fire-and-forget */ });
-    // Forward navigation, not a dismissal — close the UI directly rather
-    // than through history.back() (that would step backward, not to /search).
-    closeMobileSearch();
-    router.push(`/search?q=${encodeURIComponent(term)}`);
-  }, [mobileQ, closeMobileSearch, router]);
-
-  const clearMobileRecent = useCallback(() => {
-    try { localStorage.removeItem(RECENT_KEY); } catch { /* private-mode */ }
-    setMobileRecent([]);
-  }, []);
 
   // ─── Desktop search ─────────────────────────────────────────────
   const [q, setQ] = useState("");
@@ -241,7 +111,7 @@ export function ConsumerHeader() {
 
   return (
     <>
-    <header ref={headerRef} data-testid="consumer-header" className="sticky top-0 z-50 bf-glass border-b border-card-border">
+    <header data-testid="consumer-header" className="sticky top-0 z-50 bf-glass border-b border-card-border">
       <div className="max-w-7xl mx-auto px-4 lg:px-8 py-2.5 lg:py-3 flex items-center gap-2 lg:gap-4">
         {/* Logo */}
         <Link href="/" data-testid="brand-logo" className="flex items-center shrink-0">
@@ -312,23 +182,6 @@ export function ConsumerHeader() {
         <WishlistLink />
       </div>
     </header>
-
-    {mobileSearchOpen && (
-      <MobileSearchSheet
-        topOffset={headerHeight}
-        q={mobileQ}
-        onChange={setMobileQ}
-        loading={mobileSuggLoading}
-        suggestions={mobileSuggestions}
-        recent={mobileRecent}
-        trending={mobileTrending}
-        trendingProducts={mobileTrendingProducts}
-        onClose={dismissMobileSearch}
-        onNavigate={closeMobileSearch}
-        onSubmit={submitMobileSearch}
-        onClearRecent={clearMobileRecent}
-      />
-    )}
     </>
   );
 }
@@ -368,262 +221,6 @@ function WishlistLink() {
         </span>
       )}
     </Link>
-  );
-}
-
-// The top sheet itself — dropped below the header (topOffset = header's
-// live height), over a dimmed backdrop. Reuses the exact recent/trending/
-// live-suggestion data and layout the old full-screen SearchOverlay had.
-// Redesign Phase B: now owns its own search input at the top (the pinned
-// header bar that used to hold it is gone — see ConsumerHeader's own doc
-// comment) — auto-focused on mount, same value/onChange/onSubmit wiring
-// the old in-header input had, just relocated. z-[61]/[60] clears
-// StickyBottomNav's z-50, so on a short page the sheet renders OVER the
-// bottom nav rather than being hidden behind it.
-function MobileSearchSheet({
-  topOffset, q, onChange, loading, suggestions, recent, trending, trendingProducts, onClose, onNavigate, onSubmit, onClearRecent,
-}: {
-  topOffset: number;
-  q: string;
-  onChange: (v: string) => void;
-  loading: boolean;
-  suggestions: SuggestResponse | null;
-  recent: string[];
-  trending: TrendingRow[];
-  trendingProducts: SearchProduct[];
-  onClose: () => void;
-  /** Dismisses the sheet WITHOUT going through history.back() (unlike
-   *  `onClose`) — for Link-based navigation away from the page (Browse
-   *  Stores below). `onClose` races a Link's own client-side navigation:
-   *  both call the History API in the same click, and back() can win,
-   *  landing the user back on the page they clicked away from instead of
-   *  where the Link pointed. `onSubmit`'s own search navigation already
-   *  avoids this by closing directly instead of via history.back(); this
-   *  prop lets a plain navigating Link do the same. */
-  onNavigate: () => void;
-  onSubmit: (term?: string) => void;
-  onClearRecent: () => void;
-}) {
-  const showResults = q.trim().length >= 2;
-  const products = suggestions?.products ?? [];
-  const stores = suggestions?.stores ?? [];
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  // Pop the keyboard as soon as the sheet (and its input) mount.
-  useEffect(() => { requestAnimationFrame(() => inputRef.current?.focus()); }, []);
-
-  return (
-    <>
-      <div
-        data-testid="search-sheet-backdrop"
-        onClick={onClose}
-        className="lg:hidden fixed inset-x-0 bottom-0 z-[60] bg-[#0A1F5C]/45 search-sheet-backdrop-in"
-        style={{ top: topOffset }}
-      />
-      <div
-        data-testid="search-sheet"
-        role="dialog"
-        aria-modal="true"
-        className="lg:hidden fixed inset-x-0 z-[61] bg-white rounded-b-3xl shadow-[0_16px_40px_rgba(10,31,92,0.18)] flex flex-col overflow-hidden search-sheet-in"
-        style={{ top: topOffset, maxHeight: `calc(100vh - ${topOffset}px)` }}
-      >
-        <div className="shrink-0 flex items-center gap-2 px-3 pt-3 pb-2 border-b border-card-border">
-          <div className="flex-1 flex items-center gap-2.5 px-4 py-2.5 bg-[#FDFBF7] rounded-full border border-brand-primary min-w-0">
-            <Search size={17} className="text-brand-accent shrink-0" />
-            <input
-              ref={inputRef}
-              data-testid="mobile-search-input"
-              value={q}
-              onChange={(e) => onChange(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onSubmit(); } }}
-              placeholder="Search kurtas, sneakers, stores…"
-              className="bg-transparent flex-1 outline-none text-sm min-w-0 text-brand-primary"
-              autoComplete="off"
-            />
-            {q && (
-              <button
-                type="button"
-                onClick={() => onChange("")}
-                data-testid="mobile-search-clear"
-                aria-label="Clear search"
-                className="text-text-secondary hover:text-brand-primary transition shrink-0"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            data-testid="mobile-search-close"
-            aria-label="Close search"
-            className="w-9 h-9 shrink-0 rounded-full bg-white border border-card-border flex items-center justify-center hover:bg-[#FDFBF7] transition"
-          >
-            <X size={16} className="text-brand-primary" />
-          </button>
-        </div>
-        <div className="overflow-y-auto">
-          {showResults ? (
-            <div className="px-2 py-2">
-              {loading && (
-                <div className="px-3 py-3 text-xs text-text-secondary inline-flex items-center gap-2">
-                  <Loader2 size={14} className="animate-spin" /> Searching…
-                </div>
-              )}
-              {!loading && stores.length > 0 && (
-                <>
-                  <div className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-widest text-text-secondary">Stores</div>
-                  {stores.slice(0, 4).map((s) => (
-                    <Link key={s.id} href={`/store/${s.id}`} onClick={onClose}
-                      data-testid={`search-sheet-store-${s.id}`}
-                      className="flex items-center gap-3 px-2 py-2 hover:bg-[#FDFBF7] rounded-xl">
-                      <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0">
-                        {s.banner && <Image src={s.banner} alt={s.name} fill sizes="40px" className="object-cover" />}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold text-brand-primary line-clamp-1">{s.name}</div>
-                        {s.locality && <div className="text-[11px] text-text-secondary line-clamp-1">{s.locality}</div>}
-                      </div>
-                    </Link>
-                  ))}
-                </>
-              )}
-              {!loading && products.length > 0 && (
-                <>
-                  <div className="px-2 pt-3 pb-1 text-[10px] uppercase tracking-widest text-text-secondary">Products</div>
-                  {products.slice(0, 8).map((p) => (
-                    <Link key={p.id} href={`/p/${p.id}`} onClick={onClose}
-                      data-testid={`search-sheet-product-${p.id}`}
-                      className="flex items-center gap-3 px-2 py-2 hover:bg-[#FDFBF7] rounded-xl">
-                      <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0">
-                        {p.image && <Image src={p.image} alt={p.name} fill sizes="40px" className="object-cover" />}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold text-brand-primary line-clamp-1">{p.name}</div>
-                        {p.price != null && <div className="text-[11px] text-text-secondary">₹{Number(p.price).toLocaleString()}</div>}
-                      </div>
-                    </Link>
-                  ))}
-                </>
-              )}
-              {!loading && (
-                <button
-                  type="button"
-                  onClick={() => onSubmit()}
-                  data-testid="search-sheet-see-all"
-                  className="w-full text-left px-3 py-3 text-xs font-semibold text-brand-accent hover:bg-[#FDFBF7] rounded-xl"
-                >
-                  {products.length + stores.length === 0
-                    ? `No quick matches — search all of Lokl for "${q}" →`
-                    : `See all results for "${q}" →`}
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="px-3 py-4 space-y-5">
-              {/* Phase G5 — Stores' mobile entry point, now that the bottom
-                  nav's Stores tab is Add to Cart instead. Desktop keeps its
-                  unchanged header nav-stores link; this is the mobile
-                  equivalent, one tap in from the still-present Search tab. */}
-              <Link
-                href="/stores"
-                onClick={onNavigate}
-                data-testid="search-sheet-browse-stores"
-                className="flex items-center gap-3 px-3 py-2.5 rounded-2xl border border-card-border hover:bg-[#FDFBF7] transition"
-              >
-                <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center shrink-0">
-                  <StoreIcon size={16} className="text-brand-accent" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-bold text-brand-primary">Browse Stores</div>
-                  <div className="text-[11px] text-text-secondary">Every local seller on Lokl</div>
-                </div>
-              </Link>
-              <section>
-                <div className="flex flex-wrap gap-2">
-                  {["Kurta", "Jeans", "Sneakers", "Saree", "Kids wear", "Ethnic"].map((term) => (
-                    <button key={term} type="button" onClick={() => onSubmit(term)}
-                      data-testid={`search-sheet-quick-${term}`}
-                      className="px-3 py-1.5 bg-[#FDFBF7] border border-card-border rounded-full text-sm text-brand-primary font-medium">
-                      {term}
-                    </button>
-                  ))}
-                </div>
-              </section>
-              {recent.length > 0 && (
-                <section data-testid="search-sheet-recent">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-[10px] uppercase tracking-widest text-text-secondary flex items-center gap-1.5">
-                      <Clock size={12} /> Recent
-                    </div>
-                    <button
-                      type="button"
-                      onClick={onClearRecent}
-                      data-testid="search-sheet-recent-clear"
-                      className="text-[11px] font-semibold text-brand-accent hover:underline"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {recent.map((r) => (
-                      <button
-                        key={r}
-                        type="button"
-                        onClick={() => onSubmit(r)}
-                        data-testid={`search-sheet-recent-${r}`}
-                        className="px-3 py-1.5 rounded-full bg-white border border-card-border text-xs text-brand-primary hover:bg-[#FDFBF7]"
-                      >
-                        {r}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              )}
-              {trending.length > 0 && (
-                <section data-testid="search-sheet-trending">
-                  <div className="text-[10px] uppercase tracking-widest text-text-secondary flex items-center gap-1.5 mb-2">
-                    <TrendingUp size={12} /> Popular searches
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {trending.map((t) => (
-                      <button
-                        key={t.q}
-                        type="button"
-                        onClick={() => onSubmit(t.q)}
-                        data-testid={`search-sheet-trending-${t.q}`}
-                        className="px-3 py-1.5 rounded-full bg-brand-primary/8 border border-brand-primary/20 text-xs text-brand-primary font-medium hover:bg-brand-primary/15 capitalize"
-                      >
-                        {t.q}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              )}
-              {trendingProducts.length > 0 && (
-                <section>
-                  <div className="text-[10px] uppercase tracking-widest text-text-secondary mb-2">Popular right now</div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {trendingProducts.slice(0, 6).map((p) => (
-                      <Link key={p.id} href={`/product/${p.id}`} onClick={onClose}
-                        className="text-left rounded-xl overflow-hidden bg-white border border-card-border">
-                        <div className="relative aspect-square bg-slate-100">
-                          {p.image && <Image src={p.image} alt={p.name} fill sizes="30vw" className="object-cover" />}
-                        </div>
-                        <div className="p-1.5">
-                          <div className="text-[11px] font-semibold text-brand-primary line-clamp-1">{p.name}</div>
-                          {p.price != null && <div className="text-[10px] text-text-secondary">₹{Number(p.price).toLocaleString()}</div>}
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                </section>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </>
   );
 }
 

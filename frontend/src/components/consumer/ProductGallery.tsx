@@ -100,14 +100,23 @@ export function ProductGallery({
           on a ~46vh box crops far less than the old 22vh one did — verified
           against both a torso-crop photo and a full garment-on-hanger
           shot). No aspect-ratio class here — height is the fixed dimension,
-          width is always 100%, object-cover fills whatever crop that
-          implies for a given photo's own aspect ratio. bg-cream-warm is
-          just a loading-state fallback color, not a visible tray — the
-          image fills the box edge to edge. Rounded only at the bottom
-          (rounded-b-[20px]), matching the "sheet slides up over the image"
-          effect the content panel below still does. Desktop keeps its own
-          unchanged aspect-[4/5] two-column layout (see below) — this is
-          mobile-only. ── */}
+          width is always 100%.
+
+          G9 — switched to object-contain: object-cover on a fixed-height
+          box was still cropping genuinely portrait/full-length product
+          photos (the exact tradeoff this comment already documented above
+          — "doesn't read as cropped" was a judgment call, not a guarantee).
+          A PDP's job is letting the customer confidently see the whole
+          product before buying, so bg-cream-warm stops being just a
+          loading fallback and becomes the visible letterbox tray around
+          whatever crop the source photo's own aspect ratio leaves — same
+          token either way, no new color introduced. Rounded only at the
+          bottom (rounded-b-[20px]), matching the "sheet slides up over the
+          image" effect the content panel below still does. Desktop keeps
+          its own unchanged aspect-[4/5] two-column layout (see below) —
+          this is mobile-only. Thumbnails stay object-cover deliberately —
+          they're a navigation aid, not the "see the product" moment, and
+          uniform cropped squares scan faster than variable-content ones. ── */}
       <div className="md:hidden relative bg-cream-warm rounded-b-[20px] overflow-hidden">
         <div
           ref={scrollRef}
@@ -122,7 +131,7 @@ export function ProductGallery({
                 fill
                 sizes="100vw"
                 priority={i === 0}
-                className="object-cover"
+                className="object-contain"
               />
               {i === 0 && discount > 0 && (
                 <RibbonTag text={`${discount}% off`} position="top-left" />
@@ -204,14 +213,14 @@ export function ProductGallery({
         )}
 
         {mainImage && (
-          <div className="relative flex-1 aspect-[4/5] rounded-2xl overflow-hidden bg-slate-100">
+          <div className="relative flex-1 aspect-[4/5] rounded-2xl overflow-hidden bg-cream-warm">
             <Image
               src={mainImage}
               alt={name}
               fill
               sizes="(min-width: 1200px) 600px, 50vw"
               priority
-              className="object-cover"
+              className="object-contain"
             />
             {imgIdx === 0 && discount > 0 && (
               <RibbonTag text={`${discount}% off`} position="top-left" />

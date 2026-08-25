@@ -92,7 +92,7 @@ export function StoreInfoChips({ storyText, area, eta, city, timing, storeLat, s
           <div className="absolute inset-0 bg-black/50" onClick={() => setSheet(null)} />
           <div className="relative bg-white w-full sm:max-w-md sm:mx-4 rounded-t-2xl sm:rounded-2xl p-5 max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-display text-lg font-bold text-[#0A1F5C]">{sheet === "story" ? "The Story" : "Delivery"}</h3>
+              <h3 className="font-display text-lg font-medium text-[#0A1F5C]">{sheet === "story" ? "The Story" : "Delivery"}</h3>
               <button onClick={() => setSheet(null)} className="text-[#64748B] text-2xl leading-none -mt-1" data-testid="store-info-sheet-close">×</button>
             </div>
             {sheet === "story" && (

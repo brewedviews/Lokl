@@ -2,22 +2,27 @@
 
 /**
  * CategoryRouteClient — the thin routing-layer wrapper behind "/c/[slug]"
- * and its L2 catch-all "/c/[slug]/[...l2slug]". Its ONLY job is resolving
- * the URL's slug segment to a real l1Id, then mounting L1PageClient (the
- * genuinely shared page tree behind Home too — see that file's own top
- * comment for the full Phase E unification rationale). This is exactly
- * what CategoryClient.tsx used to do internally before Phase E split it
- * out: slug -> l1 lookup via the same cached ["categories"] query
- * CategoryTileRow/L1PageClient itself also use, cold-load skeleton while
+ * and its L2 catch-all "/c/[slug]/[...l2slug]". Resolves the URL's slug
+ * segment(s) to real l1/l2 ids via the same cached ["categories"] query
+ * CategoryTileRow/L1PageClient themselves use, cold-load skeleton while
  * unresolved.
  *
- * l1Id is passed down once resolved; mode defaults to "category" inside
- * L1PageClient, so no need to specify it here.
+ * G9 §8-11 — until now, an l2slug was accepted in the URL but never
+ * actually changed what rendered: this component always mounted the full
+ * L1PageClient regardless, which only read l2slug deep inside its own
+ * BrowseGridBlock to pre-set a filter at the very bottom of the whole L1
+ * shopping home. That's the literal root cause of "clicking a category
+ * reopens the entire homepage" — not a styling problem, a routing one.
+ * Fixed here: a real l2slug that resolves to a real L2 now mounts the new,
+ * dedicated `L2PlpClient` (a compact product-listing page) instead. No
+ * l2slug (bare "/c/[slug]") keeps mounting L1PageClient exactly as before
+ * — the L1 shopping home is unchanged.
  */
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { L1PageClient } from "@/components/consumer/L1PageClient";
+import { L2PlpClient } from "@/components/consumer/L2PlpClient";
 
 function SkeletonGrid() {
   return (
@@ -36,7 +41,7 @@ function SkeletonGrid() {
 }
 
 export function CategoryRouteClient() {
-  const params = useParams<{ slug: string }>();
+  const params = useParams<{ slug: string; l2slug?: string[] }>();
   const { data: categories = [] } = useQuery({
     queryKey: ["categories"],
     queryFn: () => api.catalog.categories(),
@@ -56,6 +61,13 @@ export function CategoryRouteClient() {
         </main>
       </div>
     );
+  }
+
+  const l2Slug = params.l2slug?.[0];
+  const l2 = l2Slug ? (l1.l2 ?? []).find((s) => s.slug === l2Slug) : undefined;
+
+  if (l2Slug && l2) {
+    return <L2PlpClient l1={l1} l2={l2} />;
   }
 
   return <L1PageClient l1Id={l1.id} />;

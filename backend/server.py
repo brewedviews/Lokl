@@ -2859,6 +2859,40 @@ async def admin_cms_upload(
     return await cloudinary_service.upload_image(file, asset_type, admin.get("id", "admin"))
 
 
+class CmsUploadFromUrlPayload(BaseModel):
+    url: str
+    asset_type: str = "cms"
+
+
+@api.post("/admin/cms/upload-from-url")
+async def admin_cms_upload_from_url(payload: CmsUploadFromUrlPayload, admin: dict = Depends(require_admin)):
+    """G10 §10 — every CMS image field (ImageUploadField.tsx) has always
+    offered 'paste any image URL' as an equal-weight alternative to
+    Cloudinary upload, and whatever got pasted was saved as-is, unrehosted
+    — this is the actual root of "dependent on an external URL when it
+    should be a Lokl-managed asset" (confirmed: this is why so much
+    seed/demo content ended up as raw Unsplash hotlinks, and it was a
+    standing risk for any future admin edit too, not just historical
+    data). Cloudinary itself never auto-deletes active assets (G9 already
+    established that against Cloudinary's own docs) — the fragility is
+    entirely on the OTHER end, a foreign host's own URL going dead.
+
+    Fixes the upload PATH, not individual images, per this exact
+    endpoint's own established precedent: `cloudinary_service.
+    upload_image_from_url()` already exists and is already used this way
+    for merchant Shopify/VasyERP product-image sync (see that function's
+    own doc comment: "a source provider's raw URL must never be stored
+    directly as a product's image field") — this just extends the same
+    policy to the CMS's own URL-paste path, reusing the identical
+    function rather than inventing a second one."""
+    if payload.asset_type not in ("cms", "brand_logo"):
+        raise HTTPException(400, "Invalid asset_type for admin upload")
+    url = (payload.url or "").strip()
+    if not url:
+        raise HTTPException(400, "url is required")
+    return await cloudinary_service.upload_image_from_url(url, payload.asset_type, admin.get("id", "admin"))
+
+
 @api.get("/admin/cms/search-destinations")
 async def admin_search_destinations(q: str = "", admin: dict = Depends(require_admin)):
     """Unified destination picker — searches Stores, Products, L1, L2 and Offers.
@@ -3268,46 +3302,73 @@ async def admin_delete_store_section_override(l1_id: str, l2_id: str, admin: dic
 # appears (true here — Ethnic Stores is always the "late" module,
 # whichever L1 is rendering).
 #
-# G8 target order:
+# G9 target order:
 #   Marketplace ("/"): hero -> category_pills (3x3 mixed discovery
 #     categories) -> marketplace_offers -> best_deals (mixed) -> under_499
 #     ("Picks for Every Budget") -> stores_near_you -> global_store_ethnic
 #     -> merchant_cta -> premium_picks -> global_store_footwear.
-#     Shop by Brand/Area and Trending are REMOVED as homepage sections
-#     (their underlying endpoints/CMS tabs are untouched, just no longer
-#     linked from a homepage section — /api/areas, AreasEditor, /stores?
-#     area=, /brands, BrandsEditor all still work).
+#     Shop by Brand/Area and Trending stay REMOVED as homepage sections
+#     (their underlying endpoints/CMS tabs are untouched, just not linked
+#     from a homepage section — /api/areas, AreasEditor, /stores?area=,
+#     /brands, BrandsEditor all still work). G9 re-evaluated Shop by Area
+#     per its own product brief and deliberately did NOT restore it: no
+#     store in the DB has `area_slug` set, so every featured-area tile
+#     would honestly show "0 stores" — a real data gap (see the G9 final
+#     report), not a design call to route around with fabricated content.
 #   L1 (/c/[slug]): hero -> shop_by_category -> best_deals -> under_499
 #     ("Picks for Every Budget") -> shop_by_store ("Stores Near You",
-#     L1-scoped real stores) -> store_footwear (Women: absent: Women has
-#     no footwear module now; Men+Kids: early "distinguishing" module) ->
-#     store_lingerie (Women: "Lingerie Stores", early; Kids: 3rd editorial
-#     module, early; Men: absent) -> premium_picks -> offers -> store_ethnic
-#     (always present, always "late", any L1) -> other_categories.
-#     Browse All stays as unranked chrome after the ranked list (unchanged
-#     from G1-G7).
+#     L1-scoped real stores, the ONE store-discovery module G9 §3 keeps
+#     per L1) -> l1_footwear_rail (Women: absent; Men+Kids: early) ->
+#     l1_lingerie_rail (Women: "Trending in Lingerie", early; Kids:
+#     "Accessory Picks", early; Men: absent) -> premium_picks -> offers ->
+#     l1_ethnic_rail (always present, always "late", any L1) ->
+#     other_categories ("More Categories"). Browse All stays as unranked
+#     chrome after the ranked list (unchanged from G1-G8).
+#
+#     G9 §3 — l1_footwear_rail/l1_lingerie_rail/l1_ethnic_rail REPLACE the
+#     old store_footwear/store_lingerie/store_ethnic ids outright (new
+#     ids, not a same-id content swap): those three used to render
+#     CMS-editorial store-card modules (StoreSectionModule); they now
+#     render automatic product rails (L2ProductRailSection) scoped to the
+#     same L2 slugs, with no CMS curation at all. Reusing the old ids for
+#     completely different content would leave a CMS admin reading
+#     "Footwear Store" for something that no longer shows stores — the
+#     opposite of the scope clarity §5 asks for.
 #   Both, but genuinely different ids now (position conflicts too real to
 #     share one rank — see marketplace_offers vs offers below): the offer
 #     strip is EARLY on marketplace, LATE on L1, so it's two ids pointing
 #     at the exact same <OffersSection/> component, not one shared id.
+#
+# G10 §1 — renumbered marketplace-side ranks only. G10's own explicit
+# order diagram put Ethnic Stores BEFORE Stores Near You, and Premium
+# Picks AFTER Own a Store — both the OPPOSITE of what G9 shipped (which
+# inherited G8's order unchanged). Confirmed live via GET /api/site/
+# homepage-config before touching anything — this wasn't a documentation
+# assumption. L1's own sequence (unaffected by this section, `shop_by_
+# category -> best_deals -> under_499 -> shop_by_store -> l1_footwear_
+# rail -> l1_lingerie_rail -> premium_picks -> offers -> l1_ethnic_rail ->
+# other_categories`) is preserved by choosing rank values for the three
+# ids shared across both surfaces (best_deals/under_499/premium_picks)
+# that are simultaneously valid for both orderings — verified by hand
+# before writing these numbers, not by trial and error.
 DEFAULT_HOMEPAGE_SECTIONS = [
-    {"id": "hero",              "label": "Hero",                        "enabled": True,  "rank": 20},
-    {"id": "category_pills",    "label": "Shop by Category (marketplace, 3x3)", "enabled": True,  "rank": 25},
+    {"id": "hero",              "label": "Hero",                        "enabled": True,  "rank": 10},
+    {"id": "category_pills",    "label": "Shop by Category (marketplace, 3x3)", "enabled": True,  "rank": 20},
+    {"id": "shop_by_category",  "label": "Shop by Category (L1)",       "enabled": True,  "rank": 20},
     {"id": "marketplace_offers","label": "Offers for you (marketplace)","enabled": True,  "rank": 30},
-    {"id": "shop_by_category",  "label": "Shop by Category (L1)",       "enabled": True,  "rank": 25},
-    {"id": "best_deals",        "label": "Best deals",                  "enabled": True,  "rank": 30},
-    {"id": "under_499",         "label": "Picks for Every Budget",      "enabled": True,  "rank": 40},
-    {"id": "stores_near_you",   "label": "Stores near you (marketplace)","enabled": True,  "rank": 50},
-    {"id": "shop_by_store",     "label": "Stores near you (L1)",        "enabled": True,  "rank": 50},
-    {"id": "store_footwear",    "label": "Footwear Store",              "enabled": True,  "rank": 55},
-    {"id": "store_lingerie",    "label": "Lingerie / Innerwear / Kids Store", "enabled": True,  "rank": 56},
-    {"id": "global_store_ethnic","label": "Ethnic Stores (marketplace)","enabled": True,  "rank": 70},
+    {"id": "best_deals",        "label": "Best deals",                  "enabled": True,  "rank": 40},
+    {"id": "under_499",         "label": "Picks for Every Budget",      "enabled": True,  "rank": 50},
+    {"id": "global_store_ethnic","label": "Ethnic Stores (marketplace)","enabled": True,  "rank": 60},
+    {"id": "shop_by_store",     "label": "Stores near you (L1)",        "enabled": True,  "rank": 60},
+    {"id": "stores_near_you",   "label": "Stores near you (marketplace)","enabled": True,  "rank": 70},
+    {"id": "l1_footwear_rail",  "label": "Footwear Picks (L1)",         "enabled": True,  "rank": 65},
+    {"id": "l1_lingerie_rail",  "label": "Lingerie / Accessory Picks (L1)", "enabled": True,  "rank": 66},
     {"id": "merchant_cta",      "label": "Own a store",                 "enabled": True,  "rank": 80},
-    {"id": "premium_picks",     "label": "Premium picks",               "enabled": True,  "rank": 70},
-    {"id": "offers",            "label": "Offers for you (L1)",         "enabled": True,  "rank": 80},
+    {"id": "premium_picks",     "label": "Premium picks",               "enabled": True,  "rank": 90},
+    {"id": "offers",            "label": "Offers for you (L1)",         "enabled": True,  "rank": 95},
     {"id": "global_store_footwear","label": "Footwear Stores (marketplace)","enabled": True, "rank": 100},
-    {"id": "store_ethnic",      "label": "Ethnic Store",                "enabled": True,  "rank": 90},
-    {"id": "other_categories",  "label": "Other Categories",            "enabled": True,  "rank": 95},
+    {"id": "l1_ethnic_rail",    "label": "Ethnic Picks (L1)",           "enabled": True,  "rank": 105},
+    {"id": "other_categories",  "label": "More Categories",             "enabled": True,  "rank": 110},
 
     {"id": "customer_love", "label": "Loved by Bhilai shoppers", "enabled": False, "rank": 210},
 ]
@@ -3407,19 +3468,34 @@ async def admin_put_homepage_config(payload: dict, admin: dict = Depends(require
 
 @api.get("/search")
 async def search(q: str = "", limit: int = 20):
-    """Lightweight typeahead. Returns products + stores matching the query."""
+    """Lightweight typeahead. Returns products + stores matching the query.
+
+    G9 fix — neither query here ever applied `_visible_store_filter()`
+    (products only checked `paused`; stores checked `published`/`paused`/
+    `product_count` by hand, never the fixture-merchant exclusion). Found
+    during G9's new dedicated Search Page verification (a VasyERP test
+    product surfacing in real "dress" search results) — same root-cause
+    class as the G7 store-discovery correction and the sibling fix on
+    `/products/{pid}/related` just above in this file's own history, just
+    not in either of those audits' scope at the time this endpoint was
+    written. Fixed the same way: refresh the test-account cache, scope
+    the stores query through `_visible_store_filter()` itself (replacing
+    the hand-rolled published/paused check, not duplicating it), and scope
+    the products query to those same visible store ids."""
     if not q or len(q.strip()) < 1:
         return {"products": [], "stores": []}
+    await _refresh_test_account_merchant_ids()
     # Escape user input — never pass raw to $regex (ReDoS risk + Mongo regex injection)
     import re as _re
     safe_q = _re.escape(q.strip()[:64])  # also cap length
     rx = {"$regex": safe_q, "$options": "i"}
+    visible_store_ids = [s["id"] for s in await db.stores.find(_visible_store_filter(), {"_id": 0, "id": 1}).to_list(2000)]
     products = await db.products.find(
-        {"$and": [{"paused": {"$ne": True}}, {"$or": [{"name": rx}, {"description": rx}]}]},
+        {"$and": [{"paused": {"$ne": True}}, {"store_id": {"$in": visible_store_ids}}, {"$or": [{"name": rx}, {"description": rx}]}]},
         {"_id": 0, "id": 1, "name": 1, "image": 1, "price": 1, "store_id": 1, "store_name": 1, "l1_id": 1}
     ).limit(limit).to_list(limit)
     stores = await db.stores.find(
-        {"$and": [{"published": True}, {"paused": {"$ne": True}}, {"product_count": {"$gte": 1}}, {"$or": [{"name": rx}, {"tagline": rx}, {"specialties": rx}]}]},
+        {"$and": [_visible_store_filter(), {"product_count": {"$gte": 1}}, {"$or": [{"name": rx}, {"tagline": rx}, {"specialties": rx}]}]},
         {"_id": 0, "id": 1, "name": 1, "banner": 1, "image": 1, "tagline": 1, "area": 1}
     ).limit(8).to_list(8)
     return {"products": products, "stores": stores}
@@ -4218,17 +4294,38 @@ async def list_products(l1: Optional[str] = None, l2: Optional[str] = None,
 
 @api.get("/products/{pid}/related")
 async def related_products(pid: str):
+    """G9 fix — `_visible_product_filter()` alone only checks a product's
+    own `paused`/`is_deleted` flags; it says nothing about whether the
+    product's STORE is consumer-visible. This endpoint computed
+    `avail_map` (keyed by already-`_visible_store_filter()`-scoped store
+    ids, per `_availability_map()`'s own doc comment) but only used it to
+    stamp availability badges, never to scope which products could be
+    returned at all — so an integration-test fixture store's products
+    could surface in "More from {store}"/"You might also like" on a real
+    product's PDP, found during G9 verification (a VasyERP/Shopify test
+    product appearing in a real Anjali Store dress's related rail). Same
+    root-cause class the G7 store-discovery correction already fixed for
+    6 store-facing endpoints — this one just wasn't in that audit's scope
+    at the time. Fixed the same way: an explicit
+    `_refresh_test_account_merchant_ids()` call (so `_visible_store_filter
+    ()`'s in-memory cache can't be stale here either — this endpoint had
+    never called it, unlike the 6 that were already fixed) plus scoping
+    both queries to `avail_map`'s keys, which is free (avail_map is
+    already fetched)."""
+    await _refresh_test_account_merchant_ids()
     product = await db.products.find_one({"id": pid}, {"_id": 0})
     if not product:
         raise HTTPException(404, "Product not found")
     store_id = product.get("store_id")
     category = product.get("category") or product.get("l1_id")
     avail_map = await _availability_map()
+    sids = list(avail_map.keys())
     from_store = await db.products.find(
-        {**_visible_product_filter(), "store_id": store_id, "id": {"$ne": pid}},
+        {**_visible_product_filter(), "store_id": store_id, "id": {"$ne": pid}} if store_id in sids
+        else {"id": "__none__"},
         {"_id": 0}
     ).limit(8).to_list(8)
-    similar_q: dict = {**_visible_product_filter(), "id": {"$ne": pid}, "store_id": {"$ne": store_id}}
+    similar_q: dict = {**_visible_product_filter(), "id": {"$ne": pid}, "store_id": {"$in": sids, "$ne": store_id}}
     if category:
         similar_q["l1_id"] = category
     similar = await db.products.find(similar_q, {"_id": 0}).limit(8).to_list(8)
@@ -8337,6 +8434,39 @@ async def admin_stores(admin: dict = Depends(require_admin)):
                 "cancelled_cheque_b64": m.get("cancelled_cheque_b64"),
             }
     return stores
+
+@api.get("/admin/stores/search")
+async def admin_stores_search(q: str = "", limit: int = 20, admin: dict = Depends(require_admin)):
+    """Thin, projection-only store search for the CMS "Select Store" picker
+    (G9 §6) — deliberately NOT `/admin/stores` above, which was built for
+    merchant management and returns every product plus the full merchant
+    PII record (KYC docs, PAN, GST, bank account, base64 documents) for
+    every store; reusing that here would leak PII into a picker UI that
+    only ever needs id/name/image/category/area, and would be far slower
+    than it needs to be for a live-typeahead search.
+
+    Deliberately bypasses `_visible_store_filter()` — an admin picking a
+    store for a CMS card needs to find ANY real store, including one not
+    yet consumer-visible (unpublished, pending KYC, etc.), not just the
+    subset consumers can already see."""
+    match: dict = {}
+    if q.strip():
+        match["name"] = {"$regex": _re.escape(q.strip()), "$options": "i"}
+    rows = await db.stores.find(
+        match,
+        {"_id": 0, "id": 1, "name": 1, "image": 1, "banner": 1, "specialties": 1, "area": 1},
+    ).limit(min(limit, 50)).to_list(50)
+    return [
+        {
+            "id": r["id"],
+            "name": r.get("name", ""),
+            "image": r.get("image") or r.get("banner") or None,
+            "category": (r.get("specialties") or [None])[0],
+            "area": r.get("area"),
+        }
+        for r in rows
+    ]
+
 
 @api.get("/admin/orders")
 async def admin_orders(status: Optional[str] = None, limit: int = 200,

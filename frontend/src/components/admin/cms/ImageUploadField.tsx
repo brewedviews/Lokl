@@ -5,14 +5,27 @@
  *
  * Supports BOTH:
  *   • Cloudinary file upload (primary path) — drag/drop or click to browse
- *   • URL paste (secondary) — admin can paste any image URL
+ *   • URL paste (secondary) — admin pastes any image URL
  *
  * Always shows a live preview, the recommended dimensions, and a
  * one-click "Remove" affordance.
+ *
+ * G10 §10 — the URL-paste field used to call `onChange(rawUrl)` directly
+ * on every keystroke, saving whatever foreign host's URL was typed
+ * as-is. That's the actual root of "image dependent on an external URL
+ * when it should be Lokl-managed": Cloudinary itself never auto-deletes
+ * active assets (G9), but a foreign host's own URL can go dead on its
+ * own schedule, entirely outside Lokl's control. Fixed by re-hosting:
+ * pasting now requires an explicit "Use URL" action (click or Enter, not
+ * live-as-you-type) that calls `adminApi.uploadCmsImageFromUrl`, which
+ * downloads and re-uploads through Cloudinary server-side — the exact
+ * same `cloudinary_service.upload_image_from_url()` already used for
+ * merchant product-image sync. Only the resulting Cloudinary URL is ever
+ * passed to `onChange`; the raw pasted URL is never itself saved.
  */
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Upload, Link as LinkIcon, X, Loader2, ImageIcon } from "lucide-react";
+import { Upload, Link as LinkIcon, X, Loader2, ImageIcon, ArrowRight } from "lucide-react";
 import { adminApi } from "@/lib/api/admin";
 
 interface Props {
@@ -30,6 +43,24 @@ interface Props {
 export function ImageUploadField({ label, value, onChange, recommended, testid, className, assetType = "cms" }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [urlDraft, setUrlDraft] = useState("");
+  const [fetchingUrl, setFetchingUrl] = useState(false);
+
+  const useUrl = async () => {
+    const url = urlDraft.trim();
+    if (!url) return;
+    setFetchingUrl(true);
+    try {
+      const r = await adminApi.uploadCmsImageFromUrl(url, assetType);
+      onChange(r.image_url);
+      setUrlDraft("");
+      toast.success("Image fetched and stored in Cloudinary");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not fetch that image");
+    } finally {
+      setFetchingUrl(false);
+    }
+  };
 
   const upload = async (file: File) => {
     if (file.size > 5 * 1024 * 1024) {
@@ -111,14 +142,30 @@ export function ImageUploadField({ label, value, onChange, recommended, testid, 
           <LinkIcon size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
           <input
             type="text"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder="…or paste image URL"
+            value={urlDraft}
+            onChange={(e) => setUrlDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void useUrl(); } }}
+            placeholder="…or paste an image URL, then fetch it"
+            disabled={fetchingUrl}
             data-testid={`${testid}-url-input`}
-            className="w-full pl-7 pr-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[11px] focus:border-[#0A1F5C] outline-none"
+            className="w-full pl-7 pr-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[11px] focus:border-[#0A1F5C] outline-none disabled:opacity-60"
           />
         </div>
+        <button
+          type="button"
+          onClick={() => void useUrl()}
+          disabled={!urlDraft.trim() || fetchingUrl}
+          data-testid={`${testid}-url-fetch-btn`}
+          title="Fetch this URL and store it in Cloudinary"
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-[#E5E2DC] text-[#0A1F5C] text-[11px] font-bold disabled:opacity-40 shrink-0"
+        >
+          {fetchingUrl ? <Loader2 size={12} className="animate-spin" /> : <ArrowRight size={12} />}
+          {fetchingUrl ? "Fetching…" : "Use URL"}
+        </button>
       </div>
+      <p className="text-[9px] text-[#94A3B8] mt-1">
+        Pasted URLs are downloaded and stored in Cloudinary — Lokl never links directly to an external image.
+      </p>
     </div>
   );
 }

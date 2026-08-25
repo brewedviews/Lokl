@@ -2,34 +2,44 @@
 
 /**
  * Store Sections editor (redesign Phase G4) — admin-curated banner +
- * pinned display cards for the Footwear/Ethnic/Lingerie-or-Innerwear
- * Store sections (StoreSectionModule in L1PageClient.tsx).
+ * pinned display cards for the Marketplace's global Ethnic/Footwear
+ * Stores sections (StoreSectionModule, rendered via MarketplaceHomeClient
+ * .tsx's l1Id="global" call sites).
  *
- * Deliberately narrow, not a generic CMS: the module list below mirrors
- * L1PageClient's own WOMEN_STORE_MODULES/MEN_STORE_MODULES/
- * KIDS_STORE_MODULES exactly (same three L2 slugs per L1) because that's
- * the ONLY place this override is ever consumed — building UI for L2s the
- * consumer component never renders would be pure noise. If that module
- * list ever changes, both places need the coordinated edit, same as
- * SHOP_BY_CATEGORY_TILES's own hardcoded spec already does.
+ * G9 §3/§5 — L1 pages (Women/Men/Kids) no longer have ANY admin-curated
+ * store section: their old Footwear/Ethnic/Lingerie "store card" modules
+ * were replaced with automatic product rails (L2ProductRailSection, see
+ * L1PageClient.tsx) that need no editorial curation at all — real L2
+ * taxonomy in, a product rail out. This editor's Women/Men/Kids tabs were
+ * removed accordingly (building CMS UI for a surface with nothing left to
+ * edit would be exactly the confusing dead-end §5 asks to eliminate) —
+ * **Global** is now the only surface here, which is also the more honest
+ * scope: it matches what an admin can actually see and change.
  *
- * G6: `display_title` and `mode` make the module's TITLE and whether it
- * shows real stores at all fully admin-controlled — only the underlying
- * L2 "slot" (which (l1_id,l2_id) doc this is) stays code-defined, as the
- * storage/real-store-aggregation join key. This is what lets Kids' third
- * module be titled anything other than "Lingerie" without a code change.
+ * `display_title` and `mode` make the module's TITLE and whether it shows
+ * real stores at all fully admin-controlled — only the underlying
+ * "global-ethnic"/"global-footwear" slot (which l2_id sentinel this doc
+ * is keyed under) stays code-defined, as the storage join key.
  *
  * One doc per (l1_id, l2_id), saved as a single whole-doc PUT (banner +
  * the entire pinned_stores array together) rather than per-card CRUD —
  * pinned cards are never independently addressed anywhere else. Reuses
  * ImageUploadField (same "cms" asset folder every other homepage image
  * uploads into) and DestinationPicker (same redirect-URL picker Offers/
- * Hero Slides already use) for the pinned card's optional link.
+ * Hero Slides already use) for an editorial card's optional link.
+ *
+ * G9 §6 — pinned cards now come in two kinds, `StorePickerField` below
+ * makes the distinction explicit rather than blurring them: a "Store
+ * card" searches real stores (GET /admin/stores/search) and, on pick,
+ * populates name/image/link FROM that store record (read-only after —
+ * never hand-typed); an "Editorial card" keeps the original manual
+ * image+title+link fields for a promotional destination that isn't a
+ * merchant.
  */
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { toast } from "sonner";
-import { Save, Loader2, Trash2, Plus, RotateCcw, Store as StoreIcon } from "lucide-react";
-import { adminApi } from "@/lib/api/admin";
+import { Save, Loader2, Trash2, Plus, RotateCcw, Store as StoreIcon, Search, X } from "lucide-react";
+import { adminApi, type AdminStoreSearchResult } from "@/lib/api/admin";
 import { catalogApi } from "@/lib/api";
 import { ImageUploadField } from "./ImageUploadField";
 import { DestinationPicker } from "./DestinationPicker";
@@ -37,46 +47,18 @@ import type { CategoryNode, CmsStoreSectionOverride, CmsPinnedStoreCard } from "
 
 interface ModuleSpec { label: string; l2Slug: string }
 
-// G8 — Women/Men now only edit the two modules that actually render on
-// their L1 page (Footwear Stores was dropped from Women's page, Innerwear
-// from Men's — see L1PageClient.tsx's WOMEN_STORE_MODULES/MEN_STORE_MODULES
-// own comment for the product reasoning). Kept in sync with this file's
-// own stated principle: don't build UI for a module the consumer page
-// never renders.
-const WOMEN_MODULES: ModuleSpec[] = [
-  { label: "Lingerie", l2Slug: "lingerie" },
-  { label: "Ethnic", l2Slug: "ethnic-wear" },
-];
-
-const MEN_MODULES: ModuleSpec[] = [
-  { label: "Footwear", l2Slug: "footwear" },
-  { label: "Ethnic", l2Slug: "ethnic-wear" },
-];
-
-// G6 — Kids has no "lingerie"/"innerwear" L2 in the taxonomy, so its
-// third module is Accessories instead — a structural placement only, not
-// a semantic requirement, since `display_title` below lets an admin
-// rename any module to anything (e.g. "Trending Kids Stores").
-const KIDS_MODULES: ModuleSpec[] = [
-  { label: "Footwear", l2Slug: "footwear" },
-  { label: "Ethnic", l2Slug: "ethnic" },
-  { label: "Accessories", l2Slug: "accessories" },
-];
-
-// G8 — the two new global, cross-L1 editorial modules on the Marketplace
-// Home (Ethnic Stores / Footwear Stores). `l2Slug` here IS the full
-// sentinel id ("global-ethnic"/"global-footwear") rather than a real L2
-// slug — there's no real L2 to look up for "global" (see the special-
-// casing around `activeL1Id`/`activeL2Id` below).
+// The two global, cross-L1 editorial modules on the Marketplace Home
+// (Ethnic Stores / Footwear Stores) — the only modules this editor still
+// covers. `l2Slug` here IS the full sentinel id ("global-ethnic"/
+// "global-footwear") rather than a real L2 slug — there's no real L2 to
+// look up for "global" (see server.py's admin_put_store_section_override
+// own comment on the sentinel).
 const GLOBAL_MODULES: ModuleSpec[] = [
   { label: "Ethnic", l2Slug: "global-ethnic" },
   { label: "Footwear", l2Slug: "global-footwear" },
 ];
 
 const L1_OPTIONS: { slug: string; label: string; modules: ModuleSpec[] }[] = [
-  { slug: "women", label: "Women", modules: WOMEN_MODULES },
-  { slug: "men", label: "Men", modules: MEN_MODULES },
-  { slug: "kids", label: "Kids", modules: KIDS_MODULES },
   { slug: "global", label: "Global", modules: GLOBAL_MODULES },
 ];
 
@@ -86,8 +68,8 @@ export function StoreSectionsEditor() {
   const [categories, setCategories] = useState<CategoryNode[]>([]);
   const [overrides, setOverrides] = useState<CmsStoreSectionOverride[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [activeL1Slug, setActiveL1Slug] = useState<string>("women");
-  const [activeL2Slug, setActiveL2Slug] = useState<string>("lingerie");
+  const [activeL1Slug, setActiveL1Slug] = useState<string>("global");
+  const [activeL2Slug, setActiveL2Slug] = useState<string>("global-ethnic");
 
   const [bannerImage, setBannerImage] = useState("");
   const [pinnedStores, setPinnedStores] = useState<CmsPinnedStoreCard[]>([]);
@@ -193,9 +175,10 @@ export function StoreSectionsEditor() {
       <div>
         <h3 className="font-display text-lg font-bold text-[#0A1F5C]">Store sections</h3>
         <p className="text-[11px] text-[#64748B]">
-          Footwear / Ethnic / Lingerie-or-Innerwear Store sections. Real stores with products in this
-          category always show first, automatically — this only adds an optional banner override and
-          pinned display cards alongside them.
+          Marketplace Ethnic Stores / Footwear Stores — the two global, cross-L1 store-discovery
+          modules on &quot;/&quot;. Add a banner override and pinned cards below; pin a real store by
+          searching for it, or add an editorial card for a promotional destination that isn&apos;t a
+          merchant.
         </p>
       </div>
 
@@ -310,43 +293,185 @@ export function StoreSectionsEditor() {
             ) : (
               <div className="space-y-3">
                 {pinnedStores.map((card) => (
-                  <div key={card.id} data-testid={`cms-store-section-card-${card.id}`}
-                    className="grid grid-cols-1 lg:grid-cols-[140px_1fr_auto] gap-3 items-start border border-[#E5E2DC] rounded-xl p-3">
-                    <ImageUploadField
-                      label="Card image" recommended="600×800"
-                      value={card.image || ""} onChange={(v) => patchCard(card.id, { image: v })}
-                      testid={`cms-store-section-card-image-${card.id}`}
-                    />
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <label className="block">
-                        <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Name</span>
-                        <input
-                          type="text" value={card.name} onChange={(e) => patchCard(card.id, { name: e.target.value })}
-                          placeholder="e.g. Step & Sole"
-                          data-testid={`cms-store-section-card-name-${card.id}`}
-                          className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none"
-                        />
-                      </label>
-                      <div className="sm:col-span-2">
-                        <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C] mb-1 block">Link (optional)</span>
-                        <DestinationPicker
-                          value={card.link || ""} onChange={(v) => patchCard(card.id, { link: v })}
-                          testid={`cms-store-section-card-link-${card.id}`}
-                          placeholder={isGlobal ? "defaults to /stores" : `defaults to /c/${activeL1Slug}/${activeL2?.slug}`}
-                        />
-                      </div>
-                    </div>
-                    <button onClick={() => removeCard(card.id)} data-testid={`cms-store-section-card-remove-${card.id}`}
-                      className="w-8 h-8 rounded-full bg-white border border-[#FCA5A5] text-[#DC2626] flex items-center justify-center">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+                  <PinnedCardEditor
+                    key={card.id}
+                    card={card}
+                    onPatch={(patch) => patchCard(card.id, patch)}
+                    onRemove={() => removeCard(card.id)}
+                    destinationPlaceholder={isGlobal ? "defaults to /stores" : `defaults to /c/${activeL1Slug}/${activeL2?.slug}`}
+                  />
                 ))}
               </div>
             )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PinnedCardEditor — G9 §6. One pinned card, in one of two explicit modes:
+//   Store card: `card.store_id` set. Search real stores (adminApi
+//     .searchStores, debounced), pick one — name/image/link populate FROM
+//     that store record and stay read-only after (never hand-typed).
+//   Editorial card: `card.store_id` unset. The original manual
+//     image+title+link fields, for a promotional destination that isn't
+//     a merchant.
+// Switching modes clears the card's content fields rather than leaving
+// stale cross-mode data behind (a store-sourced name lingering after
+// switching to Editorial would misleadingly look hand-authored, and vice
+// versa) — the toggle is a deliberate reset, not a relabeling.
+// ---------------------------------------------------------------------------
+function PinnedCardEditor({
+  card, onPatch, onRemove, destinationPlaceholder,
+}: {
+  card: CmsPinnedStoreCard;
+  onPatch: (patch: Partial<CmsPinnedStoreCard>) => void;
+  onRemove: () => void;
+  destinationPlaceholder: string;
+}) {
+  const isStoreCard = !!card.store_id;
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  const setMode = (store: boolean) => {
+    if (store === isStoreCard) return;
+    onPatch({ store_id: undefined, name: "", image: "", link: "" });
+    setSearchOpen(store);
+  };
+
+  return (
+    <div data-testid={`cms-store-section-card-${card.id}`} className="border border-[#E5E2DC] rounded-xl p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1.5">
+          <button type="button" onClick={() => setMode(true)} data-testid={`cms-card-mode-store-${card.id}`}
+            className={`px-3 py-1 rounded-full text-[11px] font-semibold border ${isStoreCard ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white text-[#595959] border-[#E5E2DC]"}`}>
+            Store card
+          </button>
+          <button type="button" onClick={() => setMode(false)} data-testid={`cms-card-mode-editorial-${card.id}`}
+            className={`px-3 py-1 rounded-full text-[11px] font-semibold border ${!isStoreCard ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white text-[#595959] border-[#E5E2DC]"}`}>
+            Editorial card
+          </button>
+        </div>
+        <button onClick={onRemove} data-testid={`cms-store-section-card-remove-${card.id}`}
+          className="w-8 h-8 rounded-full bg-white border border-[#FCA5A5] text-[#DC2626] flex items-center justify-center shrink-0">
+          <Trash2 size={13} />
+        </button>
+      </div>
+
+      {isStoreCard ? (
+        card.store_id && !searchOpen ? (
+          <div className="flex items-center gap-3">
+            <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-[#F4F1E9] shrink-0">
+              {card.image && <img src={card.image} alt="" className="w-full h-full object-cover" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold text-[#0A1F5C] truncate">{card.name}</div>
+              <div className="text-[11px] text-[#94A3B8] truncate">{card.link}</div>
+            </div>
+            <button type="button" onClick={() => setSearchOpen(true)} data-testid={`cms-card-store-change-${card.id}`}
+              className="px-3 py-1.5 rounded-full border border-[#E5E2DC] text-[11px] font-semibold text-[#0A1F5C] shrink-0">
+              Change
+            </button>
+          </div>
+        ) : (
+          <StoreSearchPicker
+            onPick={(s) => { onPatch({ store_id: s.id, name: s.name, image: s.image || "", link: `/store/${s.id}` }); setSearchOpen(false); }}
+            testid={`cms-card-store-search-${card.id}`}
+          />
+        )
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-[140px_1fr] gap-3 items-start">
+          <ImageUploadField
+            label="Card image" recommended="600×800"
+            value={card.image || ""} onChange={(v) => onPatch({ image: v })}
+            testid={`cms-store-section-card-image-${card.id}`}
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Name</span>
+              <input
+                type="text" value={card.name} onChange={(e) => onPatch({ name: e.target.value })}
+                placeholder="e.g. Step & Sole"
+                data-testid={`cms-store-section-card-name-${card.id}`}
+                className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none"
+              />
+            </label>
+            <div className="sm:col-span-2">
+              <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C] mb-1 block">Link (optional)</span>
+              <DestinationPicker
+                value={card.link || ""} onChange={(v) => onPatch({ link: v })}
+                testid={`cms-store-section-card-link-${card.id}`}
+                placeholder={destinationPlaceholder}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// StoreSearchPicker — debounced typeahead against the thin admin store-
+// search endpoint (server.py's GET /admin/stores/search). Deliberately
+// not the merchant-management /admin/stores list — see that endpoint's
+// own doc comment for why a picker needs the narrower, PII-free shape.
+function StoreSearchPicker({ onPick, testid }: { onPick: (s: AdminStoreSearchResult) => void; testid: string }) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<AdminStoreSearchResult[]>([]);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => { requestAnimationFrame(() => inputRef.current?.focus()); }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setBusy(true);
+    const t = setTimeout(() => {
+      adminApi.searchStores(q)
+        .then((r) => { if (!cancelled) setResults(r); })
+        .catch(() => { if (!cancelled) setResults([]); })
+        .finally(() => { if (!cancelled) setBusy(false); });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [q]);
+
+  return (
+    <div data-testid={testid}>
+      <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#0A1F5C] bg-white">
+        <Search size={13} className="text-[#94A3B8] shrink-0" />
+        <input
+          ref={inputRef}
+          type="text" value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder="Search stores by name…"
+          data-testid={`${testid}-input`}
+          className="flex-1 text-[12px] outline-none min-w-0"
+        />
+        {q && (
+          <button type="button" onClick={() => setQ("")} aria-label="Clear" className="shrink-0 text-[#94A3B8]"><X size={12} /></button>
+        )}
+      </div>
+      <div className="mt-2 max-h-56 overflow-y-auto space-y-1">
+        {busy && <div className="text-[11px] text-[#94A3B8] px-2 py-1.5 inline-flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Searching…</div>}
+        {!busy && results.length === 0 && (
+          <div className="text-[11px] text-[#94A3B8] px-2 py-1.5">No stores match.</div>
+        )}
+        {!busy && results.map((s) => (
+          <button
+            key={s.id} type="button" onClick={() => onPick(s)}
+            data-testid={`${testid}-result-${s.id}`}
+            className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-[#FDFBF7] text-left"
+          >
+            <div className="relative w-9 h-9 rounded-lg overflow-hidden bg-[#F4F1E9] shrink-0">
+              {s.image && <img src={s.image} alt="" className="w-full h-full object-cover" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[12px] font-semibold text-[#0A1F5C] truncate">{s.name}</div>
+              {s.area && <div className="text-[10px] text-[#94A3B8] truncate">{s.area}</div>}
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

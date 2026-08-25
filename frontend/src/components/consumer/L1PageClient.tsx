@@ -56,24 +56,30 @@
  *    gendered-L2 store modules and Phase F's `shop_by_store` carousel
  *    now carry the whole stores-discovery job.
  *
- * Browse All — /c/[slug]'s own intrinsic browsing UI (an L2 filter grid +
- * a full sortable "Browse all {L1}" product grid) is NOT part of the
- * ranked CMS section system and never should be — it's core category-
- * browsing chrome, not a merchandising/discovery section an admin
- * toggles on and off, and it needs page-local filter state the CMS
- * sections don't. Pre-G7 this was opt-in via a `mode` prop (Home passed
- * `mode="home"` to suppress it, since Home rendered through this same
- * component). G7 retired `mode` entirely — this file is L1-only now, so
- * Browse All always renders, unconditionally.
+ * Browse All — /c/[slug]'s own intrinsic browsing UI (a full sortable
+ * "Browse all {L1}" product grid) is NOT part of the ranked CMS section
+ * system and never should be — it's core category-browsing chrome, not a
+ * merchandising/discovery section an admin toggles on and off, and it
+ * needs page-local filter state the CMS sections don't. Pre-G7 this was
+ * opt-in via a `mode` prop (Home passed `mode="home"` to suppress it,
+ * since Home rendered through this same component). G7 retired `mode`
+ * entirely — this file is L1-only now, so Browse All always renders,
+ * unconditionally.
  *
- * L2 deep-link preservation: `BrowseGridBlock` reads
- * useParams()/useSearchParams() directly (params.l2slug from the
- * "/c/[slug]/[...l2slug]" catch-all, or a "?l2=" query param) to
- * pre-select the L2 filter grid — this file is only ever mounted under
- * "/c/[slug]" now, so both hooks always resolve against a real route.
+ * G9 §10 — BrowseGridBlock used to also render its own dense-tile L2
+ * filter grid ("Shop by category") directly above this product grid. That
+ * was a THIRD rendering of the same category set already shown twice
+ * higher on this same page (the primary Shop-by-Category tiles, then More
+ * Categories) — the exact "competing category sections" the brief names
+ * outright. Deleted. Browse All is now just the unfiltered full-L1
+ * catalog + sort — path-based L2 browsing goes through the dedicated
+ * `L2PlpClient` now (see CategoryRouteClient.tsx), so this block no
+ * longer needs `useParams().l2slug` at all; it still honors a `?l2=`
+ * query-param filter for any other internal link that still deep-links
+ * that way.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
@@ -87,7 +93,8 @@ import { CategoryTile } from "@/components/consumer/CategoryTile";
 import { OffersSection } from "@/components/consumer/sections/OffersSection";
 import { BudgetBentoSection } from "@/components/consumer/sections/BudgetBentoSection";
 import { OtherCategoriesSection } from "@/components/consumer/sections/OtherCategoriesSection";
-import { StoreSectionModule, type GenderedSectionStore } from "@/components/consumer/sections/StoreSectionModule";
+import { type GenderedSectionStore } from "@/components/consumer/sections/StoreSectionModule";
+import { L2ProductRailSection } from "@/components/consumer/sections/L2ProductRailSection";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { cloudinaryOptimize } from "@/lib/utils";
 import type { ProductCard as ProductCardType, CategoryNode } from "@/types";
@@ -141,28 +148,35 @@ interface SectionDoc { id: string; label: string; enabled: boolean; rank: number
 //     Every Budget" now (G8) so this only matters to someone reading raw
 //     ids. Renders the shared BudgetBentoSection (sections/), L1-scoped
 //     via its own `l1Id` prop.
-// G8 — target order: Hero -> Shop by Category -> Best Deals -> Picks for
+// G9 — target order: Hero -> Shop by Category -> Best Deals -> Picks for
 // Every Budget (under_499) -> Stores Near You (shop_by_store) ->
-// store_footwear/store_lingerie (whichever the current L1 has — see
-// WOMEN_STORE_MODULES/MEN_STORE_MODULES/KIDS_STORE_MODULES below; Women
-// only has `lingerie`, Men only has `footwear`, Kids has all three) ->
-// Premium picks -> Offers -> store_ethnic (always last of the store
-// modules, every L1) -> Other Categories -> Browse All (unranked chrome).
-// Marketplace-only ids (category_pills, marketplace_offers,
-// stores_near_you, global_store_ethnic/footwear, merchant_cta) are
-// deliberately absent — see MarketplaceHomeClient.tsx.
+// l1_footwear_rail/l1_lingerie_rail (whichever the current L1 has — see
+// WOMEN_L2_RAILS/MEN_L2_RAILS/KIDS_L2_RAILS above; Women only has
+// `lingerie`, Men only has `footwear`, Kids has all three) -> Premium
+// picks -> Offers -> l1_ethnic_rail (always last, every L1) -> More
+// Categories -> Browse All (unranked chrome). Marketplace-only ids
+// (category_pills, marketplace_offers, stores_near_you,
+// global_store_ethnic/footwear, merchant_cta) are deliberately absent —
+// see MarketplaceHomeClient.tsx.
+//
+// G9 §3 renamed the three former store-card ids (store_footwear/
+// store_lingerie/store_ethnic) to l1_footwear_rail/l1_lingerie_rail/
+// l1_ethnic_rail outright, rather than reusing the old ids for
+// different content — an id still reading "Footwear Store" in the CMS
+// after it starts rendering a product rail instead of store cards would
+// undermine the exact scope clarity G9 §5 asks for.
 const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "hero",              label: "Hero",                        enabled: true,  rank: 20 },
   { id: "shop_by_category",  label: "Shop by Category",             enabled: true,  rank: 25 },
   { id: "best_deals",        label: "Best deals",                   enabled: true,  rank: 30 },
   { id: "under_499",         label: "Picks for Every Budget",       enabled: true,  rank: 40 },
   { id: "shop_by_store",     label: "Stores near you (L1)",         enabled: true,  rank: 50 },
-  { id: "store_footwear",    label: "Footwear Store",               enabled: true,  rank: 55 },
-  { id: "store_lingerie",    label: "Lingerie / Innerwear / Kids Store", enabled: true,  rank: 56 },
+  { id: "l1_footwear_rail",  label: "Footwear Picks",               enabled: true,  rank: 55 },
+  { id: "l1_lingerie_rail",  label: "Lingerie / Accessory Picks",   enabled: true,  rank: 56 },
   { id: "premium_picks",     label: "Premium picks",                enabled: true,  rank: 70 },
   { id: "offers",            label: "Offers for you",               enabled: true,  rank: 80 },
-  { id: "store_ethnic",      label: "Ethnic Store",                 enabled: true,  rank: 85 },
-  { id: "other_categories",  label: "Other Categories",             enabled: true,  rank: 95 },
+  { id: "l1_ethnic_rail",    label: "Ethnic Picks",                 enabled: true,  rank: 85 },
+  { id: "other_categories",  label: "More Categories",              enabled: true,  rank: 95 },
 
   // Optional / Future
   { id: "customer_love",  label: "Loved by Bhilai shoppers",  enabled: false, rank: 210 },
@@ -260,75 +274,64 @@ function ShopByCategorySection({ tiles }: { tiles: ResolvedGenderTile[] }) {
 // cards, not real stores) render in the SAME horizontal row, after the
 // real stores. The section only hides when BOTH lists are empty.
 //
-// Visual-refinement pass: was "editorial banner, then a gap, then a
-// separate store-card row" — two visibly distinct elements. Now ONE
-// rounded module (matching JustInSection's own "one composed section"
-// language): the banner image sits at the top of the SAME container and
-// fades into the container's own background via a gradient that ends in
-// that exact color (surface-tint, `#F4F1E9` — the app's own established
-// "section separation" neutral, not a new color; see globals.css's own
-// definition), so there's no hard edge between image and content, and
-// the store-card row shares the same background/padding as the heading
-// instead of floating in a `mt-4` gap below a separate bordered banner.
-// No "See all"/CTA — the horizontal scroll of the card row is the only
-// interaction, same as it already was before this pass.
+// G9 §3 — these three used to be CMS-editorial store-card modules
+// (StoreSectionModule: banner + real stores + admin-pinned cards), which
+// made L1 pages a repetitive wall of store UI (Stores Near You, then up
+// to 3 MORE store-card rows). The brief's own words: "one primary
+// store-discovery module" per L1 (that's `shop_by_store`/
+// ShopByStoreSection, "Stores Near You", unchanged below) "+ product/
+// category rails instead." These slots now render `L2ProductRailSection`
+// — a real product rail for one L2, not store cards — so no CMS editorial
+// curation applies to them anymore (see StoreSectionsEditor.tsx, which
+// dropped its Women/Men/Kids tabs in the same pass; only the Global
+// marketplace store modules keep that CMS surface).
 // ---------------------------------------------------------------------------
-interface StoreModuleSpec { bannerLabel: string; heading: string; l2Slug: string }
+interface L2RailSpec { heading: string; l2Slug: string }
 type StoreSlot = "footwear" | "ethnic" | "lingerie";
 
-// G8 — restructured from positional arrays (index 0/1/2) to slot-keyed
-// objects. §17's exact target order gives each L1 a DIFFERENT subset:
-// Women shows only `lingerie` + `ethnic` (Footwear Stores dropped from
-// Women's page); Men shows only `footwear` + `ethnic` (Innerwear/
-// lingerie-slot dropped from Men's page); Kids keeps all three (its
-// third slot was never lingerie — see the standing comment below). A
-// missing key here is what makes GenderedStoreSection render nothing for
-// that slot on that L1 — same graceful-drop mechanism as always, just
-// keyed by name instead of array position now that the three slots no
-// longer share one fixed page position (`footwear`/`lingerie` render
-// early, right after Stores Near You; `ethnic` always renders late,
-// after Offers — see DEFAULT_SECTIONS' own rank comment).
-const WOMEN_STORE_MODULES: Partial<Record<StoreSlot, StoreModuleSpec>> = {
-  ethnic:   { bannerLabel: "Ethnic",   heading: "Ethnic Stores",   l2Slug: "ethnic-wear" },
-  lingerie: { bannerLabel: "Lingerie", heading: "Lingerie Stores", l2Slug: "lingerie" },
+// §17's exact target order still gives each L1 a DIFFERENT subset: Women
+// shows only `lingerie` + `ethnic` (no Footwear rail on Women's page);
+// Men shows only `footwear` + `ethnic` (no lingerie-slot rail on Men's
+// page); Kids keeps all three. A missing key here is what makes
+// GenderedL2RailSection render nothing for that slot on that L1 — same
+// graceful-drop mechanism as before, keyed by name not array position
+// (`footwear`/`lingerie` render early, right after Stores Near You;
+// `ethnic` always renders late, after Offers — see DEFAULT_SECTIONS' own
+// rank comment).
+const WOMEN_L2_RAILS: Partial<Record<StoreSlot, L2RailSpec>> = {
+  ethnic:   { heading: "Ethnic Picks",        l2Slug: "ethnic-wear" },
+  lingerie: { heading: "Trending in Lingerie", l2Slug: "lingerie" },
 };
 
-const MEN_STORE_MODULES: Partial<Record<StoreSlot, StoreModuleSpec>> = {
-  footwear: { bannerLabel: "Footwear", heading: "Footwear Stores", l2Slug: "footwear" },
-  ethnic:   { bannerLabel: "Ethnic",   heading: "Ethnic Stores",   l2Slug: "ethnic-wear" },
+const MEN_L2_RAILS: Partial<Record<StoreSlot, L2RailSpec>> = {
+  footwear: { heading: "Footwear Picks", l2Slug: "footwear" },
+  ethnic:   { heading: "Ethnic Picks",   l2Slug: "ethnic-wear" },
 };
 
-// G6 — Kids has no "lingerie" L2 (none exists in the taxonomy, checked
-// live before writing this), so its `lingerie`-slot module deliberately
-// isn't one — `heading` here is only ever a FALLBACK (see
-// StoreSectionModule below); an admin can rename any of these three via
-// the CMS's `display_title` without touching code, which is what makes
-// this slot genuinely editorial rather than hardcoded to old gendered
-// semantics. Kids keeps all three slots (unlike Women/Men's reduced-to-2
-// set above) since none of its three content options is off-limits.
-const KIDS_STORE_MODULES: Partial<Record<StoreSlot, StoreModuleSpec>> = {
-  footwear: { bannerLabel: "Footwear",    heading: "Footwear Stores",    l2Slug: "footwear" },
-  ethnic:   { bannerLabel: "Ethnic",      heading: "Ethnic Stores",      l2Slug: "ethnic" },
-  lingerie: { bannerLabel: "Accessories", heading: "Accessories Stores", l2Slug: "accessories" },
+// Kids has no "lingerie" L2 (none exists in the taxonomy) — its
+// `lingerie`-slot rail is themed "Accessory Picks" instead, same
+// substitution the old store module used.
+const KIDS_L2_RAILS: Partial<Record<StoreSlot, L2RailSpec>> = {
+  footwear: { heading: "Footwear Picks",   l2Slug: "footwear" },
+  ethnic:   { heading: "Ethnic Picks",     l2Slug: "ethnic" },
+  lingerie: { heading: "Accessory Picks",  l2Slug: "accessories" },
 };
 
-function GenderedStoreSection({ categories, l1Slug, slot }: { categories: CategoryNode[]; l1Slug: string; slot: StoreSlot }) {
+function GenderedL2RailSection({ categories, l1Slug, slot }: { categories: CategoryNode[]; l1Slug: string; slot: StoreSlot }) {
   const l1 = categories.find((c) => c.slug === l1Slug);
   if (!l1) return null;
-  const modules = l1Slug === "men" ? MEN_STORE_MODULES : l1Slug === "women" ? WOMEN_STORE_MODULES : l1Slug === "kids" ? KIDS_STORE_MODULES : {};
-  const spec = modules[slot];
+  const rails = l1Slug === "men" ? MEN_L2_RAILS : l1Slug === "women" ? WOMEN_L2_RAILS : l1Slug === "kids" ? KIDS_L2_RAILS : {};
+  const spec = rails[slot];
   if (!spec) return null;
   const l2 = (l1.l2 ?? []).find((s) => s.slug === spec.l2Slug);
   if (!l2) return null;
   return (
-    <StoreSectionModule
+    <L2ProductRailSection
       l1Id={l1.id}
       l2Id={l2.id}
       l2Href={`/c/${l1.slug}/${l2.slug}`}
-      l2Image={l2.image || null}
-      defaultHeading={spec.heading}
-      bannerLabel={spec.bannerLabel}
-      testSlug={spec.l2Slug}
+      heading={spec.heading}
+      testid={`l1-rail-${slot}`}
     />
   );
 }
@@ -336,10 +339,12 @@ function GenderedStoreSection({ categories, l1Slug, slot }: { categories: Catego
 
 // ---------------------------------------------------------------------------
 // L1 store discovery — "{L1} stores near you" (G7 §16, redesign of Phase
-// F's "Shop by Store" carousel). This is the REAL-store counterpart to
-// the CMS-editorial store_footwear/ethnic/lingerie modules below — real
-// stores only, never CMS-pinned display cards (§17's "A vs B" distinction
-// is deliberate: this section is "A", StoreSectionModule below is "B").
+// F's "Shop by Store" carousel). This is the one primary store-discovery
+// module G9 §3 asks each L1 to keep — real stores only, never CMS-pinned
+// display cards. The three L2 product rails above (GenderedL2RailSection)
+// are the "more products, less repetitive store UI" half of that same
+// requirement; they don't compete with this section, they replace what
+// used to be up to three MORE store-card modules stacked after it.
 //
 // Card: SellerCard's `variant="discovery"` (G7) — the SAME component the
 // marketplace-global StoresNearYouSection uses, per §18's "one reusable
@@ -432,9 +437,8 @@ function SkeletonGrid() {
 }
 
 function BrowseGridBlock({ l1 }: { l1: CategoryNode }) {
-  const params = useParams<{ slug: string; l2slug?: string[] }>();
   const searchParams = useSearchParams();
-  const l2FromUrl = params.l2slug?.[0] || searchParams.get("l2") || "";
+  const l2FromUrl = searchParams.get("l2") || "";
 
   const [sort, setSort] = useState<SortKey>("nearest");
   const [l2Filter, setL2Filter] = useState(""); // slug
@@ -468,36 +472,9 @@ function BrowseGridBlock({ l1 }: { l1: CategoryNode }) {
   });
 
   const products = useMemo(() => sortProducts(allProducts, sort), [allProducts, sort]);
-  const l2List = subcategories.length > 0 ? subcategories : (l1.l2 ?? []);
 
   return (
     <>
-      {l2List.length > 0 && (
-        <div className="max-w-7xl mx-auto px-4 md:px-8 pt-6" data-testid="cat-l2-grid">
-          <h2 className="font-display font-medium text-lg sm:text-xl tracking-tight text-[#0A1F5C] leading-tight mb-4">
-            Shop by category
-          </h2>
-          <div className="grid grid-cols-4 gap-x-2 gap-y-4">
-            {l2List.map((sub) => {
-              const isActive = l2Filter === sub.slug;
-              return (
-                <CategoryTile
-                  key={sub.id}
-                  onClick={() => setL2Filter(isActive ? "" : sub.slug)}
-                  testId={`l2-tile-${sub.slug}`}
-                  active={isActive}
-                  activeStyle="border"
-                  image={sub.image}
-                  label={sub.name}
-                  fallback={<div className="absolute inset-0 bg-[#E5E2DC]" />}
-                  labelClassName={isActive ? "text-[#0A1F5C]" : "text-[#595959]"}
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       <div className="max-w-7xl mx-auto px-4 md:px-8 pt-8">
         <div className="text-[11px] font-bold uppercase tracking-widest text-[#E68910] mb-1">Browse all</div>
         <h1 data-testid="cat-title" className="text-2xl sm:text-3xl font-display font-medium text-[#0A1F5C] leading-tight">
@@ -636,9 +613,9 @@ export function L1PageClient({ l1Id }: { l1Id: string }) {
 
     shop_by_category: <ShopByCategorySection key="shop-by-category" tiles={resolveShopByCategoryTiles(categories, l1Slug)} />,
 
-    store_footwear: <GenderedStoreSection key="store-footwear" categories={categories} l1Slug={l1Slug} slot="footwear" />,
-    store_ethnic: <GenderedStoreSection key="store-ethnic" categories={categories} l1Slug={l1Slug} slot="ethnic" />,
-    store_lingerie: <GenderedStoreSection key="store-lingerie" categories={categories} l1Slug={l1Slug} slot="lingerie" />,
+    l1_footwear_rail: <GenderedL2RailSection key="l1-footwear-rail" categories={categories} l1Slug={l1Slug} slot="footwear" />,
+    l1_ethnic_rail: <GenderedL2RailSection key="l1-ethnic-rail" categories={categories} l1Slug={l1Slug} slot="ethnic" />,
+    l1_lingerie_rail: <GenderedL2RailSection key="l1-lingerie-rail" categories={categories} l1Slug={l1Slug} slot="lingerie" />,
 
     under_499: <BudgetBentoSection key="budget-bento" l1Id={l1Id} />,
 

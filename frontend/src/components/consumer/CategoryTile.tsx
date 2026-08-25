@@ -110,7 +110,7 @@ export function CategoryTile({
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
         {active && <div className="absolute inset-0 ring-2 ring-inset ring-[#E68910] rounded-2xl" />}
         {badge && <div className="absolute top-2 left-2">{badge}</div>}
-        <span className="absolute bottom-2.5 left-2.5 right-2.5 text-white font-display font-bold text-sm leading-tight line-clamp-2">
+        <span className="absolute bottom-2.5 left-2.5 right-2.5 text-white font-display font-medium text-sm leading-tight line-clamp-2">
           {label}
         </span>
       </Wrapper>

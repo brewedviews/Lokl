@@ -2,19 +2,31 @@
 
 /**
  * Hero slides editor (redesign Phase A) — per-L1 multi-slide hero
- * carousel management. A GENUINELY SEPARATE system from HeroEditor.tsx's
- * single site-wide Hero banner above (this tab does not replace or
- * migrate that one; they coexist).
+ * carousel management. This is the ONLY live hero-editing surface now
+ * (the old parallel "Hero banner" tab was removed in G10 — see CmsTab
+ * .tsx's own comment; it edited a config nothing on the live site ever
+ * rendered).
  *
  * UI pattern: pick an L1 at the top (pill row, same visual language as
  * BrandsEditor/PriceBandsEditor's row cards), manage that L1's slide list
  * below. Unlike BrandsEditor (server-paginated, can grow unbounded), this
  * list is small/fixed per L1 — full CRUD (create, edit every field,
  * delete, reorder) but no search/pagination, per the task's own scoping
- * call. Reuses ImageUploadField (same "cms" asset type the site-wide Hero
- * banner and Offers already upload into) and DestinationPicker (the
- * exact same redirect-URL picker the site-wide Hero banner's own
- * redirect_url field uses) rather than building new equivalents.
+ * call. Reuses ImageUploadField (same "cms" asset type Offers/Store
+ * sections already upload into) and DestinationPicker (the same
+ * redirect-URL picker used across the CMS) rather than building new
+ * equivalents.
+ *
+ * G10 §2 — prepends a synthetic "Marketplace" entry (l1_id sentinel
+ * "global", the same one G7's `admin_create_hero_slide` already
+ * allow-lists — see server.py) to the L1 picker below. Before this, the
+ * picker was built ONLY from `catalogApi.categories()` (the real
+ * taxonomy), so there was literally no control an admin could use to
+ * reach the Marketplace hero at all — confirmed live: `hero-global-
+ * welcome-001` exists in the DB and is what HeroCarousel actually
+ * renders on "/", with no CMS path to it. No backend change needed:
+ * listHeroSlides("global")/createHeroSlide({l1_id:"global",...}) already
+ * work end-to-end.
  */
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
@@ -25,9 +37,11 @@ import { ImageUploadField } from "./ImageUploadField";
 import { DestinationPicker } from "./DestinationPicker";
 import type { HeroSlide, CategoryNode } from "@/types";
 
+const MARKETPLACE_L1: CategoryNode = { id: "global", name: "Marketplace", slug: "global", l2: [] };
+
 export function HeroSlidesEditor() {
-  const [l1s, setL1s] = useState<CategoryNode[]>([]);
-  const [activeL1, setActiveL1] = useState<string | null>(null);
+  const [l1s, setL1s] = useState<CategoryNode[]>([MARKETPLACE_L1]);
+  const [activeL1, setActiveL1] = useState<string | null>("global");
   const [rows, setRows] = useState<HeroSlide[] | null>(null);
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -35,7 +49,7 @@ export function HeroSlidesEditor() {
 
   useEffect(() => {
     catalogApi.categories()
-      .then((cats) => { setL1s(cats); if (cats[0]) setActiveL1(cats[0].id); })
+      .then((cats) => { setL1s([MARKETPLACE_L1, ...cats]); })
       .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
   }, []);
 

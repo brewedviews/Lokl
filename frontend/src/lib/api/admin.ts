@@ -26,6 +26,17 @@ export interface AdminUpdateRiderPayload {
   zone?: string;
 }
 
+/** GET /admin/stores/search result row — see that endpoint's own doc
+ *  comment in server.py for why this is a separate, narrower shape than
+ *  the full merchant-management store record. */
+export interface AdminStoreSearchResult {
+  id: string;
+  name: string;
+  image: string | null;
+  category: string | null;
+  area: string | null;
+}
+
 export const adminApi = {
   login: async (payload: AdminLoginPayload): Promise<AdminAuthResponse> => {
     const r = await apiClient.post<AdminAuthResponse>("/api/admin/login", payload);
@@ -132,6 +143,16 @@ export const adminApi = {
     await apiClient.delete(`/api/admin/store-section-overrides/${l1Id}/${l2Id}`);
   },
 
+  /** G9 §6 — thin store search for a "Select Store" CMS picker. Backed by
+   *  GET /admin/stores/search (projection-only: id/name/image/category/
+   *  area, bypasses consumer visibility so an admin can find any real
+   *  store), NOT the PII-laden /admin/stores merchant-management
+   *  endpoint. */
+  searchStores: async (q: string): Promise<AdminStoreSearchResult[]> => {
+    const r = await apiClient.get<AdminStoreSearchResult[]>("/api/admin/stores/search", { params: { q } });
+    return r.data;
+  },
+
   // ── CMS shared helpers ──────────────────────────────────────
   /** `assetType` defaults to "cms" (shared homepage-asset folder); pass
    *  "brand_logo" from the Brand admin surface to route into lokl/brands
@@ -147,6 +168,15 @@ export const adminApi = {
     const r = await apiClient.post<CmsUploadResponse>("/api/admin/cms/upload", fd, {
       headers: { "Content-Type": undefined as unknown as string },
     });
+    return r.data;
+  },
+
+  /** G10 §10 — re-hosts a pasted external image URL into Cloudinary
+   *  (GET /admin/cms/upload-from-url) rather than the raw URL ever being
+   *  stored directly — same policy already established for merchant
+   *  product-image sync, extended to the CMS's own URL-paste path. */
+  uploadCmsImageFromUrl: async (url: string, assetType: "cms" | "brand_logo" = "cms"): Promise<CmsUploadResponse> => {
+    const r = await apiClient.post<CmsUploadResponse>("/api/admin/cms/upload-from-url", { url, asset_type: assetType });
     return r.data;
   },
 

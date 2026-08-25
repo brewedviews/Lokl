@@ -4,7 +4,7 @@
  * Admin → CMS → Homepage Assets parent tab.
  *
  * Sub-tabs: Sections (order + on/off for every homepage section — see
- * SectionsPanel below), Hero banner, L1 Categories, L2 Sub-cats, Areas,
+ * SectionsPanel below), Hero slides, L1 Categories, L2 Sub-cats, Areas,
  * Price bands, Try & Buy, Offers.
  *
  * Sections is the default/first tab and is fully load-bearing: its saves
@@ -13,12 +13,25 @@
  * order/visibility (previously the frontend's local rank silently
  * overrode whatever was saved here, so this panel edited a document with
  * no real effect — fixed alongside this comment).
+ *
+ * G10 §2 — the old "Hero banner" tab (HeroEditor.tsx, editing site_config
+ * .homepage.hero) is REMOVED. Audited before removing: that document has
+ * zero consumer-facing renderers — the only component that ever read it,
+ * HeroV2.tsx, is itself dead code (never imported anywhere outside its
+ * own file). An admin could reach a fully-functional-looking "Hero
+ * banner" tab that silently changed nothing on the live site, sitting
+ * right next to "Hero slides" (the real system HeroCarousel actually
+ * renders) — that's the literal root of the "duplicate/confusing hero"
+ * complaint, not a consumer-facing rendering bug (Marketplace vs Women's
+ * hero content were already verified genuinely distinct in G8). Fixed at
+ * the other end too — see HeroSlidesEditor.tsx's own comment on adding a
+ * "Marketplace" option, since that tab previously had no way to reach the
+ * global hero scope at all.
  */
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Eye, EyeOff, ChevronUp, ChevronDown, Save, Loader2, LayoutTemplate, Image as ImgIcon, Images, Folder, Layers, Sparkles, MapPin, Tag, RotateCcw, Store } from "lucide-react";
+import { Eye, EyeOff, ChevronUp, ChevronDown, Save, Loader2, LayoutTemplate, Images, Folder, Layers, Sparkles, MapPin, Tag, RotateCcw, Store } from "lucide-react";
 import { adminApi } from "@/lib/api/admin";
-import { HeroEditor } from "@/components/admin/cms/HeroEditor";
 import { HeroSlidesEditor } from "@/components/admin/cms/HeroSlidesEditor";
 import { L1CategoriesEditor } from "@/components/admin/cms/L1CategoriesEditor";
 import { L2SubcategoriesEditor } from "@/components/admin/cms/L2SubcategoriesEditor";
@@ -33,11 +46,10 @@ import type { HomepageConfig } from "@/types";
 
 interface Section { id: string; label: string; enabled: boolean; rank: number }
 
-type SubTab = "sections" | "hero" | "hero_slides" | "l1" | "l2" | "areas" | "price_bands" | "try_and_buy" | "offers" | "brands" | "store_sections";
+type SubTab = "sections" | "hero_slides" | "l1" | "l2" | "areas" | "price_bands" | "try_and_buy" | "offers" | "brands" | "store_sections";
 
 const SUB_TABS: { id: SubTab; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
   { id: "sections",     label: "Sections",      icon: LayoutTemplate },
-  { id: "hero",         label: "Hero banner",   icon: ImgIcon },
   { id: "hero_slides",  label: "Hero slides",   icon: Images },
   { id: "l1",           label: "L1 Categories", icon: Folder },
   { id: "l2",           label: "L2 Sub-cats",   icon: Layers },
@@ -74,7 +86,6 @@ export function CmsTab() {
 
       <div>
         {tab === "sections" && <SectionsPanel />}
-        {tab === "hero"     && <HeroEditor />}
         {tab === "hero_slides" && <HeroSlidesEditor />}
         {tab === "l1"       && <L1CategoriesEditor />}
         {tab === "l2"       && <L2SubcategoriesEditor />}
@@ -96,26 +107,38 @@ export function CmsTab() {
 // render on a surface whose own frontend renderer map doesn't register
 // its id (see MarketplaceHomeClient.tsx / L1PageClient.tsx's own top
 // comments — no new CMS schema, this map is purely informational so an
-// admin isn't confused why toggling e.g. "Shop by Area" does nothing on
-// /c/women). Mirrors those two files' own renderer maps exactly — keep
-// in sync if a section ever moves surfaces.
+// admin isn't confused why toggling e.g. a Marketplace-only section does
+// nothing on /c/women).
+//
+// G9 §5 — this map had drifted stale since before the G8 refactor: 6 of
+// the then-18 live ids carried a wrong or accidentally-correct badge
+// (best_deals/under_499/premium_picks showed "L1 pages" despite already
+// rendering on both surfaces; offers showed "Both" despite G8 splitting
+// it into marketplace_offers + a now-L1-only offers; other_categories/
+// customer_love silently fell through to the "Marketplace" default
+// despite being L1-only). Rebuilt here against the actual current
+// sectionRenderers maps in both files, id-for-id — every id below is
+// verified against what genuinely renders where, not assumed from its
+// name. Keep in sync if a section ever moves surfaces.
 const SECTION_SCOPE: Record<string, "Marketplace" | "L1 pages" | "Both"> = {
-  category_pills: "Marketplace",
-  stores_near_you: "Marketplace",
-  shop_by_area: "Marketplace",
-  trending: "Marketplace",
-  shop_by_brand: "Marketplace",
-  merchant_cta: "Marketplace",
-  shop_by_category: "L1 pages",
-  best_deals: "L1 pages",
-  under_499: "L1 pages",
-  shop_by_store: "L1 pages",
-  premium_picks: "L1 pages",
-  store_footwear: "L1 pages",
-  store_ethnic: "L1 pages",
-  store_lingerie: "L1 pages",
   hero: "Both",
-  offers: "Both",
+  category_pills: "Marketplace",
+  marketplace_offers: "Marketplace",
+  shop_by_category: "L1 pages",
+  best_deals: "Both",
+  under_499: "Both",
+  stores_near_you: "Marketplace",
+  shop_by_store: "L1 pages",
+  l1_footwear_rail: "L1 pages",
+  l1_lingerie_rail: "L1 pages",
+  global_store_ethnic: "Marketplace",
+  merchant_cta: "Marketplace",
+  premium_picks: "Both",
+  offers: "L1 pages",
+  global_store_footwear: "Marketplace",
+  l1_ethnic_rail: "L1 pages",
+  other_categories: "L1 pages",
+  customer_love: "L1 pages",
 };
 
 // ─── Section order/visibility panel — reorder (up/down) + on/off toggle

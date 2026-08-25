@@ -74,7 +74,7 @@ function ProductsInner() {
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 sm:px-8 pt-4">
-      <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight mb-2">
+      <h1 className="text-xl sm:text-2xl font-display font-medium text-[#0A1F5C] leading-tight mb-2">
         {pageTitle(activeL1, searchFilter)}
         {!loading && (
           <span className="text-sm font-normal text-[#9CA3AF] ml-2">
