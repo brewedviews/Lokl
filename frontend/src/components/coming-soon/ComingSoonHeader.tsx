@@ -1,14 +1,13 @@
 "use client";
 
 /**
- * ComingSoonHeader — G15. Same sticky-glass shell and exact logo markup as
- * the real ConsumerHeader (frontend/src/components/consumer/ConsumerHeader.tsx),
- * but ConsumerHeader itself isn't reusable here: it assumes real shopping is
- * happening (location auto-detect, live search-suggest, wishlist count,
- * account link). None of that is real pre-launch, so this is a small,
- * separate, visually-matching header rather than a stripped-down prop on
- * the production one — only a logo, a merchant link, and a "Join the
- * waitlist" scroll-to-section CTA.
+ * ComingSoonHeader — G17, rebuilt from docs/design/coming-soon-v2.html's
+ * nav: logo + a "Bhilai — Coming soon" pill badge, no search/location/
+ * account/wishlist/marketplace nav. The reference's own nav has no
+ * merchant link at all; keeping one small "For Merchants" text link here
+ * so merchants who want to self-serve land on the real onboarding flow
+ * (https://merchant.shoplokl.in) rather than only reaching the embedded
+ * waitlist form's merchant tab.
  */
 export function ComingSoonHeader() {
   return (
@@ -18,7 +17,7 @@ export function ComingSoonHeader() {
           lokl<span className="text-brand-accent">.</span>
         </span>
 
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           <a
             href="https://merchant.shoplokl.in"
             data-testid="header-merchant-link"
@@ -26,13 +25,9 @@ export function ComingSoonHeader() {
           >
             For Merchants
           </a>
-          <a
-            href="#waitlist"
-            data-testid="header-waitlist-cta"
-            className="inline-flex items-center rounded-full bg-brand-accent text-white text-xs sm:text-sm font-bold px-3.5 sm:px-4 py-2 active:scale-95 transition"
-          >
-            Join the waitlist
-          </a>
+          <span className="inline-flex items-center rounded-full bg-brand-primary text-white text-xs sm:text-sm font-bold px-3.5 sm:px-4 py-2">
+            Bhilai — Coming soon
+          </span>
         </div>
       </div>
     </header>

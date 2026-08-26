@@ -1,239 +1,102 @@
 "use client";
 
 /**
- * ComingSoonClient — G16. The public pre-launch landing page for
- * shoplokl.in / www.shoplokl.in (see middleware.ts's own doc comment for
- * the routing).
+ * ComingSoonClient — G17. Rebuilt from docs/design/coming-soon-v2.html,
+ * the design/content reference the user supplied and explicitly approved
+ * using as-is (see that file's own doc-comment trail across
+ * ComingSoonTicker/Hero/WaitlistForm for the specific claims this
+ * supersedes from G15/16's "no fake numbers" rule).
  *
- * G15 originally built this as a marketplace preview (real product/store
- * rails, Budget Bento, category browsing). G16 replaces that direction
- * entirely: this is a short, editorial brand/waitlist landing page with NO
- * marketplace browsing surface at all — no products, no stores, no
- * categories, no marketplace stats. The production design language
- * (typography, color tokens, hero treatment) still inspires the page; the
- * page itself is not a preview of the marketplace. Structure: header ->
- * hero -> intro -> three pillars -> merchant section -> waitlist -> closing
- * statement -> footer. The waitlist is the only mutation anywhere on the
- * page, via the existing, unmodified `/api/waitlist` endpoint.
+ * Structure: header -> ticker -> hero (with embedded waitlist form) ->
+ * how it works -> why Lokl -> merchant section -> footer. `activeTab` is
+ * owned here (not inside the hero/form) so the merchant section's "List my
+ * store for free" CTA can flip the hero's form to the merchant tab and
+ * scroll back up to it — the same interaction the reference's own vanilla
+ * JS implements via direct DOM manipulation, done here via lifted React
+ * state instead.
  */
 import { useEffect, useRef, useState } from "react";
-import { Loader2, MapPin, ShoppingBag, UserCheck, CheckCircle2 } from "lucide-react";
-import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { ComingSoonHeader } from "./ComingSoonHeader";
+import { ComingSoonTicker } from "./ComingSoonTicker";
 import { ComingSoonHero } from "./ComingSoonHero";
+import { ComingSoonHowItWorks } from "./ComingSoonHowItWorks";
+import { ComingSoonWhyLokl } from "./ComingSoonWhyLokl";
+
+type Tab = "customer" | "merchant";
 
 // ---------------------------------------------------------------------------
-// Intro — short editorial statement, no card
+// Merchant section — stat grid + CTA that drives the hero form's tab
 // ---------------------------------------------------------------------------
-function IntroSection() {
-  return (
-    <section className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 text-center" data-testid="coming-soon-intro">
-      <h2 className="font-display font-medium text-2xl sm:text-4xl tracking-tight text-[#0A1F5C] leading-tight">
-        Local stores deserve to be online.
-      </h2>
-      <p className="text-sm sm:text-base text-[#64748B] mt-3 leading-relaxed">
-        Lokl is building a digital marketplace for neighbourhood businesses — helping local stores reach more customers while making local shopping simpler for everyone.
-      </p>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Three pillars — brand-oriented, not feature-oriented
-// ---------------------------------------------------------------------------
-const PILLARS = [
-  { icon: MapPin, title: "LOCAL", body: "Your neighbourhood stores, closer than ever." },
-  { icon: ShoppingBag, title: "CONVENIENT", body: "Discover and shop locally from one place." },
-  { icon: UserCheck, title: "PERSONAL", body: "A marketplace built around the businesses and communities you know." },
+const MERCHANT_STATS = [
+  { big: "₹0", title: "Free to start", body: "List up to 10 products at no cost. No subscription needed to begin." },
+  { big: "0%", title: "Zero commission", body: "We don't take a cut. What the customer pays is what you receive." },
+  { big: "+", title: "More footfall", body: "Customers who reserve online come to your store. Every order is a potential regular." },
+  { big: "30", title: "Min setup", body: "Our team sets up your store for you. WhatsApp us your products and we handle the rest." },
 ];
 
-function PillarsSection() {
+function MerchantSection({ onListMyStore }: { onListMyStore: () => void }) {
   return (
-    <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12" data-testid="coming-soon-pillars">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {PILLARS.map(({ icon: Icon, title, body }) => (
-          <div key={title} className="bg-white rounded-2xl border border-[#E5E2DC] p-6 text-center">
-            <div className="w-11 h-11 rounded-full bg-[#E68910]/15 flex items-center justify-center mx-auto mb-3">
-              <Icon size={20} className="text-[#E68910]" />
-            </div>
-            <div className="font-display font-bold text-sm tracking-wide text-[#0A1F5C]">{title}</div>
-            <p className="text-[13px] text-[#64748B] mt-1.5 leading-relaxed">{body}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Merchant section — the only substantial secondary section, kept compact
-// ---------------------------------------------------------------------------
-const MERCHANT_CAPABILITIES = [
-  "Digital storefront",
-  "Product management",
-  "Inventory management",
-  "Orders",
-  "Analytics",
-  "Bulk Excel/CSV upload",
-  "Returns",
-  "Try & Buy",
-];
-
-function MerchantSection() {
-  return (
-    <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-14" data-testid="coming-soon-merchant">
-      <div className="bg-[#0A1F5C] rounded-2xl px-5 sm:px-8 py-8 sm:py-10">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-[#E68910] mb-2">Have a store in Bhilai?</p>
-        <h2 className="font-display font-medium text-2xl sm:text-3xl tracking-tight text-white leading-tight mb-2">
-          Take your store online with Lokl.
+    <section className="px-4 sm:px-8 pb-14 sm:pb-20" data-testid="coming-soon-merchant">
+      <div className="max-w-6xl mx-auto bg-brand-primary rounded-[28px] px-6 sm:px-12 py-10 sm:py-14">
+        <p className="text-[12px] font-bold text-brand-accent uppercase tracking-[0.15em] mb-2.5">For store owners</p>
+        <h2 className="font-display font-black text-[24px] sm:text-[38px] text-white leading-tight tracking-tight mb-2.5">
+          Your store. All of Bhilai.
         </h2>
-        <p className="text-white/75 text-sm sm:text-base max-w-xl leading-relaxed mb-6">
-          Lokl gives local businesses the tools to create their storefront, manage products, receive orders and grow their business online.
+        <p className="text-[15px] text-white/55 leading-relaxed max-w-md mb-10">
+          List your products for free. No commission. Every Lokl order can bring a new regular customer to your door.
         </p>
-        <div className="flex flex-wrap gap-x-6 gap-y-2 mb-7">
-          {MERCHANT_CAPABILITIES.map((c) => (
-            <span key={c} className="text-white/90 text-[13px] font-medium">
-              {c}
-            </span>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mb-10">
+          {MERCHANT_STATS.map((s) => (
+            <div key={s.title} className="bg-white/[0.07] border border-white/10 rounded-2xl p-5">
+              <div className="font-display font-black text-[30px] text-brand-accent tracking-tight mb-1.5">{s.big}</div>
+              <h4 className="text-white font-bold text-sm mb-1">{s.title}</h4>
+              <p className="text-white/45 text-xs leading-relaxed">{s.body}</p>
+            </div>
           ))}
         </div>
-        <a
-          href="https://merchant.shoplokl.in"
-          data-testid="merchant-register-cta"
-          className="inline-flex items-center gap-2 bg-[#E68910] text-white text-sm font-bold px-5 py-2.5 rounded-xl active:scale-95 transition"
+
+        <button
+          type="button"
+          onClick={onListMyStore}
+          data-testid="merchant-list-store-cta"
+          className="bg-brand-accent text-white font-extrabold text-[15px] px-8 py-3.5 rounded-full active:scale-95 transition"
         >
-          Register your store
-        </a>
+          List my store for free
+        </button>
       </div>
     </section>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Waitlist — the main conversion section, existing backend unchanged
-// ---------------------------------------------------------------------------
-function WaitlistSection() {
-  const [phone, setPhone] = useState("");
-  const [status, setStatus] = useState<"idle" | "submitting" | "done" | "error">("idle");
-  const [error, setError] = useState("");
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (status === "submitting" || status === "done") return;
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) {
-      setError("Enter a valid 10-digit phone number");
-      return;
-    }
-    setError("");
-    setStatus("submitting");
-    try {
-      await api.site.joinWaitlist({ phone: digits, type: "customer" });
-      setStatus("done");
-    } catch {
-      setStatus("error");
-      setError("Something went wrong — please try again.");
-    }
-  };
-
-  return (
-    <section id="waitlist" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-14" data-testid="coming-soon-waitlist">
-      <div className="bg-[#F4F1E9] rounded-2xl px-5 sm:px-8 py-10 sm:py-12 max-w-xl mx-auto text-center">
-        <h2 className="font-display font-medium text-2xl sm:text-3xl tracking-tight text-[#0A1F5C] leading-tight mb-2">
-          Bhilai, we&apos;re getting ready.
-        </h2>
-        <p className="text-sm text-[#64748B] mb-6">
-          Lokl is launching soon. Join the waitlist and we&apos;ll let you know when we&apos;re ready.
-        </p>
-
-        {status === "done" ? (
-          <div data-testid="waitlist-success" className="flex flex-col items-center gap-2 py-4">
-            <CheckCircle2 size={32} className="text-[#22C55E]" />
-            <p className="font-semibold text-[#0A1F5C]">You&apos;re on the list!</p>
-            <p className="text-sm text-[#64748B]">We&apos;ll text you when Lokl launches in Bhilai.</p>
-          </div>
-        ) : (
-          <form onSubmit={submit} className="flex flex-col sm:flex-row gap-2" data-testid="waitlist-form">
-            <input
-              type="tel"
-              inputMode="numeric"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="Your phone number"
-              data-testid="waitlist-phone-input"
-              className="flex-1 rounded-xl border border-[#E5E2DC] bg-white px-4 py-2.5 text-sm text-[#0A1F5C] outline-none focus:border-[#0A1F5C]/40"
-            />
-            <button
-              type="submit"
-              disabled={status === "submitting"}
-              data-testid="waitlist-submit"
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#E68910] text-white text-sm font-bold px-5 py-2.5 active:scale-95 transition disabled:opacity-60"
-            >
-              {status === "submitting" && <Loader2 size={14} className="animate-spin" />}
-              Notify me
-            </button>
-          </form>
-        )}
-        {error && <p className="text-xs text-red-500 mt-2" data-testid="waitlist-error">{error}</p>}
-      </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Closing statement — visual, not another feature section
-// ---------------------------------------------------------------------------
-function ClosingSection() {
-  return (
-    <section className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 pb-4 text-center" data-testid="coming-soon-closing">
-      <h2 className="font-display font-medium text-2xl sm:text-4xl tracking-tight text-[#0A1F5C] leading-tight">
-        The future of local shopping is local.
-      </h2>
-      <p className="text-sm sm:text-base text-[#64748B] mt-2">Lokl is coming soon.</p>
-      <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
-        <a
-          href="#waitlist"
-          data-testid="closing-waitlist-cta"
-          className="inline-flex items-center rounded-full bg-brand-accent text-white text-sm font-bold px-5 py-2.5 active:scale-95 transition"
-        >
-          Join the waitlist
-        </a>
-        <a
-          href="https://merchant.shoplokl.in"
-          data-testid="closing-merchant-cta"
-          className="inline-flex items-center rounded-full border border-[#0A1F5C]/25 text-[#0A1F5C] text-sm font-bold px-5 py-2.5 active:scale-95 transition"
-        >
-          Register your store
-        </a>
-      </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Footer — minimal, single row
+// Footer — matches the reference exactly (logo, Privacy/Terms/mailto)
 // ---------------------------------------------------------------------------
 function ComingSoonFooter() {
   return (
-    <footer className="mt-10 border-t border-[#E5E2DC] bg-white" data-testid="coming-soon-footer">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <span className="font-display text-xl font-bold tracking-tight text-brand-primary">
-          lokl<span className="text-brand-accent">.</span>
-        </span>
-        <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] font-medium text-[#0A1F5C]/70">
-          <a href="https://merchant.shoplokl.in" className="hover:text-[#0A1F5C]">For Merchants</a>
-          <a href="/about" className="hover:text-[#0A1F5C]">About</a>
-          <a href="/contact" className="hover:text-[#0A1F5C]">Contact</a>
-          <a href="/privacy" className="hover:text-[#0A1F5C]">Privacy</a>
-          <a href="/terms" className="hover:text-[#0A1F5C]">Terms</a>
-        </nav>
+    <footer className="bg-brand-primary text-center py-11 px-8" data-testid="coming-soon-footer">
+      <span className="font-display text-xl font-bold tracking-tight text-white inline-block mb-2.5">
+        lokl<span className="text-brand-accent">.</span>
+      </span>
+      <div className="flex justify-center gap-6 text-[13px] my-3.5">
+        <a href="/privacy" className="text-white/45 hover:text-white/70">Privacy</a>
+        <a href="/terms" className="text-white/45 hover:text-white/70">Terms</a>
+        <a href="mailto:hello@shoplokl.in" className="text-white/45 hover:text-white/70">hello@shoplokl.in</a>
       </div>
+      <p className="text-[12px] text-white/30 mt-1.5">Bhilai, Chhattisgarh &middot; Lokl Technologies</p>
     </footer>
   );
 }
 
 export function ComingSoonClient() {
+  const [activeTab, setActiveTab] = useState<Tab>("customer");
+
+  const listMyStore = () => {
+    setActiveTab("merchant");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const loggedView = useRef(false);
   useEffect(() => {
     if (loggedView.current) return;
@@ -244,13 +107,12 @@ export function ComingSoonClient() {
   return (
     <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
       <ComingSoonHeader />
+      <ComingSoonTicker />
       <main className="flex-1">
-        <ComingSoonHero />
-        <IntroSection />
-        <PillarsSection />
-        <MerchantSection />
-        <WaitlistSection />
-        <ClosingSection />
+        <ComingSoonHero activeTab={activeTab} onTabChange={setActiveTab} />
+        <ComingSoonHowItWorks />
+        <ComingSoonWhyLokl />
+        <MerchantSection onListMyStore={listMyStore} />
       </main>
       <ComingSoonFooter />
     </div>
