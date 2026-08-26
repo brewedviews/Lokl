@@ -1,21 +1,79 @@
 "use client";
 
+/**
+ * Support page — rewritten entry flow.
+ *
+ * ROOT BUG FIXED: the old order picker called `GET /api/orders?limit=10`,
+ * a route that has never existed on the backend (only `POST /api/orders`
+ * and `GET /api/orders/{id}` do) — FastAPI answered 405, and the
+ * `.catch(() => {})` silently swallowed it, so the picker always rendered
+ * "No recent orders found" even for customers with real order history.
+ * Fixed by calling the same endpoint the main Orders panel already uses:
+ * `api.customers.get(phone)` -> `GET /api/customer/{phone}` -> `.orders`.
+ *
+ * FLOW REWORK: the old topic -> order_picker -> reason chain is collapsed
+ * — recent orders now render directly on the entry screen (the order
+ * itself already tells us what the issue is about, per the brief), each
+ * row jumping straight to a per-order reason picker. "Something else?"
+ * is a second, equally clear entry to a generic composer. The real
+ * ticket/chat system underneath (POST /api/support/ticket, GET
+ * /api/support/my-tickets, ticket replies) is unchanged — this only
+ * reworks how a NEW ticket gets started.
+ *
+ * REASON VOCABULARY: backend's only real structured enum is
+ * COMPLAINT_TYPES ("return"|"missing_item"|"damaged_item"|"delivery_issue"
+ * |"general", server.py) — reused here as the label vocabulary (not
+ * invented) rather than adding a new category field to the ticket
+ * endpoint. Different status buckets show different labeled subsets of
+ * the same real vocabulary.
+ *
+ * NEVER BLANK: orders-loading has explicit loading/error/empty states —
+ * a failed fetch shows "Couldn't load your orders" + Retry, and "Contact
+ * support" is always reachable regardless.
+ */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { apiClient } from "@/lib/api-client";
+import { api } from "@/lib/api";
+import { useCustomerAuthStore } from "@/stores";
 import { toast } from "sonner";
-import { Send, ChevronLeft, ChevronRight } from "lucide-react";
+import { Send, ChevronLeft, ChevronRight, Package, RefreshCw } from "lucide-react";
+import type { Order } from "@/types";
 
-const REASONS = [
-  "Item damaged",
-  "Wrong item received",
-  "Item not as described",
-  "Missing item",
-  "Other",
-] as const;
+type View = "list" | "reason" | "general" | "chat";
+type ComplaintType = "return" | "missing_item" | "damaged_item" | "delivery_issue" | "general";
 
-type View = "list" | "topic" | "order_picker" | "reason" | "general" | "chat";
+const GENERAL_CATEGORIES = ["Payment", "Account", "Delivery", "Product", "Other"] as const;
+
+/** Reused, not invented — COMPLAINT_TYPES is the backend's own real enum
+ *  (server.py). Different order-status buckets surface different
+ *  labeled subsets of it. */
+function reasonsFor(status: string): Array<{ label: string; type: ComplaintType }> {
+  const s = (status || "").toLowerCase();
+  if (s.includes("cancel") || s.includes("reject")) {
+    return [
+      { label: "Why was my order cancelled?", type: "general" },
+      { label: "Payment or refund", type: "general" },
+      { label: "Other", type: "general" },
+    ];
+  }
+  if (s.includes("deliver") && !s.includes("pending")) {
+    return [
+      { label: "Damaged item", type: "damaged_item" },
+      { label: "Missing item", type: "missing_item" },
+      { label: "Return or refund", type: "return" },
+      { label: "Delivery issue", type: "delivery_issue" },
+      { label: "Other", type: "general" },
+    ];
+  }
+  return [
+    { label: "Delivery issue", type: "delivery_issue" },
+    { label: "Missing item", type: "missing_item" },
+    { label: "Other", type: "general" },
+  ];
+}
 
 interface Message { sender: string; text: string; created_at: string; }
 interface Ticket {
@@ -38,6 +96,13 @@ function toIST(iso: string): string {
   });
 }
 
+function statusTone(s: string) {
+  const x = (s || "").toLowerCase();
+  if (x.includes("deliver") && !x.includes("pending")) return "text-emerald-700 bg-emerald-50";
+  if (x.includes("cancel") || x.includes("reject")) return "text-rose-700 bg-rose-50";
+  return "text-[#0A1F5C] bg-[#0A1F5C]/10";
+}
+
 function StatusPill({ status }: { status: string }) {
   const cfg =
     status === "open"
@@ -55,12 +120,15 @@ function StatusPill({ status }: { status: string }) {
 export default function SupportPage() {
   const sp = useSearchParams();
   const prefillOrderId = sp.get("order_id") || "";
+  const phone = useCustomerAuthStore((s) => s.phone) ?? "";
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [activeTicket, setActiveTicket] = useState<Ticket | null>(null);
   const [newMessage, setNewMessage] = useState("");
-  const [orders, setOrders] = useState<{ id: string; items?: Array<{ name?: string }> }[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersState, setOrdersState] = useState<"loading" | "ready" | "error">("loading");
   const [selectedOrder, setSelectedOrder] = useState(prefillOrderId);
+  const [generalCategory, setGeneralCategory] = useState<string>("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View>(prefillOrderId ? "reason" : "list");
@@ -86,24 +154,22 @@ export default function SupportPage() {
     }
   }, []);
 
-  const loadOrders = () => {
-    apiClient
-      .get("/api/orders?limit=10")
-      .then((r) => {
-        const d = (r as { data: unknown }).data;
-        setOrders(
-          Array.isArray(d)
-            ? (d as typeof orders)
-            : ((d as { orders?: typeof orders })?.orders ?? [])
-        );
-      })
-      .catch(() => {});
-  };
+  const loadOrders = useCallback(async () => {
+    if (!phone) return;
+    setOrdersState("loading");
+    try {
+      const { orders } = await api.customers.get(phone);
+      setOrders(orders || []);
+      setOrdersState("ready");
+    } catch {
+      setOrdersState("error");
+    }
+  }, [phone]);
 
   useEffect(() => {
     void loadTickets();
-    loadOrders();
-  }, [loadTickets]);
+    void loadOrders();
+  }, [loadTickets, loadOrders]);
 
   // Poll every 12s while in chat view so admin replies appear without a hard reload
   useEffect(() => {
@@ -139,13 +205,14 @@ export default function SupportPage() {
     }
   };
 
-  // Create ticket from the general free-text form (no order)
+  // Create ticket from the general free-text composer (no order)
   const submitGeneralTicket = async () => {
     if (!newMessage.trim()) return;
     setSending(true);
     try {
+      const subject = generalCategory ? `${generalCategory}: General enquiry` : "General enquiry";
       const r = await apiClient.post<Ticket>("/api/support/ticket", {
-        subject: "General enquiry",
+        subject,
         message: newMessage.trim(),
       });
       const ticket = (r as { data: Ticket }).data;
@@ -153,6 +220,7 @@ export default function SupportPage() {
       setActiveTicket(ticket);
       setView("chat");
       setNewMessage("");
+      setGeneralCategory("");
     } catch {
       toast.error("Could not send message. Try emailing hello@shoplokl.in");
     } finally {
@@ -190,18 +258,16 @@ export default function SupportPage() {
 
   function goBack() {
     if (view === "chat") return setView("list");
-    if (view === "reason") return prefillOrderId ? setView("list") : setView("order_picker");
-    if (view === "order_picker") return setView("topic");
-    if (view === "general") return setView("topic");
-    if (view === "topic") return setView("list");
+    if (view === "reason") return prefillOrderId ? setView("list") : setView("list");
+    if (view === "general") return setView("list");
     return setView("list");
   }
 
+  const selectedOrderObj = orders.find((o) => o.id === selectedOrder);
   const headerTitle =
     view === "chat" ? (activeTicket?.subject || "Support chat")
-    : view === "reason" ? "What went wrong?"
-    : view === "order_picker" ? "Select an order"
-    : view === "topic" || view === "general" ? "New request"
+    : view === "reason" ? "Need help with this order?"
+    : view === "general" ? "How can we help?"
     : "Help & Support";
 
   return (
@@ -221,49 +287,98 @@ export default function SupportPage() {
           )}
           <h1 className="font-bold text-[#0A1F5C] flex-1 min-w-0 truncate">{headerTitle}</h1>
           {view === "chat" && activeTicket && <StatusPill status={activeTicket.status} />}
-          {view === "list" && (
-            <button onClick={() => setView("topic")} className="text-sm font-semibold text-[#E68910] flex-shrink-0">
-              New request
-            </button>
-          )}
         </div>
 
-        {/* LIST VIEW */}
+        {/* PRIMARY SCREEN */}
         {view === "list" && (
-          <div className="px-4 py-4 space-y-3">
-            {loading ? (
-              [1, 2].map((n) => (
-                <div key={n} className="bg-white border border-[#E5E2DC] rounded-2xl p-4 animate-pulse">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="h-4 bg-[#E5E2DC] rounded w-40" />
-                    <div className="h-4 bg-[#E5E2DC] rounded w-14" />
-                  </div>
-                  <div className="h-3 bg-[#F5F5F5] rounded w-24 mt-2" />
+          <div className="px-4 py-4 space-y-5">
+            <p className="text-sm text-[#595959]">How can we help?</p>
+
+            {/* A. Recent orders — tapping one goes straight to its own
+                reason picker; the order itself already tells us what the
+                issue is about. */}
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#9CA3AF] mb-2">Recent orders</p>
+              {ordersState === "loading" ? (
+                <div className="space-y-2">
+                  {[1, 2].map((n) => (
+                    <div key={n} className="bg-white border border-[#E5E2DC] rounded-2xl p-3 h-16 animate-pulse" />
+                  ))}
                 </div>
-              ))
-            ) : tickets.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="font-semibold text-[#0A1F5C] mb-1">No support requests yet</p>
-                <p className="text-sm text-[#9CA3AF] mb-4">We are here to help</p>
-                <button onClick={() => setView("topic")}
-                  className="px-6 py-2.5 bg-[#0A1F5C] text-white rounded-xl text-sm font-semibold">
-                  Raise a request
-                </button>
+              ) : ordersState === "error" ? (
+                <div className="bg-white border border-[#E5E2DC] rounded-2xl p-4 text-center">
+                  <p className="text-sm font-semibold text-[#0A1F5C]">Couldn&apos;t load your orders</p>
+                  <p className="text-xs text-[#9CA3AF] mt-0.5">Please try again.</p>
+                  <button onClick={() => void loadOrders()} className="inline-flex items-center gap-1.5 mt-3 px-4 py-2 rounded-full bg-[#0A1F5C] text-white text-xs font-semibold">
+                    <RefreshCw size={12} /> Retry
+                  </button>
+                </div>
+              ) : orders.length === 0 ? (
+                <div className="bg-white border border-[#E5E2DC] rounded-2xl p-4 text-center">
+                  <p className="text-sm text-[#9CA3AF]">No recent orders yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {orders.slice(0, 5).map((o) => (
+                    <button
+                      key={o.id}
+                      onClick={() => { setSelectedOrder(o.id); setBypassDuplicateGuard(false); setView("reason"); }}
+                      data-testid={`support-order-${o.id}`}
+                      className="w-full flex items-center gap-3 bg-white border border-[#E5E2DC] rounded-2xl p-3 hover:border-[#0A1F5C]/30 transition text-left"
+                    >
+                      {o.items?.[0]?.image ? (
+                        <Image src={o.items[0].image} alt="" width={44} height={44} className="w-11 h-11 rounded-xl object-cover border border-[#E5E2DC] shrink-0" />
+                      ) : (
+                        <div className="w-11 h-11 rounded-xl bg-[#FDFBF7] border border-[#E5E2DC] grid place-items-center shrink-0"><Package size={16} className="text-[#9CA3AF]" /></div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-[#0A1F5C] truncate">Order #{o.id.slice(-6).toUpperCase()}</p>
+                        <p className="text-[11px] text-[#9CA3AF] mt-0.5 truncate">
+                          {new Date(o.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} · ₹{Number(o.total).toLocaleString()}
+                        </p>
+                      </div>
+                      <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full shrink-0 max-w-[90px] text-center leading-tight ${statusTone(o.status)}`}>{(o.status || "").replace(/_/g, " ")}</span>
+                      <ChevronRight size={15} className="text-[#9CA3AF] shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* B. Generic support entry */}
+            <button
+              onClick={() => setView("general")}
+              data-testid="support-something-else"
+              className="w-full flex items-center justify-between p-4 bg-white border border-[#E5E2DC] rounded-2xl hover:border-[#0A1F5C] transition text-left"
+            >
+              <div>
+                <p className="font-semibold text-[#0A1F5C] text-sm">Something else?</p>
+                <p className="text-xs text-[#9CA3AF] mt-0.5">Account, payments, or anything else</p>
               </div>
-            ) : (
-              tickets.map((t) => (
-                <button key={t.id} onClick={() => { setActiveTicket(t); setView("chat"); }}
-                  className="w-full text-left bg-white border border-[#E5E2DC] rounded-2xl p-4 hover:border-[#0A1F5C]/30 transition-colors">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="font-semibold text-[#0A1F5C] text-sm leading-snug">{t.subject}</p>
-                    <StatusPill status={t.status} />
-                  </div>
-                  <p className="text-xs text-[#9CA3AF] mt-1.5">{toIST(t.created_at)}</p>
-                </button>
-              ))
+              <ChevronRight size={16} className="text-[#9CA3AF] flex-shrink-0" />
+            </button>
+
+            {/* Past requests — the existing, working ticket history, kept
+                as a secondary section rather than the entry point. */}
+            {tickets.length > 0 && (
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-[#9CA3AF] mb-2">Your requests</p>
+                <div className="space-y-2">
+                  {tickets.map((t) => (
+                    <button key={t.id} onClick={() => { setActiveTicket(t); setView("chat"); }}
+                      className="w-full text-left bg-white border border-[#E5E2DC] rounded-2xl p-4 hover:border-[#0A1F5C]/30 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold text-[#0A1F5C] text-sm leading-snug">{t.subject}</p>
+                        <StatusPill status={t.status} />
+                      </div>
+                      <p className="text-xs text-[#9CA3AF] mt-1.5">{toIST(t.created_at)}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
 
-            <div className="mt-4 p-4 bg-white border border-[#E5E2DC] rounded-2xl">
+            <div className="p-4 bg-white border border-[#E5E2DC] rounded-2xl">
               <p className="font-semibold text-[#0A1F5C] text-sm mb-3">Other ways to reach us</p>
               <a href="mailto:hello@shoplokl.in" className="flex items-center gap-2 text-sm text-[#595959]">
                 <span className="w-8 h-8 bg-[#FDFBF7] rounded-full flex items-center justify-center text-xs font-bold text-[#0A1F5C]">@</span>
@@ -273,70 +388,12 @@ export default function SupportPage() {
           </div>
         )}
 
-        {/* TOPIC VIEW — "What's this about?" */}
-        {view === "topic" && (
-          <div className="px-4 py-6 space-y-3">
-            <p className="text-sm text-[#595959] mb-1">What&apos;s this about?</p>
-            <button
-              onClick={() => setView("order_picker")}
-              className="w-full flex items-center justify-between p-4 bg-white border border-[#E5E2DC] rounded-2xl hover:border-[#0A1F5C] transition text-left"
-            >
-              <div>
-                <p className="font-semibold text-[#0A1F5C] text-sm">An order</p>
-                <p className="text-xs text-[#9CA3AF] mt-0.5">Issue with a delivered item</p>
-              </div>
-              <ChevronRight size={16} className="text-[#9CA3AF] flex-shrink-0" />
-            </button>
-            <button
-              onClick={() => setView("general")}
-              className="w-full flex items-center justify-between p-4 bg-white border border-[#E5E2DC] rounded-2xl hover:border-[#0A1F5C] transition text-left"
-            >
-              <div>
-                <p className="font-semibold text-[#0A1F5C] text-sm">Something else</p>
-                <p className="text-xs text-[#9CA3AF] mt-0.5">Account, payments, or anything else</p>
-              </div>
-              <ChevronRight size={16} className="text-[#9CA3AF] flex-shrink-0" />
-            </button>
-          </div>
-        )}
-
-        {/* ORDER PICKER VIEW */}
-        {view === "order_picker" && (
-          <div className="px-4 py-4 space-y-2">
-            {orders.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="font-semibold text-[#0A1F5C] mb-1">No recent orders found</p>
-                <p className="text-sm text-[#9CA3AF]">We couldn&apos;t find any orders on this account.</p>
-              </div>
-            ) : (
-              orders.map((o) => (
-                <button
-                  key={o.id}
-                  onClick={() => { setSelectedOrder(o.id); setBypassDuplicateGuard(false); setView("reason"); }}
-                  className="w-full flex items-center justify-between p-4 bg-white border border-[#E5E2DC] rounded-2xl hover:border-[#0A1F5C] transition text-left"
-                >
-                  <div>
-                    <p className="font-semibold text-[#0A1F5C] text-sm">
-                      Order #{(o.id || "").slice(-6).toUpperCase()}
-                    </p>
-                    {o.items?.[0]?.name && (
-                      <p className="text-xs text-[#9CA3AF] mt-0.5 truncate max-w-[240px]">
-                        {o.items[0].name}
-                      </p>
-                    )}
-                  </div>
-                  <ChevronRight size={16} className="text-[#9CA3AF] flex-shrink-0" />
-                </button>
-              ))
-            )}
-          </div>
-        )}
-
-        {/* REASON PICKER VIEW */}
+        {/* REASON PICKER — contextual to the selected order's status */}
         {view === "reason" && (() => {
           const existingOpenTicket = !bypassDuplicateGuard && tickets.find(
             (t) => t.order_id === selectedOrder && t.status !== "closed"
           );
+          const reasons = reasonsFor(selectedOrderObj?.status || "");
           return (
             <div className="px-4 py-6 space-y-3">
               {selectedOrder && (
@@ -370,14 +427,15 @@ export default function SupportPage() {
               ) : (
                 <>
                   <p className="text-sm text-[#595959] mb-1">What&apos;s the issue?</p>
-                  {REASONS.map((reason) => (
+                  {reasons.map(({ label }) => (
                     <button
-                      key={reason}
-                      onClick={() => void createTicketFromReason(reason)}
+                      key={label}
+                      onClick={() => void createTicketFromReason(label)}
                       disabled={sending}
+                      data-testid={`support-reason-${label}`}
                       className="w-full flex items-center justify-between p-4 bg-white border border-[#E5E2DC] rounded-2xl hover:border-[#0A1F5C] active:bg-[#0A1F5C]/5 transition text-left disabled:opacity-50"
                     >
-                      <p className="font-semibold text-[#0A1F5C] text-sm">{reason}</p>
+                      <p className="font-semibold text-[#0A1F5C] text-sm">{label}</p>
                       <ChevronRight size={16} className="text-[#9CA3AF] flex-shrink-0" />
                     </button>
                   ))}
@@ -390,9 +448,27 @@ export default function SupportPage() {
           );
         })()}
 
-        {/* GENERAL FREE-TEXT VIEW — "Something else" path */}
+        {/* GENERIC SUPPORT COMPOSER — "Something else?" path */}
         {view === "general" && (
           <div className="px-4 py-4 space-y-4">
+            <div>
+              <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-2">
+                Category (optional)
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {GENERAL_CATEGORIES.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setGeneralCategory(generalCategory === c ? "" : c)}
+                    data-testid={`support-category-${c}`}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${generalCategory === c ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white text-[#0A1F5C] border-[#E5E2DC]"}`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div>
               <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-2">
                 How can we help?
@@ -400,20 +476,21 @@ export default function SupportPage() {
               <textarea
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submitGeneralTicket(); } }}
-                placeholder="Describe your issue..."
-                rows={4}
+                placeholder="Tell us what went wrong..."
+                rows={5}
+                data-testid="support-general-textarea"
                 className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] text-sm outline-none focus:border-[#0A1F5C] resize-none"
               />
             </div>
             <button onClick={() => void submitGeneralTicket()} disabled={!newMessage.trim() || sending}
+              data-testid="support-send-request"
               className="w-full py-3.5 bg-[#0A1F5C] text-white rounded-xl font-bold disabled:opacity-50">
-              {sending ? "Sending..." : "Send message"}
+              {sending ? "Sending..." : "Send request"}
             </button>
           </div>
         )}
 
-        {/* CHAT VIEW */}
+        {/* CHAT VIEW — real ticket thread, unchanged */}
         {view === "chat" && activeTicket && (
           <div className="flex flex-col" style={{ height: "calc(100vh - 57px - 56px - env(safe-area-inset-bottom, 0px))" }}>
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-2">

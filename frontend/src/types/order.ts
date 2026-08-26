@@ -32,8 +32,12 @@ export type OrderStatus =
 
 export type PaymentMethod = "COD" | "UPI" | "WALLET" | "RAZORPAY";
 
+/** Real transitions only — matches every assignment site in create_order /
+ *  the Razorpay webhook handlers (server.py). COD orders are stamped
+ *  "cod_pending" at creation and never transition to "paid" (no
+ *  cash-collected-on-delivery reconciliation exists in the backend today). */
 export type PaymentStatus =
-  | "unpaid" | "paid" | "failed" | "refund_pending" | "refunded" | "expired";
+  | "paid" | "cod_pending" | "failed" | "refund_pending" | "refunded";
 
 // ============================================================================
 // Items, customer snapshot, and addresses on the order
@@ -46,6 +50,10 @@ export interface OrderItem {
   key?: string;       // dedupe key on cart (e.g. "<pid>-<size>")
   name: string;
   price: RupeeAmount;
+  /** Carried through from the cart line (see CartItem) — the backend
+   *  snapshots `dict(it)` verbatim into items_snap, so whatever the cart
+   *  line had (including mrp) survives onto the order doc unchanged. */
+  mrp?: RupeeAmount | null;
   qty: number;
   size?: string;
   image?: string;
@@ -125,6 +133,10 @@ export interface Order {
   /** Server-authoritative delivery fee already folded into `total` — never
    *  charged on pickup orders. See backend/server.py's create_order. */
   delivery_fee?: RupeeAmount;
+  /** Persisted on every order doc (create_order) — null/absent when no
+   *  coupon was applied. */
+  coupon_code?: string | null;
+  coupon_discount?: RupeeAmount;
 
   customer: OrderCustomer;
   address: OrderAddress | CustomerAddress;

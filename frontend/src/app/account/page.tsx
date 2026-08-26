@@ -5,26 +5,20 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import {
-  Save, Package, MapPin, Plus, Trash2, Home as HomeIcon, Heart, Wallet,
+  Save, Package, MapPin, Plus, Trash2, Home as HomeIcon,
   TicketPercent, HelpCircle, Settings, ChevronRight, LogOut, Pencil, RotateCcw,
-  Phone, Info, FileText, Shield, Truck,
+  Phone, Info, FileText, Shield, Truck, Copy, Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
-import { useCustomerAuthStore, useWishlistStore } from "@/stores";
-import { AddressPinPicker } from "@/components/consumer/AddressPinPicker";
+import type { ActiveCoupon } from "@/lib/api";
+import { useCustomerAuthStore } from "@/stores";
+import { AddressSheet, type AddressFormValue as AddressForm } from "@/components/consumer/AddressSheet";
 import type {
-  Customer, CustomerAddress, Order, ProductCard,
+  Customer, CustomerAddress, Order,
 } from "@/types";
-
-// Group C2 — lat/lng typed explicitly (not inferred from a `null` literal)
-// so AddressModal's onChange can assign real numbers to them.
-type AddressForm = {
-  name: string; phone: string; label: string; line1: string; landmark: string;
-  city: string; pincode: string; lat: number | null; lng: number | null;
-};
 const BLANK_ADDR: AddressForm = {
   name: "", phone: "", label: "Home", line1: "", landmark: "", city: "Bhilai", pincode: "",
   lat: null, lng: null,
@@ -43,8 +37,8 @@ function statusTone(s: string) {
 // same as before. "legal" replaces the old always-rendered 7-row policy
 // list with an on-demand panel, the same way every other tile already
 // works — this is what actually shortens the page, not just tighter CSS.
-type TileKey = "orders" | "addresses" | "wishlist" | "profile" | "legal";
-const VALID_TILES: TileKey[] = ["orders", "addresses", "wishlist", "profile", "legal"];
+type TileKey = "orders" | "addresses" | "coupons" | "profile" | "legal";
+const VALID_TILES: TileKey[] = ["orders", "addresses", "coupons", "profile", "legal"];
 
 // Legal/support pages — previously only linked from the dead, unimported
 // Footer.tsx (Terms/Privacy) or not linked anywhere at all (the other 5).
@@ -64,11 +58,11 @@ export default function CustomerAccountPage() {
   const tabParam = sp.get("tab");
   const phone = useCustomerAuthStore((s) => s.phone) ?? "";
   const clearAuth = useCustomerAuthStore((s) => s.clearAuth);
-  const wishlist = useWishlistStore((s) => s.products);
-  const removeFromWishlist = useWishlistStore((s) => s.toggle);
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [coupons, setCoupons] = useState<ActiveCoupon[]>([]);
+  const [couponsLoading, setCouponsLoading] = useState(true);
   const [form, setForm] = useState({ name: "", gender: "", dob: "", email: "" });
   const [addrModal, setAddrModal] = useState<(AddressForm & { id?: string }) | null>(null);
   const [activeTile, setActiveTile] = useState<TileKey>(VALID_TILES.includes(tabParam as TileKey) ? (tabParam as TileKey) : "orders");
@@ -103,6 +97,17 @@ export default function CustomerAccountPage() {
   }, [phone]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Real coupons only — no auth required, same public endpoint OffersCard
+  // already uses on PDP/checkout (GET /api/coupons/active).
+  useEffect(() => {
+    let alive = true;
+    api.catalog.activeCoupons(20)
+      .then((c) => { if (alive) setCoupons(c); })
+      .catch(() => { if (alive) setCoupons([]); })
+      .finally(() => { if (alive) setCouponsLoading(false); });
+    return () => { alive = false; };
+  }, []);
 
   const saveProfile = async () => {
     if (!phone) return;
@@ -157,17 +162,17 @@ export default function CustomerAccountPage() {
 
   // G13 §14 — real information-architecture rework, not a shrink of the
   // same 7 equal-weight tiles. Three visual tiers, in order:
-  //   ACCOUNT (prominent, unchanged size/weight) -> orders/addresses/wishlist
+  //   ACCOUNT (prominent, unchanged size/weight) -> orders/addresses/coupons
   //   SUPPORT (its own row) -> Help & Support, hard-navigates as before
   //   SETTINGS (compact list) -> Profile, Legal & Policies, Logout
-  // Wallet/Coupons are demoted to a small muted strip — visibly secondary,
-  // not equal weight to the functional Account tiles, but not removed
-  // (removing them would delete the only discoverability path for a real
-  // future feature; nothing else surfaces them today).
+  // Wishlist is intentionally not a tile here — it's already reachable from
+  // the global header, so this row doesn't duplicate it. Wallet has no real
+  // backend today and isn't part of the current product experience, so it
+  // isn't exposed anywhere in this navigation.
   const accountTiles: Array<{ key: TileKey; label: string; icon: typeof Package; count: number }> = [
     { key: "orders", label: "Orders", icon: Package, count: orders.length },
     { key: "addresses", label: "Addresses", icon: MapPin, count: addresses.length },
-    { key: "wishlist", label: "Wishlist", icon: Heart, count: wishlist.length },
+    { key: "coupons", label: "Coupons", icon: TicketPercent, count: coupons.length },
   ];
 
   if (loading) return <AccountSkeleton />;
@@ -220,7 +225,7 @@ export default function CustomerAccountPage() {
           })}
         </section>
 
-        {(activeTile === "orders" || activeTile === "addresses" || activeTile === "wishlist") && (
+        {(activeTile === "orders" || activeTile === "addresses" || activeTile === "coupons") && (
           <section data-testid={`panel-${activeTile}`} className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm mt-4">
             {activeTile === "orders" && <OrdersPanel orders={orders} />}
             {activeTile === "addresses" && (
@@ -231,29 +236,9 @@ export default function CustomerAccountPage() {
                 phone={phone}
               />
             )}
-            {activeTile === "wishlist" && <WishlistPanel items={wishlist} onRemove={(id) => { const p = wishlist.find((x) => x.id === id); if (p) removeFromWishlist(p); }} />}
+            {activeTile === "coupons" && <CouponsPanel coupons={coupons} loading={couponsLoading} />}
           </section>
         )}
-
-        {/* Wallet/Coupons — visibly secondary: small, muted, grouped apart
-            from the functional Account tiles above. Not removed (a real
-            future feature would otherwise have no discoverable entry
-            point), but never equal visual weight to Orders/Addresses/
-            Wishlist. */}
-        <section className="flex gap-2 mt-3" data-testid="coming-soon-strip">
-          <button type="button" data-testid="tile-wallet" onClick={() => toast.message("Wallet — coming soon")}
-            className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-[#E5E2DC] text-[#94A3B8] hover:border-[#0A1F5C]/30 transition">
-            <Wallet size={15} />
-            <span className="text-xs font-semibold">Wallet</span>
-            <span className="ml-auto text-[9px] font-bold uppercase tracking-wider bg-slate-100 px-1.5 py-0.5 rounded-full">Soon</span>
-          </button>
-          <button type="button" data-testid="tile-coupons" onClick={() => toast.message("Coupons — coming soon")}
-            className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-[#E5E2DC] text-[#94A3B8] hover:border-[#0A1F5C]/30 transition">
-            <TicketPercent size={15} />
-            <span className="text-xs font-semibold">Coupons</span>
-            <span className="ml-auto text-[9px] font-bold uppercase tracking-wider bg-slate-100 px-1.5 py-0.5 rounded-full">Soon</span>
-          </button>
-        </section>
 
         {/* SUPPORT */}
         <SectionLabel>Support</SectionLabel>
@@ -303,7 +288,7 @@ export default function CustomerAccountPage() {
         <div className="pb-8" />
       </main>
 
-      {addrModal && <AddressModal address={addrModal} onCancel={() => setAddrModal(null)} onSave={saveAddress} />}
+      {addrModal && <AddressSheet address={addrModal} onCancel={() => setAddrModal(null)} onSave={saveAddress} />}
     </div>
   );
 }
@@ -380,35 +365,96 @@ function EmptyState({ title, body, ctaTo, ctaLabel }: { title: string; body: str
   );
 }
 
+type OrderAgeFilter = "all" | "7d" | "30d" | "older";
+const ORDER_AGE_FILTERS: Array<{ key: OrderAgeFilter; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "7d", label: "Last 7 days" },
+  { key: "30d", label: "Last 30 days" },
+  { key: "older", label: "Older" },
+];
+const DAY_MS = 86_400_000;
+
 function OrdersPanel({ orders }: { orders: Order[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const [ageFilter, setAgeFilter] = useState<OrderAgeFilter>("all");
   const delivered = orders.filter((o) => (o.status || "").toLowerCase().includes("deliver"));
+
+  // Reuses the single already-fetched (backend-capped-at-50) order list —
+  // "View all" and the filter both operate on data already in memory, no
+  // second network call.
+  const now = Date.now();
+  const filtered = orders.filter((o) => {
+    if (ageFilter === "all") return true;
+    const age = now - new Date(o.created_at).getTime();
+    if (ageFilter === "7d") return age <= 7 * DAY_MS;
+    if (ageFilter === "30d") return age > 7 * DAY_MS && age <= 30 * DAY_MS;
+    return age > 30 * DAY_MS;
+  });
+  const visible = expanded ? filtered : orders.slice(0, 5);
+
   return (
     <>
       <PanelHeader title={`Orders (${orders.length})`} subtitle={delivered.length ? `${delivered.length} delivered` : "Track every order from start to finish"} />
+
+      {expanded && orders.length > 5 && (
+        <div className="flex gap-1.5 mb-3 -mt-1 overflow-x-auto" data-testid="orders-filter">
+          {ORDER_AGE_FILTERS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setAgeFilter(key)}
+              data-testid={`orders-filter-${key}`}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                ageFilter === key ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white text-[#0A1F5C] border-[#E5E2DC]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {orders.length === 0 ? (
         <EmptyState title="No orders yet" body="Start shopping from your nearby Bhilai stores." ctaTo="/" ctaLabel="Start shopping" />
       ) : (
-        <div className="divide-y divide-[#E5E2DC]">
-          {orders.map((o) => (
-            <Link key={o.id} href={`/orders/${o.id}`} data-testid={`order-${o.id}`}
-              className="flex items-center gap-3 py-3 first:pt-0 hover:bg-[#FDFBF7] -mx-3 px-3 rounded-xl transition">
-              {(o.items?.[0]?.image) ? (
-                <Image src={o.items[0].image} alt="" width={56} height={56} className="w-14 h-14 rounded-xl object-cover border border-[#E5E2DC] bg-[#FDFBF7]" />
-              ) : <div className="w-14 h-14 rounded-xl bg-[#FDFBF7] border border-[#E5E2DC] grid place-items-center"><Package size={20} className="text-[#64748B]" /></div>}
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold text-[#0A1F5C] truncate">{o.id}</div>
-                <div className="text-[11px] text-[#64748B] mt-0.5">{new Date(o.created_at).toLocaleDateString()} · {(o.items || []).length} item{(o.items || []).length === 1 ? "" : "s"}</div>
-              </div>
-              <div className="flex flex-col items-end gap-1 shrink-0">
-                <span className="text-sm font-semibold text-[#0A1F5C]">₹{Number(o.total).toLocaleString()}</span>
-                <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${statusTone(o.status)}`}>
-                  {(o.status || "").replace(/_/g, " ")}
-                </span>
-              </div>
-              <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
-            </Link>
-          ))}
-        </div>
+        <>
+          {expanded && filtered.length === 0 ? (
+            <p className="py-8 text-center text-sm text-[#64748B]">No orders in this range.</p>
+          ) : (
+            <div className="divide-y divide-[#E5E2DC]">
+              {visible.map((o) => (
+                <Link key={o.id} href={`/orders/${o.id}`} data-testid={`order-${o.id}`}
+                  className="flex items-center gap-3 py-3 first:pt-0 hover:bg-[#FDFBF7] -mx-3 px-3 rounded-xl transition">
+                  {(o.items?.[0]?.image) ? (
+                    <Image src={o.items[0].image} alt="" width={56} height={56} className="w-14 h-14 rounded-xl object-cover border border-[#E5E2DC] bg-[#FDFBF7]" />
+                  ) : <div className="w-14 h-14 rounded-xl bg-[#FDFBF7] border border-[#E5E2DC] grid place-items-center"><Package size={20} className="text-[#64748B]" /></div>}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-[#0A1F5C] truncate">{o.id}</div>
+                    <div className="text-[11px] text-[#64748B] mt-0.5 truncate">{new Date(o.created_at).toLocaleDateString()} · {(o.items || []).length} item{(o.items || []).length === 1 ? "" : "s"}</div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0 max-w-[104px]">
+                    <span className="text-sm font-semibold text-[#0A1F5C] whitespace-nowrap">₹{Number(o.total).toLocaleString()}</span>
+                    <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full text-center leading-tight ${statusTone(o.status)}`}>
+                      {(o.status || "").replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  <ChevronRight size={16} className="text-[#94A3B8] shrink-0" />
+                </Link>
+              ))}
+            </div>
+          )}
+
+          {!expanded && orders.length > 5 && (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              data-testid="orders-view-all"
+              className="w-full mt-3 py-2.5 text-center text-sm font-semibold text-[#0A1F5C] border border-[#E5E2DC] rounded-xl hover:border-[#0A1F5C] transition"
+            >
+              View all orders
+            </button>
+          )}
+        </>
       )}
     </>
   );
@@ -451,40 +497,60 @@ function AddressesPanel({ addresses, onAdd, onRemove, phone }: { addresses: Cust
   );
 }
 
-function WishlistPanel({ items, onRemove }: { items: ProductCard[]; onRemove: (id: string) => void }) {
+function CouponsPanel({ coupons, loading }: { coupons: ActiveCoupon[]; loading: boolean }) {
   return (
     <>
-      <PanelHeader title={`Wishlist (${items.length})`} subtitle="Tap the heart on any product to save it." />
-      {items.length === 0 ? (
-        <EmptyState title="Your wishlist is empty" body="Tap the ♡ on any product to save it for later." ctaTo="/" ctaLabel="Discover products" />
+      <PanelHeader title="Coupons" subtitle="Apply these at checkout." />
+      {loading ? (
+        <div className="space-y-2">
+          {[1, 2].map((n) => <div key={n} className="h-16 bg-[#FDFBF7] rounded-2xl animate-pulse" />)}
+        </div>
+      ) : coupons.length === 0 ? (
+        <p className="py-10 text-center text-sm text-[#64748B]">No coupons available right now.</p>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-          {items.map((p) => (
-            <div key={p.id} className="relative bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden hover:shadow-md transition" data-testid={`wish-${p.id}`}>
-              <Link href={`/product/${p.id}`} className="block">
-                {p.image ? (
-                  <div className="relative w-full aspect-[4/5] bg-slate-100"><Image src={p.image} alt={p.name} fill sizes="(max-width: 640px) 50vw, 240px" className="object-cover" /></div>
-                ) : (
-                  <div className="w-full aspect-[4/5] bg-[#FDFBF7] grid place-items-center"><Package size={28} className="text-[#94A3B8]" /></div>
-                )}
-                <div className="p-2.5">
-                  {p.store_name && <div className="text-[10px] font-bold uppercase tracking-wider text-[#64748B] line-clamp-1">{p.store_name}</div>}
-                  <div className="text-[12px] font-semibold text-[#0A1F5C] line-clamp-1 mt-0.5">{p.name}</div>
-                  <div className="flex items-baseline gap-1.5 mt-1">
-                    <span className="text-sm font-bold text-[#0A1F5C]">₹{Number(p.price || 0).toLocaleString()}</span>
-                    {p.mrp && p.mrp > p.price && <span className="text-[11px] text-[#94A3B8] line-through">₹{Number(p.mrp).toLocaleString()}</span>}
-                  </div>
-                </div>
-              </Link>
-              <button onClick={() => onRemove(p.id)} data-testid={`wish-remove-${p.id}`}
-                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/95 text-rose-500 hover:bg-rose-50 grid place-items-center shadow-sm border border-[#E5E2DC]" aria-label="Remove from wishlist">
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
+        <div className="space-y-2">
+          {coupons.map((c) => <CouponRow key={c.id} coupon={c} />)}
         </div>
       )}
     </>
+  );
+}
+
+function CouponRow({ coupon }: { coupon: ActiveCoupon }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(coupon.code);
+      setCopied(true);
+      toast.success("Code copied");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Could not copy code");
+    }
+  };
+  const amount = coupon.discount_type === "percent" ? `${coupon.discount_value}% off` : `₹${Number(coupon.discount_value).toLocaleString()} off`;
+  const condition = coupon.min_order_value > 0 ? `On orders above ₹${Number(coupon.min_order_value).toLocaleString()}` : "No minimum order value";
+  return (
+    <div data-testid={`coupon-${coupon.code}`} className="border border-dashed border-[#E5E2DC] rounded-2xl p-4 flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <div className="text-sm font-bold text-[#0A1F5C]">{amount}</div>
+        <div className="text-[11px] text-[#64748B] mt-0.5">{condition}</div>
+        {coupon.expires_at && (
+          <div className="text-[10px] text-[#94A3B8] mt-0.5">
+            Valid till {new Date(coupon.expires_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={handleCopy}
+        data-testid={`coupon-copy-${coupon.code}`}
+        className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-dashed border-[#E68910] bg-white text-[#0A1F5C] text-xs font-bold tracking-wide"
+      >
+        {coupon.code}
+        {copied ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+      </button>
+    </div>
   );
 }
 
@@ -551,40 +617,6 @@ function LegalPanel() {
         })}
       </div>
     </>
-  );
-}
-
-function AddressModal({ address, onCancel, onSave }: { address: AddressForm; onCancel: () => void; onSave: (a: AddressForm) => void }) {
-  const [a, setA] = useState(address);
-  const set = (k: keyof Omit<AddressForm, "lat" | "lng">, v: string) => setA((p) => ({ ...p, [k]: v }));
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-4" onClick={onCancel}>
-      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" data-testid="address-modal">
-        <h3 className="text-xl font-display font-medium text-[#0A1F5C] mb-4">Add address</h3>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Label">
-              <select data-testid="addr-label" value={a.label} onChange={(e) => set("label", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white text-[#0A1F5C]">
-                <option>Home</option><option>Office</option><option>Other</option>
-              </select>
-            </Field>
-            <Field label="Name"><input data-testid="addr-name" value={a.name} onChange={(e) => set("name", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
-          </div>
-          <Field label="Address line"><textarea data-testid="addr-line1" value={a.line1} onChange={(e) => set("line1", e.target.value)} rows={2} placeholder="House no, street, area" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
-          <Field label="Landmark (optional)"><input data-testid="addr-landmark" value={a.landmark} onChange={(e) => set("landmark", e.target.value)} placeholder="e.g. Opposite SBI" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="City"><input data-testid="addr-city" value={a.city} onChange={(e) => set("city", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
-            <Field label="Pincode"><input data-testid="addr-pin" value={a.pincode} onChange={(e) => set("pincode", e.target.value.replace(/\D/g, "").slice(0, 6))} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
-          </div>
-          <Field label="Phone"><input data-testid="addr-phone" value={a.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none text-[#0A1F5C]" /></Field>
-          <AddressPinPicker lat={a.lat} lng={a.lng} pincode={a.pincode} onChange={(lat, lng) => setA((p) => ({ ...p, lat, lng }))} />
-        </div>
-        <div className="flex gap-2 pt-5">
-          <button onClick={onCancel} className="flex-1 px-5 py-2.5 rounded-full border border-[#E5E2DC] text-[#0A1F5C]">Cancel</button>
-          <button onClick={() => onSave(a)} data-testid="save-address" className="flex-1 px-5 py-2.5 rounded-full bg-[#E68910] text-white font-semibold hover:bg-[#D97706] transition">Save address</button>
-        </div>
-      </div>
-    </div>
   );
 }
 

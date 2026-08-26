@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   Banknote, MapPin, Plus, CheckCircle2, Truck, Clock, Loader2, Store, CreditCard,
-  Trash2, ShoppingBag, AlertTriangle, Bike, Sparkles,
+  Trash2, ShoppingBag, AlertTriangle, Bike, Sparkles, ChevronRight, ChevronDown, ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -29,7 +29,6 @@ import { CustomerOtpLogin } from "@/components/consumer/CustomerOtpLogin";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { AddressPinPicker } from "@/components/consumer/AddressPinPicker";
 import { ETAHeaderCard } from "@/components/consumer/ETAHeaderCard";
-import { TrustSignalsCompact } from "@/components/consumer/TrustSignalsCompact";
 import { TrendingBestDealsRails } from "@/components/consumer/TrendingBestDealsRails";
 import { Button, CTA_LINK_CLASSNAME } from "@/components/ui/Button";
 import { useRazorpay } from "@/hooks/useRazorpay";
@@ -80,6 +79,11 @@ type DeliveryEstimate = {
   free_delivery_threshold?: number;
 } | null;
 
+function formatClockTime(minutesFromNow: number): string {
+  const d = new Date(Date.now() + minutesFromNow * 60_000);
+  return d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
 interface StoreAvailStatus {
   can_order: boolean;
   badge: string;
@@ -128,6 +132,12 @@ export default function CheckoutPage() {
   // item list itself (distinct from storeAvailMap below, which additionally
   // carries can_pickup/rank for the delivery-vs-pickup + preorder logic).
   const [itemStoreStatuses, setItemStoreStatuses] = useState<Record<string, StoreAvailStatus>>({});
+  // "Deliver to" starts collapsed to a compact summary whenever there's
+  // already a concrete address to summarize (a saved address selected, or
+  // a manually-typed one with a line1) — expands on "Change" or when there's
+  // nothing to summarize yet (first-time guest, no saved addresses).
+  const [addressExpanded, setAddressExpanded] = useState(false);
+  const [billOpen, setBillOpen] = useState(true);
 
   // Serviceability is about the DELIVERY ADDRESS, not the shopper's current
   // GPS position — re-evaluates whenever the selected/entered address's
@@ -244,6 +254,13 @@ export default function CheckoutPage() {
   const allEligible = hasTryAndBuyEligible && eligibleItems.length === items.length;
   const anyTryAndBuySelected = eligibleItems.some((it) => it.fulfillment_type === "try_and_buy");
 
+  // Store-grouped order summary — items from the same store stay adjacent
+  // even if they were added to the bag in an interleaved order.
+  const sortedItems = useMemo(
+    () => [...items].sort((a, b) => (a.store_id || "").localeCompare(b.store_id || "")),
+    [items],
+  );
+
   // One-store-per-bag ⇒ cartStoreId is unambiguous, so the impulse rail
   // never needs cross-store filtering. Exclude anything already in the bag.
   const impulseProducts = useMemo(() => {
@@ -271,8 +288,12 @@ export default function CheckoutPage() {
           lat: first.lat ?? null,
           lng: first.lng ?? null,
         });
-      } else if (customer?.name) {
-        setAddr((a) => ({ ...a, name: customer.name ?? "" }));
+        setAddressExpanded(false);
+      } else {
+        // No saved address to summarize yet — the compact "Deliver to" card
+        // has nothing to show, so start expanded on the entry form.
+        setAddressExpanded(true);
+        if (customer?.name) setAddr((a) => ({ ...a, name: customer.name ?? "" }));
       }
     }).catch(() => {});
   }, [phone, hasAuth]);
@@ -320,12 +341,15 @@ export default function CheckoutPage() {
     setSelectedId(id);
     if (id === "__new__") { setAddr({ ...BLANK_ADDR, phone: phone?.slice(-10) ?? "" }); return; }
     const a = savedAddresses.find((x) => x.id === id);
-    if (a) setAddr({
-      name: a.name || "", phone: a.phone || phone?.slice(-10) || "",
-      line1: a.line1 || "", landmark: a.landmark || "",
-      city: a.city || "Bhilai", pincode: a.pincode || "", label: a.label || "Home",
-      lat: a.lat ?? null, lng: a.lng ?? null,
-    });
+    if (a) {
+      setAddr({
+        name: a.name || "", phone: a.phone || phone?.slice(-10) || "",
+        line1: a.line1 || "", landmark: a.landmark || "",
+        city: a.city || "Bhilai", pincode: a.pincode || "", label: a.label || "Home",
+        lat: a.lat ?? null, lng: a.lng ?? null,
+      });
+      setAddressExpanded(false);
+    }
   };
 
   const deliveryFee = orderType === "pickup" ? 0 : (estimate?.deliverable ? estimate.fee : 0);
@@ -345,6 +369,37 @@ export default function CheckoutPage() {
   const totalSavings = itemDiscount + discountAmount;
   const savingsPct = mrpTotal > 0 ? Math.round((totalSavings / mrpTotal) * 100) : 0;
 
+  // Silent re-validation — if the cart changes (item removed, qty edited)
+  // while a coupon is already applied, re-check it against the new subtotal
+  // with the same endpoint so the displayed discount never goes stale.
+  // Real backend re-validation at order-creation time is unconditional
+  // regardless of this — this is purely so the DISPLAYED total stays honest.
+  const couponCodeRef = couponResult?.code;
+  useEffect(() => {
+    if (!couponCodeRef) return;
+    let cancelled = false;
+    apiClient.post<{ valid: boolean; discount_amount: number; code: string; description: string }>(
+      "/api/coupons/validate", { code: couponCodeRef, subtotal }
+    ).then((r) => { if (!cancelled) setCouponResult(r.data); })
+      .catch(() => {
+        if (cancelled) return;
+        setCouponResult(null);
+        setCouponError("Your coupon no longer applies to this bag and was removed.");
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subtotal]);
+
+  // "Remove unavailable items" — the one-tap fix for the warning banner
+  // below, so the customer isn't left having to hunt for the offending
+  // line(s) themselves.
+  const removeUnavailableItems = () => {
+    items.forEach((it) => {
+      const s = it.store_id ? itemStoreStatuses[it.store_id] : undefined;
+      if (s && !s.can_order) removeItem(it.id, it.size ?? "");
+    });
+  };
+
   const applyCoupon = async () => {
     const code = couponCode.trim().toUpperCase();
     if (!code) return;
@@ -359,8 +414,14 @@ export default function CheckoutPage() {
       setCouponError(msg);
     } finally { setCouponLoading(false); }
   };
-  // Block checkout if any cart store is closed or offline.
-  const allStoresCanOrder = uniqueStores.every((sid) => !storeAvailMap[sid] || storeAvailMap[sid].can_order);
+  // Block checkout if any cart store is closed or offline. Deliberately
+  // reads itemStoreStatuses (is_open), NOT storeAvailMap.can_order — the
+  // backend's GET /api/stores/{id} never sets a `can_order` field, only
+  // `is_open`, so storeAvailMap's can_order was always the fallback
+  // `undefined !== false` -> true, and the CTA below was never actually
+  // disabled by real store unavailability. storeAvailMap is left in place
+  // for its other real uses (name/rank/can_pickup/eta_message display).
+  const allStoresCanOrder = uniqueStores.every((sid) => !itemStoreStatuses[sid] || itemStoreStatuses[sid].can_order);
   // We allow Pay Now in multi-store carts (no fee added — legacy "FREE"),
   // pickup orders (no delivery estimate is ever fetched for these), OR
   // when the delivery estimate succeeded with deliverable=true. Estimates
@@ -395,10 +456,13 @@ export default function CheckoutPage() {
     const customerToken = typeof window !== "undefined" ? localStorage.getItem("bf_customer_token") : null;
     if (!hasAuth || !customerToken) { router.push("/account"); return; }
     if (!isPickup && estimate && !estimate.deliverable) return toast.error(estimate.reason || "Delivery unavailable for this address");
-    const closedStore = uniqueStores.find((sid) => storeAvailMap[sid] && !storeAvailMap[sid].can_order);
+    // Same source as allStoresCanOrder above — itemStoreStatuses, not the
+    // never-populated storeAvailMap.can_order.
+    const closedStore = uniqueStores.find((sid) => itemStoreStatuses[sid] && !itemStoreStatuses[sid].can_order);
     if (closedStore) {
-      const info = storeAvailMap[closedStore];
-      return toast.error(`${info?.name ?? "A store"} is currently ${(info?.badge ?? "closed").toLowerCase()}. Please try again later.`);
+      const statusInfo = itemStoreStatuses[closedStore];
+      const displayName = storeAvailMap[closedStore]?.name ?? "A store";
+      return toast.error(`${displayName} is currently ${(statusInfo?.badge ?? "closed").toLowerCase()}. Please try again later.`);
     }
 
     setPlacing(true);
@@ -595,66 +659,34 @@ export default function CheckoutPage() {
       ? (payingOnline ? "Waiting for payment…" : "Placing…")
       : payment === "RAZORPAY" ? "Pay online" : "Place order";
 
+  // Simplified to one concrete fact ("delivery by <clock time>") instead of
+  // a range as the headline — the min–max range still shows as the
+  // subtitle. Uses the same real eta_min/eta_max the estimate API already
+  // returns; nothing here is a fabricated ETA.
   const etaTitle = orderType === "pickup"
     ? "Ready for pickup"
-    : estimate?.deliverable && estimate.eta_min != null && estimate.eta_max != null
-      ? `Delivery in ${estimate.eta_min}–${estimate.eta_max} min`
+    : estimate?.deliverable && estimate.eta_max != null
+      ? `Delivery by ${formatClockTime(estimate.eta_max)}`
       : "Estimated delivery";
   const etaSubtitle = orderType === "pickup"
     ? (storeAvailMap[cartStoreId ?? ""]?.name ? `Collect from ${storeAvailMap[cartStoreId ?? ""]?.name}` : "Collect in person")
-    : (addr.pincode ? `to ${addr.line1 ? addr.line1.split(",")[0] : addr.pincode}` : "Add an address below");
+    : estimate?.deliverable && estimate.eta_min != null && estimate.eta_max != null
+      ? `${estimate.eta_min}–${estimate.eta_max} min`
+      : (addr.pincode ? `to ${addr.line1 ? addr.line1.split(",")[0] : addr.pincode}` : "Add an address below");
 
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
-      <div className="flex-1 max-w-2xl w-full mx-auto px-4 md:px-8 pt-4 pb-8 space-y-4">
-        {/* a. ETA header — bordered card, before any product content */}
-        <ETAHeaderCard
-          icon={orderType === "pickup" ? Store : Bike}
-          title={etaTitle}
-          subtitle={etaSubtitle}
-          loading={estimating}
-        />
+      {/* Bottom padding clears the sticky total+CTA bar (~85px tall) plus
+          safe-area — without it, the last bit of content (the reassurance
+          line) sits permanently underneath the fixed bar with no way to
+          scroll to it. */}
+      <div className="flex-1 max-w-2xl w-full mx-auto px-4 md:px-8 pt-4 space-y-4" style={{ paddingBottom: "calc(6rem + env(safe-area-inset-bottom))" }}>
 
-        {/* b. Cart items — ported from the old /cart page's row rendering,
-            image/name/store/size/qty stepper/remove all unchanged, now with
-            strikethrough MRP where the line has one. */}
+        {/* 1. ORDER SUMMARY — what am I buying? Store-grouped (sortedItems),
+            no Try & Buy picker inside this card anymore (moved to its own
+            step below) — this card is purely "what's in the bag". */}
         <div className="bg-white rounded-2xl border border-[#E5E2DC] p-4" data-testid="bag-items">
           <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-3">Your bag ({items.length})</h2>
-
-          {/* Standard vs Try & Buy (G13 §1) — only rendered when at least
-              one line is try_at_doorstep-eligible. Intent-capture only: no
-              trial timer/payment-hold/rider-workflow exists yet, so the
-              copy stays generic (no fabricated duration) and never implies
-              an operational trial process is already running. */}
-          {hasTryAndBuyEligible && (
-            <div className="mb-3 p-3 rounded-xl border border-[#E5E2DC] bg-[#FDFBF7]" data-testid="fulfillment-intent-picker">
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  data-testid="try-and-buy-select-standard"
-                  onClick={() => eligibleItems.forEach((it) => setFulfillmentType(it.key, "standard"))}
-                  className={`text-left p-2.5 rounded-lg border-2 transition ${!anyTryAndBuySelected ? "border-[#0A1F5C] bg-[#0A1F5C]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}
-                >
-                  <div className="font-semibold text-sm text-[#0A1F5C]">Standard</div>
-                  <p className="text-[11px] text-[#595959] mt-0.5">No trials</p>
-                </button>
-                <button
-                  type="button"
-                  data-testid="try-and-buy-select-tryandbuy"
-                  onClick={() => eligibleItems.forEach((it) => setFulfillmentType(it.key, "try_and_buy"))}
-                  className={`text-left p-2.5 rounded-lg border-2 transition ${anyTryAndBuySelected ? "border-[#E68910] bg-[#E68910]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}
-                >
-                  <div className="font-semibold text-sm text-[#0A1F5C]">Try &amp; Buy</div>
-                  <p className="text-[11px] text-[#595959] mt-0.5">Try it on, pay only for what you keep</p>
-                </button>
-              </div>
-              {!allEligible && (
-                <p className="text-[10px] text-[#94A3B8] mt-2">
-                  Applies to {eligibleItems.length} of {items.length} item{items.length === 1 ? "" : "s"} in your bag — the rest ship Standard.
-                </p>
-              )}
-            </div>
-          )}
 
           {uniqueStoreNames.length > 1 && (
             <div data-testid="multi-store-notice" className="mb-3 rounded-xl border border-[#E68910]/30 bg-[#E68910]/10 px-3 py-2 text-[12px] text-[#0A1F5C]">
@@ -663,13 +695,23 @@ export default function CheckoutPage() {
             </div>
           )}
           {anyUnavailable && (
-            <div className="mb-3 flex items-center gap-2 text-xs text-red-600 font-semibold">
-              <AlertTriangle size={13} /> Some stores are unavailable. Remove those items to continue.
+            <div className="mb-3 flex items-center justify-between gap-2 rounded-xl bg-red-50 border border-red-200 px-3 py-2" data-testid="unavailable-banner">
+              <span className="flex items-center gap-1.5 text-xs text-red-600 font-semibold">
+                <AlertTriangle size={13} /> Some stores are unavailable
+              </span>
+              <button
+                type="button"
+                onClick={removeUnavailableItems}
+                data-testid="remove-unavailable-items"
+                className="shrink-0 text-xs font-bold text-white bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded-full transition"
+              >
+                Remove items
+              </button>
             </div>
           )}
 
           <div className="space-y-3">
-            {items.map((it) => {
+            {sortedItems.map((it) => {
               const storeStatus = it.store_id ? itemStoreStatuses[it.store_id] : undefined;
               const itemUnavailable = storeStatus && !storeStatus.can_order;
               const showMrp = it.mrp != null && it.mrp > it.price;
@@ -684,7 +726,7 @@ export default function CheckoutPage() {
                     {it.size && <div className="text-xs text-[#595959] mt-1">Size: {it.size}</div>}
                     {/* Per-line fulfillment tag — only shown in a mixed-
                         eligibility bag, so it's clear which items follow
-                        the Try & Buy selection above and which don't (never
+                        the Try & Buy selection below and which don't (never
                         silently switched). */}
                     {hasTryAndBuyEligible && !allEligible && (
                       <div className="mt-1">
@@ -736,14 +778,10 @@ export default function CheckoutPage() {
           )}
         </div>
 
-        {unserviceable && orderType === "delivery" && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-2xl">
-            <p className="font-semibold text-red-700 text-sm">Area not serviceable</p>
-            <p className="text-red-600 text-xs mt-1">{unserviceableMessage}</p>
-          </div>
-        )}
-
-        {/* c. Delivery/Pickup selector */}
+        {/* 2. DELIVERY — where is it going? Delivery-vs-pickup choice (when
+            eligible) + a compact "Deliver to" summary with a "Change" link,
+            expanding to the full saved-address list / new-address form only
+            on demand — the address never repeats anywhere else on the page. */}
         {pickupEligible && (
           <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="fulfillment-picker">
             <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-2">How would you like to get it?</h2>
@@ -762,14 +800,169 @@ export default function CheckoutPage() {
           </div>
         )}
 
-        {/* d. Coupon/offers — own bordered card */}
+        {!hasAuth ? (
+          <div id="guest-login-gate" className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="guest-login-gate">
+            <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-1">Sign in to add your address and pay</h2>
+            <p className="text-xs text-[#595959] mb-3">We use your number to deliver, send order updates, and process returns.</p>
+            <CustomerOtpLogin />
+          </div>
+        ) : orderType === "pickup" ? (
+          // Pickup needs identity only (name + phone to confirm the
+          // reservation) — no delivery address applies. Same `addr` state
+          // and fields as before, just without the address-only inputs.
+          <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="pickup-details">
+            <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-2">Your details</h2>
+            <div className="grid md:grid-cols-2 gap-2.5">
+              <input data-testid="addr-name" value={addr.name} onChange={(e) => setAddr({ ...addr, name: e.target.value })} placeholder="Full name" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+              <input data-testid="addr-phone" value={addr.phone} onChange={(e) => setAddr({ ...addr, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="Phone" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+            </div>
+          </div>
+        ) : (
+          !addressExpanded && addr.line1 ? (
+            <button
+              type="button"
+              onClick={() => setAddressExpanded(true)}
+              data-testid="deliver-to-summary"
+              className="w-full bg-white rounded-2xl p-4 border border-[#E5E2DC] flex items-start gap-3 text-left hover:border-[#0A1F5C]/40 transition"
+            >
+              <div className="w-9 h-9 rounded-xl bg-[#0A1F5C]/8 text-[#0A1F5C] grid place-items-center shrink-0">
+                <MapPin size={16} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-[#64748B]">Deliver to</div>
+                <div className="text-sm font-semibold text-[#0A1F5C] mt-0.5 truncate">
+                  {addr.label || "Home"} · {addr.name}
+                </div>
+                <div className="text-xs text-[#595959] truncate">{addr.line1}</div>
+                <div className="text-[11px] text-[#595959]">{addr.city || "Bhilai"} · {addr.pincode}</div>
+              </div>
+              <span className="shrink-0 inline-flex items-center gap-0.5 text-xs font-bold text-[#E68910] mt-1">
+                Change <ChevronRight size={13} />
+              </span>
+            </button>
+          ) : (
+            <>
+              {savedAddresses.length > 0 && (
+                <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="saved-addresses">
+                  <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">Deliver to</div>
+                  <div className="space-y-2">
+                    {savedAddresses.map((a) => (
+                      <button key={a.id} type="button" data-testid={`pick-addr-${a.id}`} onClick={() => pickSaved(a.id)}
+                        className={`w-full text-left p-3 rounded-xl border-2 transition ${selectedId === a.id ? "border-[#0A1F5C] bg-[#0A1F5C]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 text-sm">
+                            <div className="font-semibold text-[#0A1F5C] flex items-center gap-2"><MapPin size={13} className="text-[#0A1F5C]" />{a.label || "Home"} · {a.name || phone}</div>
+                            <div className="text-[#595959] mt-0.5">{a.line1}</div>
+                            {a.landmark && <div className="text-[11px] text-[#595959]">Landmark: {a.landmark}</div>}
+                            <div className="text-[11px] text-[#595959]">{a.city || "Bhilai"} · {a.pincode}</div>
+                          </div>
+                          {selectedId === a.id && <CheckCircle2 size={16} className="text-[#E68910] shrink-0" />}
+                        </div>
+                      </button>
+                    ))}
+                    <button type="button" data-testid="pick-new-addr" onClick={() => pickSaved("__new__")}
+                      className={`w-full text-left p-3 rounded-xl border-2 border-dashed flex items-center gap-2 transition ${selectedId === "__new__" ? "border-[#E68910] bg-[#E68910]/5 text-[#E68910]" : "border-[#E5E2DC] text-[#595959] hover:border-[#0A1F5C]/40"}`}>
+                      <Plus size={14} /> <span className="text-sm font-semibold">Use a new address</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {selectedId === "__new__" && (
+                <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]">
+                  <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-1">New delivery address</h2>
+                  <p className="text-xs text-[#595959] mb-3">Saved addresses appear in your account for one-tap checkout next time.</p>
+                  <div className="grid md:grid-cols-2 gap-2.5">
+                    <input data-testid="addr-name" value={addr.name} onChange={(e) => setAddr({ ...addr, name: e.target.value })} placeholder="Full name" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                    <input data-testid="addr-phone" value={addr.phone} onChange={(e) => setAddr({ ...addr, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="Phone" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                    <textarea data-testid="addr-line1" value={addr.line1} onChange={(e) => setAddr({ ...addr, line1: e.target.value })} placeholder="House no, street, locality" rows={2} className="md:col-span-2 px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C] resize-none" />
+                    <input data-testid="addr-landmark" value={addr.landmark} onChange={(e) => setAddr({ ...addr, landmark: e.target.value })} placeholder="Landmark (e.g. opposite SBI / near Globe Chowk)" className="md:col-span-2 px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                    <input data-testid="addr-city" value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} placeholder="City (Bhilai only)" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                    <input data-testid="addr-pin" value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="Pincode" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
+                    <div className="md:col-span-2">
+                      <AddressPinPicker lat={addr.lat} lng={addr.lng} pincode={addr.pincode} onChange={(lat, lng) => setAddr({ ...addr, lat, lng })} />
+                    </div>
+                  </div>
+                  {savedAddresses.length > 0 && (
+                    <button type="button" onClick={() => pickSaved(savedAddresses[0]!.id)} className="mt-3 text-xs font-semibold text-[#595959] underline underline-offset-2">
+                      Use a saved address instead
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
+          )
+        )}
+
+        {unserviceable && orderType === "delivery" && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-2xl">
+            <p className="font-semibold text-red-700 text-sm">Area not serviceable</p>
+            <p className="text-red-600 text-xs mt-1">{unserviceableMessage}</p>
+          </div>
+        )}
+
+        {/* 3. DELIVERY ETA — one simple fact, one small icon, no card
+            graphics beyond ETAHeaderCard's own already-compact shell. */}
+        <ETAHeaderCard
+          icon={orderType === "pickup" ? Store : Bike}
+          title={etaTitle}
+          subtitle={etaSubtitle}
+          loading={estimating}
+        />
+
+        {/* 4. TRY & BUY — compact vertical radio-list, only rendered when at
+            least one line is try_at_doorstep-eligible. Intent-capture only:
+            no trial timer/payment-hold/rider-workflow exists yet, so the
+            copy stays generic and never implies an operational trial
+            process is already running. */}
+        {hasTryAndBuyEligible && (
+          <div className="bg-white rounded-2xl border border-[#E5E2DC] overflow-hidden" data-testid="fulfillment-intent-picker">
+            <div className="divide-y divide-[#E5E2DC]">
+              <button
+                type="button"
+                data-testid="try-and-buy-select-standard"
+                onClick={() => eligibleItems.forEach((it) => setFulfillmentType(it.key, "standard"))}
+                className="w-full flex items-center gap-3 p-3.5 text-left"
+              >
+                <span className={`w-4 h-4 rounded-full border-2 shrink-0 grid place-items-center ${!anyTryAndBuySelected ? "border-[#0A1F5C]" : "border-[#CBD5E1]"}`}>
+                  {!anyTryAndBuySelected && <span className="w-2 h-2 rounded-full bg-[#0A1F5C]" />}
+                </span>
+                <div className="min-w-0">
+                  <div className="font-semibold text-sm text-[#0A1F5C]">Standard — Pay normally</div>
+                  <p className="text-[11px] text-[#595959] mt-0.5">No trials</p>
+                </div>
+              </button>
+              <button
+                type="button"
+                data-testid="try-and-buy-select-tryandbuy"
+                onClick={() => eligibleItems.forEach((it) => setFulfillmentType(it.key, "try_and_buy"))}
+                className="w-full flex items-center gap-3 p-3.5 text-left"
+              >
+                <span className={`w-4 h-4 rounded-full border-2 shrink-0 grid place-items-center ${anyTryAndBuySelected ? "border-[#E68910]" : "border-[#CBD5E1]"}`}>
+                  {anyTryAndBuySelected && <span className="w-2 h-2 rounded-full bg-[#E68910]" />}
+                </span>
+                <div className="min-w-0">
+                  <div className="font-semibold text-sm text-[#0A1F5C]">Try &amp; Buy — Try before you decide</div>
+                  <p className="text-[11px] text-[#595959] mt-0.5">Try it on, pay only for what you keep</p>
+                </div>
+              </button>
+            </div>
+            {!allEligible && (
+              <p className="text-[10px] text-[#94A3B8] px-3.5 pb-3">
+                Applies to {eligibleItems.length} of {items.length} item{items.length === 1 ? "" : "s"} in your bag — the rest ship Standard.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* 5. COUPON — before payment and bill, per the redesign brief. */}
         <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="coupon-section">
           <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-2">Coupon</h2>
           {couponResult ? (
             <div className="flex items-center justify-between text-sm">
               <span>
-                <span className="text-[#4F7363] font-semibold">{couponResult.code} applied</span>
-                <span className="text-[#4F7363] ml-1.5">— you saved ₹{couponResult.discount_amount.toLocaleString()}</span>
+                <span className="text-[#4F7363] font-semibold">{couponResult.code}</span>
+                <span className="text-[#4F7363] ml-1.5">· ₹{couponResult.discount_amount.toLocaleString()} off</span>
               </span>
               <button onClick={() => { setCouponResult(null); setCouponCode(""); }} className="text-xs text-[#E68910] font-semibold">Remove</button>
             </div>
@@ -780,7 +973,7 @@ export default function CheckoutPage() {
                 value={couponCode}
                 onChange={(e) => { setCouponCode(e.target.value.toUpperCase()); setCouponError(""); }}
                 onKeyDown={(e) => e.key === "Enter" && applyCoupon()}
-                placeholder="Coupon code"
+                placeholder="Apply coupon"
                 className="flex-1 px-3 py-2 text-sm rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C] uppercase"
               />
               <button onClick={applyCoupon} disabled={couponLoading || !couponCode.trim()} data-testid="apply-coupon-btn"
@@ -792,84 +985,29 @@ export default function CheckoutPage() {
           {couponError && <p className="text-xs text-red-500 mt-1" data-testid="coupon-error">{couponError}</p>}
         </div>
 
-        {/* e. Address + f. Payment — identity-gated. Browsing everything
-            above (items, ETA, delivery/pickup, coupon) needs no auth; these
-            two sections are where a guest actually needs to be a known
-            customer, so this is the one place the soft gate replaces real
-            content instead of just disabling a button. */}
+        {/* 6. PAYMENT — identity-gated like address; guest browsing (items,
+            ETA, Try&Buy, coupon) still needs no auth. */}
         {hasAuth ? (
-          <>
-        {/* e. Address */}
-        {savedAddresses.length > 0 && (
-          <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="saved-addresses">
-            <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">Deliver to</div>
-            <div className="space-y-2">
-              {savedAddresses.map((a) => (
-                <button key={a.id} type="button" data-testid={`pick-addr-${a.id}`} onClick={() => pickSaved(a.id)}
-                  className={`w-full text-left p-3 rounded-xl border-2 transition ${selectedId === a.id ? "border-[#0A1F5C] bg-[#0A1F5C]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 text-sm">
-                      <div className="font-semibold text-[#0A1F5C] flex items-center gap-2"><MapPin size={13} className="text-[#0A1F5C]" />{a.label || "Home"} · {a.name || phone}</div>
-                      <div className="text-[#595959] mt-0.5">{a.line1}</div>
-                      {a.landmark && <div className="text-[11px] text-[#595959]">Landmark: {a.landmark}</div>}
-                      <div className="text-[11px] text-[#595959]">{a.city || "Bhilai"} · {a.pincode}</div>
-                    </div>
-                    {selectedId === a.id && <CheckCircle2 size={16} className="text-[#E68910] shrink-0" />}
-                  </div>
-                </button>
-              ))}
-              <button type="button" data-testid="pick-new-addr" onClick={() => pickSaved("__new__")}
-                className={`w-full text-left p-3 rounded-xl border-2 border-dashed flex items-center gap-2 transition ${selectedId === "__new__" ? "border-[#E68910] bg-[#E68910]/5 text-[#E68910]" : "border-[#E5E2DC] text-[#595959] hover:border-[#0A1F5C]/40"}`}>
-                <Plus size={14} /> <span className="text-sm font-semibold">Use a new address</span>
+          <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="payment-section">
+            <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-2">Payment</h2>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button type="button" data-testid="pay-online" onClick={() => setPayment("RAZORPAY")}
+                className={`flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 transition ${payment === "RAZORPAY" ? "border-[#E68910] bg-[#E68910]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
+                <CreditCard size={18} className="text-[#0A1F5C]" />
+                <span className="font-semibold text-sm">Pay online</span>
+              </button>
+              <button type="button" data-testid="pay-cod" onClick={() => setPayment("COD")}
+                className={`flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 transition ${payment === "COD" ? "border-[#E68910] bg-[#E68910]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
+                <Banknote size={18} className="text-[#0A1F5C]" />
+                <span className="font-semibold text-sm">{orderType === "pickup" ? "Pay at Pickup" : "Pay at Delivery"}</span>
               </button>
             </div>
+            {payment === "RAZORPAY" && (
+              <p className="text-[11px] text-[#595959] mt-2">UPI, cards and netbanking via Razorpay.</p>
+            )}
           </div>
-        )}
-
-        {selectedId === "__new__" && (
-          <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]">
-            <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-1">New delivery address</h2>
-            <p className="text-xs text-[#595959] mb-3">Saved addresses appear in your account for one-tap checkout next time.</p>
-            <div className="grid md:grid-cols-2 gap-2.5">
-              <input data-testid="addr-name" value={addr.name} onChange={(e) => setAddr({ ...addr, name: e.target.value })} placeholder="Full name" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
-              <input data-testid="addr-phone" value={addr.phone} onChange={(e) => setAddr({ ...addr, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="Phone" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
-              <textarea data-testid="addr-line1" value={addr.line1} onChange={(e) => setAddr({ ...addr, line1: e.target.value })} placeholder="House no, street, locality" rows={2} className="md:col-span-2 px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C] resize-none" />
-              <input data-testid="addr-landmark" value={addr.landmark} onChange={(e) => setAddr({ ...addr, landmark: e.target.value })} placeholder="Landmark (e.g. opposite SBI / near Globe Chowk)" className="md:col-span-2 px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
-              <input data-testid="addr-city" value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} placeholder="City (Bhilai only)" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
-              <input data-testid="addr-pin" value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="Pincode" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
-              <div className="md:col-span-2">
-                <AddressPinPicker lat={addr.lat} lng={addr.lng} pincode={addr.pincode} onChange={(lat, lng) => setAddr({ ...addr, lat, lng })} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* f. Payment method */}
-        <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]">
-          <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-2">Payment</h2>
-          <div className="grid grid-cols-2 gap-2.5">
-            <button type="button" data-testid="pay-online" onClick={() => setPayment("RAZORPAY")}
-              className={`flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 transition ${payment === "RAZORPAY" ? "border-[#E68910] bg-[#E68910]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
-              <CreditCard size={18} className="text-[#0A1F5C]" />
-              <span className="font-semibold text-sm">Pay online</span>
-            </button>
-            <button type="button" data-testid="pay-cod" onClick={() => setPayment("COD")}
-              className={`flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 transition ${payment === "COD" ? "border-[#E68910] bg-[#E68910]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
-              <Banknote size={18} className="text-[#0A1F5C]" />
-              <span className="font-semibold text-sm">{orderType === "pickup" ? "Pay at Pickup" : "Pay at Delivery"}</span>
-            </button>
-          </div>
-          {payment === "RAZORPAY" && (
-            <p className="text-[11px] text-[#595959] mt-2">UPI, cards and netbanking via Razorpay.</p>
-          )}
-        </div>
-          </>
         ) : (
-          <div id="guest-login-gate" className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="guest-login-gate">
-            <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-1">Sign in to add your address and pay</h2>
-            <p className="text-xs text-[#595959] mb-3">We use your number to deliver, send order updates, and process returns.</p>
-            <CustomerOtpLogin />
-          </div>
+          <p className="text-xs text-[#94A3B8] text-center">Sign in above to choose a payment method.</p>
         )}
 
         {/* Store availability context (multi-store per-store status, preorder
@@ -877,7 +1015,7 @@ export default function CheckoutPage() {
             logic, kept close to the bill it explains. */}
         {!allStoresCanOrder && (
           <div className="space-y-1">
-            {uniqueStores.filter((sid) => storeAvailMap[sid] && !storeAvailMap[sid].can_order).map((sid) => {
+            {uniqueStores.filter((sid) => itemStoreStatuses[sid] && !itemStoreStatuses[sid].can_order).map((sid) => {
               const info = storeAvailMap[sid];
               const timeStr = info?.opens_at_label ? info.opens_at_label.replace(/^Opens\s+(at\s+)?/i, "") : null;
               return (
@@ -925,63 +1063,61 @@ export default function CheckoutPage() {
           </div>
         )}
 
-        {/* g. Bill breakdown: MRP total -> discount -> subtotal -> delivery
-            fee -> final total. Every figure here is derived from the SAME
-            state (subtotal/deliveryFee/discountAmount/grandTotal) the
-            payment logic above already computes — this section only
-            changes how it's displayed. */}
+        {/* 7. BILL DETAILS — financial source of truth, collapsible. Every
+            figure is derived from the SAME state (subtotal/deliveryFee/
+            discountAmount/grandTotal) the payment logic above already
+            computes. The old "Platform fee: Nah bro!" / "Handling fee:
+            Absolutely Not!" joke rows are gone — those fees are always zero
+            today, so they're simply omitted rather than shown as fake rows. */}
         <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="bill-breakdown">
-          <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-2">Bill details</h2>
-          <div className="space-y-1.5 text-sm">
-            <div className="flex justify-between">
-              <span className="text-[#595959]">MRP total</span>
-              <span className="font-semibold">₹{mrpTotal.toLocaleString()}</span>
-            </div>
-            {itemDiscount > 0 && (
-              <div className="flex justify-between" data-testid="item-discount">
-                <span className="text-[#595959]">Discount</span>
-                <span className="font-semibold text-[#1E5631]">−₹{itemDiscount.toLocaleString()}</span>
+          <button type="button" onClick={() => setBillOpen((v) => !v)} data-testid="bill-details-toggle" className="w-full flex items-center justify-between">
+            <h2 className="font-display font-medium text-lg text-[#0A1F5C]">Bill details</h2>
+            <ChevronDown size={16} className={`text-[#94A3B8] transition-transform ${billOpen ? "rotate-180" : ""}`} />
+          </button>
+          {billOpen && (
+            <div className="space-y-1.5 text-sm mt-2">
+              <div className="flex justify-between">
+                <span className="text-[#595959]">MRP total</span>
+                <span className="font-semibold">₹{mrpTotal.toLocaleString()}</span>
               </div>
-            )}
-            <div className="flex justify-between">
-              <span className="text-[#595959]">Subtotal</span>
-              <span className="font-semibold">₹{subtotal.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[#595959] inline-flex items-center gap-1.5">
-                {orderType === "pickup" ? <Store size={13} /> : <Truck size={13} />} Delivery fee
-              </span>
-              {orderType === "pickup" ? (
-                <span className="font-semibold text-[#1E5631]" data-testid="delivery-fee">FREE — pickup</span>
-              ) : estimating ? (
-                <span className="text-xs text-[#595959] inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> calculating…</span>
-              ) : !cartStoreId && uniqueStoreNames.length > 1 ? (
-                <span className="font-semibold text-[#1E5631]">FREE</span>
-              ) : estimate?.deliverable ? (
-                estimate.is_free
-                  ? <span className="font-semibold text-[#1E5631]" data-testid="delivery-fee">FREE</span>
-                  : <span className="font-semibold" data-testid="delivery-fee">₹{estimate.fee.toLocaleString()}</span>
-              ) : estimate && !estimate.deliverable ? (
-                <span className="text-red-500 text-xs" data-testid="delivery-unavailable">Unavailable</span>
-              ) : (
-                <span className="text-xs text-[#595959]">—</span>
+              {itemDiscount > 0 && (
+                <div className="flex justify-between" data-testid="item-discount">
+                  <span className="text-[#595959]">Discount</span>
+                  <span className="font-semibold text-[#1E5631]">−₹{itemDiscount.toLocaleString()}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-[#595959]">Subtotal</span>
+                <span className="font-semibold">₹{subtotal.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[#595959] inline-flex items-center gap-1.5">
+                  {orderType === "pickup" ? <Store size={13} /> : <Truck size={13} />} Delivery fee
+                </span>
+                {orderType === "pickup" ? (
+                  <span className="font-semibold text-[#1E5631]" data-testid="delivery-fee">FREE — pickup</span>
+                ) : estimating ? (
+                  <span className="text-xs text-[#595959] inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> calculating…</span>
+                ) : !cartStoreId && uniqueStoreNames.length > 1 ? (
+                  <span className="font-semibold text-[#1E5631]">FREE</span>
+                ) : estimate?.deliverable ? (
+                  estimate.is_free
+                    ? <span className="font-semibold text-[#1E5631]" data-testid="delivery-fee">FREE</span>
+                    : <span className="font-semibold" data-testid="delivery-fee">₹{estimate.fee.toLocaleString()}</span>
+                ) : estimate && !estimate.deliverable ? (
+                  <span className="text-red-500 text-xs" data-testid="delivery-unavailable">Unavailable</span>
+                ) : (
+                  <span className="text-xs text-[#595959]">—</span>
+                )}
+              </div>
+              {discountAmount > 0 && (
+                <div className="flex justify-between" data-testid="coupon-discount">
+                  <span className="text-[#595959]">Coupon discount</span>
+                  <span className="font-semibold text-[#1E5631]">−₹{discountAmount.toLocaleString()}</span>
+                </div>
               )}
             </div>
-            {discountAmount > 0 && (
-              <div className="flex justify-between" data-testid="coupon-discount">
-                <span className="text-[#595959]">Coupon discount</span>
-                <span className="font-semibold text-[#1E5631]">−₹{discountAmount.toLocaleString()}</span>
-              </div>
-            )}
-            <div className="flex justify-between text-[11px] text-[#94A3B8]">
-              <span>Platform fee</span>
-              <span>Nah bro!</span>
-            </div>
-            <div className="flex justify-between text-[11px] text-[#94A3B8]">
-              <span>Handling fee</span>
-              <span>Absolutely Not!</span>
-            </div>
-          </div>
+          )}
           <div className="border-t border-[#E5E2DC] mt-2.5 pt-2.5 flex justify-between font-bold">
             <span>Total</span>
             <span className="text-[#0A1F5C]" data-testid="grand-total">₹{grandTotal.toLocaleString()}</span>
@@ -993,11 +1129,12 @@ export default function CheckoutPage() {
           )}
         </div>
 
-        {/* h. Trust icons — the PDP's own compact trust component, reused
-            verbatim (redesign-plan 3.4), not a second implementation. */}
-        <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]">
-          <TrustSignalsCompact />
-        </div>
+        {/* One small reassurance line — replaces TrustSignalsCompact's
+            4-item list on this page (still used verbatim elsewhere, e.g.
+            PDP); here it would outweigh the order it's supposed to support. */}
+        <p className="flex items-center justify-center gap-1.5 text-[11px] text-[#94A3B8] py-1">
+          <ShieldCheck size={13} className="text-[#94A3B8]" /> Secure payment · Easy returns
+        </p>
       </div>
 
       {/* Sticky bottom price + CTA bar. StickyBottomNav is hidden on this

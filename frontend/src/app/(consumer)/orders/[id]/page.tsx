@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   CheckCircle2, Bike, Package, AlertCircle,
-  ShieldCheck, MapPin, Receipt, Clock, ShoppingBag, Phone, Store, ChevronRight,
+  ShieldCheck, MapPin, Receipt, Clock, ShoppingBag, Phone, Store, ChevronRight, ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -85,6 +85,98 @@ function PickupTimer({ expiresAt, className }: { expiresAt: string; className?: 
     return () => clearInterval(t);
   }, [expiresAt]);
   return <span className={className}>{label}</span>;
+}
+
+/** Real per-line MRP/discount breakdown, derived client-side exactly the
+ *  way checkout already computes it — no backend field for this exists
+ *  (or is needed) beyond what's already snapshotted onto order.items. */
+function BillSummary({ order, subtotal, total, isCancelledLike }: { order: Order; subtotal: number; total: number; isCancelledLike: boolean }) {
+  const [open, setOpen] = useState(false);
+
+  if (isCancelledLike) {
+    const isCod = (order.payment_method || "COD").toUpperCase() === "COD";
+    const ps = order.payment_status;
+    return (
+      <section data-testid="bill-summary" className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm">
+        <div className="flex items-center gap-2 mb-3">
+          <Receipt size={16} className="text-[#0A1F5C]" />
+          <h2 className="font-display text-base sm:text-lg font-bold text-[#0A1F5C]">Bill summary</h2>
+        </div>
+        <div className="flex items-baseline justify-between">
+          <span className="text-sm text-[#64748B]">Total order value</span>
+          <span className="font-display text-xl font-bold text-[#0A1F5C]">₹{total.toLocaleString()}</span>
+        </div>
+        <div className="border-t border-[#E5E2DC] mt-3 pt-3 space-y-1">
+          <p className="text-sm font-semibold text-rose-700">Status: Cancelled</p>
+          {isCod ? (
+            <p className="text-xs text-[#64748B]">Payment was not collected.</p>
+          ) : ps === "refunded" ? (
+            <p className="text-xs text-emerald-700 font-semibold">Refund ₹{total.toLocaleString()} · Refunded</p>
+          ) : ps === "refund_pending" ? (
+            <p className="text-xs text-[#E68910] font-semibold">Refund initiated</p>
+          ) : ps === "paid" ? (
+            <p className="text-xs text-[#64748B]">Paid ₹{total.toLocaleString()} via {(order.payment_method || "").replace(/_/g, " ")}.</p>
+          ) : (
+            <p className="text-xs text-[#64748B]">Payment was not collected.</p>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  const items = order.items || [];
+  const mrpTotal = items.reduce((acc, it) => acc + (it.mrp ?? it.price) * (it.qty || 1), 0);
+  const itemDiscount = Math.max(0, mrpTotal - subtotal);
+  const couponDiscount = order.coupon_code ? Math.max(0, order.coupon_discount || 0) : 0;
+  const deliveryFee = order.delivery_fee || 0;
+  const isPaidOnline = (order.payment_method || "COD").toUpperCase() !== "COD" && order.payment_status === "paid";
+
+  return (
+    <section data-testid="bill-summary" className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        data-testid="bill-details-toggle"
+        className="w-full flex items-center justify-between gap-2"
+      >
+        <div className="flex items-center gap-2">
+          <Receipt size={16} className="text-[#0A1F5C]" />
+          <h2 className="font-display text-base sm:text-lg font-bold text-[#0A1F5C]">Bill details</h2>
+        </div>
+        <ChevronDown size={16} className={`text-[#94A3B8] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="text-sm space-y-2 mt-3">
+          <div className="flex items-baseline justify-between"><span className="text-[#64748B]">MRP total</span><span className="text-[#0A1F5C] font-medium">₹{mrpTotal.toLocaleString()}</span></div>
+          {itemDiscount > 0 && (
+            <div className="flex items-baseline justify-between"><span className="text-[#64748B]">Discount</span><span className="text-emerald-700 font-semibold">−₹{itemDiscount.toLocaleString()}</span></div>
+          )}
+          {couponDiscount > 0 && (
+            <div className="flex items-baseline justify-between"><span className="text-[#64748B]">Coupon discount ({order.coupon_code})</span><span className="text-emerald-700 font-semibold">−₹{couponDiscount.toLocaleString()}</span></div>
+          )}
+          <div className="flex items-baseline justify-between">
+            <span className="text-[#64748B]">Delivery fee</span>
+            {deliveryFee ? (
+              <span className="text-[#0A1F5C] font-medium" data-testid="order-delivery-fee">₹{deliveryFee.toLocaleString()}</span>
+            ) : (
+              <span className="text-emerald-700 font-semibold" data-testid="order-delivery-fee">FREE</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="border-t border-[#E5E2DC] mt-3 pt-3 flex items-baseline justify-between">
+        <span className="text-sm font-semibold text-[#0A1F5C]">{isPaidOnline ? "Total paid" : "Order total"}</span>
+        <span className="font-display text-xl font-bold text-[#0A1F5C]">₹{total.toLocaleString()}</span>
+      </div>
+      <p className="text-[11px] text-[#64748B] mt-2">
+        {isPaidOnline
+          ? `Paid via ${(order.payment_method || "").replace(/_/g, " ")}.`
+          : "Pay via Cash on Delivery."}
+      </p>
+    </section>
+  );
 }
 
 export default function OrderTrackingPage() {
@@ -320,23 +412,6 @@ export default function OrderTrackingPage() {
           </section>
         )}
 
-        {(status === "delivered" || status === "returned") && (
-          <section className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm" data-testid="post-delivery-actions">
-            <h2 className="font-display text-base sm:text-lg font-bold text-[#0A1F5C] mb-2">Need help with this order?</h2>
-            <p className="text-xs text-[#9CA3AF] mb-3">We&apos;re a small team — we&apos;ll respond as soon as we can.</p>
-            <Link
-              href={`/account/support?order_id=${order.id}`}
-              className="flex items-center justify-between p-4 bg-[#FDFBF7] border border-[#E5E2DC] rounded-2xl hover:border-[#E68910] transition"
-            >
-              <div>
-                <p className="text-sm font-semibold text-[#0A1F5C]">Issue with this order?</p>
-                <p className="text-xs text-[#9CA3AF] mt-0.5">Raise a support request</p>
-              </div>
-              <ChevronRight size={16} className="text-[#9CA3AF]" />
-            </Link>
-          </section>
-        )}
-
         {address && !isPickup && (
           <section data-testid="delivery-address" className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm">
             <div className="flex items-start gap-3">
@@ -410,37 +485,20 @@ export default function OrderTrackingPage() {
         </section>
 
         {!isPickup && (
-          <section data-testid="bill-summary" className="bg-white border border-[#E5E2DC] rounded-3xl p-5 sm:p-6 shadow-sm">
-            <div className="flex items-center gap-2 mb-3">
-              <Receipt size={16} className="text-[#0A1F5C]" />
-              <h2 className="font-display text-base sm:text-lg font-bold text-[#0A1F5C]">Bill summary</h2>
-            </div>
-            <div className="text-sm space-y-2">
-              <div className="flex items-baseline justify-between"><span className="text-[#64748B]">Item total</span><span className="text-[#0A1F5C] font-medium">₹{subtotal.toLocaleString()}</span></div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[#64748B]">Delivery fee</span>
-                {order.delivery_fee ? (
-                  <span className="text-[#0A1F5C] font-medium" data-testid="order-delivery-fee">₹{order.delivery_fee.toLocaleString()}</span>
-                ) : (
-                  <span className="text-emerald-700 font-semibold" data-testid="order-delivery-fee">FREE</span>
-                )}
-              </div>
-            </div>
-            <div className="border-t border-[#E5E2DC] mt-3 pt-3 flex items-baseline justify-between">
-              <span className="text-sm font-semibold text-[#0A1F5C]">Total paid</span>
-              <span className="font-display text-xl font-bold text-[#0A1F5C]">₹{total.toLocaleString()}</span>
-            </div>
-            <p className="text-[11px] text-[#64748B] mt-2">Paid via {(order.payment_method || "COD").replace(/_/g, " ")}.</p>
-          </section>
+          <BillSummary order={order} subtotal={subtotal} total={total} isCancelledLike={isCancelledLike} />
         )}
 
-        <a
-          href="mailto:hello@shoplokl.in"
-          data-testid="help-pill"
-          className="flex items-center justify-center gap-2 bg-white border border-[#E5E2DC] hover:border-[#E68910] hover:bg-[#E68910]/[0.04] text-[#0A1F5C] rounded-2xl py-3 font-semibold text-sm transition shadow-sm"
+        {/* De-emphasized, contextual — plain text, not a card. Reaches the
+            same order-aware support flow (Stage 2) for every order status,
+            not only delivered ones. */}
+        <Link
+          href={`/account/support?order_id=${order.id}`}
+          data-testid="order-need-help-link"
+          className="flex items-center justify-center gap-1.5 text-sm text-[#64748B] hover:text-[#0A1F5C] transition py-1"
         >
-          <Phone size={14} className="text-[#E68910]" /> Need help? hello@shoplokl.in · +91 77190 52107
-        </a>
+          Need help with this order?
+          <ChevronRight size={14} />
+        </Link>
 
         {(status === "pending_merchant" || status === "accepted") && (
           <div className="mx-4 my-4">

@@ -20,11 +20,18 @@
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useCartStore } from "@/stores";
+import { useMounted } from "@/hooks/useMounted";
 
 export function BottomNavSafeArea({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const cartCount = useCartStore((s) => s.getItemCount());
-  const hideBottomNav = pathname?.startsWith("/checkout") && cartCount > 0;
+  const mounted = useMounted();
+  // Same `mounted` gate as StickyBottomNav's own matching condition (see
+  // useMounted's doc comment on hydration warning #418) — cartCount reads
+  // as the SSR-default (0) until the persisted cart store actually
+  // rehydrates on the client, so this class previously flipped between
+  // server and first-client-render on /checkout with a non-empty cart.
+  const hideBottomNav = mounted && pathname?.startsWith("/checkout") && cartCount > 0;
   return (
     <div className={`flex-1 flex flex-col ${hideBottomNav ? "" : "bottom-nav-safe"}`}>
       {children}

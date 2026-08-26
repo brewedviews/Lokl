@@ -65,7 +65,12 @@ export function StickyBottomNav() {
   const cartCount = useCartStore((s) => s.getItemCount());
 
   if (pathname.startsWith("/merchant") || pathname.startsWith("/admin") || pathname.startsWith("/rider")) return null;
-  if (pathname.startsWith("/checkout") && cartCount > 0) return null;
+  // Gated on `mounted` (see useMounted's own doc comment on hydration
+  // warning #418) — cartCount reads as the store's SSR-default (0) until
+  // the persisted cart has actually rehydrated on the client, so checking
+  // it un-gated made the server and first-client-render disagree on
+  // whether this nav renders at all on /checkout.
+  if (pathname.startsWith("/checkout") && mounted && cartCount > 0) return null;
 
   const isActive = (href: string) => href === "/" ? pathname === "/" : pathname.startsWith(href);
 

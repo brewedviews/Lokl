@@ -61,3 +61,60 @@ export function findBhilaiAreaByPincode(pincode: string | undefined | null): Bhi
   if (p.length !== 6) return null;
   return BHILAI_AREAS.find((a) => a.pincode === p) ?? null;
 }
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+export type AreaConfidence = "strong" | "weak" | "none";
+
+export interface AreaLookup {
+  confidence: AreaConfidence;
+  /** Only ever set when confidence is "strong" — a specific area/pincode
+   *  is never attached to a "weak" or "none" result. */
+  area: BhilaiArea | null;
+  /** Set whenever confidence is "strong" or "weak" — city-level is a much
+   *  safer claim than a specific area from a distant nearest-match. */
+  city: string | null;
+}
+
+const STRONG_MATCH_KM = 3;
+const WEAK_MATCH_KM = 8;
+
+/**
+ * Approximate reverse geocoding (coords -> nearest known area), confidence-
+ * gated. No reverse-geocoding provider exists anywhere in the repo (Mapbox
+ * was deliberately removed — see AddressPinPicker.tsx's own header
+ * comment), so rather than add a new external geocoding dependency, this
+ * does a nearest-neighbor lookup against data already in the codebase.
+ * Used by the "current location" flow so a distant/noisy GPS fix never
+ * gets confidently mapped to a specific (possibly wrong) area/pincode:
+ *   - within STRONG_MATCH_KM of a known centroid: high confidence — fill
+ *     area + pincode + city.
+ *   - within WEAK_MATCH_KM but not STRONG_MATCH_KM: we're in the general
+ *     Bhilai vicinity but not confidently in any one listed area — fill
+ *     city only, never guess the specific area/pincode.
+ *   - beyond WEAK_MATCH_KM: no fill at all — genuinely outside the pilot
+ *     area, or too far from any known point to say anything useful.
+ */
+export function locateBhilaiArea(lat: number, lng: number): AreaLookup {
+  let best: BhilaiArea | null = null;
+  let bestDist = Infinity;
+  for (const a of BHILAI_AREAS) {
+    const d = haversineKm(lat, lng, a.lat, a.lng);
+    if (d < bestDist) { bestDist = d; best = a; }
+  }
+  if (best && bestDist <= STRONG_MATCH_KM) {
+    return { confidence: "strong", area: best, city: "Bhilai" };
+  }
+  if (best && bestDist <= WEAK_MATCH_KM) {
+    return { confidence: "weak", area: null, city: "Bhilai" };
+  }
+  return { confidence: "none", area: null, city: null };
+}
