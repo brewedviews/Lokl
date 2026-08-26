@@ -41,11 +41,6 @@
  * scrim/overlay at all) that branching inside one component was cleaner
  * than a second near-identical file. `"overlay"` (default) is completely
  * unchanged — every existing G4/G6 call site renders pixel-identically.
- *
- * G15 — `previewMode` (discovery variant only): suppresses the open/closed
- * status pill. Used by the public coming-soon page's "stores coming to
- * Lokl" preview, where showing real-time open/closed state would be
- * misleading pre-launch. Every existing caller omits it and is unaffected.
  */
 import Link from "next/link";
 import { Sparkles, BadgeCheck } from "lucide-react";
@@ -78,7 +73,7 @@ interface SellerCardStore {
   trusted?: boolean;
 }
 
-export function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel, href, variant = "overlay", fitToContainer = false, previewMode = false }: { s: SellerCardStore; source?: string; openNow?: boolean; closedLabel?: string; /** Phase G4 — overrides the default `/store/{slug|id}` destination; used by CMS-pinned display cards, which aren't real store records. */ href?: string; variant?: "overlay" | "discovery"; /** G13 — discovery variant only. Fills the parent grid/flex cell (`w-full h-full`) instead of the card's own fixed `w-40 sm:w-44` rail width, for callers that lay cards out in a CSS grid (e.g. StoresNearYouSection's 2-col mobile grid) rather than a horizontal-scroll rail. Every other caller omits this and is unaffected. */ fitToContainer?: boolean; /** G15 — discovery variant only. Suppresses the open/closed status pill for pre-launch previews. */ previewMode?: boolean }) {
+export function SellerCard({ s, source = "meet_sellers", openNow = false, closedLabel, href, variant = "overlay", fitToContainer = false }: { s: SellerCardStore; source?: string; openNow?: boolean; closedLabel?: string; /** Phase G4 — overrides the default `/store/{slug|id}` destination; used by CMS-pinned display cards, which aren't real store records. */ href?: string; variant?: "overlay" | "discovery"; /** G13 — discovery variant only. Fills the parent grid/flex cell (`w-full h-full`) instead of the card's own fixed `w-40 sm:w-44` rail width, for callers that lay cards out in a CSS grid (e.g. StoresNearYouSection's 2-col mobile grid) rather than a horizontal-scroll rail. Every other caller omits this and is unaffected. */ fitToContainer?: boolean }) {
   const banner = s.banner || (Array.isArray(s.banners) && s.banners[0]) || s.image || null;
   const area = s.area_label || s.area || s.locality || "Bhilai";
   const logisticsParts = [
@@ -132,12 +127,10 @@ export function SellerCard({ s, source = "meet_sellers", openNow = false, closed
         <div className={`px-2.5 py-2 ${fitToContainer ? "flex-1 flex flex-col justify-center" : ""}`}>
           {nameRow}
           {categoryArea && <div className="text-[10px] text-[#64748B] mt-0.5 leading-tight line-clamp-1">{categoryArea}</div>}
-          {!previewMode && (
-            <div className="flex items-center gap-1 mt-1">
-              <span className={`w-1.5 h-1.5 rounded-full ${openNow ? "bg-[#22C55E]" : "bg-[#94A3B8]"}`} />
-              <span className="text-[9px] font-bold text-[#64748B]">{openNow ? "Open now" : (closedLabel || "Closed")}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-1 mt-1">
+            <span className={`w-1.5 h-1.5 rounded-full ${openNow ? "bg-[#22C55E]" : "bg-[#94A3B8]"}`} />
+            <span className="text-[9px] font-bold text-[#64748B]">{openNow ? "Open now" : (closedLabel || "Closed")}</span>
+          </div>
         </div>
       </Link>
     );
