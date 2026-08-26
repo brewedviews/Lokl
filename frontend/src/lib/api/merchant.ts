@@ -205,6 +205,26 @@ export const merchantApi = {
     return r.data;
   },
 
+  /** G14 — parses + column-maps an uploaded file WITHOUT creating any
+   *  products, backing the lightweight mapping/preview step for a file
+   *  that isn't confidently auto-mappable end-to-end. Same FormData shape
+   *  as bulkCreateProducts (file under key `file`, optional `sheet`). */
+  bulkDetectColumns: async (
+    fd: FormData,
+  ): Promise<{
+    sheet_names: string[]; selected_sheet: string | null;
+    columns: Array<{ header: string; mapped_field: string | null }>;
+    row_count: number; looks_like_lokl_template: boolean;
+    unmapped_required: string[];
+  }> => {
+    const r = await apiClient.post(
+      "/api/merchant/products/bulk/detect",
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+    return r.data;
+  },
+
   bulkAction: async (
     ids: string[],
     action: "publish" | "pause" | "delete",

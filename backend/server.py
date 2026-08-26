@@ -7034,33 +7034,62 @@ _GENDER_NORMALIZE = {
 
 _L1_ID_TO_NAME = {c["id"]: c["name"] for c in L1_CATEGORIES}
 
+# G14 — bounded, curated per-L1 L2 synonym table (root cause of the real
+# "Hindustan Boot House.xlsx" 0-imported bug). NOT a fuzzy matcher: checked
+# only after an exact L2 match fails, and only within the L1 the merchant
+# already selected — a synonym NEVER crosses L1 boundaries (that stays a
+# hard rejection with the cross-L1 "did you mean" message below). Seeded
+# from a real merchant file: "Sports Shoes" is a genuine taxonomy L2 name,
+# but only under L1 "Sports" — under L1 "Footwear" (where a shoe retailer
+# naturally expects it) the real L2 name is "Sports & Running".
+_L2_SYNONYMS: dict[tuple[str, str], str] = {
+    ("l1-footwear", "sports shoes"): "Sports & Running",
+    ("l1-footwear", "sneakers"): "Sports & Running",
+    ("l1-footwear", "running shoes"): "Sports & Running",
+}
+
 
 def _row_to_product(row: dict, l1_by_name: dict, l2_by_name: dict, l2_flat_by_name: Optional[dict] = None) -> tuple[dict | None, str | None]:
     """Parse one bulk-upload row (from xlsx or csv) into a product doc fragment.
     Returns (doc, skip_reason). doc is None when the row should be skipped.
 
-    Every skip reason is prefixed "Row N: " by the caller (G12 P1-10/11) —
-    this function itself stays row-number-agnostic and just returns the
-    specific, human-readable cause (e.g. "L2 'Dresses' is not valid for L1
-    'Men'" instead of the old, misleading "L2 required for category" that
-    fired identically whether the cell was blank or simply wrong)."""
-    name = str(row.get("product name") or row.get("name") or row.get("product_name") or "").strip()
+    `row` is already CANONICAL-keyed (name/description/gender/l1/l2/mrp/
+    price/sizes/stock_per_size/stock_total/returnable/return_window_hours/
+    try_at_doorstep/brand/image/image_2...) by
+    xlsx_template.map_row_headers — one shared column-mapping layer now
+    serves both xlsx and csv uploads (G14), so this function no longer
+    does its own per-field alias fallbacks.
+
+    Every skip reason is prefixed "Row N: " by the caller — this function
+    itself stays row-number-agnostic and just returns the specific,
+    human-readable cause (e.g. "L2 'Dresses' is not valid for L1 'Men'"
+    instead of a generic "invalid row")."""
+    from xlsx_template import _cell_to_str
+
+    name = _cell_to_str(row.get("name")).strip()
     if not name:
         return None, "Product name is required"
-    l1_raw = (row.get("l1_category") or row.get("l1 category") or row.get("l1") or row.get("category") or "").strip().lower()
+    l1_raw = _cell_to_str(row.get("l1")).strip().lower()
+    if not l1_raw:
+        return None, f"{name}: L1 category is required"
     l1_id = _L1_NORMALIZE.get(l1_raw) or l1_by_name.get(l1_raw)
     if not l1_id:
         return None, f"{name}: unknown L1 category '{l1_raw}'"
-    l2_raw = str(row.get("l2 category") or row.get("l2_category") or row.get("l2") or row.get("subcategory") or "").strip().lower()
+    l2_raw = _cell_to_str(row.get("l2")).strip().lower()
     l2_id = l2_by_name.get((l1_id, l2_raw), "") if l2_raw else ""
-    gender_raw = (row.get("gender") or "").strip().lower()
-    gender = _GENDER_NORMALIZE.get(gender_raw, str(row.get("gender") or "N/A").strip())
+    if not l2_id and l2_raw:
+        synonym = _L2_SYNONYMS.get((l1_id, l2_raw))
+        if synonym:
+            l2_id = l2_by_name.get((l1_id, synonym.lower()), "")
+    gender_raw = _cell_to_str(row.get("gender")).strip().lower()
+    gender = _GENDER_NORMALIZE.get(gender_raw, _cell_to_str(row.get("gender")).strip() or "N/A")
     if l1_id in L2_BY_L1 and not l2_id:
         l1_name = _L1_ID_TO_NAME.get(l1_id, l1_raw)
         if l2_raw:
-            # Cell wasn't blank — it just doesn't belong under this L1. Tell
-            # the merchant exactly which L1 it DOES belong under, if we can
-            # find it, rather than the old blank-vs-wrong-ambiguous message.
+            # Cell wasn't blank — it just doesn't belong under this L1 (and
+            # no curated synonym resolved it either). Tell the merchant
+            # exactly which L1 it DOES belong under, if we can find it,
+            # rather than a blank-vs-wrong-ambiguous message.
             match = (l2_flat_by_name or {}).get(l2_raw)
             if match:
                 correct_l1 = _L1_ID_TO_NAME.get(match[0], match[0])
@@ -7069,66 +7098,207 @@ def _row_to_product(row: dict, l1_by_name: dict, l2_by_name: dict, l2_flat_by_na
         return None, f"{name}: L2 category is required for L1 '{l1_name}'"
     if l1_id not in L2_BY_L1 and gender == "N/A":
         gender = "Unisex"
-    sizes_raw = row.get("sizes") or row.get("size") or ""
-    sizes = [s.strip() for s in _re.split(r"[,;|]+", str(sizes_raw)) if s.strip()]
-    try: price = float((row.get("selling price") or row.get("price") or row.get("selling_price") or 0) or 0)
+    sizes_raw = _cell_to_str(row.get("sizes"))
+    sizes = [s.strip() for s in _re.split(r"[,;|]+", sizes_raw) if s.strip()]
+
+    price_raw = row.get("price")
+    if price_raw in (None, ""):
+        return None, f"{name}: selling price is required"
+    try: price = float(price_raw)
     except (ValueError, TypeError): return None, f"{name}: selling price is not a valid number"
     if price <= 0:
         return None, f"{name}: selling price must be greater than 0"
-    try: mrp = float(row.get("mrp") or 0)
-    except (ValueError, TypeError): return None, f"{name}: MRP is not a valid number"
-    if mrp and mrp < 0:
-        return None, f"{name}: MRP cannot be negative"
-    stock_raw = str(row.get("stock_per_size") or row.get("stock per size") or row.get("stock") or "").strip()
+
+    # MRP stays OPTIONAL (matches the single-product-add form's own
+    # canonical requirements, G12 §7 precedent) — a blank cell just means
+    # "no MRP set", same as today. An EXPLICITLY-entered zero/negative
+    # value, though, is rejected rather than silently accepted: it would
+    # divide-by-zero every discount-percentage display across the app.
+    mrp_raw = row.get("mrp")
+    mrp: Optional[float] = None
+    if mrp_raw not in (None, ""):
+        try: mrp = float(mrp_raw)
+        except (ValueError, TypeError): return None, f"{name}: MRP is not a valid number"
+        if mrp <= 0:
+            return None, f"{name}: MRP must be greater than 0"
+
+    stock_raw = _cell_to_str(row.get("stock_per_size") or row.get("stock_total")).strip()
     stock_dict: dict = {}
     if stock_raw:
         parts = [p.strip() for p in _re.split(r"[,;|]+", stock_raw) if p.strip() != ""]
+        if sizes and len(parts) not in (1, len(sizes)):
+            return None, f"{name}: {len(sizes)} sizes provided but {len(parts)} stock quantities provided"
         if len(parts) == len(sizes) and sizes:
             for sz, n in zip(sizes, parts):
-                try: stock_dict[sz] = int(float(n))
-                except (ValueError, TypeError): stock_dict[sz] = 0
+                try: qty = int(float(n))
+                except (ValueError, TypeError): return None, f"{name}: stock quantity '{n}' is not a valid number"
+                if qty < 0: return None, f"{name}: stock cannot be negative"
+                stock_dict[sz] = qty
         elif len(parts) == 1 and sizes:
             try: only = int(float(parts[0]))
-            except (ValueError, TypeError): only = 0
+            except (ValueError, TypeError): return None, f"{name}: stock quantity '{parts[0]}' is not a valid number"
+            if only < 0: return None, f"{name}: stock cannot be negative"
             stock_dict = {sz: only for sz in sizes}
         elif not sizes:
-            try: stock_dict = {"default": int(float(parts[0]))}
-            except (ValueError, TypeError): stock_dict = {"default": 0}
-        else:
-            return None, f"{name}: sizes/stock count mismatch"
-    if any(v < 0 for v in stock_dict.values()):
-        return None, f"{name}: stock cannot be negative"
-    returnable_raw = str(row.get("returnable") or "").strip().lower()
+            try: only = int(float(parts[0]))
+            except (ValueError, TypeError): return None, f"{name}: stock quantity '{parts[0]}' is not a valid number"
+            if only < 0: return None, f"{name}: stock cannot be negative"
+            stock_dict = {"default": only}
+
+    returnable_raw = _cell_to_str(row.get("returnable")).strip().lower()
     return_eligible = returnable_raw in ("yes", "y", "true", "1")
     return_window_hours = None
     if return_eligible:
-        rwh_raw = row.get("return_window_hours")
-        if rwh_raw not in (None, ""):
+        rwh_raw = _cell_to_str(row.get("return_window_hours")).strip()
+        if rwh_raw:
             try:
                 return_window_hours = int(float(rwh_raw))
             except (ValueError, TypeError):
                 return None, f"{name}: return window (hours) is not a valid number"
             if return_window_hours < 1 or return_window_hours > 24:
-                return None, f"{name}: return window (hours) must be between 1 and 24"
-    try_at_doorstep_raw = str(row.get("try_at_doorstep") or "").strip().lower()
+                return None, f"{name}: return window must be between 1 and 24 hours"
+    try_at_doorstep_raw = _cell_to_str(row.get("try_at_doorstep")).strip().lower()
     try_at_doorstep = try_at_doorstep_raw in ("yes", "y", "true", "1")
-    return {
-        "name": name, "price": price, "mrp": mrp or None,
+
+    # Image URL column(s) (G14 §10) — accepted as-is, exactly like existing
+    # demo/seed product docs already carry raw external image URLs; no
+    # Cloudinary re-upload pipeline invented. Any cell that doesn't look
+    # like an http(s) URL is silently dropped (non-fatal), same precedent
+    # as an unrecognized brand name.
+    image_keys = ["image"] + [k for k in sorted(row.keys()) if _re.fullmatch(r"image_\d+", k or "")]
+    images = []
+    for k in image_keys:
+        v = _cell_to_str(row.get(k)).strip()
+        if v and v.lower().startswith(("http://", "https://")):
+            images.append(v)
+
+    doc: dict = {
+        "name": name, "price": price, "mrp": mrp,
         "l1_id": l1_id, "l2_id": l2_id, "gender": gender,
-        "description": str(row.get("description") or "").strip(),
+        "description": _cell_to_str(row.get("description")).strip(),
         "sizes": sizes, "stock": stock_dict or {"default": 0},
         "return_eligible": return_eligible,
         "return_window_hours": return_window_hours,
         "try_at_doorstep": try_at_doorstep,
-    }, None
+    }
+    if images:
+        doc["image"] = images[0]
+        doc["images"] = images
+        doc["needs_image"] = False
+    return doc, None
+
+
+def _decode_csv_bytes(raw_bytes: bytes) -> str:
+    """Best-effort text decode for an uploaded CSV (G14 §11): `utf-8-sig`
+    first (transparently strips a BOM if present — common from "CSV UTF-8"
+    Excel exports — and behaves exactly like plain utf-8 when there's no
+    BOM), then `cp1252` on a strict-decode failure (a common older-Excel
+    export encoding for files with curly quotes/accented characters), then
+    a last-resort lossy replace so an upload never hard-fails purely on
+    encoding. Previously a bare `errors="ignore"` utf-8 decode, which
+    silently DROPPED undecodable bytes rather than trying a real fallback
+    encoding."""
+    for codec in ("utf-8-sig", "cp1252"):
+        try:
+            return raw_bytes.decode(codec)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw_bytes.decode("utf-8", errors="replace")
+
+
+def _sniff_csv_delimiter(sample: str) -> str:
+    """Bounded delimiter detection (G14 §11) — comma/semicolon/tab via the
+    stdlib Sniffer on a small sample, falling back to comma (the overwhelming
+    common case) on any ambiguity rather than over-engineering this."""
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=",;\t").delimiter
+    except csv.Error:
+        return ","
+
+
+def _parse_bulk_file(
+    raw_bytes: bytes, filename: str, sheet: Optional[str] = None,
+    overrides: Optional[dict] = None,
+) -> tuple[list[dict], dict]:
+    """Shared xlsx/csv -> canonical-row-dicts pipeline (G14). The ONE parsing
+    path both /merchant/products/bulk/detect and /merchant/products/bulk
+    use, so a csv upload and an xlsx upload are governed by the exact same
+    column-mapping + row-shape logic — only the file-format layer differs,
+    never the business logic (previously CSV skipped xlsx_template's header-
+    alias table entirely and fell back to _row_to_product's own narrower
+    inline fallbacks)."""
+    from xlsx_template import parse_uploaded_xlsx, map_row_headers, looks_like_lokl_template
+
+    fname = (filename or "").lower()
+    if fname.endswith(".xlsx") or raw_bytes.startswith(b"PK\x03\x04"):
+        try:
+            return parse_uploaded_xlsx(raw_bytes, sheet=sheet, overrides=overrides)
+        except Exception as e:
+            raise HTTPException(400, f"Could not read this xlsx file: {e}")
+
+    try:
+        text = _decode_csv_bytes(raw_bytes)
+    except Exception as e:
+        raise HTTPException(400, f"Could not read this csv file: {e}")
+    delimiter = _sniff_csv_delimiter(text[:2048])
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+    try:
+        raw_headers = next(reader)
+    except StopIteration:
+        raw_headers = []
+    canonical_keys, columns_report = map_row_headers(raw_headers, overrides)
+
+    rows: list[dict] = []
+    for row_idx, raw_row in enumerate(reader, start=2):
+        if not any((v or "").strip() for v in raw_row):
+            continue
+        d: dict = {}
+        for i, key in enumerate(canonical_keys):
+            if not key or i >= len(raw_row):
+                continue
+            d[key] = raw_row[i]
+        d["_row_num"] = row_idx
+        rows.append(d)
+
+    meta = {
+        "sheet_names": [], "selected_sheet": None,
+        "columns": columns_report, "row_count": len(rows),
+        "looks_like_lokl_template": looks_like_lokl_template(raw_headers),
+    }
+    return rows, meta
+
+
+@api.post("/merchant/products/bulk/detect")
+async def bulk_products_detect(
+    file: UploadFile = File(...), sheet: Optional[str] = Form(None),
+    user: dict = Depends(get_current_user),
+):
+    """Parse + column-map an uploaded file WITHOUT creating any products
+    (G14 §4/§13) — backs the frontend's lightweight mapping/preview step.
+    Reuses the exact same `_parse_bulk_file` pipeline the real import
+    endpoint below calls, so what a merchant previews here is exactly what
+    would be imported — never a second, drifted parsing path."""
+    from xlsx_template import REQUIRED_CANONICAL_FIELDS
+    raw_bytes = await _validate_bulk_upload(file)
+    _rows, meta = _parse_bulk_file(raw_bytes, file.filename or "", sheet=sheet)
+    mapped_fields = {c["mapped_field"] for c in meta["columns"] if c["mapped_field"]}
+    unmapped_required = [f for f in REQUIRED_CANONICAL_FIELDS if f not in mapped_fields]
+    return {**meta, "unmapped_required": unmapped_required}
 
 
 @api.post("/merchant/products/bulk")
-async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    """Accept BOTH .xlsx (preferred — has dropdowns) and legacy .csv.
-    Columns: name, description, l1, l2, gender, mrp, price,
-    sizes (semicolon-separated, e.g. `S;M;L`), stock_per_size (e.g. `50;100;39`),
-    returnable (Yes/No).
+async def bulk_products(
+    file: UploadFile = File(...), sheet: Optional[str] = Form(None),
+    mapping_overrides: Optional[str] = Form(None),
+    user: dict = Depends(get_current_user),
+):
+    """Accept BOTH .xlsx (preferred — has dropdowns) and .csv, from EITHER
+    the Lokl-generated template OR a merchant's own reasonable spreadsheet
+    (G14) — column headers are matched against a broad, curated alias table
+    (xlsx_template.CANONICAL_ALIASES), not required to match the template
+    verbatim. `sheet` / `mapping_overrides` (JSON: {header: field_or_null})
+    are optional, only ever sent by the frontend's mapping/preview step for
+    a file that wasn't confidently auto-mapped end-to-end.
     """
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
     if m.get("kyc_status") != "approved": raise HTTPException(403, "KYC not approved")
@@ -7145,26 +7315,28 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
         raise HTTPException(400, f"You have reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to upload more products.")
 
     raw_bytes = await _validate_bulk_upload(file)
-    fname = (file.filename or "").lower()
-    rows: list[dict] = []
-    if fname.endswith(".xlsx") or raw_bytes.startswith(b"PK\x03\x04"):
+    overrides = None
+    if mapping_overrides:
         try:
-            from xlsx_template import parse_uploaded_xlsx
-            rows = parse_uploaded_xlsx(raw_bytes)
-        except Exception as e:
-            raise HTTPException(400, f"Could not read xlsx: {e}")
-    else:
-        try:
-            raw = raw_bytes.decode("utf-8", errors="ignore")
-            # Row 1 is the header, so the first data row is spreadsheet row 2 —
-            # matches parse_uploaded_xlsx's own `_row_num` convention so error
-            # messages are identically row-indexed regardless of upload format.
-            rows = []
-            for i, r in enumerate(csv.DictReader(io.StringIO(raw)), start=2):
-                r["_row_num"] = i
-                rows.append(r)
-        except Exception as e:
-            raise HTTPException(400, f"Could not read csv: {e}")
+            overrides = {str(k).strip().lower(): v for k, v in json.loads(mapping_overrides).items()}
+        except (ValueError, AttributeError):
+            raise HTTPException(400, "mapping_overrides must be a JSON object of {header: field}")
+    rows, meta = _parse_bulk_file(raw_bytes, file.filename or "", sheet=sheet, overrides=overrides)
+
+    # G14 §21-U — a file whose header row maps to ZERO canonical fields (no
+    # recognizable product columns at all) would otherwise silently produce
+    # "created: 0, skipped: []" with no explanation: every row's cells all
+    # land on unmapped columns, so each row looks identical to a genuinely
+    # blank row and is dropped before ever reaching a validation message.
+    # Caught explicitly here so the merchant sees an honest reason instead
+    # of a bare, unexplained zero.
+    if meta["columns"] and all(c["mapped_field"] is None for c in meta["columns"]):
+        raise HTTPException(
+            400,
+            "We couldn't find any recognizable product columns in this file "
+            "(e.g. Product Name, L1 Category, Selling Price). Check the "
+            "header row, or download the Lokl template for a guided format.",
+        )
 
     l1_by_name, l2_by_name, l2_flat_by_name = _category_name_maps()
 
@@ -7179,7 +7351,8 @@ async def bulk_products(file: UploadFile = File(...), user: dict = Depends(get_c
     brands_unmatched: set[str] = set()
 
     async def _resolve_brand_id(row: dict) -> Optional[str]:
-        raw = str(row.get("brand") or row.get("brand name") or row.get("brand_name") or "").strip()
+        from xlsx_template import _cell_to_str
+        raw = _cell_to_str(row.get("brand")).strip()
         if not raw:
             return None
         key = raw.lower()

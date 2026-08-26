@@ -24,6 +24,42 @@ import type { Product } from "@/types";
 interface L2 { id: string; name: string }
 interface Category { id: string; name: string; l2: L2[] }
 
+// G14 — bulk-upload mapping/preview + results types. Mirror the backend's
+// /bulk/detect and /bulk response shapes (server.py bulk_products /
+// bulk_products_detect) exactly — see xlsx_template.py's CANONICAL_ALIASES
+// for what each field name means.
+interface BulkDetectResult {
+  sheet_names: string[]; selected_sheet: string | null;
+  columns: Array<{ header: string; mapped_field: string | null }>;
+  row_count: number; looks_like_lokl_template: boolean;
+  unmapped_required: string[];
+}
+interface BulkImportResult {
+  created: number; created_ids: string[]; names: string[]; skipped: string[];
+  brands_matched: string[]; brands_unmatched: string[]; brands_unmatched_note?: string;
+  warning?: string;
+}
+const CANONICAL_FIELD_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "name", label: "Product Name" },
+  { value: "description", label: "Description" },
+  { value: "gender", label: "Gender" },
+  { value: "l1", label: "L1 Category" },
+  { value: "l2", label: "L2 Category" },
+  { value: "mrp", label: "MRP" },
+  { value: "price", label: "Selling Price" },
+  { value: "sizes", label: "Sizes" },
+  { value: "stock_per_size", label: "Stock per Size" },
+  { value: "stock_total", label: "Stock (single quantity)" },
+  { value: "returnable", label: "Returnable" },
+  { value: "return_window_hours", label: "Return Window (Hours)" },
+  { value: "try_at_doorstep", label: "Try & Buy" },
+  { value: "brand", label: "Brand" },
+  { value: "image", label: "Image URL" },
+];
+const REQUIRED_FIELD_LABELS: Record<string, string> = {
+  name: "Product Name", l1: "L1 Category", price: "Selling Price", mrp: "MRP",
+};
+
 const GENDERS = ["women", "men", "unisex", "kids"];
 const MAX_IMAGES = 5;
 const SIZE_TYPE_OPTIONS: Record<string, { label: string; sizes: string[] }> = {
@@ -72,6 +108,18 @@ export default function MerchantProductsPage() {
   // a merchant removed-then-abandoned an edit).
   const [pendingDeletePublicIds, setPendingDeletePublicIds] = useState<string[]>([]);
   const bulkInputRef = useRef<HTMLInputElement | null>(null);
+  // G14 — bulk-upload mapping/preview + results state. `bulkDetect` holds
+  // the /bulk/detect response for a file that wasn't confidently auto-
+  // mappable end-to-end (see handleBulkUpload); `bulkFile` is the pending
+  // File waiting on the merchant's mapping confirmation. `bulkResult` is
+  // ALWAYS set after a real import (success or partial/failure) and drives
+  // the results modal — replaces the old unconditional
+  // toast.success("Imported N products") that fired even when N was 0 and
+  // never surfaced the (already-correct) per-row skip reasons at all.
+  const [bulkDetect, setBulkDetect] = useState<BulkDetectResult | null>(null);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkMappingOverrides, setBulkMappingOverrides] = useState<Record<string, string | null>>({});
+  const [bulkResult, setBulkResult] = useState<BulkImportResult | null>(null);
 
   const load = async () => {
     try { setItems(await api.merchant.listProducts()); } catch { /* ignore */ }
@@ -240,14 +288,46 @@ export default function MerchantProductsPage() {
     } catch (e) { toast.error(getErrorMessage(e)); }
   };
 
+  // G14 — detect columns first; only show the mapping/preview screen when
+  // the file ISN'T already confidently mappable end-to-end (brief's own
+  // explicit "do not force a mapping screen when the file already matches
+  // canonical structure" — this covers both the Lokl template itself and
+  // any merchant file that happens to already use the same header text).
   const handleBulkUpload = async (file: File | undefined) => {
     if (!file) return;
     setBulkUploadBusy(true);
     try {
       const fd = new FormData();
       fd.append("file", file);
+      const detect = await api.merchant.bulkDetectColumns(fd);
+      if (detect.looks_like_lokl_template && detect.unmapped_required.length === 0) {
+        await runBulkImport(file, detect.selected_sheet, null);
+      } else {
+        // Detect finished — the busy state from here belongs to the
+        // mapping modal's own "Continue import" button (runBulkImport sets
+        // it again when that fires), not this initial file-select spinner.
+        // Leaving this `true` permanently disabled "Continue import".
+        setBulkUploadBusy(false);
+        setBulkFile(file);
+        setBulkDetect(detect);
+        setBulkMappingOverrides({});
+      }
+    } catch (e) { toast.error(getErrorMessage(e)); setBulkUploadBusy(false); }
+  };
+
+  const runBulkImport = async (file: File, sheet: string | null, overrides: Record<string, string | null> | null) => {
+    setBulkUploadBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (sheet) fd.append("sheet", sheet);
+      if (overrides) fd.append("mapping_overrides", JSON.stringify(overrides));
       const r = await api.merchant.bulkCreateProducts(fd);
-      toast.success(`Imported ${r.created} products`);
+      // Always shown via the results modal below — never a silent/blanket
+      // success toast, since "Imported 0 products" needs the per-row
+      // reasons right next to it, not hidden behind a toast that never
+      // read `r.skipped` at all (the confirmed G14 root-cause #2 bug).
+      setBulkResult(r);
       if (r.brands_unmatched.length > 0) {
         toast.warning(
           `Brand not recognized for: ${r.brands_unmatched.join(", ")} — product(s) created without a brand tag. Check spelling or ask an admin to add it.`,
@@ -256,7 +336,11 @@ export default function MerchantProductsPage() {
       }
       void load();
     } catch (e) { toast.error(getErrorMessage(e)); }
-    finally { setBulkUploadBusy(false); }
+    finally {
+      setBulkUploadBusy(false);
+      setBulkFile(null);
+      setBulkDetect(null);
+    }
   };
 
   const publishStore = async () => {
@@ -290,6 +374,9 @@ export default function MerchantProductsPage() {
             <Package size={26} /> Products
           </h1>
           <p className="text-[#595959] text-sm mt-1">{items.length} product{items.length === 1 ? "" : "s"} in your catalog</p>
+          <p className="text-[#94A3B8] text-xs mt-1 max-w-md">
+            You can upload your own Excel or CSV file — we&apos;ll map common columns and validate your products before importing. The Lokl template is just the easiest way to get started.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={() => void downloads.merchantProductsTemplate(token).catch((e) => toast.error(getErrorMessage(e)))} data-testid="download-template" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-[#E5E2DC] text-sm font-semibold hover:border-[#1A2B4C]">
@@ -794,6 +881,164 @@ export default function MerchantProductsPage() {
           </div>
         </>
       )}
+
+      {/* G14 — mapping/preview step. Only rendered when handleBulkUpload
+          decided the file needs it (not confidently auto-mappable
+          end-to-end) — a canonical file skips straight to the real
+          import and this never shows. */}
+      {bulkFile && bulkDetect && (
+        <BulkMappingModal
+          detect={bulkDetect}
+          overrides={bulkMappingOverrides}
+          onChangeOverride={(header, field) => setBulkMappingOverrides((o) => ({ ...o, [header.toLowerCase()]: field }))}
+          busy={bulkUploadBusy}
+          onCancel={() => { setBulkFile(null); setBulkDetect(null); }}
+          onConfirm={() => void runBulkImport(bulkFile, bulkDetect.selected_sheet, bulkMappingOverrides)}
+        />
+      )}
+
+      {/* G14 — results modal. ALWAYS shown after a real import (success,
+          partial, or fully failed) — replaces the old unconditional
+          success toast that hid `skipped` entirely, including the
+          confusing "Imported 0 products" case with zero explanation. */}
+      {bulkResult && (
+        <BulkResultModal result={bulkResult} onClose={() => setBulkResult(null)} />
+      )}
+    </div>
+  );
+}
+
+// G14 — lightweight mapping/preview step (brief §4). Shown only for a file
+// that isn't confidently auto-mappable end-to-end; a canonical file (the
+// Lokl template, or a merchant file that happens to already use the same
+// header text) skips this entirely per the brief's own explicit
+// instruction not to force a mapping screen in that case.
+function BulkMappingModal({
+  detect, overrides, onChangeOverride, busy, onCancel, onConfirm,
+}: {
+  detect: BulkDetectResult;
+  overrides: Record<string, string | null>;
+  onChangeOverride: (header: string, field: string | null) => void;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const effectiveField = (header: string, autoDetected: string | null): string | null => {
+    const key = header.toLowerCase();
+    return key in overrides ? (overrides[key] ?? null) : autoDetected;
+  };
+  const mappedNow = new Set(detect.columns.map((c) => effectiveField(c.header, c.mapped_field)).filter(Boolean));
+  const stillUnmappedRequired = Object.keys(REQUIRED_FIELD_LABELS).filter((f) => !mappedNow.has(f));
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end md:items-center justify-center p-0 md:p-4">
+      <div className="fixed inset-0 bg-black/40" onClick={onCancel} />
+      <div className="relative bg-white w-full md:max-w-2xl md:rounded-3xl rounded-t-3xl max-h-[92vh] flex flex-col" data-testid="bulk-mapping-modal">
+        <div className="px-5 pt-5 pb-3 border-b border-[#E5E2DC]">
+          <h2 className="font-display text-lg font-bold text-[#1A2B4C]">Check your columns</h2>
+          <p className="text-xs text-[#595959] mt-1">
+            {detect.row_count} row{detect.row_count === 1 ? "" : "s"} detected
+            {detect.sheet_names.length > 1 && detect.selected_sheet ? ` — using sheet "${detect.selected_sheet}"` : ""}.
+            We matched what we could to Lokl's product fields — fix anything below that looks wrong, then continue.
+          </p>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-3">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[10px] uppercase tracking-widest text-[#595959]">
+                <th className="pb-2 pr-3">Uploaded column</th>
+                <th className="pb-2">Lokl field</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detect.columns.map((c, i) => {
+                const current = effectiveField(c.header, c.mapped_field);
+                return (
+                  <tr key={`${c.header}-${i}`} className="border-t border-[#E5E2DC]" data-testid={`bulk-map-row-${i}`}>
+                    <td className="py-2 pr-3 font-medium text-[#1A2B4C] align-middle">{c.header || <span className="text-[#94A3B8] italic">(blank header)</span>}</td>
+                    <td className="py-2 align-middle">
+                      <select
+                        value={current ?? ""}
+                        onChange={(e) => onChangeOverride(c.header, e.target.value || null)}
+                        data-testid={`bulk-map-select-${i}`}
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#E5E2DC] bg-white text-sm text-[#1A2B4C]"
+                      >
+                        <option value="">Not mapped</option>
+                        {CANONICAL_FIELD_OPTIONS.map((f) => (
+                          <option key={f.value} value={f.value}>{f.label}</option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {stillUnmappedRequired.length > 0 && (
+            <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" data-testid="bulk-map-missing-required">
+              Still missing: {stillUnmappedRequired.map((f) => REQUIRED_FIELD_LABELS[f]).join(", ")}. Map a column to each before continuing.
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2 px-5 py-4 border-t border-[#E5E2DC]">
+          <button onClick={onCancel} className="flex-1 py-3 bg-white border border-[#E5E2DC] text-[#595959] rounded-xl font-semibold text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={busy || stillUnmappedRequired.length > 0}
+            data-testid="bulk-map-continue"
+            className="flex-1 py-3 bg-[#E68910] text-white rounded-xl font-bold text-sm disabled:opacity-50"
+          >
+            {busy ? "Importing…" : "Continue import"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// G14 — always shown after a real import (never a silent/blanket success
+// toast) so "N of M imported" and every skip reason are visible together,
+// including the previously-confusing "Imported 0 products" case.
+function BulkResultModal({ result, onClose }: { result: BulkImportResult; onClose: () => void }) {
+  const total = result.created + result.skipped.length;
+  const allGood = result.created > 0 && result.skipped.length === 0;
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end md:items-center justify-center p-0 md:p-4">
+      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white w-full md:max-w-lg md:rounded-3xl rounded-t-3xl max-h-[85vh] flex flex-col" data-testid="bulk-result-modal">
+        <div className="px-5 pt-5 pb-3 border-b border-[#E5E2DC]">
+          <h2 className={`font-display text-lg font-bold ${allGood ? "text-[#1A2B4C]" : result.created > 0 ? "text-[#1A2B4C]" : "text-red-600"}`}>
+            {result.created} of {total} product{total === 1 ? "" : "s"} imported
+          </h2>
+          {result.skipped.length > 0 && (
+            <p className="text-xs text-[#595959] mt-1">
+              {result.skipped.length} row{result.skipped.length === 1 ? "" : "s"} need attention — see below.
+            </p>
+          )}
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+          {result.created > 0 && (
+            <div className="rounded-xl bg-green-50 border border-green-200 px-3 py-2 text-xs text-green-800" data-testid="bulk-result-created">
+              Imported: {result.names.join(", ")}
+            </div>
+          )}
+          {result.skipped.map((reason, i) => (
+            <div key={i} className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700" data-testid={`bulk-result-skip-${i}`}>
+              {reason}
+            </div>
+          ))}
+          {result.warning && (
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">{result.warning}</div>
+          )}
+        </div>
+        <div className="px-5 py-4 border-t border-[#E5E2DC]">
+          <button onClick={onClose} data-testid="bulk-result-close" className="w-full py-3 bg-[#1A2B4C] text-white rounded-xl font-bold text-sm">
+            Done
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

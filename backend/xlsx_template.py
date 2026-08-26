@@ -188,54 +188,203 @@ def build_template_xlsx() -> bytes:
     return buf.getvalue()
 
 
-_HEADER_ALIAS = {
-    "product name":        "name",
-    "product_name":        "name",
-    "l1 category":         "l1",
-    "l1_category":         "l1",
-    "l2 category":         "l2",
-    "l2_category":         "l2",
-    "l2 sub-category":     "l2",
-    "selling price":       "price",
-    "selling_price":       "price",
-    "sale price":          "price",
-    "stock per size":      "stock_per_size",
-    "stock":               "stock_per_size",
-    "product description": "description",
-    "brand name":          "brand",
-    "brand_name":          "brand",
-    "return window (hours)": "return_window_hours",
-    "return_window_hours":   "return_window_hours",
-    "return window":         "return_window_hours",
-    "try & buy":             "try_at_doorstep",
-    "try and buy":           "try_at_doorstep",
-    "try_at_doorstep":       "try_at_doorstep",
+
+# ============================================================================
+# G14 — universal column mapping. ONE canonical alias table, used by BOTH the
+# xlsx path (parse_uploaded_xlsx below) and the csv path (server.py's
+# bulk_products) — previously csv never got _HEADER_ALIAS treatment at all
+# and relied solely on _row_to_product's own narrower inline `or`-chains, a
+# real "separate business logic for CSV" architecture problem. Every alias
+# list below matches the "SUPPORTED COLUMN MAPPING" list from the G14 brief
+# verbatim — deliberately NOT a fuzzy/heuristic matcher, so a column that
+# isn't on this list is reported as unmapped rather than guessed at.
+#
+# "image" is handled specially below (map_row_headers) since a file can
+# legitimately have several image columns (Image 1/2/3...) — those all need
+# distinct canonical keys, not one that collides.
+# ============================================================================
+CANONICAL_ALIASES: dict[str, list[str]] = {
+    "name": ["product name", "product_name", "product", "name", "item name", "item"],
+    "description": ["description", "product description", "product_description", "details"],
+    "gender": ["gender", "sex", "target gender"],
+    "l1": ["l1", "l1 category", "l1_category", "category", "main category", "department"],
+    "l2": ["l2", "l2 category", "l2_category", "sub category", "subcategory", "sub-category", "l2 sub-category"],
+    "mrp": ["mrp", "mrp price", "maximum retail price", "list price"],
+    "price": ["selling price", "selling_price", "sale price", "selling price (inr)", "price", "offer price"],
+    "stock_total": ["stock", "quantity", "inventory", "available stock"],
+    "sizes": ["sizes", "size", "available sizes"],
+    "stock_per_size": ["stock per size", "stock_per_size", "stock by size", "size stock", "quantity per size"],
+    "returnable": ["returnable", "return eligible", "return allowed", "is returnable"],
+    "return_window_hours": ["return window", "return window hours", "return window (hours)", "return_window_hours", "return hours"],
+    "try_at_doorstep": ["try & buy", "try and buy", "try & buy available", "try at doorstep", "try at doorstep available", "try_at_doorstep"],
+    "brand": ["brand", "brand name", "brand_name"],
+}
+_IMAGE_ALIASES = {"image", "image url", "product image", "product image url"}
+
+# Flat lowercased-alias -> canonical-field lookup, built once from the table
+# above. Longer/more-specific aliases never lose to shorter ones since every
+# entry maps to exactly one field — no ambiguity to resolve.
+_FLAT_ALIAS: dict[str, str] = {
+    alias: field for field, aliases in CANONICAL_ALIASES.items() for alias in aliases
 }
 
+# Fields a sellable product genuinely can't exist without — drives both the
+# detect endpoint's `unmapped_required` and (indirectly, via _row_to_product
+# already requiring them) row-level validation. `l2`/`gender` are NOT always
+# required (gender-neutral L1s per G12) so they're intentionally excluded —
+# the row-level validator still enforces l2-when-the-L1-has-l2s.
+REQUIRED_CANONICAL_FIELDS = ["name", "l1", "price", "mrp"]
 
-def parse_uploaded_xlsx(data: bytes) -> list[dict]:
-    """Parse the merchant's uploaded xlsx into row dicts using header names.
-    Tolerates extra/blank columns and the 'How to fill' sheet.
-    Maps l1_category → l1 and l2_subcategory → l2 so _row_to_product in
-    server.py can consume the output without modification.
 
-    Each row dict carries `_row_num` — the real spreadsheet row number
-    (1-indexed, matching what a merchant sees in Excel) — so server.py can
-    produce row-specific error messages instead of a bare, unindexed reason
-    (G12 P1-10/11).
+def _is_image_header(h: str) -> bool:
+    if h in _IMAGE_ALIASES:
+        return True
+    # "image 1", "image 2", "image_3"... — numbered variants of the same alias.
+    base = re.sub(r"[\s_]*\d+$", "", h).strip()
+    return base in _IMAGE_ALIASES
+
+
+def map_row_headers(
+    raw_headers: list[str], overrides: dict[str, str | None] | None = None,
+) -> tuple[list[str | None], list[dict]]:
+    """Map a file's raw header row to Lokl's canonical product fields.
+
+    `overrides` (G14 §4) — an optional {lowercased header: canonical_field}
+    map from the frontend's mapping/preview step, for the rare column the
+    automatic aliasing below can't confidently place. Checked FIRST for
+    each header, so a merchant's manual choice always wins over (or can
+    explicitly un-map, via a null value) the automatic guess.
+
+    Returns (canonical_keys, columns_report):
+      - canonical_keys[i] is the canonical field name for column i (or None
+        if unmapped) — image columns get "image", "image_2", "image_3"...
+        in encounter order so multiple image cells never collide.
+      - columns_report is [{"header": <original text>, "mapped_field": ...}]
+        for every column, in order — this is exactly what the /bulk/detect
+        endpoint hands the frontend for the mapping/preview step.
+
+    Confidently-mapped only: a header not on CANONICAL_ALIASES / the image
+    alias set maps to None (shown to the merchant as "Not mapped") rather
+    than guessed at — see this module's own top-of-section comment.
+    """
+    canonical_keys: list[str | None] = []
+    columns_report: list[dict] = []
+    image_slot = 0
+    for raw in raw_headers:
+        h = (raw or "").strip().lower()
+        if not h:
+            canonical_keys.append(None)
+            columns_report.append({"header": raw or "", "mapped_field": None})
+            continue
+        if overrides is not None and h in overrides:
+            field = overrides[h]
+            canonical_keys.append(field)
+            columns_report.append({"header": raw, "mapped_field": field})
+            continue
+        if _is_image_header(h):
+            image_slot += 1
+            key = "image" if image_slot == 1 else f"image_{image_slot}"
+            canonical_keys.append(key)
+            columns_report.append({"header": raw, "mapped_field": "image"})
+            continue
+        field = _FLAT_ALIAS.get(h)
+        canonical_keys.append(field)
+        columns_report.append({"header": raw, "mapped_field": field})
+    return canonical_keys, columns_report
+
+
+def looks_like_lokl_template(raw_headers: list[str]) -> bool:
+    """True only when the header row is exactly today's generated template's
+    header text (case-insensitive) — the ONE signal allowed to skip the
+    frontend's mapping/preview step per the brief's explicit "do not force a
+    mapping screen when the file already matches canonical structure." Never
+    used to gate validation itself — only the UI's mapping-screen decision."""
+    cleaned = [(h or "").strip().lower() for h in raw_headers if (h or "").strip()]
+    return cleaned == HEADERS
+
+
+def _cell_to_str(v) -> str:
+    """Stringify a raw spreadsheet cell without mangling Excel's numeric
+    typing. Excel stores a merchant's plain "6" as the float 6.0 the moment
+    it looks numeric — `str(6.0)` is "6.0", which then fails to match a size
+    like "6" downstream. A whole-number float/int becomes its plain integer
+    string; anything else (already a string, e.g. "6;7") is left as-is."""
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return str(v)
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        return str(int(v)) if v.is_integer() else str(v)
+    return str(v).strip()
+
+
+def parse_uploaded_xlsx(
+    data: bytes, sheet: str | None = None, overrides: dict[str, str | None] | None = None,
+) -> tuple[list[dict], dict]:
+    """Parse a merchant-uploaded xlsx into canonical row dicts.
+
+    Sheet selection (G14 §12): an explicit `sheet` name wins if given and
+    exists; else our own template's "Products" sheet name wins if present
+    (back-compat); else, among VISIBLE sheets only (hidden helper sheets
+    like the template's own "L2Lists" are never candidates), the sheet whose
+    header row has the most columns this module can confidently map is
+    chosen; else the workbook's own active sheet.
+
+    Returns (rows, meta) — meta is the same "detect" info the /bulk/detect
+    endpoint surfaces: {sheet_names, selected_sheet, columns, row_count,
+    looks_like_lokl_template}. Row dicts are keyed by CANONICAL field names
+    (already alias-mapped via map_row_headers) plus `_row_num` — the real,
+    1-indexed spreadsheet row a merchant would see in Excel.
     """
     wb = load_workbook(io.BytesIO(data), data_only=True)
-    ws = wb["Products"] if "Products" in wb.sheetnames else wb.active
-    headers: list[str] = []
+    visible_sheets = [s for s in wb.sheetnames if wb[s].sheet_state == "visible"]
+
+    def _header_row(name: str) -> list[str]:
+        ws = wb[name]
+        first = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
+        return [str(h).strip() if h is not None else "" for h in first]
+
+    if sheet and sheet in wb.sheetnames:
+        selected = sheet
+    elif "Products" in wb.sheetnames:
+        selected = "Products"
+    elif visible_sheets:
+        scored = [(s, sum(1 for k in map_row_headers(_header_row(s))[0] if k)) for s in visible_sheets]
+        scored.sort(key=lambda t: t[1], reverse=True)
+        selected = scored[0][0] if scored and scored[0][1] > 0 else (wb.active.title if wb.active else visible_sheets[0])
+    else:
+        selected = wb.active.title if wb.active else wb.sheetnames[0]
+
+    ws = wb[selected]
+    raw_headers = _header_row(selected)
+    canonical_keys, columns_report = map_row_headers(raw_headers, overrides)
+
     rows: list[dict] = []
     for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
         if row_idx == 1:
-            raw = [str(h).strip().lower() if h is not None else "" for h in row]
-            headers = [_HEADER_ALIAS.get(h, h) for h in raw]
             continue
         if not any(v not in (None, "") for v in row):
             continue
-        d = {h: row[i] if i < len(row) else None for i, h in enumerate(headers) if h}
+        d: dict = {}
+        for i, key in enumerate(canonical_keys):
+            if not key or i >= len(row):
+                continue
+            d[key] = row[i]
         d["_row_num"] = row_idx
         rows.append(d)
-    return rows
+
+    meta = {
+        "sheet_names": visible_sheets or wb.sheetnames,
+        "selected_sheet": selected,
+        "columns": columns_report,
+        "row_count": len(rows),
+        # Header-content match only (not gated on sheet name) — a merchant
+        # file that happens to already use Lokl's exact canonical headers
+        # is just as unambiguous as our own generated template, and the
+        # brief is explicit: don't force a mapping screen on an
+        # already-canonical file, regardless of whose file it is.
+        "looks_like_lokl_template": looks_like_lokl_template(raw_headers),
+    }
+    return rows, meta
