@@ -49,6 +49,40 @@ export const siteApi = {
     );
     return r.data;
   },
+
+  /** POST /api/waitlist — pre-launch customer/merchant waitlist (G15). The
+   *  same backend the current static coming-soon.html already posts to;
+   *  this is just its first typed frontend consumer. Dedupes server-side
+   *  on (phone, type) and returns ok:true with "Already registered"
+   *  rather than erroring on a repeat submission. */
+  joinWaitlist: async (payload: {
+    phone: string;
+    type: "customer" | "merchant";
+    store_name?: string;
+    category?: string;
+  }): Promise<{ ok: boolean; message: string }> => {
+    const r = await apiClient.post<{ ok: boolean; message: string }>("/api/waitlist", payload);
+    return r.data;
+  },
+
+  /** GET /api/stats/home — real, live-computed marketplace headline
+   *  numbers (G15's first frontend consumer of this endpoint). NOT typed
+   *  against the `HomeStats` type in @/types/cart.ts — that type's shape
+   *  (`stores_count`/`products_count`/`cities_count`) doesn't match what
+   *  this route actually returns (`verified_stores`/`products`/
+   *  `avg_rating`/`deliveries`); it's dead/unused elsewhere, so this
+   *  return type is declared inline against the real response instead. */
+  homeStatsReal: async (): Promise<{
+    avg_rating: number;
+    verified_stores: number;
+    products: number;
+    deliveries: number;
+  }> => {
+    const r = await apiClient.get<{
+      avg_rating: number; verified_stores: number; products: number; deliveries: number;
+    }>("/api/stats/home");
+    return r.data;
+  },
 };
 
 export const catalogApi = {

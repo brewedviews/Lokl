@@ -12,9 +12,14 @@
  * cookie's existence as a coarse signal, and the layout owns the real call.
  *
  * Domain routing: requests arriving on shoplokl.in / www.shoplokl.in are
- * rewritten to /coming-soon.html without a redirect. next.config.ts host-based
- * rewrites are unreliable in standalone mode; middleware runs at the edge and
- * is guaranteed to fire first.
+ * rewritten to /coming-soon (a real Next.js route, G15) without a redirect.
+ * next.config.ts host-based rewrites are unreliable in standalone mode;
+ * middleware runs at the edge and is guaranteed to fire first.
+ *
+ * G15 — this used to rewrite to the static /coming-soon.html file (still
+ * present on disk, now unreferenced) with zero connection to the real
+ * component/design system. /coming-soon is a real page built from
+ * production components/tokens instead — see its own directory for detail.
  *
  * merchant.shoplokl.in is the merchant portal subdomain — bare root rewrites
  * to /merchant/register (same onboarding-with-login-option page as
@@ -49,7 +54,7 @@ export function middleware(request: NextRequest) {
   // silently dropping every submission before it reaches the backend.
   if (isShopLokl && !pathname.startsWith('/api')) {
     const url = request.nextUrl.clone()
-    url.pathname = '/coming-soon.html'
+    url.pathname = '/coming-soon'
     return NextResponse.rewrite(url)
   }
 

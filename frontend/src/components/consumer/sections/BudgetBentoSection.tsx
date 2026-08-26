@@ -12,6 +12,12 @@
  * passed by each L1 page (scoped destinations, same component/visuals).
  * Self-fetches `api.catalog.priceBento()` (unchanged endpoint, now
  * returns a 4th `premium` key — see server.py's feed_price_bento).
+ *
+ * G15 — `interactive` (default true): the public coming-soon page reuses
+ * this section as a visual preview only, before `/products?price=...`
+ * is a real shopping destination for a visitor. `false` renders each tile
+ * as a plain non-navigating `div` instead of a `Link`, same classes
+ * otherwise. Every existing caller omits it and is unaffected.
  */
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -27,7 +33,7 @@ const TILES = [
   { key: "premium" as const,    price: "Premium",      href: (l1?: string) => `/products?sort=price_desc${l1 ? `&l1=${l1}` : ""}`,   filter: "under_1499" as const },
 ];
 
-export function BudgetBentoSection({ l1Id }: { l1Id?: string }) {
+export function BudgetBentoSection({ l1Id, interactive = true }: { l1Id?: string; interactive?: boolean }) {
   const [bento, setBento] = useState<PriceBentoResponse | null>(null);
   // G13 §10 — l1Id arrives as the category id ("l1-women"); the CMS/API
   // side keys L1 overrides by the bare slug ("women") instead, since that's
@@ -46,14 +52,9 @@ export function BudgetBentoSection({ l1Id }: { l1Id?: string }) {
       <div className="grid grid-cols-2 gap-2 sm:gap-3">
         {TILES.map((t) => {
           const image = bento?.[t.key] ?? null;
-          return (
-            <Link
-              key={t.key}
-              href={t.href(l1Id)}
-              onClick={() => { try { trackPriceFilterClick(t.filter); } catch {} }}
-              data-testid={`price-band-${t.key}`}
-              className="group relative aspect-[4/5] sm:aspect-square rounded-card overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-[0.98]"
-            >
+          const tileClassName = "group relative aspect-[4/5] sm:aspect-square rounded-card overflow-hidden shadow-[0_2px_8px_rgba(10,31,92,0.06)] transition-all active:scale-[0.98]";
+          const tileContent = (
+            <>
               {image ? (
                 <>
                   <img
@@ -83,7 +84,22 @@ export function BudgetBentoSection({ l1Id }: { l1Id?: string }) {
                   </span>
                 </>
               )}
+            </>
+          );
+          return interactive ? (
+            <Link
+              key={t.key}
+              href={t.href(l1Id)}
+              onClick={() => { try { trackPriceFilterClick(t.filter); } catch {} }}
+              data-testid={`price-band-${t.key}`}
+              className={tileClassName}
+            >
+              {tileContent}
             </Link>
+          ) : (
+            <div key={t.key} data-testid={`price-band-${t.key}`} className={tileClassName}>
+              {tileContent}
+            </div>
           );
         })}
       </div>
