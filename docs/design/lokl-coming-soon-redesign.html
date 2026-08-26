@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lokl. — Bhilai's local fashion app, coming soon</title>
+<meta name="description" content="Bhilai's own neighbour shopping app. Browse real stock from local clothing and footwear stores, order online, delivered in 45 minutes. Join the waitlist.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#1A2B4C;
+  --navy-deep:#0F1830;
+  --cream:#FDFBF7;
+  --paper:#F5F0E6;
+  --orange:#E68910;
+  --orange-deep:#C56F07;
+  --teal:#1F7A63;
+  --teal-deep:#175D4B;
+  --ink:#1A2B4C;
+  --ink-soft:#5C6270;
+  --line:#E5E2DC;
+  --radius-lg:28px;
+  --radius-md:20px;
+  --radius-sm:12px;
+  --wrap:1120px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--cream);color:var(--ink);line-height:1.5;-webkit-font-smoothing:antialiased}
+a{text-decoration:none;color:inherit}
+button{font-family:inherit;cursor:pointer}
+img,svg{display:block;max-width:100%}
+.wrap{max-width:var(--wrap);margin:0 auto;padding-left:32px;padding-right:32px}
+.font-display{font-family:'Sora',system-ui,sans-serif}
+
+/* ---------- reveal-on-scroll ---------- */
+.reveal{opacity:0;transform:translateY(18px);transition:opacity .6s ease,transform .6s ease}
+.reveal.in-view{opacity:1;transform:translateY(0)}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .reveal{opacity:1;transform:none;transition:none}
+  *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
+}
+
+/* ---------- nav ---------- */
+.nav{position:sticky;top:0;z-index:100;background:rgba(253,251,247,0.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.nav-inner{max-width:var(--wrap);margin:0 auto;padding:14px 32px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.nav-loc{display:flex;align-items:center;gap:8px}
+.nav-loc svg{flex-shrink:0}
+.nav-loc-text{line-height:1.15}
+.nav-loc-city{font-size:14px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px}
+.nav-loc-state{font-size:11px;color:var(--ink-soft);font-weight:500}
+.nav-logo{font-family:'Sora',sans-serif;font-size:21px;font-weight:800;letter-spacing:-0.5px;color:var(--navy)}
+.nav-logo em{color:var(--orange);font-style:normal}
+.nav-updates{display:flex;align-items:center;gap:7px;background:var(--navy);color:#fff;font-size:12.5px;font-weight:700;padding:8px 16px 8px 12px;border-radius:50px;white-space:nowrap}
+.nav-updates svg{flex-shrink:0}
+
+/* ---------- ticker ---------- */
+.ticker{background:var(--navy-deep);color:rgba(255,255,255,0.82);text-align:center;padding:10px 20px;font-size:12.5px;font-weight:500;letter-spacing:0.01em}
+.ticker strong{color:var(--orange);font-weight:800;font-size:14px;margin:0 3px}
+
+/* ---------- hero ---------- */
+.hero{position:relative;background:radial-gradient(120% 100% at 15% 0%,#233b66 0%,var(--navy) 45%,var(--navy-deep) 100%);overflow:hidden;padding:64px 0 0}
+.hero-inner{max-width:var(--wrap);margin:0 auto;padding:0 32px;display:grid;grid-template-columns:1.05fr 0.95fr;gap:24px;align-items:center}
+.hero-badge{display:inline-flex;align-items:center;gap:9px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.16);color:rgba(255,255,255,0.88);font-size:12.5px;font-weight:600;padding:7px 16px 7px 12px;border-radius:50px;margin-bottom:26px}
+.live-dot{width:7px;height:7px;background:#4CAF50;border-radius:50%;animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+.hero h1{font-family:'Sora',sans-serif;line-height:1.04;letter-spacing:-1px;margin-bottom:20px}
+.hero h1 span{display:block}
+.hero-line1{font-size:clamp(20px,2.6vw,28px);font-weight:700;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px !important}
+.hero-line2{font-size:clamp(32px,5vw,54px);font-weight:800;color:#fff}
+.hero-line3{font-size:clamp(32px,5vw,54px);font-weight:800;color:var(--orange)}
+.hero-sub{font-size:16px;color:rgba(255,255,255,0.62);line-height:1.7;margin-bottom:32px;max-width:420px}
+.hero-actions{display:flex;flex-wrap:wrap;align-items:center;gap:20px;margin-bottom:32px}
+.btn-primary{background:var(--orange);color:#fff;border:none;padding:15px 34px;border-radius:50px;font-size:15px;font-weight:800;letter-spacing:-0.1px;transition:background .15s,transform .1s}
+.btn-primary:hover{background:var(--orange-deep)}
+.btn-primary:active{transform:scale(0.98)}
+.hero-stats{display:flex;gap:32px;padding-top:24px;border-top:1px solid rgba(255,255,255,0.12);max-width:420px}
+.h-stat strong{display:block;font-family:'Sora',sans-serif;font-size:23px;font-weight:800;color:#fff;letter-spacing:-0.5px}
+.h-stat span{font-size:10.5px;color:rgba(255,255,255,0.4);font-weight:600;text-transform:uppercase;letter-spacing:0.7px;margin-top:2px;display:block}
+
+.hero-art{position:relative;display:flex;align-items:center;justify-content:center;padding:20px 0 0}
+.hero-art svg{width:100%;height:auto;max-width:480px}
+
+.scroll-cue{display:flex;flex-direction:column;align-items:center;gap:6px;padding:34px 0 26px;color:rgba(255,255,255,0.4);font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:1px}
+.scroll-cue svg{animation:bob 1.8s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(6px)}}
+
+@media(max-width:900px){
+  .hero-inner{grid-template-columns:1fr;text-align:left}
+  .hero-art{order:-1;padding-top:0}
+  .hero-art svg{max-width:220px;margin:0 auto}
+}
+
+/* ---------- section shell ---------- */
+.section{max-width:var(--wrap);margin:0 auto;padding:96px 32px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--orange);text-transform:uppercase;letter-spacing:2px;margin-bottom:14px}
+.eyebrow.on-dark{color:#F0B65A}
+.eyebrow::before{content:'';width:16px;height:2px;background:currentColor;border-radius:2px}
+.section-title{font-family:'Sora',sans-serif;font-size:clamp(26px,3.6vw,40px);font-weight:800;color:var(--navy);line-height:1.14;letter-spacing:-0.8px;margin-bottom:16px}
+.section-lead{font-size:15.5px;color:var(--ink-soft);line-height:1.75;max-width:560px;margin-bottom:52px}
+
+/* stitch divider — nods to a tailor's cutting line */
+.stitch{max-width:var(--wrap);margin:0 auto;padding:0 32px}
+.stitch::after{content:'';display:block;height:0;border-top:1.5px dashed var(--line)}
+
+/* ---------- what-is-lokl scan cards ---------- */
+.scan-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+.scan-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius-md);padding:26px}
+.scan-num{width:34px;height:34px;background:var(--navy);color:#fff;border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:'Sora',sans-serif;font-size:14px;font-weight:700;margin-bottom:18px}
+.scan-title{font-size:15.5px;font-weight:800;color:var(--navy);margin-bottom:8px;letter-spacing:-0.2px}
+.scan-desc{font-size:13.3px;color:var(--ink-soft);line-height:1.65}
+
+/* ---------- why cards ---------- */
+.why-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+.why-card{background:var(--paper);border-radius:var(--radius-md);padding:26px}
+.why-icon{width:44px;height:44px;border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;margin-bottom:18px;box-shadow:0 1px 0 rgba(0,0,0,0.03)}
+.why-title{font-size:15.5px;font-weight:800;color:var(--navy);margin-bottom:8px;letter-spacing:-0.2px}
+.why-desc{font-size:13.3px;color:var(--ink-soft);line-height:1.65}
+
+/* ---------- merchant section ---------- */
+.merchant-shell{padding:0 32px 0}
+.merchant-panel{max-width:var(--wrap);margin:0 auto;background:linear-gradient(160deg,var(--navy) 0%,var(--navy-deep) 100%);border-radius:var(--radius-lg);padding:64px 52px;position:relative;overflow:hidden}
+.merchant-panel::before{content:'';position:absolute;top:-80px;right:-80px;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(230,137,16,0.18),transparent 70%)}
+.merchant-grid{display:grid;grid-template-columns:1.1fr 0.9fr;gap:56px;position:relative;z-index:1}
+.merchant-checklist{list-style:none;margin:28px 0 36px}
+.merchant-checklist li{display:flex;gap:12px;align-items:flex-start;font-size:14.5px;color:rgba(255,255,255,0.85);font-weight:500;margin-bottom:14px;line-height:1.5}
+.merchant-checklist svg{flex-shrink:0;margin-top:2px}
+.btn-merchant{background:var(--teal);color:#fff;border:none;padding:15px 30px;border-radius:50px;font-size:15px;font-weight:800;letter-spacing:-0.1px;display:inline-flex;align-items:center;gap:8px;transition:background .15s,transform .1s}
+.btn-merchant:hover{background:var(--teal-deep)}
+.btn-merchant:active{transform:scale(0.98)}
+.m-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-content:start}
+.m-stat{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:20px}
+.m-stat-big{font-family:'Sora',sans-serif;font-size:26px;font-weight:800;color:var(--orange);letter-spacing:-0.5px;margin-bottom:6px}
+.m-stat h4{font-size:13px;font-weight:700;color:#fff;margin-bottom:4px}
+.m-stat p{font-size:11.5px;color:rgba(255,255,255,0.45);line-height:1.55}
+
+@media(max-width:860px){
+  .merchant-panel{padding:40px 26px}
+  .merchant-grid{grid-template-columns:1fr;gap:32px}
+}
+
+/* ---------- get started ---------- */
+.start-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.start-card{border-radius:var(--radius-lg);padding:36px;position:relative}
+.start-card.customer{background:#fff;border:1px solid var(--line);border-top:4px solid var(--orange)}
+.start-card.merchant{background:var(--navy);border-top:4px solid var(--teal)}
+.start-tag{display:inline-block;font-size:11px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;padding:5px 12px;border-radius:50px;margin-bottom:18px}
+.start-card.customer .start-tag{background:rgba(230,137,16,0.12);color:var(--orange-deep)}
+.start-card.merchant .start-tag{background:rgba(31,122,99,0.25);color:#5FD6B4}
+.start-title{font-size:19px;font-weight:800;letter-spacing:-0.3px;margin-bottom:6px}
+.start-card.customer .start-title{color:var(--navy)}
+.start-card.merchant .start-title{color:#fff}
+.start-sub{font-size:13.3px;line-height:1.6;margin-bottom:24px}
+.start-card.customer .start-sub{color:var(--ink-soft)}
+.start-card.merchant .start-sub{color:rgba(255,255,255,0.55)}
+
+.field-group{margin-bottom:14px}
+.field-group label{display:block;font-size:11.5px;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.6px}
+.start-card.customer .field-group label{color:var(--navy)}
+.start-card.merchant .field-group label{color:rgba(255,255,255,0.7)}
+.field-group input{width:100%;padding:13px 16px;border-radius:12px;font-family:'Inter',sans-serif;font-size:14px;outline:none;transition:border-color .15s,background .15s}
+.start-card.customer .field-group input{border:1.5px solid var(--line);background:var(--cream);color:var(--navy)}
+.start-card.customer .field-group input:focus{border-color:var(--orange);background:#fff}
+.start-card.merchant .field-group input{border:1.5px solid rgba(255,255,255,0.16);background:rgba(255,255,255,0.06);color:#fff}
+.start-card.merchant .field-group input::placeholder{color:rgba(255,255,255,0.35)}
+.start-card.merchant .field-group input:focus{border-color:var(--teal);background:rgba(255,255,255,0.1)}
+
+.start-submit{width:100%;padding:14px;border:none;border-radius:50px;font-size:14.5px;font-weight:800;letter-spacing:-0.1px;margin-top:4px;transition:background .15s,transform .1s}
+.start-card.customer .start-submit{background:var(--orange);color:#fff}
+.start-card.customer .start-submit:hover{background:var(--orange-deep)}
+.start-card.merchant .start-submit{background:var(--teal);color:#fff}
+.start-card.merchant .start-submit:hover{background:var(--teal-deep)}
+.start-submit:active{transform:scale(0.985)}
+.start-submit:disabled{opacity:0.7;cursor:default}
+
+.start-note{font-size:11.5px;text-align:center;margin-top:12px;line-height:1.5;display:flex;align-items:center;justify-content:center;gap:5px}
+.start-card.customer .start-note{color:#9a9a9a}
+.start-card.merchant .start-note{color:rgba(255,255,255,0.4)}
+
+.start-success{display:none;text-align:center;padding:14px 0}
+.start-success.show{display:block}
+.start-success .chk{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
+.start-card.customer .chk{background:#E8F5E9}
+.start-card.merchant .chk{background:rgba(95,214,180,0.15)}
+.start-success-title{font-size:16px;font-weight:800;margin-bottom:6px}
+.start-card.customer .start-success-title{color:var(--navy)}
+.start-card.merchant .start-success-title{color:#fff}
+.start-success-sub{font-size:13px;line-height:1.6}
+.start-card.customer .start-success-sub{color:var(--ink-soft)}
+.start-card.merchant .start-success-sub{color:rgba(255,255,255,0.55)}
+
+@media(max-width:860px){ .start-grid{grid-template-columns:1fr} }
+
+/* ---------- footer ---------- */
+.footer{background:var(--navy-deep);padding:48px 32px 36px;text-align:center;margin-top:0}
+.footer-logo{font-family:'Sora',sans-serif;font-size:21px;font-weight:800;color:#fff;margin-bottom:12px}
+.footer-logo em{color:var(--orange);font-style:normal}
+.footer-links{display:flex;justify-content:center;gap:24px;margin:14px 0;font-size:13px;flex-wrap:wrap}
+.footer-links a{color:rgba(255,255,255,0.45)}
+.footer-links a:hover{color:#fff}
+.footer-copy{font-size:12px;color:rgba(255,255,255,0.28);margin-top:8px}
+
+/* focus visibility */
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--orange);outline-offset:2px}
+
+@media(max-width:720px){
+  .section{padding:40px 20px}
+  .wrap,.nav-inner,.hero-inner,.stitch,.merchant-shell{padding-left:20px;padding-right:20px}
+  .hero{padding-top:28px}
+  .hero-badge{margin-bottom:16px}
+  .hero h1{margin-bottom:14px}
+  .hero-sub{margin-bottom:22px;font-size:14.5px}
+  .hero-actions{gap:14px;margin-bottom:22px}
+  .hero-stats{gap:18px;padding-top:18px}
+  .scroll-cue{padding:20px 0 18px}
+  .nav-updates span.nav-updates-text{display:none}
+
+  .eyebrow{margin-bottom:10px}
+  .section-title{margin-bottom:10px}
+  .section-lead{margin-bottom:26px}
+
+  /* collapse card grids into a swipeable row to keep mobile scroll depth short */
+  .scan-grid,.why-grid{display:flex;overflow-x:auto;gap:12px;margin:0 -20px;padding:2px 20px 10px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .scan-grid::-webkit-scrollbar,.why-grid::-webkit-scrollbar{display:none}
+  .scan-card,.why-card{flex:0 0 76%;scroll-snap-align:start;padding:20px}
+
+  .merchant-panel{padding:32px 22px;border-radius:22px}
+  .merchant-checklist li{margin-bottom:11px;font-size:14px}
+  .m-stat{padding:16px}
+  .m-stat-big{font-size:22px}
+
+  .start-grid{gap:14px}
+  .start-card{padding:26px 22px}
+  #merchants{padding-bottom:40px !important}
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="nav-loc">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 22s7-7.58 7-13A7 7 0 1 0 5 9c0 5.42 7 13 7 13Z" stroke="#1A2B4C" stroke-width="1.8"/><circle cx="12" cy="9" r="2.4" fill="#E68910"/></svg>
+      <div class="nav-loc-text">
+        <div class="nav-loc-city">Bhilai
+          <svg width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="#5C6270" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="nav-loc-state">Chhattisgarh</div>
+      </div>
+    </div>
+    <a class="nav-logo" href="#top">lokl<em>.</em></a>
+    <a class="nav-updates" href="https://instagram.com" target="_blank" rel="noopener">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="5" stroke="#fff" stroke-width="1.8"/><circle cx="12" cy="12" r="4" stroke="#fff" stroke-width="1.8"/><circle cx="17.2" cy="6.8" r="1.1" fill="#fff"/></svg>
+      <span class="nav-updates-text">Updates</span>
+    </a>
+  </div>
+</nav>
+
+<div class="ticker">
+  <strong id="store-count">0</strong> stores joining before launch &nbsp;·&nbsp; Be the first to shop from them
+</div>
+
+<section class="hero" id="top">
+  <div class="hero-inner">
+    <div>
+      <div class="hero-badge">
+        <div class="live-dot"></div>
+        Launching soon in Bhilai
+      </div>
+      <h1>
+        <span class="hero-line1">Bhilai's own neighbour shopping app</span>
+        <span class="hero-line2">Your local stores,</span>
+        <span class="hero-line3">delivered in 45 minutes.</span>
+      </h1>
+      <p class="hero-sub">From the kurta shop two lanes down to the sneaker store you always pass by — shop it all on one app. Order online, pay only when it's at your door.</p>
+      <div class="hero-actions">
+        <button class="btn-primary" data-scroll-to="#get-started">Count me in</button>
+      </div>
+      <div class="hero-stats">
+        <div class="h-stat"><strong>₹0</strong><span>Delivery fee</span></div>
+        <div class="h-stat"><strong>45 min</strong><span>Avg. delivery</span></div>
+        <div class="h-stat"><strong>0%</strong><span>Commission</span></div>
+      </div>
+    </div>
+
+    <div class="hero-art" aria-hidden="true">
+      <svg viewBox="0 0 440 440" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#E68910" stop-opacity="0.22"/>
+            <stop offset="100%" stop-color="#E68910" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <!-- glow + orbit ring -->
+        <circle cx="220" cy="220" r="185" fill="url(#glow)"/>
+        <circle cx="220" cy="220" r="175" fill="none" stroke="rgba(255,255,255,0.16)" stroke-width="1.5" stroke-dasharray="3 7"/>
+
+        <!-- connecting lines: the "neighbourhood network" -->
+        <g stroke="rgba(255,255,255,0.22)" stroke-width="1.5" stroke-dasharray="2 6">
+          <line x1="220" y1="220" x2="220" y2="52"/>
+          <line x1="220" y1="220" x2="388" y2="220"/>
+          <line x1="220" y1="220" x2="220" y2="388"/>
+          <line x1="220" y1="220" x2="52" y2="220"/>
+        </g>
+
+        <!-- central badge: shopping bag = lokl -->
+        <rect x="145" y="145" width="150" height="150" rx="34" fill="#FDFBF7"/>
+        <path d="M188 214a32 26 0 0 1 64 0" stroke="#1A2B4C" stroke-width="7" stroke-linecap="round" fill="none"/>
+        <rect x="182" y="212" width="76" height="60" rx="10" fill="#1A2B4C"/>
+        <line x1="182" y1="234" x2="258" y2="234" stroke="#FDFBF7" stroke-width="2" opacity="0.5"/>
+        <!-- hanger-tag detail on the bag -->
+        <circle cx="252" cy="200" r="6.5" fill="none" stroke="#E68910" stroke-width="2.5"/>
+        <path d="M252 206.5 L243.5 221 L260.5 221 Z" fill="#E68910"/>
+
+        <!-- orbit chip: location pin (top) -->
+        <circle cx="220" cy="52" r="30" fill="#1A2B4C"/>
+        <path d="M220 38c-6 0-11 5-11 11 0 8 11 19 11 19s11-11 11-19c0-6-5-11-11-11Z" fill="#FDFBF7"/>
+        <circle cx="220" cy="49" r="3.6" fill="#1A2B4C"/>
+
+        <!-- orbit chip: speed / TAT (right) -->
+        <circle cx="388" cy="220" r="30" fill="#E68910"/>
+        <path d="M224 208l-11 14h7l-2 10 11-14h-7l2-10Z" fill="#FDFBF7" transform="translate(164 0)"/>
+
+        <!-- orbit chip: hanger / fashion (bottom) -->
+        <circle cx="220" cy="388" r="30" fill="#1A2B4C"/>
+        <circle cx="220" cy="374" r="4" fill="none" stroke="#FDFBF7" stroke-width="2.2"/>
+        <path d="M220 378l-14 12h28l-14-12Z" fill="none" stroke="#FDFBF7" stroke-width="2.2" stroke-linejoin="round"/>
+
+        <!-- orbit chip: pay at the door (left) -->
+        <circle cx="52" cy="220" r="30" fill="#E68910"/>
+        <text x="52" y="227" font-family="Sora, sans-serif" font-size="20" font-weight="800" fill="#FDFBF7" text-anchor="middle">₹</text>
+
+        <!-- floating TAT sticker -->
+        <g transform="translate(300 96) rotate(-8)">
+          <rect x="0" y="0" width="82" height="30" rx="15" fill="#E68910"/>
+          <text x="41" y="20" font-family="Sora, sans-serif" font-size="12.5" font-weight="800" fill="#fff" text-anchor="middle" letter-spacing="0.5">45 MIN</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <div class="scroll-cue">
+    <span>Scroll to explore</span>
+    <svg width="16" height="10" viewBox="0 0 16 10" fill="none"><path d="M1 1l7 7 7-7" stroke="rgba(255,255,255,0.5)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </div>
+</section>
+
+<div class="stitch"></div>
+
+<!-- WHAT IS LOKL -->
+<div class="section reveal" id="what-is-lokl">
+  <div class="eyebrow">What is Lokl</div>
+  <div class="section-title">Local shopping, minus the driving around.</div>
+  <p class="section-lead">Lokl is a shopping app built only for Bhilai. It connects you to clothing and footwear stores that are already in your neighbourhood — so you can browse what they actually have in stock, order from your phone, and get it at your door in half an hour.</p>
+
+  <div class="scan-grid">
+    <div class="scan-card"><div class="scan-num">1</div><div class="scan-title">Browse real stores</div><div class="scan-desc">See actual products from shops in Bhilai — real prices, real stock, updated daily.</div></div>
+    <div class="scan-card"><div class="scan-num">2</div><div class="scan-title">Order in seconds</div><div class="scan-desc">Pick your size, tap order. No advance payment. Pay cash when it arrives.</div></div>
+    <div class="scan-card"><div class="scan-num">3</div><div class="scan-title">Delivered in 45 min</div><div class="scan-desc">A local rider picks it up from the store and brings it straight to your door.</div></div>
+    <div class="scan-card"><div class="scan-num">4</div><div class="scan-title">Or reserve &amp; visit</div><div class="scan-desc">Rather see it first? Reserve your item, visit the store, try it, pay only if you like it.</div></div>
+  </div>
+</div>
+
+<div class="stitch"></div>
+
+<!-- WHY CHOOSE LOKL -->
+<div class="section reveal" id="why-lokl">
+  <div class="eyebrow">Why Lokl</div>
+  <div class="section-title">Built for Bhilai. Not shipped from a warehouse.</div>
+  <p class="section-lead">Other apps ship from warehouses hours away. Lokl brings it from the store down the road.</p>
+
+  <div class="why-grid">
+    <div class="why-card">
+      <div class="why-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 9l1.5-5h15L21 9M3 9v10a1 1 0 0 0 1 1h5V13h6v7h5a1 1 0 0 0 1-1V9M3 9h18" stroke="#E68910" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="why-title">Real local stores</div>
+      <div class="why-desc">Every product comes from a store physically in Bhilai. You're supporting shops you already know.</div>
+    </div>
+    <div class="why-card">
+      <div class="why-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" stroke="#E68910" stroke-width="1.8" stroke-linejoin="round" fill="none"/></svg></div>
+      <div class="why-title">45-minute delivery</div>
+      <div class="why-desc">When the store is nearby, delivery is fast. No waiting days for something already in your city.</div>
+    </div>
+    <div class="why-card">
+      <div class="why-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="3" y="7" width="18" height="12" rx="2" stroke="#E68910" stroke-width="1.8"/><path d="M3 11h18" stroke="#E68910" stroke-width="1.8"/></svg></div>
+      <div class="why-title">Pay at the door</div>
+      <div class="why-desc">No advance payment, no card details needed. Order online, pay cash or UPI when it arrives.</div>
+    </div>
+    <div class="why-card">
+      <div class="why-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 21V11a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v10M4 21h16M6 11 12 3l6 8" stroke="#E68910" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="why-title">Try before you buy</div>
+      <div class="why-desc">Reserve an item, visit the store, try it on, and pay only once you're keeping it.</div>
+    </div>
+  </div>
+</div>
+
+<div class="stitch"></div>
+
+<!-- FOR MERCHANTS -->
+<div class="section reveal" id="merchants" style="padding-bottom:96px">
+  <div class="merchant-shell">
+    <div class="merchant-panel">
+      <div class="merchant-grid">
+        <div>
+          <div class="eyebrow on-dark">For store owners</div>
+          <div class="section-title" style="color:#fff">Your store. All of Bhilai. Zero commission.</div>
+          <p class="section-lead" style="color:rgba(255,255,255,0.55)">Shoppers already walk past your store without knowing what's on your shelves. Lokl puts your products in front of people nearby who are ready to buy — without giving up a cut of every sale.</p>
+
+          <ul class="merchant-checklist">
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="#1F7A63"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Get discovered by shoppers near your store</li>
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="#1F7A63"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Listed in about 30 minutes — our team sets it up with you</li>
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="#1F7A63"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Keep 100% of what you earn — always</li>
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" fill="#1F7A63"/><path d="M7 12.5l3 3 7-7" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Free to start, no subscription required</li>
+          </ul>
+
+          <button class="btn-merchant" data-scroll-to="#get-started-merchant">
+            List my store for free
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+
+        <div class="m-stat-grid">
+          <div class="m-stat"><div class="m-stat-big">₹0</div><h4>Free to start</h4><p>List up to 10 products at no cost. No subscription needed.</p></div>
+          <div class="m-stat"><div class="m-stat-big">0%</div><h4>Zero commission</h4><p>We don't take a cut. What the customer pays is what you receive.</p></div>
+          <div class="m-stat"><div class="m-stat-big">+</div><h4>More footfall</h4><p>Every order can bring a new regular customer to your door.</p></div>
+          <div class="m-stat"><div class="m-stat-big">30</div><h4>Min setup</h4><p>WhatsApp us your products — we handle the rest.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- GET STARTED -->
+<div class="section reveal" id="get-started">
+  <div class="eyebrow">Get started</div>
+  <div class="section-title">Two ways in. Pick yours.</div>
+  <p class="section-lead">Whether you're here to shop or to sell, it takes less than a minute to get on the list.</p>
+
+  <div class="start-grid">
+    <!-- CUSTOMER CARD -->
+    <div class="start-card customer">
+      <span class="start-tag">For customers</span>
+      <div class="start-title">Join the waitlist</div>
+      <p class="start-sub">Be first to shop when Lokl goes live in Bhilai.</p>
+
+      <div id="customer-form-body">
+        <div class="field-group">
+          <label>WhatsApp number</label>
+          <input type="tel" id="cust-phone" placeholder="98765 43210" inputmode="numeric" maxlength="10">
+        </div>
+        <button class="start-submit" id="cust-submit" onclick="submitCustomer()">Join the waitlist</button>
+        <p class="start-note">We'll WhatsApp you when Lokl goes live. No spam.</p>
+      </div>
+
+      <div class="start-success" id="cust-success">
+        <div class="chk"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#2E7D32" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="start-success-title">You're on the list</div>
+        <p class="start-success-sub">We'll WhatsApp you the moment Lokl goes live in Bhilai.</p>
+      </div>
+    </div>
+
+    <!-- MERCHANT CARD -->
+    <div class="start-card merchant" id="get-started-merchant">
+      <span class="start-tag">For store owners</span>
+      <div class="start-title">List your store for free</div>
+      <p class="start-sub">Tell us about your store and we'll take it from there.</p>
+
+      <div id="merchant-form-body">
+        <div class="field-group">
+          <label>Store name</label>
+          <input type="text" id="merch-store" placeholder="Priya Fashion, Sector 6">
+        </div>
+        <div class="field-group">
+          <label>WhatsApp number</label>
+          <input type="tel" id="merch-phone" placeholder="98765 43210" inputmode="numeric" maxlength="10">
+        </div>
+        <button class="start-submit" id="merch-submit" onclick="submitMerchant()">Continue to store sign-up</button>
+      </div>
+
+      <div class="start-success" id="merch-success">
+        <div class="chk"><svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#5FD6B4" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="start-success-title" id="merch-success-title">Taking you to sign-up…</div>
+        <p class="start-success-sub" id="merch-success-sub">Hang tight, we're setting things up for you.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <div class="footer-logo">lokl<em>.</em></div>
+  <div class="footer-links">
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+    <a href="mailto:hello@shoplokl.in">hello@shoplokl.in</a>
+  </div>
+  <div class="footer-copy">Bhilai, Chhattisgarh · Lokl Technologies</div>
+</div>
+
+<script>
+// smooth scroll for data-scroll-to buttons
+document.querySelectorAll('[data-scroll-to]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var target = document.querySelector(btn.getAttribute('data-scroll-to'));
+    if (target) target.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+});
+
+// store count ticker
+(function(){
+  var n = 0, target = 12, el = document.getElementById('store-count');
+  var t = setInterval(function(){
+    n++; el.textContent = n;
+    if (n >= target) clearInterval(t);
+  }, 70);
+})();
+
+// scroll reveal
+(function(){
+  var items = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window)) { items.forEach(function(i){ i.classList.add('in-view'); }); return; }
+  var obs = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (e.isIntersecting) { e.target.classList.add('in-view'); obs.unobserve(e.target); }
+    });
+  }, {threshold:0.12});
+  items.forEach(function(i){ obs.observe(i); });
+})();
+
+// customer waitlist submit (simulated — wire to your backend)
+function submitCustomer(){
+  var input = document.getElementById('cust-phone');
+  var phone = input.value.replace(/\D/g,'');
+  if (phone.length < 10) { input.focus(); input.style.borderColor = '#E68910'; return; }
+  var btn = document.getElementById('cust-submit');
+  btn.textContent = 'Joining…'; btn.disabled = true;
+  setTimeout(function(){
+    document.getElementById('customer-form-body').style.display = 'none';
+    document.getElementById('cust-success').classList.add('show');
+  }, 500);
+}
+
+// merchant flow — capture store name + number, then redirect to merchant.shoplokl.in
+function submitMerchant(){
+  var phoneInput = document.getElementById('merch-phone');
+  var storeInput = document.getElementById('merch-store');
+  var phone = phoneInput.value.replace(/\D/g,'');
+  var store = storeInput.value.trim();
+  if (phone.length < 10) { phoneInput.focus(); phoneInput.style.borderColor = '#E68910'; return; }
+  var btn = document.getElementById('merch-submit');
+  btn.textContent = 'Just a sec…'; btn.disabled = true;
+  document.getElementById('merchant-form-body').style.display = 'none';
+  if (store) {
+    document.getElementById('merch-success-sub').textContent = "Hang tight, we're setting things up for " + store + ".";
+  }
+  document.getElementById('merch-success').classList.add('show');
+  var url = 'https://merchant.shoplokl.in/?phone=' + encodeURIComponent(phone) + '&ref=comingsoon';
+  if (store) url += '&store=' + encodeURIComponent(store);
+  setTimeout(function(){ window.location.href = url; }, 900);
+}
+</script>
+</body>
+</html>
