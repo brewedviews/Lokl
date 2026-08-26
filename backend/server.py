@@ -2352,7 +2352,7 @@ async def merchant_delete_image(public_id: str, user: dict = Depends(get_current
     """Delete an image from Cloudinary by public_id. Best-effort; returns ok flag."""
     if user.get("role") not in ("merchant", "admin"):
         raise HTTPException(403, "Merchant access required")
-    ok = cloudinary_service.delete_image(public_id)
+    ok = await cloudinary_service.delete_image(public_id)
     return {"ok": ok}
 
 
@@ -6859,14 +6859,14 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
     new_pid = payload.get("image_public_id")
     old_pid = p.get("image_public_id")
     if new_pid and old_pid and new_pid != old_pid:
-        cloudinary_service.delete_image(old_pid)
+        await cloudinary_service.delete_image(old_pid)
     # Same for the carousel images array — delete any old ids that are no
     # longer in the new array.
     if "image_public_ids" in payload:
         old_ids = set(p.get("image_public_ids") or [])
         new_ids = set(payload.get("image_public_ids") or [])
         for stale in (old_ids - new_ids):
-            cloudinary_service.delete_image(stale)
+            await cloudinary_service.delete_image(stale)
     await db.products.update_one({"id": pid}, {"$set": payload})
     # If the product was just unpaused, recompute count and maybe auto-publish.
     if "paused" in payload:

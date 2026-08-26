@@ -3,8 +3,11 @@
 Single source of truth for all uploads (product images, store logos/banners,
 KYC docs). Mongo stores only `{image_url, public_id}` — no base64 blobs.
 """
+import asyncio
 import os
 import re
+import socket
+import time
 import uuid
 import logging
 from typing import Optional
@@ -12,7 +15,9 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 import cloudinary.utils
+import cloudinary.exceptions
 import httpx
+import urllib3.exceptions
 from fastapi import UploadFile, HTTPException
 
 logger = logging.getLogger(__name__)
@@ -66,10 +71,47 @@ async def upload_image(file: UploadFile, asset_type: str, owner_id: str) -> dict
     if asset_type == "kyc":
         safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", file.filename)
         public_id = f"{owner_id}/{uuid.uuid4().hex[:8]}_{safe_name}"
-    return _do_upload(contents, asset_type, owner_id, public_id=public_id)
+    return await _do_upload(contents, asset_type, owner_id, public_id=public_id)
 
 
-def _do_upload(contents: bytes, asset_type: str, owner_id: str, public_id: Optional[str] = None) -> dict:
+# Incident fix (production timeouts, see backend/services/cloudinary_service.py
+# git history / the incident report): cloudinary.uploader.upload() is a
+# SYNCHRONOUS, blocking network call. Calling it directly inside an `async def`
+# FastAPI route blocks that worker's entire asyncio event loop for the full
+# upload duration — every other concurrent request on that worker (including
+# totally unrelated ones, e.g. GET /api/heartbeat) stalls until it returns.
+# With only 1-2 gunicorn/uvicorn workers in production, this is enough to make
+# the whole backend appear to hang for every merchant, not just the one
+# uploading — reproduced directly: a single upload in flight delayed three
+# concurrent /api/heartbeat calls until the upload itself finished, regardless
+# of when each was fired. Fix: run the blocking SDK call in a worker thread via
+# asyncio.to_thread so it no longer occupies the event loop.
+_UPLOAD_TIMEOUT_SECONDS = 20
+_UPLOAD_MAX_ATTEMPTS = 2  # 1 retry — bounded, not indefinite
+_UPLOAD_RETRY_BACKOFF_SECONDS = 1.5
+
+# Only retry true transport-level failures (request never got a response from
+# Cloudinary) — never cloudinary.exceptions.Error (BadRequest/RateLimited/etc.),
+# which means Cloudinary DID respond and retrying would just repeat the same
+# rejection (or risk a duplicate asset on a slow-but-successful upload).
+_RETRYABLE_ERRORS = (urllib3.exceptions.HTTPError, socket.timeout, ConnectionError, OSError)
+
+
+def _upload_sync_with_retry(contents: bytes, options: dict) -> dict:
+    """Runs on a worker thread (via asyncio.to_thread) — safe to block here."""
+    last_err: Exception | None = None
+    for attempt in range(1, _UPLOAD_MAX_ATTEMPTS + 1):
+        try:
+            return cloudinary.uploader.upload(contents, timeout=_UPLOAD_TIMEOUT_SECONDS, **options)
+        except _RETRYABLE_ERRORS as e:
+            last_err = e
+            logger.warning("Cloudinary upload transport error (attempt %d/%d): %s", attempt, _UPLOAD_MAX_ATTEMPTS, e)
+            if attempt < _UPLOAD_MAX_ATTEMPTS:
+                time.sleep(_UPLOAD_RETRY_BACKOFF_SECONDS)
+    raise last_err  # type: ignore[misc]
+
+
+async def _do_upload(contents: bytes, asset_type: str, owner_id: str, public_id: Optional[str] = None) -> dict:
     """Shared Cloudinary upload call — same folder/transformation options
     for every caller (browser file upload, base64 migration, and a
     source-provider's remote image URL alike), so there is exactly one
@@ -87,7 +129,13 @@ def _do_upload(contents: bytes, asset_type: str, owner_id: str, public_id: Optio
         options["transformation"].append({"width": 1600, "height": 1600, "crop": "limit"})
 
     try:
-        result = cloudinary.uploader.upload(contents, **options)
+        result = await asyncio.to_thread(_upload_sync_with_retry, contents, options)
+    except cloudinary.exceptions.Error as e:
+        logger.warning("Cloudinary rejected the upload: %s", e)
+        raise HTTPException(502, f"Cloudinary rejected the upload: {e}") from e
+    except _RETRYABLE_ERRORS as e:
+        logger.exception("Cloudinary upload failed after retry — transport/network error")
+        raise HTTPException(504, "Could not reach the image storage provider. Please try again.") from e
     except Exception as e:
         logger.exception("Cloudinary upload failed")
         raise HTTPException(502, f"Image upload failed: {e}") from e
@@ -135,7 +183,7 @@ async def upload_image_from_url(source_url: str, asset_type: str, owner_id: str)
         raise HTTPException(400, f"Source image too large (max {MAX_BYTES // (1024 * 1024)} MB)")
     if len(contents) == 0:
         raise HTTPException(400, "Source image was empty")
-    return _do_upload(contents, asset_type, owner_id)
+    return await _do_upload(contents, asset_type, owner_id)
 
 
 async def upload_bytes(data: bytes, asset_type: str, owner_id: str, ext: str = "jpg") -> dict:
@@ -161,15 +209,18 @@ async def upload_bytes(data: bytes, asset_type: str, owner_id: str, ext: str = "
     }
 
 
-def delete_image(public_id: str, *, kyc: bool = False) -> bool:
-    """Best-effort delete. Returns True on success or if asset already gone."""
+async def delete_image(public_id: str, *, kyc: bool = False) -> bool:
+    """Best-effort delete. Returns True on success or if asset already gone.
+
+    Same event-loop-blocking fix as _do_upload — cloudinary.uploader.destroy()
+    is synchronous, so it runs on a worker thread via asyncio.to_thread."""
     if not public_id:
         return True
     if not is_configured():
         return False
     try:
         opts = {"type": "private"} if kyc else {}
-        result = cloudinary.uploader.destroy(public_id, **opts)
+        result = await asyncio.to_thread(cloudinary.uploader.destroy, public_id, timeout=_UPLOAD_TIMEOUT_SECONDS, **opts)
         return result.get("result") in ("ok", "not found")
     except Exception:
         logger.exception("Cloudinary delete failed for %s", public_id)

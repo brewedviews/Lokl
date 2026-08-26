@@ -32,7 +32,15 @@ export async function uploadImage(
   const r = await apiClient.post<UploadedImage>(
     "/api/merchant/upload-image",
     fd,
-    { headers: { "Content-Type": "multipart/form-data" } },
+    {
+      headers: { "Content-Type": "multipart/form-data" },
+      // Secondary hardening only — NOT the fix for the event-loop-blocking
+      // incident (see backend/services/cloudinary_service.py). The default
+      // client's 15s timeout is tuned for typical JSON calls; a multi-MB
+      // image on a slow merchant connection can legitimately take longer
+      // to actually transfer, so this one call gets its own headroom.
+      timeout: 30_000,
+    },
   );
   return r.data;
 }
