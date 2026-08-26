@@ -2,12 +2,12 @@
 
 /**
  * ComingSoonClient — brand launch page, not a marketplace preview.
- * Structure: header -> hero (rider-delivering-home illustration, benefit
- * strip, scroll cue) -> what is Lokl (editorial) -> how it works (a
- * connected journey) -> why Lokl (customer positioning) -> merchant
- * section -> get started (two waitlist cards) -> footer. No closing
- * statement this pass — kept the page to exactly the sections asked for,
- * since the goal was less information, not more.
+ *
+ * Deliberately organized as four chapters rather than a run of unrelated
+ * sections (01 hero, 02 what-is-Lokl + how-it-works, 03 why Lokl, 04
+ * merchant + get-started) — a thin dashed "stitch" divider marks each
+ * chapter boundary, a restrained nod to a tailor's cutting line rather
+ * than a hard rule or a background-color block.
  *
  * Every section's own doc comment records what was verified against the
  * real product (delivery fee/commission/free-plan claims, the real
@@ -23,6 +23,10 @@ import { ComingSoonHowItWorks } from "./ComingSoonHowItWorks";
 import { ComingSoonWhyLokl } from "./ComingSoonWhyLokl";
 import { ComingSoonMerchantSection } from "./ComingSoonMerchantSection";
 import { ComingSoonGetStarted } from "./ComingSoonGetStarted";
+
+function Stitch() {
+  return <div className="max-w-4xl mx-auto px-5 sm:px-8"><div className="border-t border-dashed border-card-border" /></div>;
+}
 
 function ComingSoonFooter() {
   return (
@@ -56,7 +60,9 @@ export function ComingSoonClient() {
         <ComingSoonHero />
         <ComingSoonWhatIsLokl />
         <ComingSoonHowItWorks />
+        <Stitch />
         <ComingSoonWhyLokl />
+        <Stitch />
         <ComingSoonMerchantSection />
         <ComingSoonGetStarted />
       </main>

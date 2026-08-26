@@ -142,7 +142,7 @@ function MerchantCard() {
             onChange={(e) => setPhone(e.target.value)}
             placeholder="98765 43210"
             data-testid="merchant-phone-input"
-            className="w-full px-4 py-3 rounded-xl border-[1.5px] border-white/15 bg-white/[0.06] text-sm text-white placeholder-white/35 outline-none focus:border-brand-accent focus:bg-white/10 transition mb-3.5"
+            className="w-full px-4 py-3 rounded-xl border-[1.5px] border-white/30 bg-white/[0.12] text-sm text-white placeholder-white/60 outline-none focus:border-brand-accent focus:bg-white/[0.16] focus:ring-2 focus:ring-brand-accent/30 transition mb-3.5"
           />
           <button
             type="submit"

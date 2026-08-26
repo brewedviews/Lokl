@@ -13,7 +13,12 @@
  * (catalogue/inventory, orders, pricing, Try & Buy, returns, analytics,
  * bulk XLSX/CSV import, store management) — presented as a compact plain
  * list, not an 8-card grid.
+ *
+ * Added ComingSoonMerchantArt (a small shop-owner/storefront doodle) —
+ * this section previously had no illustration at all, reading as pure
+ * text next to the hero's own illustrated moment.
  */
+import { ComingSoonMerchantArt } from "./ComingSoonMerchantArt";
 const CHECKLIST = [
   "Get discovered by shoppers near your store",
   "Listed in minutes — our team sets it up with you",
@@ -30,14 +35,19 @@ const CAPABILITIES = [
 export function ComingSoonMerchantSection() {
   return (
     <section id="merchants" className="max-w-4xl mx-auto px-4 sm:px-8 py-14 sm:py-20" data-testid="coming-soon-merchant">
-      <div className="text-center mb-9">
-        <p className="text-[12px] font-bold text-brand-accent uppercase tracking-[0.15em] mb-2.5">For merchants</p>
-        <h2 className="font-display font-bold text-[24px] sm:text-[38px] text-brand-primary leading-tight tracking-tight mb-3">
-          Your store. All of Bhilai. Zero commission.
-        </h2>
-        <p className="text-[15px] text-brand-primary/60 leading-relaxed max-w-lg mx-auto">
-          Shoppers already walk past your store without knowing what&apos;s on your shelves. Lokl puts your products in front of people nearby who are ready to buy — without giving up a cut of every sale.
-        </p>
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-6 sm:gap-10 items-center mb-10">
+        <div className="text-center sm:text-left sm:order-1">
+          <p className="text-[12px] font-bold text-brand-accent uppercase tracking-[0.15em] mb-2.5">For merchants</p>
+          <h2 className="font-display font-bold text-[24px] sm:text-[34px] text-brand-primary leading-tight tracking-tight mb-3">
+            Your store. All of Bhilai. Zero commission.
+          </h2>
+          <p className="text-[15px] text-brand-primary/60 leading-relaxed max-w-md mx-auto sm:mx-0">
+            Shoppers already walk past your store without knowing what&apos;s on your shelves. Lokl puts your products in front of people nearby who are ready to buy — without giving up a cut of every sale.
+          </p>
+        </div>
+        <div className="w-40 sm:w-auto mx-auto shrink-0 sm:order-2">
+          <ComingSoonMerchantArt />
+        </div>
       </div>
 
       <ul className="max-w-md mx-auto space-y-3 mb-10">

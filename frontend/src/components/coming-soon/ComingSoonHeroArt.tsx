@@ -1,88 +1,95 @@
 /**
- * ComingSoonHeroArt — a Lokl rider on a scooter delivering to a home in a
- * Bhilai neighbourhood. Adapted from the rider-on-scooter illustration
- * found in an earlier revision of the user's own reference file
- * (docs/design/lokl-coming-soon-redesign.html's predecessor had a real
- * rider+delivery-box SVG before a later revision replaced it with an
- * abstract orbit/badge concept) — recolored for a light hero background
- * instead of dark navy, and extended with an explicit home/doorway
- * destination + a connecting route line, since the original only showed
- * the rider against a skyline with no destination. This tells "local
- * store → rider → your door," not an abstract diagram.
+ * ComingSoonHeroArt — a fine-line, hand-drawn-feeling doodle telling one
+ * story left to right: a neighbourhood storefront -> a Lokl rider on a
+ * scooter carrying a branded delivery box -> a Bhilai home. Rebuilt from
+ * the previous flat-vector version (solid navy/orange shapes, a separate
+ * unconnected home) after it was flagged as the weakest, most "AI
+ * generated" element on the page.
  *
- * No repo asset covers this motif (production uses real photography for
- * its own hero, not illustration), and no rider/delivery artwork exists
- * anywhere else in the codebase (checked frontend/public/ and the rider
- * app) — so this is new, bespoke, brand-colored vector art, not stock
- * imagery.
+ * Almost everything here is stroke, not fill — thin navy outlines (1.7-2px,
+ * rounded caps/joins), with the Lokl delivery box as the one deliberately
+ * solid orange shape (the single accent that makes the scene feel alive,
+ * per the brief's own "enough colour to feel alive" note). No skyline
+ * blocks, no gradients, no decorative filler — just the three story beats
+ * and the route connecting them.
+ *
+ * Still bespoke vector art, not stock imagery — no repo asset covers this
+ * motif (checked frontend/public/ and the rider app; production uses real
+ * photography for its own hero, not illustration).
  */
+const NAVY = "#0A1F5C";
+const ORANGE = "#E68910";
+
 export function ComingSoonHeroArt() {
   return (
-    <svg viewBox="0 0 600 420" xmlns="http://www.w3.org/2000/svg" className="w-full h-auto max-w-[320px] sm:max-w-[440px] lg:max-w-[560px] mx-auto" aria-hidden="true">
-      {/* ground line / road */}
-      <line x1="30" y1="360" x2="570" y2="360" stroke="#E5E2DC" strokeWidth="2" />
-      <ellipse cx="230" cy="368" rx="120" ry="10" fill="#0A1F5C" opacity="0.08" />
+    <svg viewBox="0 0 640 300" xmlns="http://www.w3.org/2000/svg" className="w-full h-auto max-w-[340px] sm:max-w-[460px] lg:max-w-[580px] mx-auto" aria-hidden="true">
+      {/* ground line */}
+      <path d="M14 254 Q320 262 626 254" fill="none" stroke="#E5E2DC" strokeWidth="2" />
 
-      {/* route from rider to the front door — the "neighbourhood" cue */}
-      <path d="M275 330 Q 360 270 420 300" fill="none" stroke="#0A1F5C" strokeOpacity="0.22" strokeWidth="2" strokeDasharray="2 8" strokeLinecap="round" />
-      <g transform="translate(414 282)">
-        <path d="M6 0c-3.3 0-6 2.7-6 6 0 4.5 6 10.5 6 10.5s6-6 6-10.5c0-3.3-2.7-6-6-6Z" fill="#E68910" />
-        <circle cx="6" cy="6" r="2" fill="#FDFBF7" />
+      {/* ---- storefront (origin) ---- */}
+      <g transform="translate(24 90)">
+        <path d="M2 34 8 6h74l6 28" fill="none" stroke={NAVY} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M2 33c1 5 5 9 10 8 4-1 7-4 8-8 1 5 5 8 9 8 5 0 9-4 9-8 1 5 5 8 9 8 5 0 9-4 9-8 1 5 5 8 9 8s8-3 9-8" fill="none" stroke={NAVY} strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M6 40v72h76V40" fill="none" stroke={NAVY} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <rect x="16" y="50" width="20" height="22" rx="1.5" fill="none" stroke={NAVY} strokeWidth="1.6" />
+        <path d="M35 51 17 71M17 51l18 20" stroke={NAVY} strokeWidth="1" opacity="0.5" />
+        <path d="M38 112V88c0-3 2.5-5.5 6-5.5h6c3.5 0 6 2.5 6 5.5v24" fill="none" stroke={NAVY} strokeWidth="1.7" strokeLinecap="round" />
+        <rect x="58" y="52" width="20" height="18" rx="1.5" fill="none" stroke={NAVY} strokeWidth="1.6" />
+        <circle cx="68" cy="61" r="2.2" fill={ORANGE} />
       </g>
 
-      {/* home */}
-      <g transform="translate(430 200)">
-        <path d="M0 60 L60 20 L120 60 L120 130 L0 130 Z" fill="#FDFBF7" stroke="#E5E2DC" strokeWidth="2" />
-        <path d="M-6 62 L60 18 L126 62" fill="none" stroke="#0A1F5C" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-        <rect x="50" y="88" width="24" height="42" rx="2" fill="#0A1F5C" />
-        <circle cx="70" cy="109" r="1.6" fill="#FDFBF7" />
-        <rect x="16" y="78" width="22" height="20" rx="2" fill="#F4F1E9" stroke="#0A1F5C" strokeWidth="1.6" />
-        <rect x="82" y="78" width="22" height="20" rx="2" fill="#F4F1E9" stroke="#0A1F5C" strokeWidth="1.6" />
-        <circle cx="93" cy="88" r="3" fill="#E68910" opacity="0.85" />
-      </g>
-
-      {/* small trees beside the home, kept simple */}
-      <g transform="translate(392 260)">
-        <rect x="6" y="34" width="6" height="26" fill="#0A1F5C" opacity="0.35" />
-        <circle cx="9" cy="24" r="16" fill="#E68910" opacity="0.18" />
-      </g>
+      {/* route from store to home */}
+      <path d="M124 220 C 220 246, 300 246, 340 224 S 470 190, 560 216" fill="none" stroke={NAVY} strokeOpacity="0.28" strokeWidth="1.6" strokeDasharray="1 9" strokeLinecap="round" />
 
       {/* motion lines behind the scooter */}
-      <g stroke="#0A1F5C" strokeOpacity="0.18" strokeWidth="4" strokeLinecap="round">
-        <line x1="60" y1="300" x2="100" y2="300" />
-        <line x1="50" y1="325" x2="105" y2="325" />
-        <line x1="65" y1="348" x2="95" y2="348" />
+      <g stroke={NAVY} strokeOpacity="0.3" strokeWidth="2.2" strokeLinecap="round">
+        <path d="M198 190q14 1 24 0" />
+        <path d="M194 204q18 1.5 30 0" />
+        <path d="M202 217q11 1 19 0" />
       </g>
 
-      {/* scooter */}
-      <g transform="translate(120 0)">
-        <circle cx="80" cy="335" r="26" fill="#0A1F5C" />
-        <circle cx="80" cy="335" r="9" fill="#FDFBF7" />
-        <circle cx="225" cy="335" r="26" fill="#0A1F5C" />
-        <circle cx="225" cy="335" r="9" fill="#FDFBF7" />
-        <path d="M76 339 Q80 288 122 284 L188 284 Q220 284 220 318 L220 339 L76 339 Z" fill="#E68910" />
-        <rect x="70" y="282" width="9" height="48" rx="4" fill="#0A1F5C" />
-        <path d="M68 282 Q68 256 96 253" stroke="#0A1F5C" strokeWidth="8" strokeLinecap="round" fill="none" />
+      {/* ---- rider + scooter ---- */}
+      <g transform="translate(232 60)">
+        {/* wheels — slightly uneven, hand-drawn feel */}
+        <path d="M28 172a17 16.5 4 1 0 .3 0Z" fill="none" stroke={NAVY} strokeWidth="1.9" />
+        <path d="M141 172a17 16.5 -4 1 0 .3 0Z" fill="none" stroke={NAVY} strokeWidth="1.9" />
+        {/* scooter body */}
+        <path d="M20 176c-2-16 8-30 24-32h56c18 0 22 14 22 26v6" fill="none" stroke={NAVY} strokeWidth="2" strokeLinecap="round" />
+        <path d="M46 144h9M97 96q3 26 3 48" fill="none" stroke={NAVY} strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M92 96q6-1 11 1" stroke={NAVY} strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M46 144q-2-26 22-30" fill="none" stroke={NAVY} strokeWidth="2" strokeLinecap="round" />
+        {/* rider body */}
+        <path d="M50 138q-14-3-19 12" stroke={NAVY} strokeWidth="1.8" strokeLinecap="round" fill="none" />
+        <path d="M78 133q13-4 20 16" stroke={NAVY} strokeWidth="1.8" strokeLinecap="round" fill="none" />
+        <path d="M52 92q-3 3-3 20t3 24q2 6 12 6h8q10 0 12-6t3-24-3-20" fill="#FDFBF7" stroke={NAVY} strokeWidth="1.9" strokeLinejoin="round" />
+        <circle cx="69" cy="80" r="13.5" fill="none" stroke={NAVY} strokeWidth="1.9" />
+        <path d="M55 79q1-15 15-16t15 12q-8-6-15-3t-15 7Z" fill={NAVY} />
+        <path d="M60 70q9-3 18 0" stroke={ORANGE} strokeWidth="2" strokeLinecap="round" />
       </g>
 
-      {/* rider */}
-      <g transform="translate(120 0)">
-        <path d="M104 260 Q90 256 82 273" stroke="#C88B5A" strokeWidth="10" strokeLinecap="round" fill="none" />
-        <path d="M172 258 Q190 254 200 288" stroke="#C88B5A" strokeWidth="10" strokeLinecap="round" fill="none" />
-        <rect x="118" y="222" width="50" height="72" rx="20" fill="#FDFBF7" stroke="#0A1F5C" strokeWidth="2.5" />
-        <circle cx="145" cy="196" r="24" fill="#C88B5A" />
-        <path d="M121 194a24 21 0 0 1 48 -3 Q145 176 121 194Z" fill="#0A1F5C" />
-        <ellipse cx="145" cy="174" rx="26" ry="14" fill="#0A1F5C" />
-        <rect x="133" y="168" width="24" height="6" rx="3" fill="#E68910" />
+      {/* ---- delivery box, the one solid accent ---- */}
+      <g transform="translate(232 60)">
+        <rect x="100" y="88" width="46" height="52" rx="7" fill={ORANGE} />
+        <text x="123" y="120" fontFamily="var(--font-display, sans-serif)" fontSize="13" fontWeight="800" fill="#FDFBF7" textAnchor="middle">lokl</text>
+        <path d="M132 92q3-6 8-4" stroke="#FDFBF7" strokeWidth="1.6" strokeLinecap="round" fill="none" opacity="0.7" />
       </g>
 
-      {/* delivery box, branded */}
-      <g transform="translate(120 0)">
-        <rect x="196" y="196" width="70" height="78" rx="12" fill="#0A1F5C" />
-        <text x="231" y="242" fontFamily="var(--font-display, sans-serif)" fontSize="15" fontWeight="800" fill="#FDFBF7" textAnchor="middle">lokl</text>
-        <circle cx="252" cy="208" r="5" fill="none" stroke="#E68910" strokeWidth="2.2" />
-        <path d="M252 213 L246 224 L258 224 Z" fill="#E68910" />
+      {/* ---- home (destination) ---- */}
+      <g transform="translate(538 108)">
+        <path d="M2 44 44 6l42 38" fill="none" stroke={NAVY} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M9 40v58h70V40" fill="none" stroke={NAVY} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M35 98V70q0-4 4-4h10q4 0 4 4v28" fill="none" stroke={NAVY} strokeWidth="1.8" strokeLinecap="round" />
+        <circle cx="40" cy="84" r="1.4" fill={NAVY} />
+        <rect x="55" y="58" width="16" height="14" rx="1.4" fill="none" stroke={NAVY} strokeWidth="1.5" />
+        <path d="M55 58l16 14M71 58 55 72" stroke={NAVY} strokeWidth="0.9" opacity="0.5" />
       </g>
+      <g transform="translate(618 176)">
+        <path d="M0 0c-3.2 0-5.8 2.6-5.8 5.8 0 4.3 5.8 10 5.8 10s5.8-5.7 5.8-10C5.8 2.6 3.2 0 0 0Z" fill={ORANGE} />
+        <circle cx="0" cy="5.8" r="2" fill="#FDFBF7" />
+      </g>
+
+      {/* small tree beside the home, single line */}
+      <path d="M520 210v34M520 214q-9-2-10 8t9 10q1-9 1-18Z" fill="none" stroke={NAVY} strokeOpacity="0.4" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

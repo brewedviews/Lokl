@@ -1,32 +1,46 @@
 /**
- * ComingSoonWhyLokl — customer positioning + differentiation, merged into
- * one section rather than stacked as two (the brief's own architecture
- * list treats "Why Lokl" as one section; its separate "customer
- * positioning" copy reads as this section's lead-in, not a sixth section
- * repeating the same 4-5 benefits already in the hero strip). Plain
- * compact list, not colored cards — the hero strip already carries the
- * icon treatment; this section is about differentiation, not a repeat of
- * the same facts.
+ * ComingSoonWhyLokl — customer positioning + differentiation. The five
+ * product facts are represented with the same doodle-icon family used in
+ * the hero benefit strip (ComingSoonIcons) — but laid out as a loose,
+ * asymmetric editorial row rather than five identical cards: no
+ * borders/backgrounds per item, varied icon+label alignment, so it reads
+ * as a visual brand story rather than a checklist repeated from the hero.
  */
-const POINTS = ["Local stores", "Fast delivery", "Try & Buy", "Pay at delivery", "24-hour returns"];
+import { IconStorefront, IconTimer, IconTryBuy, IconWallet, IconReturn } from "./ComingSoonIcons";
+
+const POINTS = [
+  { Icon: IconStorefront, title: "Local stores", body: "Stores you already know" },
+  { Icon: IconTimer, title: "Fast delivery", body: "Around 45 minutes" },
+  { Icon: IconTryBuy, title: "Try & Buy", body: "Try before you decide" },
+  { Icon: IconWallet, title: "Pay at delivery", body: "Cash or UPI" },
+  { Icon: IconReturn, title: "24-hour returns", body: "On eligible items" },
+];
 
 export function ComingSoonWhyLokl() {
   return (
-    <section id="why-lokl" className="max-w-3xl mx-auto px-4 sm:px-8 py-14 sm:py-20 text-center" data-testid="coming-soon-why-lokl">
-      <h2 className="font-display font-bold text-[24px] sm:text-[36px] text-brand-primary leading-[1.2] tracking-tight">
-        The stores you already know.
-        <span className="block text-brand-accent">Now on your phone.</span>
-      </h2>
-      <p className="mt-5 text-[15px] sm:text-base text-brand-primary/60 leading-relaxed max-w-lg mx-auto">
-        Lokl is focused on bringing the clothing and footwear stores already in your neighbourhood online — instead of making you travel across Bhilai looking for what they have.
-      </p>
+    <section id="why-lokl" className="max-w-4xl mx-auto px-5 sm:px-8 py-14 sm:py-20" data-testid="coming-soon-why-lokl">
+      <div className="text-center mb-12 sm:mb-14">
+        <h2 className="font-display font-bold text-[26px] sm:text-[38px] text-brand-primary leading-[1.2] tracking-tight">
+          The stores you already know.
+          <span className="block text-brand-accent">Now on your phone.</span>
+        </h2>
+        <p className="mt-4 text-[15px] sm:text-base text-brand-primary/55 leading-relaxed max-w-lg mx-auto">
+          Lokl brings the clothing and footwear stores already in your neighbourhood online — instead of making you travel across Bhilai looking for what they have.
+        </p>
+      </div>
 
-      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-3 mt-8">
-        {POINTS.map((p, i) => (
-          <span key={p} className="flex items-center gap-3">
-            <span className="text-[13px] sm:text-sm font-semibold text-brand-primary">{p}</span>
-            {i < POINTS.length - 1 && <span className="w-1 h-1 rounded-full bg-card-border" />}
-          </span>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-x-4 gap-y-9">
+        {POINTS.map(({ Icon, title, body }, i) => (
+          <div
+            key={title}
+            className={`flex flex-col items-center text-center gap-2.5 ${i === POINTS.length - 1 ? "col-span-2 sm:col-span-1" : ""} ${i % 2 === 1 ? "sm:mt-6" : ""}`}
+          >
+            <Icon />
+            <div>
+              <div className="font-bold text-brand-primary text-[13.5px] leading-tight">{title}</div>
+              <div className="text-[11px] text-brand-primary/45 mt-0.5">{body}</div>
+            </div>
+          </div>
         ))}
       </div>
     </section>
