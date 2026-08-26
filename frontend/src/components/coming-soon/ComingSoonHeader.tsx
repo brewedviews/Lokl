@@ -1,13 +1,12 @@
 "use client";
 
 /**
- * ComingSoonHeader — rebuilt from docs/design/lokl-coming-soon-redesign.html's
- * nav, with the location treatment made more prominent per the brief: a
- * static pin + "Bhilai" / "Chhattisgarh" block next to the logo. This is
- * plain text, not a location picker — there's nothing to select on a
- * pre-launch page, unlike the production ConsumerHeader's LocationChip
- * (auto-detect + saved-address popover), which isn't reusable here for
- * that reason.
+ * ComingSoonHeader — static pin + "Bhilai" / "Chhattisgarh" block next to
+ * the logo (plain text, not a location picker — there's nothing to select
+ * on a pre-launch page, unlike the production ConsumerHeader's
+ * LocationChip). Right side is a plain, low-weight "Coming soon" label —
+ * no filled pill here, since the header's job is just a quiet status note,
+ * not another badge competing with the hero's own messaging.
  */
 export function ComingSoonHeader() {
   return (
@@ -37,8 +36,9 @@ export function ComingSoonHeader() {
           >
             For Merchants
           </a>
-          <span className="inline-flex items-center rounded-full bg-brand-primary text-white text-[11px] sm:text-sm font-bold px-3 sm:px-4 py-1.5 sm:py-2 whitespace-nowrap">
-            Bhilai — Coming soon
+          <span className="flex items-center gap-1.5 text-[12px] sm:text-[13px] font-bold text-brand-primary/60 whitespace-nowrap">
+            <span className="w-1.5 h-1.5 rounded-full bg-brand-accent" />
+            Coming soon
           </span>
         </div>
       </div>

@@ -1,39 +1,28 @@
 "use client";
 
 /**
- * ComingSoonClient — rebuilt from docs/design/lokl-coming-soon-redesign.html,
- * replacing the prior direction's embedded tabbed form + fake ticker with
- * this reference's actual structure: header -> hero (incl. scroll cue) ->
- * customer proposition -> how it works -> why Lokl -> merchant section ->
- * get-started (two cards) -> closing statement -> footer.
+ * ComingSoonClient — brand launch page, not a marketplace preview.
+ * Structure: header -> hero (rider-delivering-home illustration, benefit
+ * strip, scroll cue) -> what is Lokl (editorial) -> how it works (a
+ * connected journey) -> why Lokl (customer positioning) -> merchant
+ * section -> get started (two waitlist cards) -> footer. No closing
+ * statement this pass — kept the page to exactly the sections asked for,
+ * since the goal was less information, not more.
  *
- * Dropped from the prior build: ComingSoonTicker (fake animated store
- * count — not in this brief's page structure, reads as a stats dashboard)
- * and ComingSoonWaitlistForm (single tabbed card embedded in the hero —
- * replaced by ComingSoonGetStarted's two permanently-visible cards). See
- * each remaining component's own doc comment for what was verified/
- * corrected against the real product before writing its copy.
+ * Every section's own doc comment records what was verified against the
+ * real product (delivery fee/commission/free-plan claims, the real
+ * try_at_doorstep mechanic, the real merchant/login route) before writing
+ * its copy — nothing here restates unverified numbers.
  */
 import { useEffect, useRef } from "react";
 import { apiClient } from "@/lib/api-client";
 import { ComingSoonHeader } from "./ComingSoonHeader";
 import { ComingSoonHero } from "./ComingSoonHero";
-import { ComingSoonCustomerSection } from "./ComingSoonCustomerSection";
+import { ComingSoonWhatIsLokl } from "./ComingSoonWhatIsLokl";
 import { ComingSoonHowItWorks } from "./ComingSoonHowItWorks";
 import { ComingSoonWhyLokl } from "./ComingSoonWhyLokl";
 import { ComingSoonMerchantSection } from "./ComingSoonMerchantSection";
 import { ComingSoonGetStarted } from "./ComingSoonGetStarted";
-
-function ClosingStatement() {
-  return (
-    <section className="max-w-3xl mx-auto px-4 sm:px-8 pt-2 pb-14 text-center" data-testid="coming-soon-closing">
-      <h2 className="font-display font-bold text-xl sm:text-2xl text-brand-primary tracking-tight">
-        Lokl is coming to Bhilai.
-      </h2>
-      <p className="text-[14px] text-[#595959] mt-1.5">Be there from day one.</p>
-    </section>
-  );
-}
 
 function ComingSoonFooter() {
   return (
@@ -61,16 +50,15 @@ export function ComingSoonClient() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
+    <div className="min-h-screen bg-brand-bg flex flex-col">
       <ComingSoonHeader />
       <main className="flex-1">
         <ComingSoonHero />
-        <ComingSoonCustomerSection />
+        <ComingSoonWhatIsLokl />
         <ComingSoonHowItWorks />
         <ComingSoonWhyLokl />
         <ComingSoonMerchantSection />
         <ComingSoonGetStarted />
-        <ClosingStatement />
       </main>
       <ComingSoonFooter />
     </div>

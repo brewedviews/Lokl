@@ -163,11 +163,11 @@ function MerchantCard() {
 export function ComingSoonGetStarted() {
   return (
     <section id="get-started" className="max-w-6xl mx-auto px-4 sm:px-8 py-14 sm:py-20" data-testid="coming-soon-get-started">
-      <p className="text-[12px] font-bold text-brand-accent uppercase tracking-[0.15em] mb-2.5">Get started</p>
-      <h2 className="font-display font-black text-[24px] sm:text-[38px] text-brand-primary leading-tight tracking-tight mb-2.5">
+      <p className="text-[12px] font-bold text-brand-accent uppercase tracking-[0.15em] mb-2.5 text-center sm:text-left">Get started</p>
+      <h2 className="font-display font-bold text-[24px] sm:text-[36px] text-brand-primary leading-tight tracking-tight mb-2.5 text-center sm:text-left">
         Two ways in. Pick yours.
       </h2>
-      <p className="text-[15px] text-[#595959] leading-relaxed max-w-md mb-10">
+      <p className="text-[15px] text-brand-primary/55 leading-relaxed max-w-md mb-10 mx-auto sm:mx-0 text-center sm:text-left">
         Whether you&apos;re here to shop or to sell, it takes less than a minute to get on the list.
       </p>
 
