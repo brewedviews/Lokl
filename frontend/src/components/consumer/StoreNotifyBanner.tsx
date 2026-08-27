@@ -17,10 +17,14 @@ export function StoreNotifyBanner({ badge, storeId, storeName, nextOpenLabel }: 
   const [loading, setLoading] = useState(false);
 
   if (badge === "Closed") {
+    // Availability SOP — same "Closed · Opens at X" phrasing every other
+    // store-status surface uses (see storeStatusLabel in lib/utils.ts).
+    // Browsing/Add to Bag are unaffected by this state; only checkout
+    // blocks, elsewhere.
     return (
       <div className="mb-6 bg-[#F8F6F1] rounded-2xl p-4 border border-[#E5E2DC]">
         <p className="text-sm text-[#595959]">
-          <span className="font-semibold text-[#0A1F5C]">{nextOpenLabel || "Closed"}</span>
+          <span className="font-semibold text-[#0A1F5C]">{nextOpenLabel ? `Closed · ${nextOpenLabel}` : "Closed"}</span>
         </p>
       </div>
     );
@@ -54,8 +58,8 @@ export function StoreNotifyBanner({ badge, storeId, storeName, nextOpenLabel }: 
 
   return (
     <div className="mb-6 bg-[#F0F4FF] rounded-2xl p-4 border border-indigo-100">
-      <p className="text-sm font-semibold text-[#0A1F5C] mb-1">This store is currently offline</p>
-      <p className="text-xs text-[#595959] mb-3">Get notified when {storeName} is back:</p>
+      <p className="text-sm font-semibold text-[#0A1F5C] mb-1">Temporarily unavailable</p>
+      <p className="text-xs text-[#595959] mb-3">You can still browse and add to bag — checkout will open once {storeName} is back. Get notified:</p>
       <form onSubmit={handleSubmit} className="flex gap-2">
         <input
           type="tel"

@@ -288,32 +288,31 @@ export function MarketplaceHomeClient() {
     ),
 
     merchant_cta: (
-      // G13 §7 — polish only, section order unchanged (the G8-G11 rank
-      // order was deliberately established; this brief only asked to
-      // improve presentation, not move it). A supporting line + slightly
-      // more breathing room makes this read as a deliberate content block
-      // in the local-discovery narrative rather than a thin ad strip
-      // dropped between two unrelated rails.
-      <div key="merchant-cta" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+      // Consistency pass — was a full dashboard-style card (px-5 py-4,
+      // two text lines, rounded-2xl) that competed visually with the
+      // product rails around it. Now a single thin editorial row
+      // (rounded-xl, py-2.5, one line) — same navy/orange identity and
+      // still a real link with a clear CTA, just sized like a strip, not
+      // a card, so it doesn't out-weigh its neighbors in the discovery
+      // narrative.
+      <div key="merchant-cta" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         <a
           href="https://lokl.up.railway.app/merchant/register"
           target="_blank"
           rel="noopener noreferrer"
           onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
-          className="block"
+          className="flex items-center justify-between gap-3 bg-[#0A1F5C] rounded-xl px-4 py-2.5"
         >
-          <div className="bg-[#0A1F5C] rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-white font-display font-medium text-base leading-tight truncate">Own a store in Bhilai?</p>
-              <p className="text-white/70 text-xs mt-0.5 leading-snug line-clamp-2">Put your store on Lokl and reach nearby shoppers.</p>
-            </div>
-            <div className="flex-shrink-0 flex items-center gap-2 bg-[#E68910] text-white text-xs font-bold px-3 py-2 rounded-xl">
-              <span>Join free</span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M5 12h14M12 5l7 7-7 7"/>
-              </svg>
-            </div>
-          </div>
+          <p className="min-w-0 truncate text-[13px] text-white">
+            <span className="font-display font-medium">Own a store in Bhilai?</span>
+            <span className="hidden sm:inline text-white/60"> · Join Lokl free and reach nearby shoppers.</span>
+          </p>
+          <span className="shrink-0 inline-flex items-center gap-1 bg-[#E68910] text-white text-[11px] font-bold px-2.5 py-1 rounded-full">
+            Join free
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M5 12h14M12 5l7 7-7 7"/>
+            </svg>
+          </span>
         </a>
       </div>
     ),

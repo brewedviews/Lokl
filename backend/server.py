@@ -3787,11 +3787,23 @@ def _store_availability(store: dict) -> dict:
 
     State matrix (rank 1=best):
       Toggle OFF                                      → rank 4, Store Offline, can_order=False
-      Toggle ON + outside hours                       → rank 3, Closed,        can_order=True
+      Toggle ON + outside hours                       → rank 3, Closed,        can_order=False
       Toggle ON + in hours + last_seen < 60 min       → rank 1, LIVE,          can_order=True
       Toggle ON + in hours + last_seen 60–180 min     → rank 2, Away,          can_order=False
       Toggle ON + in hours + last_seen > 180 min      → rank 4, Store Offline, can_order=False
       Toggle ON + in hours + no last_seen (new store) → rank 1, LIVE,          can_order=True
+
+    UX consistency pass — `can_order=True` for the outside-hours "Closed"
+    state used to be deliberate (an old pre-order-style flow let a closed
+    store still accept an order to fulfill later). That flow no longer
+    exists on the frontend, and leaving `can_order=True` here made it the
+    ONE state where `can_order`/`is_open` alone lies about real
+    orderability — any caller reading that flag directly (several store-
+    card surfaces did) rendered "Open now" for a store that was actually
+    outside its hours. `can_order` is now False for every non-LIVE badge,
+    so it's trustworthy on its own everywhere it's read; browsing/adding
+    to bag were never gated on this flag (see ProductCard/PdpCtaRow, which
+    gate on the `badge` string instead) and stay unaffected.
     """
     def _fmt_time(t: str) -> str:
         try:
@@ -3859,7 +3871,7 @@ def _store_availability(store: dict) -> dict:
         except Exception:
             eta_msg, opens_lbl = "Store closed", None
         return {"rank": 3, "badge": "Closed", "badge_color": "gray",
-                "can_order": True, "eta_message": eta_msg, "opens_at_label": opens_lbl}
+                "can_order": False, "eta_message": eta_msg, "opens_at_label": opens_lbl}
 
     last_seen = store.get("last_seen_at")
     if not last_seen:
@@ -5239,13 +5251,14 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                         _pickup_expires_at = datetime.now(timezone.utc) + timedelta(hours=4)
             else:
                 # P0-2/P0-3 (G20 product review): pre-order is gone — a store
-                # that's merely closed for the day (badge "Closed", can_order
-                # still True so PDP/add-to-bag keep working right up to this
-                # point) must NOT be allowed to complete a delivery order
-                # either, same as the already-blocked Away/Offline states.
-                # Reuses the same _store_availability() this whole file
-                # already computes availability from — no new field, no new
-                # mechanism, no invented future date.
+                # that's merely closed for the day must NOT be allowed to
+                # complete a delivery order, same as the already-blocked
+                # Away/Offline states. `_store_availability()` now returns
+                # can_order=False for "Closed" too (UX consistency pass —
+                # see that function's own comment), so `not avail["can_order"]`
+                # alone already covers this; the explicit `badge == "Closed"`
+                # check is kept as a harmless belt-and-suspenders guard, not
+                # because it's still load-bearing.
                 if not avail["can_order"] or avail.get("badge") == "Closed":
                     store_name = (store_doc or {}).get("name", sid)
                     unavailable_stores.append(f"{store_name}: {avail['eta_message']}")

@@ -31,6 +31,7 @@ import { Store as StoreIcon } from "lucide-react";
 import { storesApi } from "@/lib/api/stores";
 import { useLocationStore } from "@/stores";
 import { SellerCard } from "@/components/consumer/SellerCard";
+import { storeStatusLabel } from "@/lib/utils";
 import type { StoreCard } from "@/types";
 
 export function StoresNearYouSection() {
@@ -89,11 +90,10 @@ export function StoresNearYouSection() {
               the remaining stores of the curated 5 reached by swiping. */}
           <div className="flex sm:hidden gap-3 overflow-x-auto no-scrollbar -mx-4 px-4">
             {stores.map((s) => {
-              const isOpen = (s as unknown as { is_open?: boolean }).is_open ?? false;
-              const closedLabel = (s as unknown as { next_open_label?: string }).next_open_label || "Closed";
+              const { openNow, label } = storeStatusLabel(s.badge, s.next_open_label);
               return (
                 <div key={s.id} className="w-[46%] shrink-0">
-                  <SellerCard s={s} source="stores_near_you" variant="discovery" openNow={isOpen} closedLabel={closedLabel} fitToContainer />
+                  <SellerCard s={s} source="stores_near_you" variant="discovery" openNow={openNow} closedLabel={label} fitToContainer />
                 </div>
               );
             })}
@@ -104,16 +104,15 @@ export function StoresNearYouSection() {
               uneven 3rd row). */}
           <div className="hidden sm:grid sm:grid-cols-2 gap-3">
             {stores.slice(0, 4).map((s) => {
-              const isOpen = (s as unknown as { is_open?: boolean }).is_open ?? false;
-              const closedLabel = (s as unknown as { next_open_label?: string }).next_open_label || "Closed";
+              const { openNow, label } = storeStatusLabel(s.badge, s.next_open_label);
               return (
                 <SellerCard
                   key={s.id}
                   s={s}
                   source="stores_near_you"
                   variant="discovery"
-                  openNow={isOpen}
-                  closedLabel={closedLabel}
+                  openNow={openNow}
+                  closedLabel={label}
                   fitToContainer
                 />
               );

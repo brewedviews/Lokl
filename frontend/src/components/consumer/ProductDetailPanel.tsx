@@ -148,7 +148,8 @@ export function ProductDetailPanel({
   // store conflict, the warn-and-clear dialog re-runs this same add and
   // fires onSuccess itself once the retry succeeds.
   const handleAdd = (onSuccess: () => void) => {
-    if (isOffline) { toast.error("This store isn't accepting orders right now"); return; }
+    // Availability SOP — Add to bag/Buy now are never blocked by store
+    // state (see PdpCtaRow's own comment); checkout is the sole gate.
     if (product.sizes?.length && !size) { toast.error("Please pick a size"); return; }
     const r = addItem(product, size ?? "");
     if (!r.success && r.conflict) {
@@ -309,27 +310,25 @@ export function ProductDetailPanel({
           </div>
         )}
 
-        {/* Unavailable-store callout — replaces the old flat gray pill
-            that used to sit inline next to the store name. This is the
-            one place on the page that says "this is why you're seeing
-            Notify Me below" — positioned here, between price and Size, so
-            it reads as availability status rather than metadata stuck to
-            the brand name. Amber/orange-tinted (the same bg-[#E68910]/10
-            border-[#E68910]/20 treatment already used for the "Away" and
-            try-and-buy callouts elsewhere in this file), not gray — gray
-            read as inert metadata; this needs enough presence that a
-            shopper actually registers why the CTA below says Notify Me
-            instead of Add to bag. Away/Closed each already have their own
-            existing callout elsewhere on the page (isAway below,
-            DeliveryServiceability's "Opens X"), so this is Store-Offline
-            only, not a generic multi-status pill anymore. */}
+        {/* Availability SOP — Store-Offline callout. Add to bag/Buy now
+            stay fully active below (see PdpCtaRow) — this exists purely
+            to explain WHY checkout won't complete right now, positioned
+            between price and Size so it reads as availability status
+            rather than metadata stuck to the brand name. Amber/orange-
+            tinted (the same bg-[#E68910]/10 border-[#E68910]/20 treatment
+            already used for the "Away" and try-and-buy callouts elsewhere
+            in this file), not gray — gray read as inert metadata. Away/
+            Closed each already have their own existing callout elsewhere
+            on the page (isAway below, DeliveryServiceability's "Opens X"),
+            so this is Store-Offline only, not a generic multi-status
+            pill. */}
         {isOffline && (
           <div
             className="mt-3 flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-[#E68910]/10 border border-[#E68910]/20"
             data-testid="store-unavailable-callout"
           >
             <AlertCircle size={16} className="text-[#E68910] shrink-0" />
-            <p className="text-xs text-[#E68910] font-semibold">Currently unavailable — we&apos;ll notify you when this store is back.</p>
+            <p className="text-xs text-[#E68910] font-semibold">Temporarily unavailable — you can still add this to your bag; checkout will open once the store is back.</p>
           </div>
         )}
       </div>

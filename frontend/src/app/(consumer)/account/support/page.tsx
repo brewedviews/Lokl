@@ -285,7 +285,7 @@ export default function SupportPage() {
               <ChevronLeft size={20} />
             </button>
           )}
-          <h1 className="font-bold text-[#0A1F5C] flex-1 min-w-0 truncate">{headerTitle}</h1>
+          <h1 className="font-display text-base font-medium text-[#0A1F5C] flex-1 min-w-0 truncate">{headerTitle}</h1>
           {view === "chat" && activeTicket && <StatusPill status={activeTicket.status} />}
         </div>
 

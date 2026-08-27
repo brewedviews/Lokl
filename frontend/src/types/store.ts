@@ -55,6 +55,12 @@ export interface Store {
   is_open?: boolean;
   next_open_label?: string;
   badge?: string;
+  /** Present on every store-listing endpoint response (list_stores,
+   *  feed/nearby-stores, feed/popular-stores, categories/{l1}/stores) —
+   *  not yet on GET /stores/{id} itself. 1=LIVE, 2=Away, 3=Closed,
+   *  4=Store Offline. Use `storeStatusLabel(badge, next_open_label)`
+   *  (lib/utils.ts) rather than reading this or `is_open` directly. */
+  availability_rank?: number;
   eta_message?: string;
   published: boolean;
   live_at: IsoDateTime | null;
@@ -77,6 +83,7 @@ export type StoreCard = Pick<
   | "city" | "locality" | "area" | "area_label"
   | "distance_km" | "eta_min" | "rating" | "reviews" | "online" | "paused"
   | "product_count" | "specialties" | "trusted"
+  | "badge" | "is_open" | "next_open_label" | "availability_rank"
 >;
 
 /** A featured area tile for the homepage "Shop by Area" section —

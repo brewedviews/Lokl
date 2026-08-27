@@ -62,17 +62,15 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
 
   const storeBadge = (p as any).store_badge as string | undefined;
   const storeOpensAt = (p as any).store_opens_at_label as string | undefined;
-  // P0-2/P0-3 (G20 product review) — "Closed" (outside operating hours)
-  // no longer blocks add-to-bag; only "Store Offline" does. Same rule as
-  // PdpCtaRow/ProductDetailPanel's isOffline check — checkout is the
-  // authoritative place a closed store actually blocks the order.
-  const unavailable = storeBadge === "Store Offline";
+  // Availability SOP — store availability controls ORDERABILITY, not
+  // product discovery. Add to Bag stays available for every store state
+  // (LIVE/Away/Closed/Store Offline alike) so the journey is always
+  // Browse → Add to Bag → validate at checkout, never a badge-dependent
+  // flip on whether the button itself works. Checkout (isOrderableNow,
+  // checkout/page.tsx) is the one place that actually blocks placing the
+  // order for a non-LIVE store.
 
   const doAdd = (chosenSize: string) => {
-    if (unavailable) {
-      toast.error("This store isn't accepting orders right now");
-      return;
-    }
     const r = addItem(p, chosenSize);
     if (!r.success && r.conflict) {
       promptConflict(r.conflict, () => {
@@ -208,11 +206,11 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
               )}
               {storeBadge === "Closed" && (
                 <p className="text-[11px] text-[#9CA3AF] truncate">
-                  {storeOpensAt ? `Available from ${storeOpensAt.replace(/^Opens\s+(at\s+)?/i, "")}` : "Closed"}
+                  {storeOpensAt ? `Closed · ${storeOpensAt}` : "Closed"}
                 </p>
               )}
               {storeBadge === "Store Offline" && (
-                <div className="text-[10px] font-semibold text-[#94A3B8]">Currently unavailable</div>
+                <div className="text-[10px] font-semibold text-[#94A3B8]">Temporarily unavailable</div>
               )}
               {(!storeBadge || storeBadge === "LIVE") && (
                 (p as any).low_stock_size ? (
@@ -253,15 +251,6 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
               </button>
             ))}
           </div>
-        ) : qty === 0 && unavailable ? (
-          <div
-            data-testid={`p-card-add-${p.id}`}
-            className={`w-full inline-flex items-center justify-center rounded-full bg-slate-100 text-slate-400 font-bold cursor-not-allowed ${
-              isCompact ? "py-1 text-[10px]" : "py-1.5 text-[12px]"
-            }`}
-          >
-            Unavailable
-          </div>
         ) : qty === 0 ? (
           // redesign-plan 3.2: same shape+color identity as the shared
           // Button cta variant (rounded-lg, bg-brand-accent) — applied
@@ -270,11 +259,17 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
           // doesn't map onto Button's sm/md/lg size presets. w-full is a
           // deliberate exception (same as ProductDetailPanel's bottom-sheet
           // CTA) — it fills its own card, not the viewport.
+          // Fixed h-7/h-8 (not padding-derived) so this exactly matches the
+          // qty-stepper's own height below — a card must NOT grow/shrink
+          // when it moves between "not in bag" and "in bag" states, or a
+          // CSS grid/flex row stretches every sibling card to match
+          // whichever one just changed height (redesign-plan: cart
+          // product-card size consistency).
           <button
             onClick={handleAdd}
             data-testid={`p-card-add-${p.id}`}
             className={`w-full inline-flex items-center justify-center gap-1 rounded-lg bg-brand-accent text-white font-bold active:scale-95 transition ${
-              isCompact ? "py-1 text-[10px]" : "py-1 gap-1.5 text-[11px]"
+              isCompact ? "h-7 text-[10px]" : "h-8 gap-1.5 text-[11px]"
             }`}
           >
             <ShoppingBag size={isCompact ? 11 : 12} />
@@ -283,7 +278,7 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
         ) : (
           <div
             className={`flex items-center justify-between gap-1 rounded-full bg-[#E68910] text-white ${
-              isCompact ? "py-0.5 px-0.5" : "py-1 px-1"
+              isCompact ? "h-7 px-0.5" : "h-8 px-1"
             }`}
             data-testid={`p-card-qty-${p.id}`}
           >

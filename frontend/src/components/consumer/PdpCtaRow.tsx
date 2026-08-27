@@ -2,11 +2,17 @@
 
 /**
  * PdpCtaRow — the PDP's unified action group: Save (wishlist) + Share on
- * their own row, directly above Buy now / Add to bag (or the Notify Me /
- * Store Unavailable / qty-stepper states that slot can become). Rendered
- * once, directly below the size selector (an earlier version repeated the
- * CTA below the price block too; user testing called that a duplicate and
- * it was removed — this is the only CTA instance on the page now).
+ * their own row, directly above Buy now / Add to bag (or the qty-stepper
+ * it becomes once added). Rendered once, directly below the size selector
+ * (an earlier version repeated the CTA below the price block too; user
+ * testing called that a duplicate and it was removed — this is the only
+ * CTA instance on the page now).
+ *
+ * Availability SOP — Buy now/Add to bag are UNCONDITIONAL now: no store
+ * state (LIVE/Away/Closed/Store Offline) swaps this row out anymore.
+ * `isOffline` only controls a small secondary "Notify me" link below the
+ * row (see the bottom of this component) — store availability gates
+ * checkout, not this action.
  *
  * G11 §13 — previously Save/Share sat in the SAME `flex-wrap` row as
  * Buy now/Add to bag, pushed right via `ml-auto`; on mobile widths they
@@ -29,10 +35,9 @@
  * reference's button proportions (generous padding, side by side, room
  * left over in the row) rather than two buttons stretched to fill it.
  *
- * Notify Me, Add to bag, and the qty stepper it becomes are all states of
- * the very same action slot (unavailable / available-not-added /
- * available-added) — all three render in the same solid brand-orange fill
- * (bg-brand-accent) so the slot's color never changes as its state does,
+ * Add to bag and the qty stepper it becomes are two states of the same
+ * action slot (not-added / added) — both render in the same solid
+ * brand-orange fill (bg-brand-accent) so the slot's color never changes,
  * only its label/icon/behavior. Buy now stays the outline style
  * (border-ink-navy, no fill) throughout — it's a separate, secondary
  * action, not a state of this slot.
@@ -139,23 +144,14 @@ export function PdpCtaRow({
   const key = cartKeyFor(productId, size);
   const qty = mounted ? items.find((i) => i.key === key)?.qty ?? 0 : 0;
 
-  // P0-2/P0-3 — a store being temporarily non-orderable (outside operating
-  // hours, or its heartbeat gone briefly stale — the "Closed"/"Away"
-  // badges) no longer blocks this row or relabels it "Pre-order": the
-  // product stays fully browsable and addable, exactly like G13's
-  // discovery review asked for. Only Store-Offline (the merchant's own
-  // toggle, or a heartbeat stale long enough to be genuinely gone) still
-  // swaps this row for Notify Me — see PdpCtaRow's own header comment.
-  const purchaseRow = isOffline ? (
-    <Button
-      variant="cta"
-      onClick={onNotify}
-      data-testid="notify-me-btn"
-      className="gap-1.5 text-sm whitespace-nowrap"
-    >
-      <Bell size={15} /> Notify Me
-    </Button>
-  ) : (
+  // Availability SOP — store availability controls ORDERABILITY, not
+  // product discovery. Closed/Away already didn't block this row; Store
+  // Offline no longer does either now — Buy now/Add to bag are ALWAYS
+  // the purchase row, for every store state. Checkout is the one place
+  // that validates real orderability before payment. "Notify Me" (the
+  // WhatsApp-when-back-online signup below the CTA row) stays reachable
+  // for Store Offline as a secondary link, not by replacing the CTA.
+  const purchaseRow = (
     <>
       <button
         onClick={onBuyNow}
@@ -205,11 +201,22 @@ export function PdpCtaRow({
 
   // One shared action group, two rows, same left alignment/spacing scale
   // — Save/Share is never a detached floating control (G11 §13). The
-  // branching above only decides what the purchase row itself contains.
+  // purchase row is now unconditional; `isOffline` only adds the small
+  // Notify Me link below it.
   return (
     <div className="space-y-2.5" data-testid="pdp-cta-row">
       <SaveShareIcons product={product} />
       <div className="flex items-center gap-3 flex-wrap">{purchaseRow}</div>
+      {isOffline && (
+        <button
+          type="button"
+          onClick={onNotify}
+          data-testid="notify-me-btn"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink-navy underline underline-offset-2"
+        >
+          <Bell size={12} /> Notify me when this store is back
+        </button>
+      )}
     </div>
   );
 }

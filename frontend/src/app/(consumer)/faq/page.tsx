@@ -61,13 +61,13 @@ export default function FaqPage() {
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-8 py-10">
         <p className="text-xs uppercase tracking-widest text-[#E68910] font-bold mb-2">Support</p>
-        <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight mb-2">Frequently Asked Questions</h1>
+        <h1 className="text-2xl sm:text-3xl font-display font-medium tracking-tight text-[#0A1F5C] leading-tight mb-2">Frequently Asked Questions</h1>
         <p className="text-sm text-[#64748B] mb-10">Can&apos;t find your answer? <a href="/contact" className="text-[#0A1F5C] font-semibold hover:underline">Contact us</a> directly.</p>
 
         <div className="space-y-6">
           {FAQS.map((item) => (
             <section key={item.q} className="border-b border-[#E5E2DC] pb-6 last:border-0">
-              <h2 className="font-display text-base sm:text-lg font-bold text-[#0A1F5C] mb-2">{item.q}</h2>
+              <h2 className="font-display text-base sm:text-lg font-medium tracking-tight text-[#0A1F5C] mb-2">{item.q}</h2>
               <p className="text-[15px] leading-relaxed text-[#595959]">{item.a}</p>
             </section>
           ))}

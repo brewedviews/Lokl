@@ -8,6 +8,7 @@
 import { useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SentryBoot } from "@/components/SentryBoot";
+import { ScrollRestorationManager } from "@/components/ScrollRestorationManager";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -27,6 +28,7 @@ export function Providers({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       {children}
       <SentryBoot />
+      <ScrollRestorationManager />
     </QueryClientProvider>
   );
 }

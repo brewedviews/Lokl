@@ -3,6 +3,7 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { serverFetch } from "@/lib/server-fetch";
+import { storeStatusLabel } from "@/lib/utils";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { StoreInfoChips } from "@/components/consumer/StoreInfoChips";
@@ -143,16 +144,22 @@ export default async function StorePage(
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
         <div className="absolute bottom-0 left-0 right-0 max-w-7xl mx-auto px-4 md:px-8 pb-4 sm:pb-6 text-white">
-          {(store.trusted || store.is_open === false) && (
+          {/* Availability SOP — gate on `badge` (the authoritative
+              LIVE/Away/Closed/Store Offline source), not `is_open`, so this
+              pill actually shows for the common "outside hours" Closed
+              case too, not just Away/Offline. Text comes from the same
+              shared storeStatusLabel() every other store-card surface
+              uses, so this can never contradict them. */}
+          {(store.trusted || store.badge !== "LIVE") && (
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               {store.trusted && (
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-white/90 text-[#0A1F5C] text-[10px] sm:text-xs font-semibold">
                   <ShieldCheck size={11} className="text-[#4F7363]" /> Trusted Store
                 </div>
               )}
-              {store.is_open === false && (
+              {store.badge !== "LIVE" && (
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-white/90 text-[#64748B] text-[10px] sm:text-xs font-semibold">
-                  {store.next_open_label || "Closed"}
+                  {storeStatusLabel(store.badge, store.next_open_label).label}
                 </div>
               )}
             </div>

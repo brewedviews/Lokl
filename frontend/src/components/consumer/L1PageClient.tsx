@@ -98,7 +98,7 @@ import { OtherCategoriesSection } from "@/components/consumer/sections/OtherCate
 import { type GenderedSectionStore } from "@/components/consumer/sections/StoreSectionModule";
 import { L2ProductRailSection } from "@/components/consumer/sections/L2ProductRailSection";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { cloudinaryOptimize } from "@/lib/utils";
+import { cloudinaryOptimize, storeStatusLabel } from "@/lib/utils";
 import type { ProductCard as ProductCardType, CategoryNode } from "@/types";
 import {
   trackSectionImpression, trackProductClick, observeImpression,
@@ -405,16 +405,15 @@ function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
           stretched wide. */}
       <div className="flex sm:hidden gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1">
         {entries.map((s) => {
-          const isOpen = s.availability_rank === 1;
-          const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
+          const { openNow, label } = storeStatusLabel(s.badge, s.next_open_label);
           return (
             <div key={s.id} className="w-[46%] shrink-0">
               <SellerCard
                 s={{ ...s, banner: s.banner || (s.banners && s.banners[0]) || null }}
                 source="shop_by_store"
                 variant="discovery"
-                openNow={isOpen}
-                closedLabel={closedLabel}
+                openNow={openNow}
+                closedLabel={label}
                 fitToContainer
               />
             </div>
@@ -423,16 +422,15 @@ function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
       </div>
       <div className="hidden sm:grid sm:grid-cols-2 gap-3">
         {entries.slice(0, 4).map((s) => {
-          const isOpen = s.availability_rank === 1;
-          const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
+          const { openNow, label } = storeStatusLabel(s.badge, s.next_open_label);
           return (
             <SellerCard
               key={s.id}
               s={{ ...s, banner: s.banner || (s.banners && s.banners[0]) || null }}
               source="shop_by_store"
               variant="discovery"
-              openNow={isOpen}
-              closedLabel={closedLabel}
+              openNow={openNow}
+              closedLabel={label}
               fitToContainer
             />
           );
@@ -451,6 +449,18 @@ function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
 // comment for why) and always renders last, right before TrustStickers.
 // ---------------------------------------------------------------------------
 type SortKey = "nearest" | "price_asc" | "price_desc";
+
+// L1 Browse All density — this block used to render the FULL unfiltered
+// product query (backend default limit 100+) directly onto the L1
+// homepage, effectively duplicating /products as a second full PLP. A
+// homepage is a discovery/merchandising surface, not a catalogue dump.
+// 12 is chosen deliberately, not arbitrarily: it's the smallest count
+// that tiles BOTH this grid's breakpoints with zero ragged remainder
+// (2 cols × 6 rows on mobile, 4 cols × 3 rows on desktop) while still
+// reading as "a real preview," not a token handful. Real total count
+// still shows in the heading; "Browse all" carries the current L1/L2/
+// sort context to the real, unlimited /products page.
+const BROWSE_PREVIEW_COUNT = 12;
 
 function sortProducts(products: ProductCardType[], sort: SortKey): ProductCardType[] {
   const copy = [...products];
@@ -518,6 +528,17 @@ function BrowseGridBlock({ l1 }: { l1: CategoryNode }) {
   });
 
   const products = useMemo(() => sortProducts(allProducts, sort), [allProducts, sort]);
+  const previewProducts = products.slice(0, BROWSE_PREVIEW_COUNT);
+  const hasMore = products.length > BROWSE_PREVIEW_COUNT;
+  // /products only understands l1/price/sort/search (no l2 param), so the
+  // L2 filter context intentionally isn't carried over — it would be a
+  // dead, misleading query param on the target page.
+  const browseAllHref = useMemo(() => {
+    const p = new URLSearchParams({ l1: l1.id });
+    if (sort === "price_asc") p.set("sort", "price_asc");
+    if (sort === "price_desc") p.set("sort", "price_desc");
+    return `/products?${p.toString()}`;
+  }, [l1.id, sort]);
 
   return (
     <>
@@ -558,9 +579,22 @@ function BrowseGridBlock({ l1 }: { l1: CategoryNode }) {
             <p className="text-sm text-[#595959] mt-2 max-w-md mx-auto">We&apos;re onboarding local sellers right now — fresh drops will land here shortly.</p>
           </div>
         ) : (
-          <div data-testid="cat-product-grid" className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
-            {products.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
-          </div>
+          <>
+            <div data-testid="cat-product-grid" className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
+              {previewProducts.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
+            </div>
+            {hasMore && (
+              <div className="mt-6 flex justify-center">
+                <a
+                  href={browseAllHref}
+                  data-testid="browse-all-link"
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full border border-[#0A1F5C] text-[#0A1F5C] text-sm font-bold hover:bg-[#0A1F5C]/5 transition"
+                >
+                  Browse all {products.length} in {l1.name} →
+                </a>
+              </div>
+            )}
+          </>
         )}
       </div>
     </>

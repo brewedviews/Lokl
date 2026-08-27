@@ -91,13 +91,20 @@ interface StoreAvailStatus {
   opens_at_label?: string | null;
 }
 
-// P0-2/P0-3 — the backend's own can_order flag stays `true` for a "Closed"
-// (outside operating hours) store, since PDP/add-to-bag are meant to keep
-// working right up to checkout (see PdpCtaRow's own comment). Checkout is
-// the one place that must NOT let an order through for a store that can't
-// currently act on it — pre-order is gone, so "Closed" is treated as
-// not-orderable here specifically, without touching the backend flag or
-// the browsing experience anywhere else.
+// UX consistency pass — the backend's `can_order` is now False for every
+// non-LIVE badge (Closed/Away/Store Offline all block order placement;
+// see _store_availability's own comment on server.py), so `s.can_order`
+// alone is sufficient here. The explicit `badge !== "Closed"` check is
+// kept as a harmless belt-and-suspenders guard against a store doc that
+// predates this fix or a future badge added without updating can_order —
+// it's not load-bearing on its own anymore.
+//
+// Core principle (applies across the whole app, not just here): store
+// availability controls ORDERABILITY, not product discovery. Browsing and
+// Add to Bag are deliberately NEVER gated on this, for any badge
+// (Closed/Away/Store Offline included) — see PdpCtaRow/ProductCard, which
+// no longer block adding to the bag for any store state. Checkout is the
+// single place that validates real orderability before payment.
 function isOrderableNow(s: StoreAvailStatus | undefined): boolean {
   if (!s) return true;
   return s.can_order && s.badge !== "Closed";

@@ -30,13 +30,13 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import { SellerCard } from "@/components/consumer/SellerCard";
-import { cloudinaryOptimize } from "@/lib/utils";
+import { cloudinaryOptimize, storeStatusLabel } from "@/lib/utils";
 
 export interface GenderedSectionStore {
   id: string; slug?: string; name: string;
   logo?: string; banner?: string; banners?: string[];
   area_label?: string; locality?: string; specialties?: string[];
-  product_count: number; availability_rank: number; next_open_label?: string;
+  product_count: number; availability_rank: number; next_open_label?: string; badge?: string;
 }
 
 interface StoreSectionModuleProps {
@@ -119,9 +119,8 @@ export function StoreSectionModule({ l1Id, l2Id, l2Href, l2Image, defaultHeading
 
           <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
             {realStores.map((s) => {
-              const isOpen = s.availability_rank === 1;
-              const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
-              return <SellerCard key={s.id} s={s} source={`store_${testSlug}`} variant="discovery" openNow={isOpen} closedLabel={closedLabel} />;
+              const { openNow, label } = storeStatusLabel(s.badge, s.next_open_label);
+              return <SellerCard key={s.id} s={s} source={`store_${testSlug}`} variant="discovery" openNow={openNow} closedLabel={label} />;
             })}
             {/* Phase G4 — admin-pinned display cards, always after real
                 stores. Not real store records: no logo/eta/product-count/

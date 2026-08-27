@@ -28,6 +28,40 @@ export function formatDistance(km: number | null | undefined): string {
   return `${km.toFixed(1)}km away`;
 }
 
+/**
+ * Store availability SOP (one consistent customer-facing model) — the
+ * single place every "is this store open" store-CARD label is composed,
+ * so StoresNearYouSection/L1PageClient/StoreSectionModule/Store page
+ * can't drift into showing different text for the same underlying
+ * `badge` the backend's `_store_availability()` already computed. Reads
+ * only `badge` (present on every store-listing endpoint response) plus
+ * the real `next_open_label` the backend formats for the Closed case —
+ * never a client-side reimplementation of the hours/weekly-off math.
+ *
+ * Store availability controls ORDERABILITY, not product discovery: this
+ * only decides card TEXT. It never gates Add to Bag (ProductCard/PdpCtaRow
+ * gate on the badge string directly, independently) or checkout (the
+ * backend's `can_order` + checkout's own `isOrderableNow` do that).
+ */
+export function storeStatusLabel(
+  badge: string | null | undefined,
+  nextOpenLabel?: string | null,
+): { openNow: boolean; label: string } {
+  switch (badge) {
+    case "LIVE":
+      return { openNow: true, label: "Open now" };
+    case "Away":
+      return { openNow: false, label: "Back soon" };
+    case "Store Offline":
+      return { openNow: false, label: "Temporarily unavailable" };
+    case "Closed":
+      return { openNow: false, label: nextOpenLabel ? `Closed · ${nextOpenLabel}` : "Closed" };
+    default:
+      // Unknown/missing badge — never assume open with no data to back it.
+      return { openNow: false, label: "Closed" };
+  }
+}
+
 /** Map FSM status → user-facing label. Matches the legacy app's copy. */
 const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   awaiting_payment: "Awaiting Payment",

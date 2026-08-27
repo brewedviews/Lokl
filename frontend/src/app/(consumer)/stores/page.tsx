@@ -52,7 +52,7 @@ function StoresInner() {
     // sticky bottom nav.
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1 w-full max-w-7xl mx-auto px-4 md:px-8 pt-10">
-        <h1 data-testid="stores-title" className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight">
+        <h1 data-testid="stores-title" className="text-2xl sm:text-3xl font-display font-medium tracking-tight text-[#0A1F5C] leading-tight">
           {area ? `Stores in ${areaLabel}` : "Stores near you"}
         </h1>
         <p className="text-[#595959] mt-2">
@@ -66,13 +66,13 @@ function StoresInner() {
           </div>
         ) : list.length === 0 ? (
           <div className="mt-8 bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center">
-            <h3 className="font-display text-2xl font-bold text-[#0A1F5C]">
+            <h3 className="font-display text-2xl font-medium tracking-tight text-[#0A1F5C]">
               {area ? `No stores in ${areaLabel} yet` : "No stores live yet"}
             </h3>
             <p className="text-sm text-[#595959] mt-2 max-w-md mx-auto">
               {area
                 ? `We're onboarding stores in ${areaLabel} — check back soon, or browse all Bhilai stores.`
-                : <>We&apos;re piloting in <strong>Bhilai</strong> and <strong>Raipur</strong>. Stores will appear here as our partner stores complete KYC and publish their first products.</>}
+                : <>We&apos;re piloting in <strong>Bhilai</strong>. Stores will appear here as our partner stores complete KYC and publish their first products.</>}
             </p>
           </div>
         ) : (
