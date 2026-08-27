@@ -91,6 +91,7 @@ import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
 import { TrustStickers } from "@/components/consumer/TrustStickers";
 import { CategoryTile } from "@/components/consumer/CategoryTile";
 import { OffersSection } from "@/components/consumer/sections/OffersSection";
+import { CommunicationStrip } from "@/components/consumer/sections/CommunicationStrip";
 import { BudgetBentoSection } from "@/components/consumer/sections/BudgetBentoSection";
 import { OtherCategoriesSection } from "@/components/consumer/sections/OtherCategoriesSection";
 import { type GenderedSectionStore } from "@/components/consumer/sections/StoreSectionModule";
@@ -364,7 +365,10 @@ function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
   const { data: stores } = useQuery({
     queryKey: ["shop-by-store", l1?.id],
     queryFn: async () => {
-      const r = await apiClient.get<GenderedSectionStore[]>(`/api/categories/${l1!.id}/stores`, { params: { limit: 20 } });
+      // P0-9 (G20 product review) — curated discovery set, not a long
+      // list: at most 5 stores, same cap as the marketplace's own Stores
+      // Near You module.
+      const r = await apiClient.get<GenderedSectionStore[]>(`/api/categories/${l1!.id}/stores`, { params: { limit: 5 } });
       return Array.isArray(r.data) ? r.data : [];
     },
     enabled: !!l1,
@@ -376,8 +380,30 @@ function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8" data-testid="home-shop_by_store">
       <h2 className="font-display font-medium text-xl sm:text-2xl tracking-tight text-[#0A1F5C] leading-tight mb-4">Stores Near You</h2>
-      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+
+      {/* P0-9 — mobile: horizontal rail (~2 cards visible, rest reached by
+          swipe). Tablet/desktop: a real 2x2 grid, not the same rail
+          stretched wide. */}
+      <div className="flex sm:hidden gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1">
         {entries.map((s) => {
+          const isOpen = s.availability_rank === 1;
+          const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
+          return (
+            <div key={s.id} className="w-[46%] shrink-0">
+              <SellerCard
+                s={{ ...s, banner: s.banner || (s.banners && s.banners[0]) || null }}
+                source="shop_by_store"
+                variant="discovery"
+                openNow={isOpen}
+                closedLabel={closedLabel}
+                fitToContainer
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="hidden sm:grid sm:grid-cols-2 gap-3">
+        {entries.slice(0, 4).map((s) => {
           const isOpen = s.availability_rank === 1;
           const closedLabel = isOpen ? undefined : (s.next_open_label || "Closed");
           return (
@@ -388,6 +414,7 @@ function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
               variant="discovery"
               openNow={isOpen}
               closedLabel={closedLabel}
+              fitToContainer
             />
           );
         })}
@@ -608,6 +635,10 @@ export function L1PageClient({ l1Id }: { l1Id: string }) {
     hero: (
       <div key="hero" ref={(el) => { if (el) { try { observeImpression(el, () => trackSectionImpression("hero")); } catch {} } }}>
         <HeroCarousel l1Id={l1Id} />
+        {/* P0-6 — thin communication strip, independently activatable per
+            L1 via the underlying offers doc's `placement` field; fixed
+            directly below the hero regardless of section rank. */}
+        <CommunicationStrip surface={l1Id} />
       </div>
     ),
 
@@ -650,7 +681,7 @@ export function L1PageClient({ l1Id }: { l1Id: string }) {
         )
       : premiumPicksPending ? <ProductRailSkeleton key="premium-picks-skeleton" testid="home-premium-picks-skeleton" /> : null,
 
-    offers: <OffersSection key="offers" />,
+    offers: <OffersSection key="offers" surface={l1Id} />,
 
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
   };

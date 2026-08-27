@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
-  Banknote, MapPin, Plus, CheckCircle2, Truck, Clock, Loader2, Store, CreditCard,
+  Banknote, MapPin, Plus, CheckCircle2, Truck, Loader2, Store, CreditCard,
   Trash2, ShoppingBag, AlertTriangle, Bike, Sparkles, ChevronRight, ChevronDown, ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -89,6 +89,18 @@ interface StoreAvailStatus {
   badge: string;
   eta_message: string;
   opens_at_label?: string | null;
+}
+
+// P0-2/P0-3 — the backend's own can_order flag stays `true` for a "Closed"
+// (outside operating hours) store, since PDP/add-to-bag are meant to keep
+// working right up to checkout (see PdpCtaRow's own comment). Checkout is
+// the one place that must NOT let an order through for a store that can't
+// currently act on it — pre-order is gone, so "Closed" is treated as
+// not-orderable here specifically, without touching the backend flag or
+// the browsing experience anywhere else.
+function isOrderableNow(s: StoreAvailStatus | undefined): boolean {
+  if (!s) return true;
+  return s.can_order && s.badge !== "Closed";
 }
 
 export default function CheckoutPage() {
@@ -396,7 +408,7 @@ export default function CheckoutPage() {
   const removeUnavailableItems = () => {
     items.forEach((it) => {
       const s = it.store_id ? itemStoreStatuses[it.store_id] : undefined;
-      if (s && !s.can_order) removeItem(it.id, it.size ?? "");
+      if (!isOrderableNow(s)) removeItem(it.id, it.size ?? "");
     });
   };
 
@@ -421,7 +433,10 @@ export default function CheckoutPage() {
   // `undefined !== false` -> true, and the CTA below was never actually
   // disabled by real store unavailability. storeAvailMap is left in place
   // for its other real uses (name/rank/can_pickup/eta_message display).
-  const allStoresCanOrder = uniqueStores.every((sid) => !itemStoreStatuses[sid] || itemStoreStatuses[sid].can_order);
+  // isOrderableNow additionally treats "Closed" (outside operating hours)
+  // as not-orderable here — P0-2/P0-3: browsing/add-to-bag stay open for a
+  // closed store, but checkout must not let that order through.
+  const allStoresCanOrder = uniqueStores.every((sid) => isOrderableNow(itemStoreStatuses[sid]));
   // We allow Pay Now in multi-store carts (no fee added — legacy "FREE"),
   // pickup orders (no delivery estimate is ever fetched for these), OR
   // when the delivery estimate succeeded with deliverable=true. Estimates
@@ -458,7 +473,7 @@ export default function CheckoutPage() {
     if (!isPickup && estimate && !estimate.deliverable) return toast.error(estimate.reason || "Delivery unavailable for this address");
     // Same source as allStoresCanOrder above — itemStoreStatuses, not the
     // never-populated storeAvailMap.can_order.
-    const closedStore = uniqueStores.find((sid) => itemStoreStatuses[sid] && !itemStoreStatuses[sid].can_order);
+    const closedStore = uniqueStores.find((sid) => !isOrderableNow(itemStoreStatuses[sid]));
     if (closedStore) {
       const statusInfo = itemStoreStatuses[closedStore];
       const displayName = storeAvailMap[closedStore]?.name ?? "A store";
@@ -650,7 +665,7 @@ export default function CheckoutPage() {
   const anyUnavailable = items.some((it) => {
     if (!it.store_id) return false;
     const status = itemStoreStatuses[it.store_id];
-    return status !== undefined && !status.can_order;
+    return status !== undefined && !isOrderableNow(status);
   });
 
   const ctaLabel = !hasAuth
@@ -713,7 +728,7 @@ export default function CheckoutPage() {
           <div className="space-y-3">
             {sortedItems.map((it) => {
               const storeStatus = it.store_id ? itemStoreStatuses[it.store_id] : undefined;
-              const itemUnavailable = storeStatus && !storeStatus.can_order;
+              const itemUnavailable = storeStatus && !isOrderableNow(storeStatus);
               const showMrp = it.mrp != null && it.mrp > it.price;
               return (
                 <div key={it.key} data-testid={`cart-item-${it.id}`} className={`flex gap-3 p-2 rounded-xl border ${itemUnavailable ? "border-red-200 bg-red-50/30" : "border-transparent"}`}>
@@ -1010,39 +1025,28 @@ export default function CheckoutPage() {
           <p className="text-xs text-[#94A3B8] text-center">Sign in above to choose a payment method.</p>
         )}
 
-        {/* Store availability context (multi-store per-store status, preorder
-            notice, delivery ETA detail, non-deliverable reason) — unchanged
-            logic, kept close to the bill it explains. */}
+        {/* Store availability context (multi-store per-store status, delivery
+            ETA detail, non-deliverable reason) — unchanged logic, kept close
+            to the bill it explains. P0-2/P0-3: the old "preorder-notice"
+            ("this order will be delivered after the store opens") banner is
+            gone — a closed store no longer lets an order through at all
+            (see isOrderableNow/allStoresCanOrder above), so there's nothing
+            to reassure the customer about here; the red unavailable-items
+            banner near the bag already covers it. */}
         {!allStoresCanOrder && (
           <div className="space-y-1">
-            {uniqueStores.filter((sid) => itemStoreStatuses[sid] && !itemStoreStatuses[sid].can_order).map((sid) => {
+            {uniqueStores.filter((sid) => !isOrderableNow(itemStoreStatuses[sid])).map((sid) => {
               const info = storeAvailMap[sid];
               const timeStr = info?.opens_at_label ? info.opens_at_label.replace(/^Opens\s+(at\s+)?/i, "") : null;
               return (
                 <div key={sid} className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-xl">
                   <span>⚠️</span>
-                  <span>{info?.name ?? "A store"} is closed{timeStr ? ` · Available from ${timeStr}` : ""}</span>
+                  <span>{info?.name ?? "A store"} can&apos;t take orders right now{timeStr ? ` · Available from ${timeStr}` : ""}</span>
                 </div>
               );
             })}
           </div>
         )}
-        {orderType === "delivery" && (() => {
-          const avail = cartStoreId ? storeAvailMap[cartStoreId] : null;
-          const badge = avail?.badge;
-          if (badge === "Closed") {
-            const opensSuffix = (avail?.opens_at_label || "Opens soon").replace(/^Opens\s+/i, "");
-            return (
-              <div className="flex items-start gap-1.5 text-xs bg-blue-50 border border-blue-200 rounded-xl px-3 py-2" data-testid="preorder-notice">
-                <Clock size={12} className="text-blue-600 mt-0.5 shrink-0" />
-                <span className="text-blue-700 font-medium">
-                  This order will be delivered after {avail?.name ?? "the store"} opens {opensSuffix}.
-                </span>
-              </div>
-            );
-          }
-          return null;
-        })()}
         {estimate && !estimate.deliverable && estimate.reason && (
           <p className="text-xs text-red-500" data-testid="delivery-reason">{estimate.reason}</p>
         )}

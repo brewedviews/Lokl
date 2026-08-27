@@ -43,8 +43,8 @@ export default function ShippingPolicyPage() {
           <section>
             <h2 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">If a store is closed</h2>
             <p className="text-[#595959]">
-              You can still check out — your order becomes a pre-order. We&apos;ll show you the store&apos;s opening
-              time, and the order is delivered once they&apos;re back online, typically the same or next day.
+              You can still browse the store and add items to your bag. We&apos;ll show you the store&apos;s opening
+              time, and you can complete checkout once they&apos;re accepting orders again.
             </p>
           </section>
 

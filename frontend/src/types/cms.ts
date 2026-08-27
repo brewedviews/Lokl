@@ -75,6 +75,20 @@ export interface CmsOffer {
    *  same additive-optional-field pattern HeroSlide's subheadline/
    *  highlight_text already used. */
   eyebrow?: string;
+  /** P0-6/P0-7 (G20 product review) — "strip" = thin text/CTA
+   *  communication strip near the hero, no image; "banner" (default, and
+   *  every pre-existing offer doc) = the ad-hoc image banner card this
+   *  entity already was. Same collection/editor, not two systems. */
+  kind?: "strip" | "banner";
+  /** Only meaningful for kind="banner" — a bounded preset, never an
+   *  arbitrary CSS height, so an admin can't break the mobile layout. */
+  aspect_ratio?: "21:9" | "16:9" | "3:1" | "4:3";
+  /** null/absent = every surface; "global" = Marketplace home only; an L1
+   *  id (e.g. "l1-women") = that L1 page only. Same sentinel HeroSlide's
+   *  own l1_id already uses. */
+  placement?: string | null;
+  /** Optional scheduling start — paired with the existing expires_at. */
+  starts_at?: string | null;
 }
 
 /** A single admin-curated display card pinned to a store section. Two

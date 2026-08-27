@@ -246,6 +246,14 @@ export function HeroSlidesEditor() {
                         />
                         <span className="text-[11px] font-bold text-[#0A1F5C]">{s.active ? "Active" : "Hidden"}</span>
                       </label>
+                      <label className="inline-flex items-center gap-2 cursor-pointer select-none" title="Overlay a soft scrim on this slide's image (only the marketplace welcome slide has this on by default)">
+                        <input
+                          type="checkbox" checked={!!s.gradient} onChange={(e) => patch(s.id, { gradient: e.target.checked })}
+                          data-testid={`cms-hero-slide-gradient-${s.id}`}
+                          className="h-3.5 w-3.5 accent-[#0A1F5C]"
+                        />
+                        <span className="text-[11px] font-bold text-[#0A1F5C]">Gradient</span>
+                      </label>
                       <span className="text-[10px] text-[#94A3B8] font-mono">order: {s.order}</span>
                       <div className="flex items-center gap-1 ml-auto">
                         <button type="button" onClick={() => void move(s, -1)} disabled={i === 0 || busy[s.id]}

@@ -62,11 +62,15 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
 
   const storeBadge = (p as any).store_badge as string | undefined;
   const storeOpensAt = (p as any).store_opens_at_label as string | undefined;
-  const unavailable = storeBadge === "Closed" || storeBadge === "Store Offline";
+  // P0-2/P0-3 (G20 product review) — "Closed" (outside operating hours)
+  // no longer blocks add-to-bag; only "Store Offline" does. Same rule as
+  // PdpCtaRow/ProductDetailPanel's isOffline check — checkout is the
+  // authoritative place a closed store actually blocks the order.
+  const unavailable = storeBadge === "Store Offline";
 
   const doAdd = (chosenSize: string) => {
     if (unavailable) {
-      toast.error("This store is currently unavailable");
+      toast.error("This store isn't accepting orders right now");
       return;
     }
     const r = addItem(p, chosenSize);

@@ -21,6 +21,10 @@ export interface HeroSlide {
   cta_link?: string;
   active: boolean;
   order: number;
+  /** P0-5 (G20 product review) — gradient scrim is per-slide configuration
+   *  now, not something HeroCarousel.tsx applies unconditionally. Defaults
+   *  false; only the marketplace "globe" welcome slide has this true. */
+  gradient?: boolean;
   created_at: IsoDateTime;
   updated_at?: IsoDateTime;
 }
@@ -36,4 +40,5 @@ export interface HeroSlideCreatePayload {
   cta_link?: string;
   active?: boolean;
   order?: number;
+  gradient?: boolean;
 }

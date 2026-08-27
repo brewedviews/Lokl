@@ -102,6 +102,15 @@ export interface Offer {
   cta_href?: string;
   bg?: string;
   fg?: string;
+  /** P0-6/P0-7 (G20 product review) — see CmsOffer's own doc comment
+   *  (types/cms.ts) for what each of these controls; same fields, same
+   *  underlying `offers` entity, just mirrored on this consumer-facing
+   *  read type. */
+  eyebrow?: string;
+  cta_link?: string;
+  kind?: "strip" | "banner";
+  aspect_ratio?: "21:9" | "16:9" | "3:1" | "4:3";
+  placement?: string | null;
 }
 
 export interface Testimonial {

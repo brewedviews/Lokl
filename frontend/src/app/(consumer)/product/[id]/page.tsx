@@ -129,7 +129,6 @@ export default async function ProductDetailPage(
             <ProductDetailPanel
               product={product}
               discount={discount}
-              storeCanOrder={product.store_can_order !== false}
               storeBadge={product.store_badge ?? "LIVE"}
               storeOpensAtLabel={product.store_opens_at_label ?? null}
               storeName={product.store_name}

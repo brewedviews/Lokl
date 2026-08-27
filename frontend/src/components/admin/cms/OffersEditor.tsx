@@ -8,23 +8,29 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Save, Loader2, Eye, EyeOff, ChevronUp, ChevronDown, Trash2, Plus } from "lucide-react";
 import { adminApi } from "@/lib/api/admin";
+import { catalogApi } from "@/lib/api";
 import { ImageUploadField } from "./ImageUploadField";
 import { DestinationPicker } from "./DestinationPicker";
-import type { CmsOffer } from "@/types";
+import type { CmsOffer, CategoryNode } from "@/types";
 
 const BLANK_OFFER: Partial<CmsOffer> = {
   title: "New offer", subtitle: "", image: "", eyebrow: "",
   cta_label: "Shop now", cta_link: "", redirect_url: "",
   background: "#0A1F5C", rank: 100, published: false,
+  kind: "banner", aspect_ratio: "21:9", placement: null,
 };
+
+const ASPECT_RATIO_OPTIONS: Array<CmsOffer["aspect_ratio"]> = ["21:9", "16:9", "3:1", "4:3"];
 
 export function OffersEditor() {
   const [rows, setRows] = useState<CmsOffer[] | null>(null);
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [l1s, setL1s] = useState<CategoryNode[]>([]);
 
   const reload = () => adminApi.listOffers().then(setRows).catch((e) => toast.error(String(e)));
   useEffect(() => { void reload(); }, []);
+  useEffect(() => { catalogApi.categories().then(setL1s).catch(() => setL1s([])); }, []);
 
   const patch = (id: string, p: Partial<CmsOffer>) => {
     setRows((r) => r?.map((o) => o.id === id ? { ...o, ...p } : o) || null);
@@ -39,6 +45,9 @@ export function OffersEditor() {
         cta_label: row.cta_label, cta_link: row.cta_link, redirect_url: row.redirect_url || "",
         background: row.background, rank: row.rank, published: row.published,
         paused: !!row.paused, non_clickable: !!row.non_clickable,
+        kind: row.kind || "banner", aspect_ratio: row.aspect_ratio || "21:9",
+        placement: row.placement ?? null, starts_at: row.starts_at ?? null,
+        expires_at: row.expires_at ?? null,
       });
       setRows((rs) => rs?.map((o) => o.id === row.id ? r : o) || null);
       setDirty((d) => { const n = { ...d }; delete n[row.id]; return n; });
@@ -98,8 +107,8 @@ export function OffersEditor() {
     <div className="space-y-4" data-testid="cms-offers-editor">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-display text-lg font-bold text-[#0A1F5C]">Offer banners</h3>
-          <p className="text-[11px] text-[#64748B]">Limited-time campaigns shown in the homepage offers rail.</p>
+          <h3 className="font-display text-lg font-bold text-[#0A1F5C]">Offers &amp; communication strip</h3>
+          <p className="text-[11px] text-[#64748B]">Ad-hoc banners and the thin text strip near the hero — set Type, Show on and optional dates per row.</p>
         </div>
         <button
           onClick={createNew}
@@ -153,6 +162,56 @@ export function OffersEditor() {
                     placeholder="/offers/festive-sale or /c/women"
                   />
                 </div>
+              </div>
+              {/* P0-6/P0-7 (G20 product review) — kind, placement,
+                  aspect-ratio preset (banner only) and optional scheduling
+                  window. Same fields power both the thin communication
+                  strip and ad-hoc image banners; only `kind` decides
+                  which one a given row renders as on the consumer app. */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-[#F1F5F9]">
+                <label className="block">
+                  <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Type</span>
+                  <select value={o.kind || "banner"} onChange={(e) => patch(o.id, { kind: e.target.value as CmsOffer["kind"] })}
+                    data-testid={`cms-offer-kind-${o.id}`}
+                    className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none">
+                    <option value="banner">Banner (image)</option>
+                    <option value="strip">Strip (text only)</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Show on</span>
+                  <select value={o.placement ?? ""} onChange={(e) => patch(o.id, { placement: e.target.value || null })}
+                    data-testid={`cms-offer-placement-${o.id}`}
+                    className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none">
+                    <option value="">Everywhere</option>
+                    <option value="global">Marketplace only</option>
+                    {l1s.map((c) => <option key={c.id} value={c.id}>{c.name} only</option>)}
+                  </select>
+                </label>
+                {(o.kind || "banner") === "banner" && (
+                  <label className="block">
+                    <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Aspect ratio</span>
+                    <select value={o.aspect_ratio || "21:9"} onChange={(e) => patch(o.id, { aspect_ratio: e.target.value as CmsOffer["aspect_ratio"] })}
+                      data-testid={`cms-offer-aspect-${o.id}`}
+                      className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none">
+                      {ASPECT_RATIO_OPTIONS.map((ar) => <option key={ar} value={ar}>{ar}</option>)}
+                    </select>
+                  </label>
+                )}
+                <label className="block">
+                  <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Starts</span>
+                  <input type="date" value={o.starts_at ? o.starts_at.slice(0, 10) : ""}
+                    onChange={(e) => patch(o.id, { starts_at: e.target.value ? new Date(e.target.value).toISOString() : null })}
+                    data-testid={`cms-offer-starts-${o.id}`}
+                    className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none" />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Ends</span>
+                  <input type="date" value={o.expires_at ? o.expires_at.slice(0, 10) : ""}
+                    onChange={(e) => patch(o.id, { expires_at: e.target.value ? new Date(e.target.value).toISOString() : null })}
+                    data-testid={`cms-offer-expires-${o.id}`}
+                    className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none" />
+                </label>
               </div>
               {/* iter-27 (Item 7) — paused + non-clickable toggles */}
               <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-[#F1F5F9]">

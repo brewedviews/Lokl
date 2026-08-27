@@ -114,8 +114,6 @@ function SaveShareIcons({ product }: { product: Product }) {
 
 export function PdpCtaRow({
   isOffline,
-  storeCanOrder,
-  isClosed,
   productId,
   size,
   product,
@@ -124,8 +122,6 @@ export function PdpCtaRow({
   onAddToBag,
 }: {
   isOffline: boolean;
-  storeCanOrder: boolean;
-  isClosed: boolean;
   productId: string;
   size: string;
   product: Product;
@@ -143,6 +139,13 @@ export function PdpCtaRow({
   const key = cartKeyFor(productId, size);
   const qty = mounted ? items.find((i) => i.key === key)?.qty ?? 0 : 0;
 
+  // P0-2/P0-3 — a store being temporarily non-orderable (outside operating
+  // hours, or its heartbeat gone briefly stale — the "Closed"/"Away"
+  // badges) no longer blocks this row or relabels it "Pre-order": the
+  // product stays fully browsable and addable, exactly like G13's
+  // discovery review asked for. Only Store-Offline (the merchant's own
+  // toggle, or a heartbeat stale long enough to be genuinely gone) still
+  // swaps this row for Notify Me — see PdpCtaRow's own header comment.
   const purchaseRow = isOffline ? (
     <Button
       variant="cta"
@@ -152,13 +155,6 @@ export function PdpCtaRow({
     >
       <Bell size={15} /> Notify Me
     </Button>
-  ) : !storeCanOrder ? (
-    <div
-      data-testid="store-unavailable-btn"
-      className="inline-flex items-center px-6 py-2.5 rounded-full bg-[#F4F1E9] text-[#94A3B8] text-sm font-bold"
-    >
-      Store Unavailable
-    </div>
   ) : (
     <>
       <button
@@ -176,7 +172,7 @@ export function PdpCtaRow({
           data-testid="add-to-bag"
           className="gap-1.5 text-sm whitespace-nowrap"
         >
-          <ShoppingBag size={16} /> {isClosed ? "Pre-order" : "Add to bag"}
+          <ShoppingBag size={16} /> Add to bag
         </Button>
       ) : (
         <div

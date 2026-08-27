@@ -284,6 +284,12 @@ class HeroSlideCreate(BaseModel):
     cta_link: Optional[str] = ""
     active: bool = True
     order: int = 1
+    # P0-5 (G20 product review) — gradient is now per-slide configuration,
+    # not something HeroCarousel.tsx applies to every hero image. Defaults
+    # False so a new slide never silently inherits the marketplace "globe"
+    # slide's scrim; see migrations/029_g20_hero_gradient_config.py for the
+    # one-time backfill that keeps the globe slide's existing look.
+    gradient: bool = False
 
 class VasyERPConnectRequest(BaseModel):
     api_token: str
@@ -1719,16 +1725,37 @@ async def search_track(payload: dict):
 
 
 @api.get("/offers")
-async def list_offers():
+async def list_offers(placement: Optional[str] = None, kind: Optional[str] = None):
+    """Public, real-time-filtered offers/banners feed — powers both the
+    communication strip (P0-6) and ad-hoc image banners (P0-7), which are
+    the SAME `offers` entity distinguished only by `kind` ("strip" |
+    "banner", default "banner" for pre-existing docs).
+
+    `placement` mirrors HeroSlide's own l1_id "global" sentinel: a doc
+    with no `placement` set (None/absent) shows on EVERY surface; a doc
+    scoped to "global" shows on the Marketplace home only; a doc scoped to
+    a real L1 id (e.g. "l1-women") shows only on that L1's page. Callers
+    pass their own surface id so an admin can activate a strip/banner for
+    Marketplace and L1 independently, or for one specific L1.
+    """
     now = datetime.now(timezone.utc).isoformat()
-    rows = await db.offers.find(
-        {
-            "published": True,
-            "paused": {"$ne": True},
-            "$or": [{"expires_at": None}, {"expires_at": {"$gt": now}}],
-        },
-        {"_id": 0}
-    ).sort("rank", 1).to_list(20)
+    q: dict = {
+        "published": True,
+        "paused": {"$ne": True},
+        "$or": [{"expires_at": None}, {"expires_at": {"$gt": now}}],
+        "$and": [{"$or": [{"starts_at": None}, {"starts_at": {"$lte": now}}]}],
+    }
+    if placement:
+        q["$and"].append({"$or": [{"placement": None}, {"placement": placement}]})
+    if kind:
+        # "banner" also matches docs that predate this field entirely
+        # (every offer created before P0-6/P0-7 is a banner) — an exact
+        # {"kind": "banner"} match would silently hide them.
+        if kind == "banner":
+            q["$and"].append({"$or": [{"kind": None}, {"kind": "banner"}]})
+        else:
+            q["kind"] = kind
+    rows = await db.offers.find(q, {"_id": 0}).sort("rank", 1).to_list(20)
     return rows
 
 
@@ -2395,8 +2422,24 @@ async def _validate_bulk_upload(file: UploadFile) -> bytes:
     return raw
 
 
+ALLOWED_OFFER_ASPECT_RATIOS = {"21:9", "16:9", "3:1", "4:3"}
+
+
 @api.post("/admin/offers")
 async def admin_create_offer(payload: dict, admin: dict = Depends(require_admin)):
+    # P0-6/P0-7 (G20 product review) — kind distinguishes the thin
+    # communication strip ("strip", text/CTA only, no image) from an
+    # ad-hoc image banner ("banner", the pre-existing offer-card shape) —
+    # same collection/editor/upload path, not a second banner system.
+    kind = payload.get("kind") or "banner"
+    if kind not in ("strip", "banner"):
+        raise HTTPException(400, "kind must be 'strip' or 'banner'")
+    aspect_ratio = payload.get("aspect_ratio") or "21:9"
+    if aspect_ratio not in ALLOWED_OFFER_ASPECT_RATIOS:
+        raise HTTPException(400, f"aspect_ratio must be one of {sorted(ALLOWED_OFFER_ASPECT_RATIOS)}")
+    placement = payload.get("placement") or None
+    if placement is not None and placement != "global" and placement not in [c["id"] for c in L1_CATEGORIES]:
+        raise HTTPException(400, "Invalid placement")
     doc = {
         "id": f"off-{uuid.uuid4().hex[:8]}",
         "title": payload.get("title", "").strip(),
@@ -2412,6 +2455,13 @@ async def admin_create_offer(payload: dict, admin: dict = Depends(require_admin)
         "rank": int(payload.get("rank", 100)),
         "published": bool(payload.get("published", True)),
         "expires_at": payload.get("expires_at"),
+        # P0-6/P0-7 additions — see docstring on GET /offers for what each
+        # controls. `placement` None = every surface; "global" = Marketplace
+        # only; an L1 id = that L1 only (same sentinel HeroSlide uses).
+        "kind": kind,
+        "aspect_ratio": aspect_ratio,
+        "placement": placement,
+        "starts_at": payload.get("starts_at"),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.offers.insert_one(doc)
@@ -2499,7 +2549,7 @@ async def admin_delete_brand(bid: str, admin: dict = Depends(require_admin)):
 # task's own scoping call.
 ALLOWED_HERO_SLIDE_FIELDS = {
     "l1_id", "image", "image_public_id", "eyebrow", "headline", "subheadline",
-    "highlight_text", "cta_link", "active", "order",
+    "highlight_text", "cta_link", "active", "order", "gradient",
 }
 
 
@@ -2541,6 +2591,8 @@ async def admin_update_hero_slide(sid: str, payload: dict, admin: dict = Depends
         raise HTTPException(400, "Invalid l1_id")
     if "active" in update:
         update["active"] = bool(update["active"])
+    if "gradient" in update:
+        update["gradient"] = bool(update["gradient"])
     if "order" in update:
         update["order"] = int(update["order"])
     update["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -2565,6 +2617,8 @@ ALLOWED_OFFER_FIELDS = {
     "paused", "non_clickable",
     # G6 — event/campaign eyebrow, see admin_create_offer's own comment.
     "eyebrow",
+    # P0-6/P0-7 (G20 product review) — see admin_create_offer's own comment.
+    "kind", "aspect_ratio", "placement", "starts_at",
 }
 
 
@@ -2579,6 +2633,15 @@ async def admin_update_offer(oid: str, payload: dict, admin: dict = Depends(requ
         update["paused"] = bool(update["paused"])
     if "non_clickable" in update:
         update["non_clickable"] = bool(update["non_clickable"])
+    if "kind" in update and update["kind"] not in ("strip", "banner"):
+        raise HTTPException(400, "kind must be 'strip' or 'banner'")
+    if "aspect_ratio" in update and update["aspect_ratio"] not in ALLOWED_OFFER_ASPECT_RATIOS:
+        raise HTTPException(400, f"aspect_ratio must be one of {sorted(ALLOWED_OFFER_ASPECT_RATIOS)}")
+    if "placement" in update:
+        p = update["placement"] or None
+        if p is not None and p != "global" and p not in [c["id"] for c in L1_CATEGORIES]:
+            raise HTTPException(400, "Invalid placement")
+        update["placement"] = p
     update["updated_at"] = datetime.now(timezone.utc).isoformat()
     r = await db.offers.update_one({"id": oid}, {"$set": update})
     if r.matched_count == 0:
@@ -3357,16 +3420,18 @@ async def admin_delete_store_section_override(l1_id: str, l2_id: str, admin: dic
 # G9 target order:
 #   Marketplace ("/"): hero -> category_pills (3x3 mixed discovery
 #     categories) -> marketplace_offers -> best_deals (mixed) -> under_499
-#     ("Picks for Every Budget") -> stores_near_you -> global_store_ethnic
-#     -> merchant_cta -> premium_picks -> global_store_footwear.
-#     Shop by Brand/Area and Trending stay REMOVED as homepage sections
-#     (their underlying endpoints/CMS tabs are untouched, just not linked
-#     from a homepage section — /api/areas, AreasEditor, /stores?area=,
-#     /brands, BrandsEditor all still work). G9 re-evaluated Shop by Area
-#     per its own product brief and deliberately did NOT restore it: no
-#     store in the DB has `area_slug` set, so every featured-area tile
-#     would honestly show "0 stores" — a real data gap (see the G9 final
-#     report), not a design call to route around with fabricated content.
+#     ("Picks for Every Budget") -> stores_near_you -> shop_by_area ->
+#     global_store_ethnic -> merchant_cta -> premium_picks ->
+#     global_store_footwear.
+#     Shop by Brand and Trending stay REMOVED as homepage sections (their
+#     underlying endpoints/CMS tabs are untouched, just not linked from a
+#     homepage section — /brands, BrandsEditor still work).
+#     Shop by Area was re-evaluated and restored by G20 (P0-4): G9 had left
+#     it unlinked because no store in the DB had `area_slug` set at the
+#     time, so every featured-area tile would honestly show "0 stores" —
+#     that field has been mandatory on merchant storefront saves since
+#     iter-29, so real counts now fill in as merchants save; an area
+#     genuinely having 0 stores yet is shown honestly, not hidden.
 #   L1 (/c/[slug]): hero -> shop_by_category -> best_deals -> under_499
 #     ("Picks for Every Budget") -> shop_by_store ("Stores Near You",
 #     L1-scoped real stores, the ONE store-discovery module G9 §3 keeps
@@ -3413,6 +3478,10 @@ DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "global_store_ethnic","label": "Ethnic Stores (marketplace)","enabled": True,  "rank": 60},
     {"id": "shop_by_store",     "label": "Stores near you (L1)",        "enabled": True,  "rank": 60},
     {"id": "stores_near_you",   "label": "Stores near you (marketplace)","enabled": True,  "rank": 70},
+    # P0-4 (G20 product review) — restores Shop by Area, unlinked since G9
+    # (see that section's own comment above). Nothing new: /api/areas,
+    # AreasEditor and /stores?area= were never removed.
+    {"id": "shop_by_area",      "label": "Shop by Area (marketplace)",  "enabled": True,  "rank": 75},
     {"id": "l1_footwear_rail",  "label": "Footwear Picks (L1)",         "enabled": True,  "rank": 65},
     {"id": "l1_lingerie_rail",  "label": "Lingerie / Accessory Picks (L1)", "enabled": True,  "rank": 66},
     {"id": "merchant_cta",      "label": "Own a store",                 "enabled": True,  "rank": 80},
@@ -5090,7 +5159,15 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                     except Exception:
                         _pickup_expires_at = datetime.now(timezone.utc) + timedelta(hours=4)
             else:
-                if not avail["can_order"]:
+                # P0-2/P0-3 (G20 product review): pre-order is gone — a store
+                # that's merely closed for the day (badge "Closed", can_order
+                # still True so PDP/add-to-bag keep working right up to this
+                # point) must NOT be allowed to complete a delivery order
+                # either, same as the already-blocked Away/Offline states.
+                # Reuses the same _store_availability() this whole file
+                # already computes availability from — no new field, no new
+                # mechanism, no invented future date.
+                if not avail["can_order"] or avail.get("badge") == "Closed":
                     store_name = (store_doc or {}).get("name", sid)
                     unavailable_stores.append(f"{store_name}: {avail['eta_message']}")
         if unavailable_stores:

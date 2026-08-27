@@ -32,7 +32,7 @@ const FAQS: { q: string; a: string }[] = [
   },
   {
     q: "What happens if the store is closed when I order?",
-    a: "You can still add items and check out — it becomes a pre-order. We'll show you when the store opens, and your order is delivered once they're back online, typically the same or next day.",
+    a: "You can still browse and add items to your bag. You'll need to complete checkout once the store is open and accepting orders again — we'll show you when that is.",
   },
   {
     q: "How do I become a seller on Lokl?",

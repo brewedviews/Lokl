@@ -87,15 +87,24 @@ function renderHighlightedHeadline(headline: string, highlight?: string) {
   );
 }
 
-function HeroSkeleton() {
+function HeroSkeleton({ compact }: { compact: boolean }) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 md:pt-6">
-      <div className="rounded-2xl min-h-[300px] md:min-h-[320px] bg-[#E5E2DC] animate-pulse" />
+      <div className={`rounded-2xl ${compact ? "min-h-[150px] md:min-h-[160px]" : "min-h-[300px] md:min-h-[320px]"} bg-[#E5E2DC] animate-pulse`} />
     </div>
   );
 }
 
 export function HeroCarousel({ l1Id }: { l1Id: string }) {
+  // P0-5 (G20 product review) — L1/category heroes are a compact
+  // discovery banner (~50% of the marketplace hero's height, no gradient
+  // scrim); the marketplace/"global" hero keeps its existing full size.
+  // Height is a per-SURFACE decision (driven by l1Id, same signal that
+  // already separates marketplace from L1 everywhere else in this file);
+  // the gradient is a per-SLIDE decision (slide.gradient, see HeroSlide's
+  // own doc comment) so a second marketplace slide doesn't automatically
+  // inherit the globe slide's scrim.
+  const compact = l1Id !== "global";
   const { data, isLoading } = useQuery({
     queryKey: ["hero-slides", l1Id],
     queryFn: () => api.catalog.heroSlides(l1Id),
@@ -168,7 +177,7 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
     }, 80);
   };
 
-  if (isLoading) return <HeroSkeleton />;
+  if (isLoading) return <HeroSkeleton compact={compact} />;
   if (slides.length === 0) return null;
 
   return (
@@ -197,18 +206,29 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
                       (desktop): the scrim was washing out the source photo
                       well past what text legibility needs. Chosen after
                       comparing against the actual seeded hero image at both
-                      viewports, not a blind guess. */}
-                  <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/75 via-[#FDFBF7]/45 to-[#FDFBF7]/10 md:bg-gradient-to-r md:from-[#FDFBF7]/70 md:via-[#FDFBF7]/30 md:to-transparent" />
-                  <div className="relative flex flex-col max-w-2xl px-5 md:px-10 lg:px-12 pt-6 md:pt-10 pb-16 md:pb-20 min-h-[300px] md:min-h-[320px]">
+                      viewports, not a blind guess.
+                      P0-5 — now per-slide config (slide.gradient), not
+                      applied to every hero image: only the marketplace
+                      "globe" slide has this set, so L1 heroes render with
+                      no scrim over the photo. */}
+                  {slide.gradient && (
+                    <div className="absolute inset-0 bg-gradient-to-b from-[#FDFBF7]/75 via-[#FDFBF7]/45 to-[#FDFBF7]/10 md:bg-gradient-to-r md:from-[#FDFBF7]/70 md:via-[#FDFBF7]/30 md:to-transparent" />
+                  )}
+                  <div className={`relative flex flex-col max-w-2xl px-5 md:px-10 lg:px-12 ${compact ? "justify-center pt-3 pb-5 md:pb-6 min-h-[150px] md:min-h-[160px]" : "pt-6 md:pt-10 pb-16 md:pb-20 min-h-[300px] md:min-h-[320px]"}`}>
+                    {/* compact (L1/no-gradient) mode has no scrim behind the
+                        text, so legibility against an arbitrary photo comes
+                        from white text + a drop-shadow instead — a much
+                        lighter treatment than a full-image gradient, not a
+                        reintroduction of it. */}
                     {slide.eyebrow && (
-                      <span className="text-[11px] font-bold uppercase tracking-wide text-[#E68910]">{slide.eyebrow}</span>
+                      <span className={`font-bold uppercase tracking-wide ${compact ? "text-[10px] text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.55)]" : "text-[11px] text-[#E68910]"}`}>{slide.eyebrow}</span>
                     )}
                     {slide.headline && (
-                      <h1 className="font-display font-medium text-[#0A1F5C] mt-1 text-[28px] leading-[1.1] md:text-4xl lg:text-5xl tracking-tight">
+                      <h1 className={`font-display font-medium mt-1 tracking-tight leading-[1.15] ${compact ? "text-lg md:text-2xl text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]" : "text-[#0A1F5C] text-[28px] leading-[1.1] md:text-4xl lg:text-5xl"}`}>
                         {renderHighlightedHeadline(slide.headline, slide.highlight_text)}
                       </h1>
                     )}
-                    {slide.subheadline && (
+                    {slide.subheadline && !compact && (
                       <p className="mt-2.5 md:mt-3 text-[13px] md:text-base text-[#0A1F5C]/75 md:text-[#475569] max-w-md leading-relaxed">
                         {slide.subheadline}
                       </p>
@@ -216,7 +236,7 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
                   </div>
                 </>
               );
-              const slideClassName = "relative snap-start shrink-0 w-full min-h-[300px] md:min-h-[320px]";
+              const slideClassName = `relative snap-start shrink-0 w-full ${compact ? "min-h-[150px] md:min-h-[160px]" : "min-h-[300px] md:min-h-[320px]"}`;
               return slide.cta_link ? (
                 <Link key={slide.id} href={slide.cta_link} data-testid={`hero-carousel-slide-${i}`} className={slideClassName}>
                   {content}
@@ -249,8 +269,11 @@ export function HeroCarousel({ l1Id }: { l1Id: string }) {
           {/* Floating delivery-status badge — one per carousel (site-wide
               data, not per-slide), bottom-left per the approved reference.
               Hidden only on a genuine fetch error; shows ETAHeaderCard's
-              own skeleton while loading rather than a guessed value. */}
-          {!deliveryErrored && (
+              own skeleton while loading rather than a guessed value.
+              P0-5 — also hidden on the compact L1 banner: at ~150px tall
+              it reads as clutter on what's meant to be a lightweight
+              discovery strip, not a second promotional surface. */}
+          {!deliveryErrored && !compact && (
             <div className="absolute bottom-5 left-5 md:bottom-6 md:left-10 lg:left-12">
               <ETAHeaderCard
                 variant="pill"

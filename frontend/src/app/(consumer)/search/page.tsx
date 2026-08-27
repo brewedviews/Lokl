@@ -1,30 +1,41 @@
 "use client";
 
 /**
- * /search — G9 §16-17. Previously two disconnected halves: the bottom
- * nav's Search tab opened `MobileSearchSheet` (a header-anchored overlay
- * with recent/suggestions/trending, never navigating anywhere), while this
- * route rendered results-only for whatever `?q=` happened to already be in
- * the URL — no input field of its own. G9 makes this the single real
- * entry point: StickyBottomNav's Search tab now `<Link href="/search">`s
- * here directly, and this page owns the whole flow itself.
+ * /search — G9 §16-17, redesigned P0-8 (G20 product review).
+ *
+ * G20 problem statement: suggestions/recent/popular all reused slightly
+ * different pill treatments for the same "tap a term" affordance (three
+ * visually distinct chip styles for one interaction), Browse Stores read
+ * as a generic list row, and the page felt assembled section-by-section
+ * rather than designed as one experience. This pass:
+ *   - Drops the hardcoded QUICK_TERMS list entirely — it duplicated
+ *     "Popular searches" (real trending data) with fabricated terms; one
+ *     real, live-data section replaces both.
+ *   - Recent searches render as plain text rows (Clock icon + term +
+ *     remove), not pills — visually distinct from Popular searches,
+ *     matching the brief's own "compact rows or simple text chips" vs
+ *     "restrained horizontal chip treatment" split.
+ *   - One section-label type scale used everywhere on this page
+ *     (text-[11px] font-bold uppercase tracking-wide text-[#9CA3AF]) —
+ *     the same convention already established on Profile/Orders/Support.
+ *   - Browse Stores becomes a real discovery module (storefront icon,
+ *     "Browse stores" / "Explore local sellers on Lokl", full-width tap
+ *     target) instead of a generic bordered row.
+ *   - Committed results now lead with Products (the primary commerce
+ *     intent), then Stores — reordered, not re-fetched; same
+ *     api.search.search response, only render order changed.
  *
  * Reuses, does not reinvent: `api.search.suggest` (live suggestions),
- * `api.search.search` (full results, unchanged from the pre-G9 page),
- * `api.search.trending`/`api.products.popularInCity` (idle-state content),
- * and the exact `lokl_recent_searches` localStorage contract the old
- * overlay used — a returning user's recent list survives this rework.
- * Every piece of this UI already existed and worked inside
- * MobileSearchSheet (ConsumerHeader.tsx); this page ports that logic to a
- * real, focusable, back-navigable page instead of an overlay sheet tied to
- * header height. No new backend endpoint anywhere.
+ * `api.search.search` (full results, unchanged), `api.search.trending`/
+ * `api.products.popularInCity` (idle-state content), and the exact
+ * `lokl_recent_searches` localStorage contract the old overlay used. No
+ * new backend endpoint anywhere.
  *
  * Flow: query >= 2 chars -> debounced live suggestions (top stores/
  * products, "see all" to commit). Enter / tap a suggestion's "see all" /
- * tap a chip -> commits the query into `?q=`, fetches the full result set
- * via the same `api.search.search` the old page always used, and shows a
- * real 2-column ProductCard grid. Empty query -> idle state (quick-term
- * chips, recent, trending, popular-right-now products, Browse Stores).
+ * tap a chip -> commits the query into `?q=`, fetches the full result set,
+ * shows a real 2-column ProductCard grid. Empty query -> idle state
+ * (recent, popular searches, Browse Stores, popular-right-now products).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -42,7 +53,18 @@ interface TrendingRow { q: string; count?: number }
 
 const RECENT_KEY = "lokl_recent_searches";
 const MAX_RECENT = 6;
-const QUICK_TERMS = ["Kurta", "Jeans", "Sneakers", "Saree", "Kids wear", "Ethnic"];
+
+// One label style for every section on this page — matches the convention
+// already established on Profile/Orders/Support (text-[11px] font-bold
+// uppercase tracking-wide text-[#9CA3AF]), not a page-local variant.
+function SectionLabel({ icon: Icon, children }: { icon?: typeof Clock; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[#9CA3AF] mb-2.5">
+      {Icon && <Icon size={12} />}
+      {children}
+    </div>
+  );
+}
 
 function readRecent(): string[] {
   if (typeof window === "undefined") return [];
@@ -124,9 +146,10 @@ export default function SearchPage() {
     router.replace(`/search?q=${encodeURIComponent(term)}`, { scroll: false });
   }, [input, router]);
 
-  const clearRecent = useCallback(() => {
-    try { localStorage.removeItem(RECENT_KEY); } catch { /* private-mode */ }
-    setRecent([]);
+  const removeRecent = useCallback((term: string) => {
+    const list = readRecent().filter((x) => x !== term);
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch { /* private-mode */ }
+    setRecent(list);
   }, []);
 
   const showSuggestions = !committed && input.trim().length >= 2;
@@ -138,10 +161,11 @@ export default function SearchPage() {
 
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
-      {/* Compact top bar — back + input, matching the L2 PLP's header
-          treatment rather than the old page's giant title. */}
+      {/* Search is the primary action on this page — a larger, more
+          deliberate input than a generic header search field, directly
+          below the compact back bar. */}
       <div className="sticky top-0 z-10 bg-[#FDFBF7]/95 backdrop-blur border-b border-[#E5E2DC]">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 flex items-center gap-2">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 pt-2.5 pb-3 flex items-center gap-2">
           <button
             type="button"
             onClick={() => router.back()}
@@ -151,8 +175,8 @@ export default function SearchPage() {
           >
             <ChevronLeft size={20} className="text-[#0A1F5C]" />
           </button>
-          <div className="flex-1 flex items-center gap-2.5 px-4 py-2.5 bg-white rounded-full border border-brand-primary min-w-0">
-            <SearchIcon size={16} className="text-brand-accent shrink-0" />
+          <div className="flex-1 flex items-center gap-2.5 px-4 py-3 bg-white rounded-2xl border border-[#0A1F5C]/20 min-w-0 focus-within:border-[#0A1F5C]">
+            <SearchIcon size={17} className="text-[#E68910] shrink-0" />
             <input
               ref={inputRef}
               data-testid="search-page-input"
@@ -164,7 +188,7 @@ export default function SearchPage() {
               }}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } }}
               placeholder="Search kurtas, sneakers, stores…"
-              className="bg-transparent flex-1 outline-none text-sm min-w-0 text-brand-primary"
+              className="bg-transparent flex-1 outline-none text-sm min-w-0 text-[#0A1F5C]"
               autoComplete="off"
             />
             {input && (
@@ -173,7 +197,7 @@ export default function SearchPage() {
                 onClick={() => { setInput(""); setCommitted(""); setSuggestions(null); router.replace("/search", { scroll: false }); inputRef.current?.focus(); }}
                 data-testid="search-page-clear"
                 aria-label="Clear search"
-                className="text-text-secondary hover:text-brand-primary transition shrink-0"
+                className="text-[#9CA3AF] hover:text-[#0A1F5C] transition shrink-0"
               >
                 <X size={14} />
               </button>
@@ -182,46 +206,50 @@ export default function SearchPage() {
         </div>
       </div>
 
-      <div className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 py-4">
+      <div className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-5">
         {showSuggestions && (
           <div data-testid="search-suggestions">
             {suggLoading && (
-              <div className="px-2 py-3 text-xs text-text-secondary inline-flex items-center gap-2">
+              <div className="px-1 py-3 text-xs text-[#9CA3AF] inline-flex items-center gap-2">
                 <Loader2 size={14} className="animate-spin" /> Searching…
               </div>
             )}
             {!suggLoading && suggStores.length > 0 && (
               <>
-                <div className="px-1 pt-1 pb-1 text-[10px] uppercase tracking-widest text-text-secondary">Stores</div>
-                {suggStores.slice(0, 4).map((s) => (
-                  <Link key={s.id} href={`/store/${s.id}`} data-testid={`search-sugg-store-${s.id}`}
-                    className="flex items-center gap-3 px-1 py-2 hover:bg-white rounded-xl">
-                    <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0">
-                      {s.banner && <Image src={s.banner} alt={s.name} fill sizes="40px" className="object-cover" />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold text-brand-primary line-clamp-1">{s.name}</div>
-                      {s.locality && <div className="text-[11px] text-text-secondary line-clamp-1">{s.locality}</div>}
-                    </div>
-                  </Link>
-                ))}
+                <SectionLabel>Stores</SectionLabel>
+                <div className="mb-4">
+                  {suggStores.slice(0, 4).map((s) => (
+                    <Link key={s.id} href={`/store/${s.id}`} data-testid={`search-sugg-store-${s.id}`}
+                      className="flex items-center gap-3 py-2 hover:bg-white rounded-xl -mx-1 px-1">
+                      <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0">
+                        {s.banner && <Image src={s.banner} alt={s.name} fill sizes="40px" className="object-cover" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-[#0A1F5C] line-clamp-1">{s.name}</div>
+                        {s.locality && <div className="text-[11px] text-[#9CA3AF] line-clamp-1">{s.locality}</div>}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </>
             )}
             {!suggLoading && suggProducts.length > 0 && (
               <>
-                <div className="px-1 pt-3 pb-1 text-[10px] uppercase tracking-widest text-text-secondary">Products</div>
-                {suggProducts.slice(0, 8).map((p) => (
-                  <Link key={p.id} href={`/product/${p.id}`} data-testid={`search-sugg-product-${p.id}`}
-                    className="flex items-center gap-3 px-1 py-2 hover:bg-white rounded-xl">
-                    <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0">
-                      {p.image && <Image src={p.image} alt={p.name} fill sizes="40px" className="object-cover" />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold text-brand-primary line-clamp-1">{p.name}</div>
-                      {p.price != null && <div className="text-[11px] text-text-secondary">₹{Number(p.price).toLocaleString()}</div>}
-                    </div>
-                  </Link>
-                ))}
+                <SectionLabel>Products</SectionLabel>
+                <div>
+                  {suggProducts.slice(0, 8).map((p) => (
+                    <Link key={p.id} href={`/product/${p.id}`} data-testid={`search-sugg-product-${p.id}`}
+                      className="flex items-center gap-3 py-2 hover:bg-white rounded-xl -mx-1 px-1">
+                      <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0">
+                        {p.image && <Image src={p.image} alt={p.name} fill sizes="40px" className="object-cover" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-[#0A1F5C] line-clamp-1">{p.name}</div>
+                        {p.price != null && <div className="text-[11px] text-[#9CA3AF]">₹{Number(p.price).toLocaleString()}</div>}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </>
             )}
             {!suggLoading && (
@@ -229,7 +257,7 @@ export default function SearchPage() {
                 type="button"
                 onClick={() => submit()}
                 data-testid="search-sugg-see-all"
-                className="w-full text-left px-1 py-3 text-xs font-semibold text-brand-accent hover:bg-white rounded-xl"
+                className="w-full text-left py-3 mt-1 text-xs font-semibold text-[#E68910] hover:bg-white rounded-xl"
               >
                 {suggProducts.length + suggStores.length === 0
                   ? `No quick matches — search all of Lokl for "${input}" →`
@@ -240,48 +268,23 @@ export default function SearchPage() {
         )}
 
         {showIdle && (
-          <div className="space-y-6" data-testid="search-idle">
-            <Link
-              href="/stores"
-              data-testid="search-browse-stores"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-2xl border border-card-border hover:bg-white transition"
-            >
-              <div className="w-9 h-9 rounded-full bg-brand-accent/15 flex items-center justify-center shrink-0">
-                <StoreIcon size={16} className="text-brand-accent" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-brand-primary">Browse Stores</div>
-                <div className="text-[11px] text-text-secondary">Every local seller on Lokl</div>
-              </div>
-            </Link>
-
-            <div className="flex flex-wrap gap-2">
-              {QUICK_TERMS.map((term) => (
-                <button key={term} type="button" onClick={() => submit(term)}
-                  data-testid={`search-quick-${term}`}
-                  className="px-3 py-1.5 bg-white border border-card-border rounded-full text-sm text-brand-primary font-medium">
-                  {term}
-                </button>
-              ))}
-            </div>
-
+          <div className="space-y-7" data-testid="search-idle">
             {recent.length > 0 && (
               <section data-testid="search-recent">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-[10px] uppercase tracking-widest text-text-secondary flex items-center gap-1.5">
-                    <Clock size={12} /> Recent
-                  </div>
-                  <button type="button" onClick={clearRecent} data-testid="search-recent-clear"
-                    className="text-[11px] font-semibold text-brand-accent hover:underline">
-                    Clear
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-2">
+                <SectionLabel icon={Clock}>Recent</SectionLabel>
+                <div className="divide-y divide-[#E5E2DC]">
                   {recent.map((r) => (
-                    <button key={r} type="button" onClick={() => submit(r)} data-testid={`search-recent-${r}`}
-                      className="px-3 py-1.5 rounded-full bg-white border border-card-border text-xs text-brand-primary hover:bg-[#F4F1E9]">
-                      {r}
-                    </button>
+                    <div key={r} className="flex items-center gap-3 group">
+                      <button type="button" onClick={() => submit(r)} data-testid={`search-recent-${r}`}
+                        className="flex-1 text-left py-2.5 text-sm text-[#0A1F5C]">
+                        {r}
+                      </button>
+                      <button type="button" onClick={() => removeRecent(r)} aria-label={`Remove ${r}`}
+                        data-testid={`search-recent-remove-${r}`}
+                        className="text-[#9CA3AF] hover:text-[#0A1F5C] p-1 shrink-0">
+                        <X size={13} />
+                      </button>
+                    </div>
                   ))}
                 </div>
               </section>
@@ -289,13 +292,11 @@ export default function SearchPage() {
 
             {trending.length > 0 && (
               <section data-testid="search-trending">
-                <div className="text-[10px] uppercase tracking-widest text-text-secondary flex items-center gap-1.5 mb-2">
-                  <TrendingUp size={12} /> Popular searches
-                </div>
+                <SectionLabel icon={TrendingUp}>Popular searches</SectionLabel>
                 <div className="flex flex-wrap gap-2">
                   {trending.map((t) => (
                     <button key={t.q} type="button" onClick={() => submit(t.q)} data-testid={`search-trending-${t.q}`}
-                      className="px-3 py-1.5 rounded-full bg-brand-primary/8 border border-brand-primary/20 text-xs text-brand-primary font-medium hover:bg-brand-primary/15 capitalize">
+                      className="px-3 py-1.5 rounded-full bg-white border border-[#E5E2DC] text-xs text-[#0A1F5C] font-medium hover:border-[#0A1F5C]/40 capitalize">
                       {t.q}
                     </button>
                   ))}
@@ -303,18 +304,34 @@ export default function SearchPage() {
               </section>
             )}
 
+            {/* Browse Stores — a real discovery module, not a generic list
+                row: storefront icon, two-line copy, full tap target. */}
+            <Link
+              href="/stores"
+              data-testid="search-browse-stores"
+              className="flex items-center gap-3.5 px-4 py-4 rounded-2xl bg-white border border-[#E5E2DC] hover:border-[#0A1F5C]/40 transition"
+            >
+              <div className="w-11 h-11 rounded-full bg-[#E68910]/12 flex items-center justify-center shrink-0">
+                <StoreIcon size={19} className="text-[#E68910]" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-[#0A1F5C]">Browse stores</div>
+                <div className="text-[11px] text-[#9CA3AF] mt-0.5">Explore local sellers on Lokl</div>
+              </div>
+            </Link>
+
             {trendingProducts.length > 0 && (
               <section>
-                <div className="text-[10px] uppercase tracking-widest text-text-secondary mb-2">Popular right now</div>
-                <div className="grid grid-cols-3 gap-2">
+                <SectionLabel>Popular right now</SectionLabel>
+                <div className="grid grid-cols-3 gap-2.5">
                   {trendingProducts.slice(0, 6).map((p) => (
-                    <Link key={p.id} href={`/product/${p.id}`} className="text-left rounded-xl overflow-hidden bg-white border border-card-border">
+                    <Link key={p.id} href={`/product/${p.id}`} className="text-left rounded-xl overflow-hidden bg-white border border-[#E5E2DC]">
                       <div className="relative aspect-square bg-slate-100">
                         {p.image && <Image src={p.image} alt={p.name} fill sizes="30vw" className="object-cover" />}
                       </div>
                       <div className="p-1.5">
-                        <div className="text-[11px] font-semibold text-brand-primary line-clamp-1">{p.name}</div>
-                        {p.price != null && <div className="text-[10px] text-text-secondary">₹{Number(p.price).toLocaleString()}</div>}
+                        <div className="text-[11px] font-semibold text-[#0A1F5C] line-clamp-1">{p.name}</div>
+                        {p.price != null && <div className="text-[10px] text-[#9CA3AF]">₹{Number(p.price).toLocaleString()}</div>}
                       </div>
                     </Link>
                   ))}
@@ -328,9 +345,20 @@ export default function SearchPage() {
           <div data-testid="search-results">
             {resultsBusy && <p className="text-sm text-[#595959]">Searching…</p>}
 
-            {!resultsBusy && results.stores.length > 0 && (
+            {/* Products lead (the primary commerce intent), Stores follow —
+                same api.search.search response, only render order changed. */}
+            {!resultsBusy && results.products.length > 0 && (
               <section className="mb-8">
-                <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-3">Stores</div>
+                <SectionLabel>Products ({results.products.length})</SectionLabel>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
+                  {results.products.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
+                </div>
+              </section>
+            )}
+
+            {!resultsBusy && results.stores.length > 0 && (
+              <section>
+                <SectionLabel>Stores</SectionLabel>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {results.stores.map((s) => (
                     <Link key={s.id} href={`/store/${s.id}`} data-testid={`search-store-${s.id}`} className="bg-white rounded-2xl overflow-hidden border border-[#E5E2DC] hover:border-[#0A1F5C] transition">
@@ -343,15 +371,6 @@ export default function SearchPage() {
                       </div>
                     </Link>
                   ))}
-                </div>
-              </section>
-            )}
-
-            {!resultsBusy && results.products.length > 0 && (
-              <section>
-                <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-3">Products ({results.products.length})</div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
-                  {results.products.map((p) => <ProductCard key={p.id} p={p} size="default" />)}
                 </div>
               </section>
             )}

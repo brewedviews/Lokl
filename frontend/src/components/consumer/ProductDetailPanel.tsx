@@ -53,7 +53,6 @@ const SIZE_PILL_BASE = "min-w-[48px] h-10 px-3.5 rounded-[10px] text-sm font-sem
 export function ProductDetailPanel({
   product,
   discount,
-  storeCanOrder = true,
   storeBadge,
   storeOpensAtLabel,
   storeName,
@@ -62,7 +61,6 @@ export function ProductDetailPanel({
 }: {
   product: Product;
   discount: number;
-  storeCanOrder?: boolean;
   storeBadge?: string;
   storeOpensAtLabel?: string | null;
   storeName?: string;
@@ -150,7 +148,7 @@ export function ProductDetailPanel({
   // store conflict, the warn-and-clear dialog re-runs this same add and
   // fires onSuccess itself once the retry succeeds.
   const handleAdd = (onSuccess: () => void) => {
-    if (!storeCanOrder) { toast.error("This store is currently unavailable"); return; }
+    if (isOffline) { toast.error("This store isn't accepting orders right now"); return; }
     if (product.sizes?.length && !size) { toast.error("Please pick a size"); return; }
     const r = addItem(product, size ?? "");
     if (!r.success && r.conflict) {
@@ -228,7 +226,7 @@ export function ProductDetailPanel({
   // Handlers passed to both PdpCtaRow instances — identical behavior either
   // time, only the surrounding position in the page differs.
   const handleBuyNow = () => handleAdd(() => router.push("/checkout"));
-  const handleAddToBag = () => handleAdd(() => toast.success(isClosed ? "Added to bag — pre-order for when the store opens" : "Added to bag"));
+  const handleAddToBag = () => handleAdd(() => toast.success("Added to bag"));
   const handleNotify = () => setNotifyOpen(true);
 
   return (
@@ -404,8 +402,6 @@ export function ProductDetailPanel({
         <div className="w-full mt-3">
           <PdpCtaRow
             isOffline={isOffline}
-            storeCanOrder={storeCanOrder}
-            isClosed={isClosed}
             productId={product.id}
             size={size ?? ""}
             product={product}
@@ -443,7 +439,7 @@ export function ProductDetailPanel({
           <LocalSocialProof productId={product.id} />
         </div>
 
-        {!isOffline && storeCanOrder && product.try_at_doorstep && (
+        {!isOffline && product.try_at_doorstep && (
           <div className="mt-2.5 px-4 md:px-0">
             <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-[#E68910]/10 border border-[#E68910]/20" data-testid="try-and-buy-note">
               <div className="w-10 h-10 rounded-full bg-[#E68910]/15 flex items-center justify-center shrink-0">

@@ -46,7 +46,9 @@ export function StoresNearYouSection() {
         return;
       }
       try {
-        const nearby = await storesApi.nearby({ lat, lng, limit: 10 });
+        // P0-9 (G20 product review) — curated discovery set, not a long
+        // list: at most 5 stores, "See all" reaches the full /stores page.
+        const nearby = await storesApi.nearby({ lat, lng, limit: 5 });
         if (!cancelled) setStores(nearby);
       } catch {
         if (!cancelled) setStores([]);
@@ -80,29 +82,44 @@ export function StoresNearYouSection() {
           </p>
         </div>
       ) : (
-        // G13 — 2-column grid on mobile (was a horizontal scroll-carousel).
-        // `fitToContainer` makes each SellerCard fill its grid cell instead
-        // of using its own fixed rail width; CSS Grid's default row-stretch
-        // plus the card's own `h-full flex flex-col` keeps both cards the
-        // same height regardless of name length / whether categoryArea is
-        // present. sm+ widens to 3 columns since there's more room.
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {stores.map((s) => {
-            const isOpen = (s as unknown as { is_open?: boolean }).is_open ?? false;
-            const closedLabel = (s as unknown as { next_open_label?: string }).next_open_label || "Closed";
-            return (
-              <SellerCard
-                key={s.id}
-                s={s}
-                source="stores_near_you"
-                variant="discovery"
-                openNow={isOpen}
-                closedLabel={closedLabel}
-                fitToContainer
-              />
-            );
-          })}
-        </div>
+        <>
+          {/* P0-9 (G20 product review) — mobile: a horizontal discovery
+              rail, not a dumped grid. Card width is set so ~2 are visible
+              in the primary viewport at once (matches the brief exactly),
+              the remaining stores of the curated 5 reached by swiping. */}
+          <div className="flex sm:hidden gap-3 overflow-x-auto no-scrollbar -mx-4 px-4">
+            {stores.map((s) => {
+              const isOpen = (s as unknown as { is_open?: boolean }).is_open ?? false;
+              const closedLabel = (s as unknown as { next_open_label?: string }).next_open_label || "Closed";
+              return (
+                <div key={s.id} className="w-[46%] shrink-0">
+                  <SellerCard s={s} source="stores_near_you" variant="discovery" openNow={isOpen} closedLabel={closedLabel} fitToContainer />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Tablet/desktop: a real 2x2 grid (curated set — the 5th store,
+              if fetched, is reachable via "See all" instead of forcing an
+              uneven 3rd row). */}
+          <div className="hidden sm:grid sm:grid-cols-2 gap-3">
+            {stores.slice(0, 4).map((s) => {
+              const isOpen = (s as unknown as { is_open?: boolean }).is_open ?? false;
+              const closedLabel = (s as unknown as { next_open_label?: string }).next_open_label || "Closed";
+              return (
+                <SellerCard
+                  key={s.id}
+                  s={s}
+                  source="stores_near_you"
+                  variant="discovery"
+                  openNow={isOpen}
+                  closedLabel={closedLabel}
+                  fitToContainer
+                />
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

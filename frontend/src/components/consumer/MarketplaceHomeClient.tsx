@@ -13,12 +13,15 @@
  * StoresNearYouSection).
  *
  * G8 — target order: Hero -> Shop by Category (3x3 mixed) -> Offers ->
- * Best Deals (mixed) -> Picks for Every Budget -> Stores Near You ->
- * Ethnic Stores (global) -> Own a Store -> Premium Picks -> Footwear
- * Stores (global). Shop by Brand, Shop by Area, and Trending are REMOVED
- * as homepage sections here (their underlying endpoints/CMS tabs —
- * /api/areas, AreasEditor, /stores?area=, /brands, BrandsEditor — are
- * untouched, just no longer linked from a homepage section).
+ * Best Deals (mixed) -> Picks for Every Budget -> Stores Near You -> Shop
+ * by Area -> Ethnic Stores (global) -> Own a Store -> Premium Picks ->
+ * Footwear Stores (global).
+ *
+ * P0-4 (G20 product review) restores Shop by Area — GET /api/areas,
+ * AreasEditor and /stores?area= were never removed, only unlinked from
+ * this page; see ShopByAreaSection's own doc comment. Shop by Brand and
+ * Trending remain unlinked homepage sections (their endpoints/CMS tabs are
+ * still untouched, just not part of this P0 pass).
  */
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -30,8 +33,10 @@ import { ProductCard } from "@/components/consumer/ProductCard";
 import { CategoryTile } from "@/components/consumer/CategoryTile";
 import { TrustStickers } from "@/components/consumer/TrustStickers";
 import { OffersSection } from "@/components/consumer/sections/OffersSection";
+import { CommunicationStrip } from "@/components/consumer/sections/CommunicationStrip";
 import { BudgetBentoSection } from "@/components/consumer/sections/BudgetBentoSection";
 import { StoresNearYouSection } from "@/components/consumer/sections/StoresNearYouSection";
+import { ShopByAreaSection } from "@/components/consumer/sections/ShopByAreaSection";
 import { StoreSectionModule } from "@/components/consumer/sections/StoreSectionModule";
 import { cloudinaryOptimize } from "@/lib/utils";
 import { trackMerchantCTAClick, trackProductClick } from "@/lib/analytics";
@@ -50,6 +55,7 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "best_deals",          label: "Best deals",                       enabled: true, rank: 40 },
   { id: "under_499",           label: "Picks for Every Budget",           enabled: true, rank: 50 },
   { id: "stores_near_you",     label: "Stores near you (marketplace)",    enabled: true, rank: 60 },
+  { id: "shop_by_area",        label: "Shop by Area",                     enabled: true, rank: 65 },
   { id: "global_store_ethnic", label: "Ethnic Stores (marketplace)",      enabled: true, rank: 70 },
   { id: "merchant_cta",        label: "Own a store",                      enabled: true, rank: 80 },
   { id: "premium_picks",       label: "Premium picks",                    enabled: true, rank: 90 },
@@ -175,11 +181,20 @@ export function MarketplaceHomeClient() {
   );
 
   const sectionRenderers: Record<string, React.ReactNode> = {
-    hero: <HeroCarousel key="hero" l1Id="global" />,
+    // P0-6 — the thin communication strip renders fixed immediately below
+    // the hero, independent of section rank (it's not something an admin
+    // reorders relative to other sections, only turns on/off per surface
+    // via the CMS `placement` field on the underlying offers doc).
+    hero: (
+      <div key="hero">
+        <HeroCarousel l1Id="global" />
+        <CommunicationStrip surface="global" />
+      </div>
+    ),
 
     category_pills: <ShopByCategoryMarketplaceSection key="category-pills" categories={categories} />,
 
-    marketplace_offers: <OffersSection key="marketplace-offers" />,
+    marketplace_offers: <OffersSection key="marketplace-offers" surface="global" />,
 
     best_deals: bestDealsErrored ? null
       : !bestDealsPending && bestDeals.length >= 1 ? (
@@ -196,6 +211,8 @@ export function MarketplaceHomeClient() {
     under_499: <BudgetBentoSection key="budget-bento" />,
 
     stores_near_you: <StoresNearYouSection key="stores-near-you" />,
+
+    shop_by_area: <ShopByAreaSection key="shop-by-area" />,
 
     global_store_ethnic: (
       <StoreSectionModule
