@@ -1,6 +1,12 @@
 "use client";
 
-/** Mobile info chips for the store cover area. Trigger story/delivery sheets. */
+/** Compact info chips for the store cover area, at every breakpoint —
+ *  Store page redesign folded the old desktop-only "Story"/"Delivery"
+ *  dashboard cards into this same component instead of keeping two
+ *  divergent implementations (this one used to be `md:hidden`, with a
+ *  separate bulkier pair of cards for md+ — now there's one compact
+ *  treatment everywhere). Tapping/clicking a chip opens the same
+ *  bottom/center sheet with the full detail. */
 import { useState } from "react";
 import { Bike, ShieldCheck, MapPin, Clock, ChevronRight } from "lucide-react";
 import { useLocationStore } from "@/stores";
@@ -65,8 +71,8 @@ export function StoreInfoChips({ storyText, area, eta, city, timing, storeLat, s
   const deliveryValue = [eta, area, distanceKm != null ? `${distanceKm.toFixed(1)} km` : null].filter(Boolean).join(" · ");
   return (
     <>
-      <div className="md:hidden -mt-3 relative z-10 px-4">
-        <div className="flex gap-2.5">
+      <div className="-mt-3 relative z-10 px-4 md:px-8 max-w-7xl mx-auto">
+        <div className="flex gap-2.5 max-w-md">
           {hasStory && (
             <InfoChip
               icon={ShieldCheck}

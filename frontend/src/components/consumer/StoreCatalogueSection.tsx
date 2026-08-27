@@ -70,9 +70,14 @@ export function StoreCatalogueSection({
       {filtered.length === 0 ? (
         <p className="text-sm text-[#595959] py-8 text-center">No products in this category right now.</p>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
+        // Store-page redesign — same dense `size="compact"` grid the
+        // Categories browse page already uses (grid-cols-2/gap-2), not
+        // the larger PDP-ish `size="default"` card this used to render:
+        // this is the store's shelf, meant to be scanned quickly, not a
+        // page of mini product-detail pages.
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
           {filtered.map((p) => (
-            <ProductCard key={p.id} p={{ ...p, store_name: storeName }} size="default" />
+            <ProductCard key={p.id} p={{ ...p, store_name: storeName }} size="compact" />
           ))}
         </div>
       )}
