@@ -77,13 +77,16 @@ export const catalogApi = {
     return r.data;
   },
 
-  /** GET /api/offers — P0-6/P0-7: same entity backs both the thin
-   *  communication strip (kind="strip") and ad-hoc image banners
-   *  (kind="banner", the pre-existing default). `placement` mirrors
-   *  HeroSlide's l1_id sentinel — "global" for Marketplace, an L1 id for
-   *  that L1 page, omitted to fetch everything. */
-  offers: async (placement?: string, kind?: "strip" | "banner"): Promise<Offer[]> => {
-    const r = await apiClient.get<Offer[]>("/api/offers", { params: { placement, kind } });
+  /** GET /api/offers — P0-6/P0-7: same entity backs the thin
+   *  communication strip (kind="strip"), ad-hoc image banners
+   *  (kind="banner", the pre-existing default), and the offer bento
+   *  (kind="bento", G21 P1-9). `placement` mirrors HeroSlide's l1_id
+   *  sentinel — "global" for Marketplace, an L1 id for that L1 page,
+   *  omitted to fetch everything. `store_id` (G21 P1-9) is a separate
+   *  axis — pass it to fetch one store's own campaign(s) only, see
+   *  list_offers' own docstring on the backend. */
+  offers: async (placement?: string, kind?: "strip" | "banner" | "bento", store_id?: string): Promise<Offer[]> => {
+    const r = await apiClient.get<Offer[]>("/api/offers", { params: { placement, kind, store_id } });
     return r.data;
   },
 

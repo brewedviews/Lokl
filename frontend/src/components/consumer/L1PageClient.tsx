@@ -93,6 +93,7 @@ import { CategoryTile } from "@/components/consumer/CategoryTile";
 import { OffersSection } from "@/components/consumer/sections/OffersSection";
 import { CommunicationStrip } from "@/components/consumer/sections/CommunicationStrip";
 import { BudgetBentoSection } from "@/components/consumer/sections/BudgetBentoSection";
+import { OfferBentoSection } from "@/components/consumer/sections/OfferBentoSection";
 import { OtherCategoriesSection } from "@/components/consumer/sections/OtherCategoriesSection";
 import { type GenderedSectionStore } from "@/components/consumer/sections/StoreSectionModule";
 import { L2ProductRailSection } from "@/components/consumer/sections/L2ProductRailSection";
@@ -129,9 +130,8 @@ interface SectionDoc { id: string; label: string; enabled: boolean; rank: number
 //
 // Section-id cheat sheet (each toggle's real-world meaning — id alone
 // doesn't explain L1/gender targeting):
-//   best_deals / premium_picks — L1-scoped via the page's own `l1Id` (was
-//     hardcoded to Women on Home pre-Phase-E; now genuinely dynamic —
-//     see resolveBestDealsQuery/resolvePremiumPicksQuery below).
+//   best_deals — L1-scoped via the page's own `l1Id` (was hardcoded to
+//     Women on Home pre-Phase-E; now genuinely dynamic).
 //   shop_by_category / store_footwear / store_ethnic / store_lingerie —
 //     all resolve against the page's own resolved L1 (name/slug/L2 list),
 //     not a hardcoded gender. On an L1 whose L2 list doesn't have a
@@ -149,16 +149,21 @@ interface SectionDoc { id: string; label: string; enabled: boolean; rank: number
 //     Every Budget" now (G8) so this only matters to someone reading raw
 //     ids. Renders the shared BudgetBentoSection (sections/), L1-scoped
 //     via its own `l1Id` prop.
-// G9 — target order: Hero -> Shop by Category -> Best Deals -> Picks for
-// Every Budget (under_499) -> Stores Near You (shop_by_store) ->
-// l1_footwear_rail/l1_lingerie_rail (whichever the current L1 has — see
-// WOMEN_L2_RAILS/MEN_L2_RAILS/KIDS_L2_RAILS above; Women only has
-// `lingerie`, Men only has `footwear`, Kids has all three) -> Premium
-// picks -> Offers -> l1_ethnic_rail (always last, every L1) -> More
-// Categories -> Browse All (unranked chrome). Marketplace-only ids
-// (category_pills, marketplace_offers, stores_near_you,
-// global_store_ethnic/footwear, merchant_cta) are deliberately absent —
-// see MarketplaceHomeClient.tsx.
+// G22 §3 — target order: Hero -> Shop by Category -> Best Deals -> Picks
+// for Every Budget (under_499) -> Stores Near You (shop_by_store) -> New
+// in [L1] -> l1_footwear_rail/l1_lingerie_rail (whichever the current L1
+// has — see WOMEN_L2_RAILS/MEN_L2_RAILS/KIDS_L2_RAILS above; Women only
+// has `lingerie`, Men only has `footwear`, Kids has both) -> Popular in
+// [L1] (conditional — only when real order signal exists, see its own
+// renderer comment) -> Offers -> Campaign spotlight (bento, conditional)
+// -> More Categories -> Browse All (unranked chrome). Premium picks and
+// the generic Ethnic rail are no longer part of this default order (see
+// DEFAULT_SECTIONS' own comment above) — normal case is PRIMARY (Best
+// deals, New in L1) + at most one SECONDARY (Popular in L1) + one
+// CONDITIONAL L2 rail, capping a normal L1 page at ~3-4 product rails
+// rather than the pre-G22 7. Marketplace-only ids (category_pills,
+// marketplace_offers, stores_near_you, global_store_ethnic/footwear,
+// merchant_cta) are deliberately absent — see MarketplaceHomeClient.tsx.
 //
 // G9 §3 renamed the three former store-card ids (store_footwear/
 // store_lingerie/store_ethnic) to l1_footwear_rail/l1_lingerie_rail/
@@ -172,11 +177,25 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "best_deals",        label: "Best deals",                   enabled: true,  rank: 30 },
   { id: "under_499",         label: "Picks for Every Budget",       enabled: true,  rank: 40 },
   { id: "shop_by_store",     label: "Stores near you (L1)",         enabled: true,  rank: 50 },
+  { id: "new_in_l1",         label: "New in [L1]",                  enabled: true,  rank: 52 },
   { id: "l1_footwear_rail",  label: "Footwear Picks",               enabled: true,  rank: 55 },
   { id: "l1_lingerie_rail",  label: "Lingerie / Accessory Picks",   enabled: true,  rank: 56 },
-  { id: "premium_picks",     label: "Premium picks",                enabled: true,  rank: 70 },
+  { id: "popular_in_l1",     label: "Popular in [L1]",              enabled: true,  rank: 65 },
   { id: "offers",            label: "Offers for you",               enabled: true,  rank: 80 },
-  { id: "l1_ethnic_rail",    label: "Ethnic Picks",                 enabled: true,  rank: 85 },
+  // G22 §3 — Premium picks and the generic Ethnic rail are DELIBERATELY
+  // not registered here anymore (both were previously live on every L1).
+  // Premium picks duplicated Marketplace's own rail with no L1-specific
+  // merchandising value here; "Ethnic Picks" was the one L2 rail repeated
+  // near-identically across Women/Men/Kids (the one non-differentiated
+  // category label on every page) while each L1 already keeps its own
+  // genuinely gender-specific L2 rail (Lingerie/Footwear/Accessory).
+  // Neither id is deleted from the backend registry or the CMS — an
+  // admin can still re-enable "premium_picks"/"l1_ethnic_rail" the normal
+  // way; this surface just no longer auto-renders them by default. See
+  // this file's own top-of-function comment on `sectionRenderers` for
+  // why omitting an id here is enough to hide it regardless of the
+  // shared CMS doc's stored enabled flag.
+  { id: "offer_bento",       label: "Campaign spotlight (L1)",      enabled: true,  rank: 90 },
   { id: "other_categories",  label: "More Categories",              enabled: true,  rank: 95 },
 
   // Optional / Future
@@ -551,10 +570,13 @@ function BrowseGridBlock({ l1 }: { l1: CategoryNode }) {
 export function L1PageClient({ l1Id }: { l1Id: string }) {
   const [sections, setSections] = useState<SectionDoc[]>(DEFAULT_SECTIONS);
 
-  // Best deals / Premium picks — L1-scoped via the page's own l1Id prop
-  // directly (not the resolved `l1` object below), so these two rails can
-  // start fetching immediately on mount without waiting on the categories
-  // fetch to resolve first.
+  // Best deals — L1-scoped via the page's own l1Id prop directly (not the
+  // resolved `l1` object below), so this rail can start fetching
+  // immediately on mount without waiting on the categories fetch to
+  // resolve first. (G22 §3 — the sibling Premium-picks fetch that used to
+  // live here was removed: that rail is no longer rendered on L1 pages,
+  // see DEFAULT_SECTIONS' own comment, so fetching it here would just be
+  // a wasted network call for a module nothing renders.)
   const { data: bestDeals = [], isPending: bestDealsPending, isError: bestDealsErrored } = useQuery({
     queryKey: ["l1-best-deals", l1Id],
     queryFn: async () => {
@@ -562,11 +584,22 @@ export function L1PageClient({ l1Id }: { l1Id: string }) {
       return Array.isArray(r.data) ? r.data : (r.data?.products || []);
     },
   });
-  const { data: premiumPicks = [], isPending: premiumPicksPending, isError: premiumPicksErrored } = useQuery({
-    queryKey: ["l1-premium-picks", l1Id],
+
+  // G21 P1-13 — "New in {L1}" / "Popular in {L1}", same real-signal feed
+  // endpoints as the marketplace home (just `l1`-scoped) and the store
+  // page — not a third ranking definition invented per surface.
+  const { data: newInL1 = [], isPending: newInL1Pending, isError: newInL1Errored } = useQuery({
+    queryKey: ["l1-new-arrivals", l1Id],
     queryFn: async () => {
-      const r = await apiClient.get<{ products: ProductCardType[] }>("/api/products", { params: { l1: l1Id, sort: "price_desc", limit: 8 } });
-      return Array.isArray(r.data) ? r.data : (r.data?.products || []);
+      const r = await apiClient.get<ProductCardType[]>("/api/feed/new-arrivals", { params: { l1: l1Id, limit: 10 } });
+      return r.data || [];
+    },
+  });
+  const { data: popularInL1 = [], isPending: popularInL1Pending, isError: popularInL1Errored } = useQuery({
+    queryKey: ["l1-popular-in-city", l1Id],
+    queryFn: async () => {
+      const r = await apiClient.get<ProductCardType[]>("/api/feed/popular-in-city", { params: { l1: l1Id, limit: 10 } });
+      return r.data || [];
     },
   });
 
@@ -629,7 +662,6 @@ export function L1PageClient({ l1Id }: { l1Id: string }) {
     </div>
   );
   const bestDealsLink = `/products?l1=${l1Id}&sort=discount`;
-  const premiumPicksLink = `/products?l1=${l1Id}&sort=price_desc`;
 
   const sectionRenderers: Record<string, React.ReactNode> = {
     hero: (
@@ -645,12 +677,44 @@ export function L1PageClient({ l1Id }: { l1Id: string }) {
     shop_by_category: <ShopByCategorySection key="shop-by-category" tiles={resolveShopByCategoryTiles(categories, l1Slug)} />,
 
     l1_footwear_rail: <GenderedL2RailSection key="l1-footwear-rail" categories={categories} l1Slug={l1Slug} slot="footwear" />,
-    l1_ethnic_rail: <GenderedL2RailSection key="l1-ethnic-rail" categories={categories} l1Slug={l1Slug} slot="ethnic" />,
     l1_lingerie_rail: <GenderedL2RailSection key="l1-lingerie-rail" categories={categories} l1Slug={l1Slug} slot="lingerie" />,
+    // G22 §3 — the "ethnic" slot (GenderedL2RailSection with slot="ethnic")
+    // still exists and still works; it's simply no longer registered as a
+    // default-visible id below (see DEFAULT_SECTIONS' own comment) since it
+    // was the one L2 rail repeated near-identically across all three L1s.
 
     under_499: <BudgetBentoSection key="budget-bento" l1Id={l1Id} />,
 
     shop_by_store: <ShopByStoreSection key="shop-by-store" l1={l1} />,
+
+    new_in_l1: newInL1Errored ? null
+      : !newInL1Pending && newInL1.length >= 1 ? (
+          <HCarousel key="new-in-l1" title={l1?.name ? `New in ${l1.name}` : "New arrivals"} testid="home-new-in-l1">
+            {newInL1.slice(0, 10).map((p, pIdx) => (
+              <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "new_in_l1", position: pIdx }); } catch {} }}>
+                <ProductCard p={p} size="default" />
+              </div>
+            ))}
+          </HCarousel>
+        )
+      : newInL1Pending ? <ProductRailSkeleton key="new-in-l1-skeleton" testid="home-new-in-l1-skeleton" /> : null,
+
+    // G22 §3/§7 — same real-signal gate as Marketplace's "Popular near
+    // you": hidden entirely when every returned item's orders_7d is 0/
+    // absent (a pure rating-sort fallback indistinguishable from Best
+    // deals), rather than shown as fake-distinct "Secondary" merchandising.
+    popular_in_l1: popularInL1Errored ? null
+      : popularInL1Pending ? <ProductRailSkeleton key="popular-in-l1-skeleton" testid="home-popular-in-l1-skeleton" />
+      : popularInL1.some((p) => (p.orders_7d ?? 0) > 0) ? (
+          <HCarousel key="popular-in-l1" title={l1?.name ? `Popular in ${l1.name}` : "Popular near you"} testid="home-popular-in-l1">
+            {popularInL1.slice(0, 10).map((p, pIdx) => (
+              <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "popular_in_l1", position: pIdx }); } catch {} }}>
+                <ProductCard p={p} size="default" />
+              </div>
+            ))}
+          </HCarousel>
+        )
+      : null,
 
     other_categories: <OtherCategoriesSection key="other-categories" l1={l1} primarySlugs={primaryL2Slugs} />,
 
@@ -669,19 +733,9 @@ export function L1PageClient({ l1Id }: { l1Id: string }) {
         )
       : bestDealsPending ? <ProductRailSkeleton key="best-deals-skeleton" testid="home-best-deals-skeleton" /> : null,
 
-    premium_picks: premiumPicksErrored ? null
-      : !premiumPicksPending && premiumPicks.length >= 1 ? (
-          <HCarousel key="premium-picks" title="Premium picks" testid="home-premium-picks" link={premiumPicksLink} linkLabel="See all">
-            {premiumPicks.slice(0, 8).map((p, pIdx) => (
-              <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "premium_picks", position: pIdx }); } catch {} }}>
-                <ProductCard p={p} size="default" />
-              </div>
-            ))}
-          </HCarousel>
-        )
-      : premiumPicksPending ? <ProductRailSkeleton key="premium-picks-skeleton" testid="home-premium-picks-skeleton" /> : null,
-
     offers: <OffersSection key="offers" surface={l1Id} />,
+
+    offer_bento: <OfferBentoSection key="offer-bento" surface={l1Id} />,
 
     customer_love: <CustomerLove key="testimonials" items={testimonials} />,
   };

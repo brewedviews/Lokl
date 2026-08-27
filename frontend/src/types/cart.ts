@@ -108,9 +108,10 @@ export interface Offer {
    *  read type. */
   eyebrow?: string;
   cta_link?: string;
-  kind?: "strip" | "banner";
+  kind?: "strip" | "banner" | "bento";
   aspect_ratio?: "21:9" | "16:9" | "3:1" | "4:3";
   placement?: string | null;
+  store_id?: string | null;
 }
 
 export interface Testimonial {

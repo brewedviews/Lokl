@@ -78,9 +78,11 @@ export interface CmsOffer {
   /** P0-6/P0-7 (G20 product review) — "strip" = thin text/CTA
    *  communication strip near the hero, no image; "banner" (default, and
    *  every pre-existing offer doc) = the ad-hoc image banner card this
-   *  entity already was. Same collection/editor, not two systems. */
-  kind?: "strip" | "banner";
-  /** Only meaningful for kind="banner" — a bounded preset, never an
+   *  entity already was; "bento" (G21 P1-9) = an asymmetric visual-
+   *  prominence layout for a campaign that deserves more than a banner.
+   *  Same collection/editor, not a third system. */
+  kind?: "strip" | "banner" | "bento";
+  /** Only meaningful for kind="banner"/"bento" — a bounded preset, never an
    *  arbitrary CSS height, so an admin can't break the mobile layout. */
   aspect_ratio?: "21:9" | "16:9" | "3:1" | "4:3";
   /** null/absent = every surface; "global" = Marketplace home only; an L1
@@ -89,6 +91,11 @@ export interface CmsOffer {
   placement?: string | null;
   /** Optional scheduling start — paired with the existing expires_at. */
   starts_at?: string | null;
+  /** G21 P1-9 — a SEPARATE display axis from `placement`: when set, this
+   *  campaign is that one store's own campaign (rendered on the Store
+   *  page only, via GET /offers?store_id=), not a replacement for
+   *  placement's Marketplace/L1 scoping. */
+  store_id?: string | null;
 }
 
 /** A single admin-curated display card pinned to a store section. Two

@@ -1199,7 +1199,11 @@ async def stats_home():
 
 
 @api.get("/feed/popular-in-city")
-async def feed_popular_in_city(city: Optional[str] = "Bhilai", limit: int = 12):
+async def feed_popular_in_city(city: Optional[str] = "Bhilai", limit: int = 12, l1: Optional[str] = None):
+    """G21 P1-13 — `l1`, when given, scopes this same real 7-day-order-qty
+    signal (falls back to rating when no recent orders) to one L1, reused
+    as-is for an L1 homepage's "Popular in {L1}" module rather than
+    inventing a second popularity definition."""
     avail_map = await _availability_map()
     sids = list(avail_map.keys())
     if not sids: return []
@@ -1215,16 +1219,17 @@ async def feed_popular_in_city(city: Optional[str] = "Bhilai", limit: int = 12):
             if pid: counts[pid] = counts.get(pid, 0) + int(it.get("qty") or 1)
     top_ids = [pid for pid, _ in sorted(counts.items(), key=lambda kv: -kv[1])[:limit]]
     items: list[dict] = []
+    l1_filter: dict = {"l1_id": l1} if l1 else {}
     if top_ids:
         items = await db.products.find(
-            {"id": {"$in": top_ids}, "store_id": {"$in": sids}, **_visible_product_filter()},
+            {"id": {"$in": top_ids}, "store_id": {"$in": sids}, **l1_filter, **_visible_product_filter()},
             {"_id": 0, "images": 0}
         ).to_list(limit)
         rank = {pid: i for i, pid in enumerate(top_ids)}
         items.sort(key=lambda p: rank.get(p["id"], 999))
     if not items:
         items = await db.products.find(
-            {"store_id": {"$in": sids}, **_visible_product_filter()},
+            {"store_id": {"$in": sids}, **l1_filter, **_visible_product_filter()},
             {"_id": 0, "images": 0}
         ).sort("rating", -1).to_list(limit)
     items = await _enrich_badges(db, items)
@@ -1299,23 +1304,26 @@ async def feed_best_sellers(limit: int = 12, store: Optional[str] = None):
 
 
 @api.get("/feed/new-arrivals")
-async def feed_new_arrivals(limit: int = 12, store: Optional[str] = None):
+async def feed_new_arrivals(limit: int = 12, store: Optional[str] = None, l1: Optional[str] = None):
     """`store`, when given, scopes this same created_at-desc logic (with its
     existing all-time fallback) to one store — reused as-is by the store
-    page's New Arrivals rail."""
+    page's New Arrivals rail. `l1`, when given (G21 P1-13), scopes it to one
+    L1 instead — reused as-is for "New in {L1}" and, with neither param,
+    this is exactly "New on Lokl" (global newest)."""
     avail_map = await _availability_map()
     sids = list(avail_map.keys())
     if not sids: return []
     store_filter = store if store else {"$in": sids}
+    l1_filter: dict = {"l1_id": l1} if l1 else {}
     since_30d = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     items = await db.products.find(
-        {"store_id": store_filter, "created_at": {"$gte": since_30d}, **_visible_product_filter()},
+        {"store_id": store_filter, "created_at": {"$gte": since_30d}, **l1_filter, **_visible_product_filter()},
         {"_id": 0, "images": 0}
     ).sort("created_at", -1).to_list(limit * 3)
     if not items:
         # Fall back to most recent products across all time if nothing in 30 days.
         items = await db.products.find(
-            {"store_id": store_filter, **_visible_product_filter()},
+            {"store_id": store_filter, **l1_filter, **_visible_product_filter()},
             {"_id": 0, "images": 0}
         ).sort("created_at", -1).to_list(limit)
     items = await _enrich_badges(db, items)
@@ -1725,11 +1733,11 @@ async def search_track(payload: dict):
 
 
 @api.get("/offers")
-async def list_offers(placement: Optional[str] = None, kind: Optional[str] = None):
+async def list_offers(placement: Optional[str] = None, kind: Optional[str] = None, store_id: Optional[str] = None):
     """Public, real-time-filtered offers/banners feed — powers both the
     communication strip (P0-6) and ad-hoc image banners (P0-7), which are
     the SAME `offers` entity distinguished only by `kind` ("strip" |
-    "banner", default "banner" for pre-existing docs).
+    "banner" | "bento", default "banner" for pre-existing docs).
 
     `placement` mirrors HeroSlide's own l1_id "global" sentinel: a doc
     with no `placement` set (None/absent) shows on EVERY surface; a doc
@@ -1737,6 +1745,16 @@ async def list_offers(placement: Optional[str] = None, kind: Optional[str] = Non
     a real L1 id (e.g. "l1-women") shows only on that L1's page. Callers
     pass their own surface id so an admin can activate a strip/banner for
     Marketplace and L1 independently, or for one specific L1.
+
+    `store_id` (G21 P1-9) is a SEPARATE display axis from `placement`, not
+    a replacement — it's how the Store page asks "does this store have its
+    own active campaign?". Passing it filters to an EXACT match (the
+    store's own campaigns only); it is deliberately NOT merged into the
+    default placement query above, so a legacy offer doc that happens to
+    carry `store_id` for product-targeting (`offer_type="store"`, see
+    /offers/{id}/products) keeps showing on Marketplace/L1 exactly as
+    before — this param only narrows when a caller explicitly asks for one
+    store's campaigns.
     """
     now = datetime.now(timezone.utc).isoformat()
     q: dict = {
@@ -1745,6 +1763,8 @@ async def list_offers(placement: Optional[str] = None, kind: Optional[str] = Non
         "$or": [{"expires_at": None}, {"expires_at": {"$gt": now}}],
         "$and": [{"$or": [{"starts_at": None}, {"starts_at": {"$lte": now}}]}],
     }
+    if store_id:
+        q["store_id"] = store_id
     if placement:
         q["$and"].append({"$or": [{"placement": None}, {"placement": placement}]})
     if kind:
@@ -2432,8 +2452,8 @@ async def admin_create_offer(payload: dict, admin: dict = Depends(require_admin)
     # ad-hoc image banner ("banner", the pre-existing offer-card shape) —
     # same collection/editor/upload path, not a second banner system.
     kind = payload.get("kind") or "banner"
-    if kind not in ("strip", "banner"):
-        raise HTTPException(400, "kind must be 'strip' or 'banner'")
+    if kind not in ("strip", "banner", "bento"):
+        raise HTTPException(400, "kind must be 'strip', 'banner' or 'bento'")
     aspect_ratio = payload.get("aspect_ratio") or "21:9"
     if aspect_ratio not in ALLOWED_OFFER_ASPECT_RATIOS:
         raise HTTPException(400, f"aspect_ratio must be one of {sorted(ALLOWED_OFFER_ASPECT_RATIOS)}")
@@ -2462,6 +2482,10 @@ async def admin_create_offer(payload: dict, admin: dict = Depends(require_admin)
         "aspect_ratio": aspect_ratio,
         "placement": placement,
         "starts_at": payload.get("starts_at"),
+        # G21 P1-9 — display-scoping to one store's page; see list_offers'
+        # own docstring for how this differs from the legacy product-
+        # targeting `store_id` usage.
+        "store_id": payload.get("store_id") or None,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.offers.insert_one(doc)
@@ -2619,6 +2643,8 @@ ALLOWED_OFFER_FIELDS = {
     "eyebrow",
     # P0-6/P0-7 (G20 product review) — see admin_create_offer's own comment.
     "kind", "aspect_ratio", "placement", "starts_at",
+    # G21 P1-9 — display-scoping to one store's page.
+    "store_id",
 }
 
 
@@ -2633,8 +2659,8 @@ async def admin_update_offer(oid: str, payload: dict, admin: dict = Depends(requ
         update["paused"] = bool(update["paused"])
     if "non_clickable" in update:
         update["non_clickable"] = bool(update["non_clickable"])
-    if "kind" in update and update["kind"] not in ("strip", "banner"):
-        raise HTTPException(400, "kind must be 'strip' or 'banner'")
+    if "kind" in update and update["kind"] not in ("strip", "banner", "bento"):
+        raise HTTPException(400, "kind must be 'strip', 'banner' or 'bento'")
     if "aspect_ratio" in update and update["aspect_ratio"] not in ALLOWED_OFFER_ASPECT_RATIOS:
         raise HTTPException(400, f"aspect_ratio must be one of {sorted(ALLOWED_OFFER_ASPECT_RATIOS)}")
     if "placement" in update:
@@ -2642,6 +2668,8 @@ async def admin_update_offer(oid: str, payload: dict, admin: dict = Depends(requ
         if p is not None and p != "global" and p not in [c["id"] for c in L1_CATEGORIES]:
             raise HTTPException(400, "Invalid placement")
         update["placement"] = p
+    if "store_id" in update:
+        update["store_id"] = update["store_id"] or None
     update["updated_at"] = datetime.now(timezone.utc).isoformat()
     r = await db.offers.update_one({"id": oid}, {"$set": update})
     if r.matched_count == 0:
@@ -3473,10 +3501,14 @@ DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "category_pills",    "label": "Shop by Category (marketplace, 3x3)", "enabled": True,  "rank": 20},
     {"id": "shop_by_category",  "label": "Shop by Category (L1)",       "enabled": True,  "rank": 20},
     {"id": "marketplace_offers","label": "Offers for you (marketplace)","enabled": True,  "rank": 30},
+    {"id": "offer_bento",       "label": "Campaign spotlight (marketplace/L1)", "enabled": True, "rank": 32},
     {"id": "best_deals",        "label": "Best deals",                  "enabled": True,  "rank": 40},
+    {"id": "popular_near_you",  "label": "Popular near you (marketplace)", "enabled": True, "rank": 45},
     {"id": "under_499",         "label": "Picks for Every Budget",      "enabled": True,  "rank": 50},
     {"id": "global_store_ethnic","label": "Ethnic Stores (marketplace)","enabled": True,  "rank": 60},
     {"id": "shop_by_store",     "label": "Stores near you (L1)",        "enabled": True,  "rank": 60},
+    {"id": "new_on_lokl",       "label": "New on Lokl (marketplace)",   "enabled": True,  "rank": 63},
+    {"id": "new_in_l1",         "label": "New in [L1]",                 "enabled": True,  "rank": 52},
     {"id": "stores_near_you",   "label": "Stores near you (marketplace)","enabled": True,  "rank": 70},
     # P0-4 (G20 product review) — restores Shop by Area, unlinked since G9
     # (see that section's own comment above). Nothing new: /api/areas,
@@ -3484,6 +3516,7 @@ DEFAULT_HOMEPAGE_SECTIONS = [
     {"id": "shop_by_area",      "label": "Shop by Area (marketplace)",  "enabled": True,  "rank": 75},
     {"id": "l1_footwear_rail",  "label": "Footwear Picks (L1)",         "enabled": True,  "rank": 65},
     {"id": "l1_lingerie_rail",  "label": "Lingerie / Accessory Picks (L1)", "enabled": True,  "rank": 66},
+    {"id": "popular_in_l1",     "label": "Popular in [L1]",             "enabled": True,  "rank": 65},
     {"id": "merchant_cta",      "label": "Own a store",                 "enabled": True,  "rank": 80},
     {"id": "premium_picks",     "label": "Premium picks",               "enabled": True,  "rank": 90},
     {"id": "offers",            "label": "Offers for you (L1)",         "enabled": True,  "rank": 95},
@@ -4488,7 +4521,6 @@ async def related_products(pid: str):
     if not product:
         raise HTTPException(404, "Product not found")
     store_id = product.get("store_id")
-    category = product.get("category") or product.get("l1_id")
     avail_map = await _availability_map()
     sids = list(avail_map.keys())
     from_store = await db.products.find(
@@ -4496,10 +4528,61 @@ async def related_products(pid: str):
         else {"id": "__none__"},
         {"_id": 0}
     ).limit(8).to_list(8)
-    similar_q: dict = {**_visible_product_filter(), "id": {"$ne": pid}, "store_id": {"$in": sids, "$ne": store_id}}
-    if category:
-        similar_q["l1_id"] = category
-    similar = await db.products.find(similar_q, {"_id": 0}).limit(8).to_list(8)
+
+    # G21 P1-12 / G22 §5 — deterministic (non-ML) "Similar products"
+    # ranking. Cast one broad net on the strongest real signal we have
+    # (same L1, OTHER stores only — a single query, no N+1), then score
+    # candidates in-process on the rest of the requested signal order:
+    # l2 > gender > price band > brand > in-stock > discount relevance.
+    #
+    # G22 §5 correction: this used to allow a same-store fallback when no
+    # cross-store candidates existed, which made "Similar products" render
+    # near-identical to "More from this Store" (the exact redundancy this
+    # consolidation pass audited for). Now the candidate pool excludes the
+    # current product's own store outright — "Similar products" means a
+    # genuine alternative merchant or it doesn't render at all.
+    similar: list[dict] = []
+    l1_id = product.get("l1_id")
+    if l1_id and sids:
+        candidates = await db.products.find(
+            {**_visible_product_filter(), "id": {"$ne": pid}, "store_id": {"$in": sids, "$ne": store_id}, "l1_id": l1_id},
+            {"_id": 0}
+        ).to_list(200)
+        price = product.get("price") or 0
+        l2_id = product.get("l2_id")
+        gender = product.get("gender")
+        brand_id = product.get("brand_id")
+
+        def _score(c: dict) -> float:
+            s = 0.0
+            if l2_id and c.get("l2_id") == l2_id:
+                s += 100
+            if gender and c.get("gender") == gender:
+                s += 20
+            c_price = c.get("price") or 0
+            if price > 0 and c_price > 0:
+                diff_ratio = abs(c_price - price) / price
+                if diff_ratio <= 0.15: s += 15
+                elif diff_ratio <= 0.35: s += 8
+                elif diff_ratio <= 0.60: s += 3
+            if brand_id and c.get("brand_id") == brand_id:
+                s += 10
+            stock = c.get("stock")
+            if isinstance(stock, dict) and any((v or 0) > 0 for v in stock.values()):
+                s += 6
+            if (c.get("discount_pct") or 0) > 0:
+                s += 4
+            return s
+
+        candidates.sort(key=_score, reverse=True)
+        similar = candidates[:8]
+
+    # Fewer than this isn't a meaningful discovery rail — hide rather than
+    # pad it out ("do not show a weak recommendation simply to fill space").
+    MIN_SIMILAR_PRODUCTS = 3
+    if len(similar) < MIN_SIMILAR_PRODUCTS:
+        similar = []
+
     _attach_store_avail(from_store, avail_map)
     _attach_store_avail(similar, avail_map)
     return {"from_store": from_store, "similar": similar}
@@ -4615,11 +4698,7 @@ async def get_product(pid: str):
         )
         if brand_doc:
             p["brand"] = brand_doc
-    similar_q = {"id": {"$ne": pid}, **_visible_product_filter()}
-    if p.get("l2_id"): similar_q["l2_id"] = p["l2_id"]
-    elif p.get("l1_id"): similar_q["l1_id"] = p["l1_id"]
-    similar = await db.products.find(similar_q, {"_id": 0, "images": 0}).limit(8).to_list(8)
-    return {"product": p, "similar": similar}
+    return {"product": p}
 
 
 # ===== Orders =====

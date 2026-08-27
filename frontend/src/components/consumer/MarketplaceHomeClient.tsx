@@ -35,6 +35,7 @@ import { TrustStickers } from "@/components/consumer/TrustStickers";
 import { OffersSection } from "@/components/consumer/sections/OffersSection";
 import { CommunicationStrip } from "@/components/consumer/sections/CommunicationStrip";
 import { BudgetBentoSection } from "@/components/consumer/sections/BudgetBentoSection";
+import { OfferBentoSection } from "@/components/consumer/sections/OfferBentoSection";
 import { StoresNearYouSection } from "@/components/consumer/sections/StoresNearYouSection";
 import { ShopByAreaSection } from "@/components/consumer/sections/ShopByAreaSection";
 import { StoreSectionModule } from "@/components/consumer/sections/StoreSectionModule";
@@ -53,8 +54,14 @@ const DEFAULT_SECTIONS: SectionDoc[] = [
   { id: "category_pills",      label: "Shop by Category (marketplace, 3x3)", enabled: true, rank: 25 },
   { id: "marketplace_offers",  label: "Offers for you (marketplace)",     enabled: true, rank: 30 },
   { id: "best_deals",          label: "Best deals",                       enabled: true, rank: 40 },
+  // G22 §6 — moved off rank 32 (directly after the banner) so Banner and
+  // Bento, both promotional, don't stack back-to-back with nothing real
+  // between them; Best deals now sits between them.
+  { id: "offer_bento",         label: "Campaign spotlight (marketplace)", enabled: true, rank: 42 },
+  { id: "popular_near_you",    label: "Popular near you",                 enabled: true, rank: 45 },
   { id: "under_499",           label: "Picks for Every Budget",           enabled: true, rank: 50 },
   { id: "stores_near_you",     label: "Stores near you (marketplace)",    enabled: true, rank: 60 },
+  { id: "new_on_lokl",         label: "New on Lokl",                      enabled: true, rank: 63 },
   { id: "shop_by_area",        label: "Shop by Area",                     enabled: true, rank: 65 },
   { id: "global_store_ethnic", label: "Ethnic Stores (marketplace)",      enabled: true, rank: 70 },
   { id: "merchant_cta",        label: "Own a store",                      enabled: true, rank: 80 },
@@ -146,6 +153,25 @@ export function MarketplaceHomeClient() {
     },
   });
 
+  // G21 P1-13 — "New on Lokl" (global newest, real created_at) and
+  // "Popular near you" (real 7-day order-qty, honest rating fallback —
+  // see /feed/popular-in-city's own docstring for why this is NOT called
+  // "Trending" here). Same endpoints the store page/PDP already use.
+  const { data: newOnLokl = [], isPending: newOnLoklPending, isError: newOnLoklErrored } = useQuery({
+    queryKey: ["marketplace-new-on-lokl"],
+    queryFn: async () => {
+      const r = await apiClient.get<ProductCardType[]>("/api/feed/new-arrivals", { params: { limit: 10 } });
+      return r.data || [];
+    },
+  });
+  const { data: popularNearYou = [], isPending: popularNearYouPending, isError: popularNearYouErrored } = useQuery({
+    queryKey: ["marketplace-popular-near-you"],
+    queryFn: async () => {
+      const r = await apiClient.get<ProductCardType[]>("/api/feed/popular-in-city", { params: { limit: 10 } });
+      return r.data || [];
+    },
+  });
+
   useEffect(() => {
     api.site.homepageConfig().then((cfg) => {
       const c = cfg as unknown as { sections?: SectionDoc[] };
@@ -196,6 +222,8 @@ export function MarketplaceHomeClient() {
 
     marketplace_offers: <OffersSection key="marketplace-offers" surface="global" />,
 
+    offer_bento: <OfferBentoSection key="offer-bento" surface="global" />,
+
     best_deals: bestDealsErrored ? null
       : !bestDealsPending && bestDeals.length >= 1 ? (
           <HCarousel key="best-deals" title="Best deals" testid="home-best-deals" link="/products?sort=discount" linkLabel="See all">
@@ -208,9 +236,41 @@ export function MarketplaceHomeClient() {
         )
       : bestDealsPending ? <ProductRailSkeleton key="best-deals-skeleton" testid="home-best-deals-skeleton" /> : null,
 
+    // G22 §2/§7 — "Popular near you" only renders when at least one
+    // returned item carries a real 7-day order count. When the whole list
+    // is the endpoint's own honest rating-sort fallback (every orders_7d
+    // is 0 or absent), it's indistinguishable from Best deals/Premium
+    // picks and gets hidden entirely rather than shown as a fake-distinct
+    // rail — the brief's explicit "don't call a rating fallback Trending,
+    // and don't show it at all if it just duplicates another rail."
+    popular_near_you: popularNearYouErrored ? null
+      : popularNearYouPending ? <ProductRailSkeleton key="popular-near-you-skeleton" testid="home-popular-near-you-skeleton" />
+      : popularNearYou.some((p) => (p.orders_7d ?? 0) > 0) ? (
+          <HCarousel key="popular-near-you" title="Popular near you" testid="home-popular-near-you">
+            {popularNearYou.slice(0, 10).map((p, pIdx) => (
+              <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "popular_near_you", position: pIdx }); } catch {} }}>
+                <ProductCard p={p} size="default" />
+              </div>
+            ))}
+          </HCarousel>
+        )
+      : null,
+
     under_499: <BudgetBentoSection key="budget-bento" />,
 
     stores_near_you: <StoresNearYouSection key="stores-near-you" />,
+
+    new_on_lokl: newOnLoklErrored ? null
+      : !newOnLoklPending && newOnLokl.length >= 1 ? (
+          <HCarousel key="new-on-lokl" title="New on Lokl" testid="home-new-on-lokl" link="/products" linkLabel="See all">
+            {newOnLokl.slice(0, 10).map((p, pIdx) => (
+              <div key={p.id} onClick={() => { try { trackProductClick({ product_id: p.id, product_name: p.name, price: p.price, rail_name: "new_on_lokl", position: pIdx }); } catch {} }}>
+                <ProductCard p={p} size="default" />
+              </div>
+            ))}
+          </HCarousel>
+        )
+      : newOnLoklPending ? <ProductRailSkeleton key="new-on-lokl-skeleton" testid="home-new-on-lokl-skeleton" /> : null,
 
     shop_by_area: <ShopByAreaSection key="shop-by-area" />,
 

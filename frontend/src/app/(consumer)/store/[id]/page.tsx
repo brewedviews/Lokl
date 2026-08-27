@@ -9,11 +9,37 @@ import { StoreNotifyBanner } from "@/components/consumer/StoreNotifyBanner";
 import { CategoryTile } from "@/components/consumer/CategoryTile";
 import { TrustSignalsCompact } from "@/components/consumer/TrustSignalsCompact";
 import { StoreDistanceText } from "@/components/consumer/StoreDistanceText";
-import type { Store, ProductCard as ProductCardType, CmsCategory } from "@/types";
+import { OffersSection } from "@/components/consumer/sections/OffersSection";
+import { StoreCatalogueSection, type StoreCategoryChip } from "@/components/consumer/StoreCatalogueSection";
+import type { Store, ProductCard as ProductCardType, CmsCategory, CategoryNode } from "@/types";
 
 interface StoreDetailResponse {
   store: Store;
   products: ProductCardType[];
+}
+
+// G21 P1-10 — compact text-led L2 chip nav ("All / Running / Casual /
+// Formal / Sandals"), computed from this store's own already-fetched
+// product list against the global category tree (for real L2 names) —
+// no new backend endpoint. Only the top categories by real product count,
+// capped so this stays a slim pill row, never a second tile grid.
+const MAX_CATEGORY_CHIPS = 6;
+
+function buildCategoryChips(products: ProductCardType[], categories: CategoryNode[]): StoreCategoryChip[] {
+  const l2Names = new Map<string, string>();
+  for (const l1 of categories) {
+    for (const l2 of l1.l2 ?? []) l2Names.set(l2.id, l2.name);
+  }
+  const counts = new Map<string, number>();
+  for (const p of products) {
+    if (!p.l2_id) continue;
+    counts.set(p.l2_id, (counts.get(p.l2_id) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .filter(([id]) => l2Names.has(id))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_CATEGORY_CHIPS)
+    .map(([id]) => ({ id, label: l2Names.get(id)! }));
 }
 
 // Below this many live products, splitting into New Arrivals / Bestsellers
@@ -66,16 +92,24 @@ export default async function StorePage(
   // the resolved store id (store.id, not the route's slug-or-id param) —
   // fetched in parallel with each other, after the store itself resolves.
   const splitRails = store.product_count >= SPLIT_RAIL_MIN_PRODUCTS;
-  const [categoriesSold, newArrivals, bestsellers] = await Promise.all([
+  const [categoriesSold, newArrivals, bestsellers, allCategories] = await Promise.all([
     serverFetch<CmsCategory[]>(`/api/stores/${store.id}/categories`),
     splitRails ? serverFetch<ProductCardType[]>(`/api/feed/new-arrivals?store=${store.id}&limit=8`) : Promise.resolve(null),
     splitRails ? serverFetch<ProductCardType[]>(`/api/feed/best-sellers?store=${store.id}&limit=8`) : Promise.resolve(null),
+    serverFetch<CategoryNode[]>(`/api/categories`),
   ]);
-  // Even above the product-count threshold, only actually split when BOTH
-  // rails come back with real content — a store can clear the count
-  // threshold but still have e.g. zero 30-day-old orders, which would
-  // otherwise render a near-empty Bestsellers strip.
-  const showSplitRails = splitRails && !!newArrivals?.length && !!bestsellers?.length;
+  // G21 P1-10 — these two rails now render ADDITIONALLY above the full
+  // catalogue (not instead of it): "New at this store" / "Popular from
+  // this store" only add value when they're a genuinely different,
+  // SMALLER subset of a bigger catalogue below them. A store with a
+  // small total catalogue has both feeds gracefully fall back to
+  // "every visible product, reordered" (no real recency/sales signal to
+  // narrow on yet) — showing that same full set three times in a row
+  // (as "Popular", then "New", then the catalogue) would be redundant
+  // clutter dressed up as curation, not real discovery value.
+  const showRails = splitRails && !!newArrivals?.length && !!bestsellers?.length
+    && newArrivals.length < products.length && bestsellers.length < products.length;
+  const categoryChips = buildCategoryChips(products, allCategories || []);
 
   return (
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
@@ -124,6 +158,12 @@ export default async function StorePage(
       </div>
 
       <StoreInfoChips storyText={store.story ?? null} area={area} eta={eta} city={store.city || "Bhilai"} timing={store.timing} storeLat={store.lat ?? null} storeLng={store.lng ?? null} />
+
+      {/* STORE CAMPAIGN/OFFER (G21 P1-10) — only rendered if this store has
+          its own active, in-schedule campaign (store_id-scoped offer);
+          self-fetches and returns null otherwise, so it occupies zero
+          space on the vast majority of store pages that have none. */}
+      <OffersSection storeId={store.id} />
 
       {/* Categories this store sells — dense CategoryTile row, derived from
           real product l1_id values (GET /api/stores/{id}/categories), never
@@ -201,21 +241,17 @@ export default async function StorePage(
                 </>
               )}
             </div>
-          ) : showSplitRails ? (
+          ) : (
             <div className="space-y-8">
-              {newArrivals && newArrivals.length > 0 && (
-                <div data-testid="store-new-arrivals">
-                  <h2 className="font-display text-xl sm:text-2xl font-medium text-[#0A1F5C] mb-3 sm:mb-6">New arrivals</h2>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
-                    {newArrivals.map((p) => (
-                      <ProductCard key={p.id} p={{ ...p, store_name: store.name }} size="default" />
-                    ))}
-                  </div>
-                </div>
-              )}
-              {bestsellers && bestsellers.length > 0 && (
+              {/* PRODUCT DISCOVERY (G21 P1-10) — Popular / New only when
+                  they add real, distinct value over the full catalogue
+                  below (see `showRails`); Browse-by-category is a compact
+                  chip row inside the catalogue module itself, not a
+                  separate grid; the catalogue always renders (it's the
+                  store's actual shelf), never an empty section. */}
+              {showRails && bestsellers && bestsellers.length > 0 && (
                 <div data-testid="store-bestsellers">
-                  <h2 className="font-display text-xl sm:text-2xl font-medium text-[#0A1F5C] mb-3 sm:mb-6">Bestsellers</h2>
+                  <h2 className="font-display text-xl sm:text-2xl font-medium text-[#0A1F5C] mb-3 sm:mb-6">Popular from this store</h2>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
                     {bestsellers.map((p) => (
                       <ProductCard key={p.id} p={{ ...p, store_name: store.name }} size="default" />
@@ -223,15 +259,22 @@ export default async function StorePage(
                   </div>
                 </div>
               )}
-            </div>
-          ) : (
-            <div data-testid="store-all-products">
-              <h2 className="font-display text-xl sm:text-2xl font-medium text-[#0A1F5C] mb-3 sm:mb-6">From this store ({products.length})</h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
-                {products.map((p) => (
-                  <ProductCard key={p.id} p={{ ...p, store_name: store.name }} size="default" />
-                ))}
-              </div>
+              {showRails && newArrivals && newArrivals.length > 0 && (
+                <div data-testid="store-new-arrivals">
+                  <h2 className="font-display text-xl sm:text-2xl font-medium text-[#0A1F5C] mb-3 sm:mb-6">New at this store</h2>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-5">
+                    {newArrivals.map((p) => (
+                      <ProductCard key={p.id} p={{ ...p, store_name: store.name }} size="default" />
+                    ))}
+                  </div>
+                </div>
+              )}
+              <StoreCatalogueSection
+                products={products}
+                storeName={store.name}
+                chips={categoryChips}
+                heading={showRails ? "Full catalogue" : `From this store (${products.length})`}
+              />
             </div>
           )}
 

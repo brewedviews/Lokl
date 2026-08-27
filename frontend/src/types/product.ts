@@ -98,6 +98,19 @@ export type ProductCard = Pick<
   store_eta_message?: string;
   store_opens_at_label?: string | null;
   store_availability_rank?: number;
+  /** Present on every raw product doc (GET /api/stores/{id}'s own
+   *  products array included) even though most feed projections don't
+   *  explicitly list it — optional here since not every endpoint's
+   *  projection is guaranteed to keep it. G21 P1-10's store-page L2
+   *  category chip filter reads this client-side. */
+  l2_id?: string;
+  /** Stamped by /feed/popular-in-city only — real 7-day order quantity
+   *  for this product, 0 when the endpoint had no recent-order signal at
+   *  all and fell back to a plain rating sort. G22 §7 reads this to
+   *  decide whether "Popular near you"/"Popular in [L1]" has genuine
+   *  signal behind it or is merely the honest-but-undifferentiated
+   *  fallback, in which case the module hides rather than rendering. */
+  orders_7d?: number;
 };
 
 /** Query params accepted by GET /api/products and the various /feed/* feeds. */

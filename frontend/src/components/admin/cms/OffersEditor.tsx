@@ -4,10 +4,10 @@
  * Offers editor — full CRUD with image upload, destination picker,
  * enable/disable toggle, reorder, and per-row publish.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Save, Loader2, Eye, EyeOff, ChevronUp, ChevronDown, Trash2, Plus } from "lucide-react";
-import { adminApi } from "@/lib/api/admin";
+import { Save, Loader2, Eye, EyeOff, ChevronUp, ChevronDown, Trash2, Plus, Search, X, Store as StoreIcon } from "lucide-react";
+import { adminApi, type AdminStoreSearchResult } from "@/lib/api/admin";
 import { catalogApi } from "@/lib/api";
 import { ImageUploadField } from "./ImageUploadField";
 import { DestinationPicker } from "./DestinationPicker";
@@ -17,7 +17,7 @@ const BLANK_OFFER: Partial<CmsOffer> = {
   title: "New offer", subtitle: "", image: "", eyebrow: "",
   cta_label: "Shop now", cta_link: "", redirect_url: "",
   background: "#0A1F5C", rank: 100, published: false,
-  kind: "banner", aspect_ratio: "21:9", placement: null,
+  kind: "banner", aspect_ratio: "21:9", placement: null, store_id: null,
 };
 
 const ASPECT_RATIO_OPTIONS: Array<CmsOffer["aspect_ratio"]> = ["21:9", "16:9", "3:1", "4:3"];
@@ -27,10 +27,16 @@ export function OffersEditor() {
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [l1s, setL1s] = useState<CategoryNode[]>([]);
+  const [storeNames, setStoreNames] = useState<Record<string, string>>({});
 
   const reload = () => adminApi.listOffers().then(setRows).catch((e) => toast.error(String(e)));
   useEffect(() => { void reload(); }, []);
   useEffect(() => { catalogApi.categories().then(setL1s).catch(() => setL1s([])); }, []);
+  useEffect(() => {
+    adminApi.searchStores("").then((rows) => {
+      setStoreNames((c) => ({ ...c, ...Object.fromEntries(rows.map((r) => [r.id, r.name])) }));
+    }).catch(() => {});
+  }, []);
 
   const patch = (id: string, p: Partial<CmsOffer>) => {
     setRows((r) => r?.map((o) => o.id === id ? { ...o, ...p } : o) || null);
@@ -47,7 +53,7 @@ export function OffersEditor() {
         paused: !!row.paused, non_clickable: !!row.non_clickable,
         kind: row.kind || "banner", aspect_ratio: row.aspect_ratio || "21:9",
         placement: row.placement ?? null, starts_at: row.starts_at ?? null,
-        expires_at: row.expires_at ?? null,
+        expires_at: row.expires_at ?? null, store_id: row.store_id ?? null,
       });
       setRows((rs) => rs?.map((o) => o.id === row.id ? r : o) || null);
       setDirty((d) => { const n = { ...d }; delete n[row.id]; return n; });
@@ -176,6 +182,7 @@ export function OffersEditor() {
                     className="mt-1 w-full px-3 py-1.5 rounded-full border border-[#E5E2DC] bg-white text-[12px] focus:border-[#0A1F5C] outline-none">
                     <option value="banner">Banner (image)</option>
                     <option value="strip">Strip (text only)</option>
+                    <option value="bento">Bento (large campaign)</option>
                   </select>
                 </label>
                 <label className="block">
@@ -188,7 +195,7 @@ export function OffersEditor() {
                     {l1s.map((c) => <option key={c.id} value={c.id}>{c.name} only</option>)}
                   </select>
                 </label>
-                {(o.kind || "banner") === "banner" && (
+                {(o.kind || "banner") !== "strip" && (
                   <label className="block">
                     <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Aspect ratio</span>
                     <select value={o.aspect_ratio || "21:9"} onChange={(e) => patch(o.id, { aspect_ratio: e.target.value as CmsOffer["aspect_ratio"] })}
@@ -198,6 +205,18 @@ export function OffersEditor() {
                     </select>
                   </label>
                 )}
+                <div className="col-span-2 sm:col-span-4">
+                  <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C] mb-1 block">Store campaign (optional — this store&apos;s page only)</span>
+                  <OfferStorePicker
+                    storeId={o.store_id ?? null}
+                    storeName={o.store_id ? (storeNames[o.store_id] || o.store_id) : ""}
+                    onChange={(id, name) => {
+                      patch(o.id, { store_id: id });
+                      if (id && name) setStoreNames((c) => ({ ...c, [id]: name }));
+                    }}
+                    testid={`cms-offer-store-${o.id}`}
+                  />
+                </div>
                 <label className="block">
                   <span className="text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Starts</span>
                   <input type="date" value={o.starts_at ? o.starts_at.slice(0, 10) : ""}
@@ -262,6 +281,108 @@ export function OffersEditor() {
                 className="w-7 h-7 rounded-full bg-white border border-[#FCA5A5] text-[#DC2626] flex items-center justify-center"><Trash2 size={11} /></button>
             </div>
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** G21 P1-9 — inline store search + pick/clear, same debounced
+ *  GET /admin/stores/search backing StoreSectionsEditor's picker, kept
+ *  local (not a shared export) since this is a single-field inline use,
+ *  not a modal flow. Clearing sends store_id back to null, i.e. this
+ *  offer reverts to Marketplace/L1 `placement` scoping only. */
+function OfferStorePicker({
+  storeId, storeName, onChange, testid,
+}: {
+  storeId: string | null;
+  storeName: string;
+  onChange: (id: string | null, name?: string) => void;
+  testid: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<AdminStoreSearchResult[]>([]);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setBusy(true);
+    const t = setTimeout(() => {
+      adminApi.searchStores(q)
+        .then((r) => { if (!cancelled) setResults(r); })
+        .catch(() => { if (!cancelled) setResults([]); })
+        .finally(() => { if (!cancelled) setBusy(false); });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [q, open]);
+
+  if (!open) {
+    return (
+      <div className="flex items-center gap-2" data-testid={testid}>
+        {storeId ? (
+          <>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#0A1F5C]/5 text-[#0A1F5C] text-[12px] font-semibold truncate max-w-[220px]">
+              <StoreIcon size={12} className="shrink-0" /> {storeName}
+            </span>
+            <button type="button" onClick={() => setOpen(true)}
+              data-testid={`${testid}-change`}
+              className="text-[11px] font-semibold text-[#0A1F5C] underline">Change</button>
+            <button type="button" onClick={() => onChange(null)}
+              data-testid={`${testid}-clear`}
+              className="text-[11px] text-[#94A3B8] inline-flex items-center gap-0.5"><X size={11} /> Clear</button>
+          </>
+        ) : (
+          <button type="button" onClick={() => setOpen(true)}
+            data-testid={`${testid}-open`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-dashed border-[#E5E2DC] text-[#64748B] text-[12px]">
+            <Search size={12} /> Pick a store…
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div data-testid={testid}>
+      <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#0A1F5C] bg-white">
+        <Search size={13} className="text-[#94A3B8] shrink-0" />
+        <input
+          ref={inputRef}
+          type="text" value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder="Search stores by name…"
+          data-testid={`${testid}-input`}
+          className="flex-1 text-[12px] outline-none min-w-0"
+        />
+        <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="shrink-0 text-[#94A3B8]"><X size={12} /></button>
+      </div>
+      <div className="mt-2 max-h-48 overflow-y-auto space-y-1 border border-[#E5E2DC] rounded-xl p-1.5 bg-white">
+        {busy && <div className="text-[11px] text-[#94A3B8] px-2 py-1.5 inline-flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Searching…</div>}
+        {!busy && results.length === 0 && (
+          <div className="text-[11px] text-[#94A3B8] px-2 py-1.5">No stores match.</div>
+        )}
+        {!busy && results.map((s) => (
+          <button
+            key={s.id} type="button"
+            onClick={() => { onChange(s.id, s.name); setOpen(false); setQ(""); }}
+            data-testid={`${testid}-result-${s.id}`}
+            className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-[#FDFBF7] text-left"
+          >
+            <div className="relative w-8 h-8 rounded-lg overflow-hidden bg-[#F4F1E9] shrink-0">
+              {s.image && <img src={s.image} alt="" className="w-full h-full object-cover" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[12px] font-semibold text-[#0A1F5C] truncate">{s.name}</div>
+              {s.area && <div className="text-[10px] text-[#94A3B8] truncate">{s.area}</div>}
+            </div>
+          </button>
         ))}
       </div>
     </div>
