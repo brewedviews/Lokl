@@ -19,7 +19,8 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Shield, Users, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop, TicketPercent, MessageSquare, Bike } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Shield, Users, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop, TicketPercent, MessageSquare, Bike, Search } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
 import { useAdminAuthStore } from "@/stores";
 import { ReturnsTab } from "@/components/admin/ReturnsTab";
@@ -53,7 +54,7 @@ interface AdminStoreItem {
 }
 interface AdminProduct {
   id: string; name: string; price: number; store_id: string; store_name?: string;
-  paused?: boolean; image?: string;
+  merchant_id?: string; paused?: boolean; image?: string;
 }
 interface AdminOrder {
   id: string; total: number; status: string; created_at: string;
@@ -187,21 +188,19 @@ function Stat({ label, value }: { label: string; value: number | string }) {
 }
 
 // ---------------- Merchants ----------------
+// G25: converted from a card-per-merchant list with inline action forms to
+// a compact, searchable table. Approve/Reject/Hold/plan/store-pause/store-
+// delete now live on the Merchant Detail page (/admin/merchants/[id]) —
+// this tab keeps only a fast-path Approve for the common case (a
+// `submitted` row that just needs a nod) so an operator isn't forced to
+// open every row just to clear a queue.
 function MerchantsTab() {
+  const router = useRouter();
   const [items, setItems] = useState<Merchant[]>([]);
   const [stores, setStores] = useState<AdminStoreItem[]>([]);
   const [filter, setFilter] = useState<string>("submitted");
+  const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
-  const [holdingFor, setHoldingFor] = useState<string | null>(null);
-  const [holdComment, setHoldComment] = useState("");
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
-  const [planFor, setPlanFor] = useState<string | null>(null);
-  const [planSelection, setPlanSelection] = useState("growth");
-  const [planBusy, setPlanBusy] = useState<string | null>(null);
-  const [deleteFor, setDeleteFor] = useState<AdminStoreItem | null>(null);
-  const [deleteOtp, setDeleteOtp] = useState("");
-  const [deleteSent, setDeleteSent] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -216,287 +215,134 @@ function MerchantsTab() {
   }, [filter]);
   useEffect(() => { void load(); }, [load]);
 
-  const approve = async (mid: string) => {
+  const approve = async (mid: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     setBusy(mid);
     try {
       await adminFetch<{ ok: boolean }>(`/api/admin/merchants/${mid}/approve`, { method: "POST" });
       toast.success("Merchant approved");
       void load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+    } catch (err) { toast.error(err instanceof Error ? err.message : String(err)); }
     finally { setBusy(null); }
-  };
-  const confirmReject = async (mid: string) => {
-    const reason = rejectReason.trim();
-    if (!reason) { toast.error("Rejection reason is required"); return; }
-    setBusy(mid);
-    try {
-      await adminFetch<{ ok: boolean }>(`/api/admin/merchants/${mid}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
-      toast.success("Merchant rejected");
-      setRejectingId(null);
-      setRejectReason("");
-      void load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(null); }
-  };
-  const hold = async (mid: string) => {
-    const reason = holdComment.trim();
-    if (!reason) {
-      toast.error("Hold reason is required");
-      return;
-    }
-    setBusy(mid);
-    try {
-      await adminFetch<{ ok: boolean }>(`/api/admin/merchants/${mid}/hold`, { method: "POST", body: JSON.stringify({ reason }) });
-      toast.success("Merchant put on hold");
-      setHoldingFor(null);
-      setHoldComment("");
-      void load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(null); }
-  };
-  const openHold = (mid: string) => {
-    setHoldingFor(mid);
-    setHoldComment("");
-  };
-  const openReject = (mid: string) => {
-    setRejectingId(mid);
-    setRejectReason("");
-  };
-
-  const activatePlan = async (mid: string) => {
-    setPlanBusy(mid);
-    try {
-      await adminFetch<{ message: string }>(`/api/admin/merchant/${mid}/activate-plan`, {
-        method: "POST",
-        body: JSON.stringify({ plan: planSelection }),
-      });
-      toast.success(`Plan ${planSelection} activated`);
-      setPlanFor(null);
-      void load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
-    finally { setPlanBusy(null); }
-  };
-
-  const toggleStore = async (s: AdminStoreItem) => {
-    setBusy(`store-${s.id}`);
-    try {
-      const action = s.paused ? "unpause" : "pause";
-      await adminFetch<{ ok: boolean }>(`/api/admin/stores/${s.id}/${action}`, { method: "POST" });
-      toast.success(`Store ${action}d`);
-      void load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(null); }
-  };
-
-  const requestDeleteOtp = async (s: AdminStoreItem) => {
-    setDeleteFor(s); setDeleteOtp(""); setDeleteSent(false);
-    try {
-      const r = await adminFetch<{ ok: boolean; otp_demo?: string }>(`/api/admin/stores/${s.id}/request-delete-otp`, { method: "POST" });
-      setDeleteSent(true);
-      if (r.otp_demo) setDeleteOtp(r.otp_demo);
-      toast.success("OTP sent");
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); setDeleteFor(null); }
-  };
-
-  const confirmDeleteStore = async () => {
-    if (!deleteFor) return;
-    if (deleteOtp.length !== 6) { toast.error("Enter the 6-digit OTP"); return; }
-    setBusy(`store-${deleteFor.id}`);
-    try {
-      await adminFetch<{ ok: boolean }>(`/api/admin/stores/${deleteFor.id}`, { method: "DELETE", body: JSON.stringify({ otp: deleteOtp }) });
-      toast.success(`Deleted ${deleteFor.name}`);
-      setDeleteFor(null);
-      void load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(null); }
-  };
-
-  const openKycDoc = async (mid: string, doc: "pan_doc" | "gst_doc" | "cancelled_cheque") => {
-    try {
-      const r = await adminFetch<{ url: string }>(`/api/admin/kyc/${mid}/signed-url?doc=${doc}`);
-      window.open(r.url, "_blank", "noopener,noreferrer");
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   };
 
   const storeMap = Object.fromEntries(stores.map((s) => [s.merchant_id, s]));
 
+  const filtered = items.filter((m) => {
+    if (!q.trim()) return true;
+    const needle = q.trim().toLowerCase();
+    return [m.store_name, m.owner_name, m.email, m.phone].some((v) => (v || "").toLowerCase().includes(needle));
+  });
+
   return (
     <div data-testid="merchants-panel">
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-        <h2 className="font-display text-2xl font-bold text-[#0A1F5C]">Merchants</h2>
-        <select data-testid="merchant-filter" value={filter} onChange={(e) => setFilter(e.target.value)} className="px-3 py-2 rounded-full border border-[#E5E2DC] text-sm">
-          <option value="submitted">KYC submitted</option>
-          <option value="on_hold">On hold</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-          <option value="all">All</option>
-        </select>
+        <h2 className="font-display text-2xl font-bold text-[#0A1F5C]">Merchants ({filtered.length})</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search store, owner, phone, email…" data-testid="merchant-search"
+              className="pl-8 pr-3 py-2 rounded-full border border-[#E5E2DC] text-sm w-64" />
+          </div>
+          <select data-testid="merchant-filter" value={filter} onChange={(e) => setFilter(e.target.value)} className="px-3 py-2 rounded-full border border-[#E5E2DC] text-sm">
+            <option value="submitted">KYC submitted</option>
+            <option value="on_hold">On hold</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="all">All</option>
+          </select>
+        </div>
       </div>
-      {items.length === 0 ? (
+
+      {filtered.length === 0 ? (
         <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center text-sm text-[#595959]">
-          No merchants in this state.
+          No merchants match.
         </div>
       ) : (
-        <div className="space-y-3">
-          {items.map((m) => (
-            <div key={m.id} data-testid={`merchant-row-${m.id}`} className="bg-white border border-[#E5E2DC] rounded-2xl p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-semibold text-[#0A1F5C]">{m.store_name} <span className="text-xs text-[#595959]">· {m.owner_name || "—"}</span></div>
-                  <div className="text-xs text-[#595959] mt-0.5">{m.email} · {m.phone || "no phone"}</div>
-                  <div className="text-xs text-[#595959] mt-0.5">PAN: {m.pan_number || "—"} · Category: {m.business_category || "—"}</div>
-                  <div className="text-[10px] uppercase tracking-widest text-[#E68910] mt-2">{m.kyc_status}</div>
-                  {m.hold_comment && <div className="text-xs text-[#E68910] mt-1">Hold: {m.hold_comment}</div>}
-                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                    <span className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded-full ${
-                      m.plan === "pro" ? "bg-purple-100 text-purple-600" :
-                      m.plan === "growth" ? "bg-[#E68910]/15 text-[#E68910]" :
-                      m.plan === "starter" ? "bg-[#1A2B4C]/10 text-[#1A2B4C]" :
-                      "bg-zinc-100 text-zinc-500"
-                    }`}>{m.plan ?? "free"}</span>
-                    {m.plan_expires_at && (
-                      <span className="text-[9px] text-[#9CA3AF]">exp {m.plan_expires_at.slice(0, 10)}</span>
-                    )}
-                    <button
-                      onClick={() => { setPlanFor(planFor === m.id ? null : m.id); setPlanSelection(m.plan ?? "growth"); }}
-                      className="text-[9px] font-semibold text-[#E68910] underline-offset-2 hover:underline"
-                    >
-                      Change plan
-                    </button>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button onClick={() => openKycDoc(m.id, "pan_doc")} data-testid={`kyc-pan-${m.id}`} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[#E5E2DC] hover:border-[#0A1F5C]"><FileText size={11} /> PAN <ExternalLink size={10} /></button>
-                  <button onClick={() => openKycDoc(m.id, "gst_doc")} data-testid={`kyc-gst-${m.id}`} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[#E5E2DC] hover:border-[#0A1F5C]"><FileText size={11} /> GST</button>
-                  <button onClick={() => openKycDoc(m.id, "cancelled_cheque")} data-testid={`kyc-cheque-${m.id}`} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[#E5E2DC] hover:border-[#0A1F5C]"><FileText size={11} /> Cheque</button>
-                  {m.kyc_status === "submitted" && <>
-                    <button onClick={() => approve(m.id)} disabled={busy === m.id} data-testid={`approve-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#4F7363] text-white disabled:opacity-50">Approve</button>
-                    <button onClick={() => openHold(m.id)} disabled={busy === m.id} data-testid={`hold-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#E68910] text-white disabled:opacity-50">Hold</button>
-                    <button onClick={() => openReject(m.id)} disabled={busy === m.id} data-testid={`reject-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-50">Reject</button>
-                  </>}
-                </div>
-              </div>
-              {holdingFor === m.id && (
-                <div className="mt-3 p-3 bg-[#FFF8E7] border border-[#F5D599] rounded-xl space-y-2" data-testid={`hold-form-${m.id}`}>
-                  <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Reason for hold (required)</label>
-                  <textarea
-                    value={holdComment}
-                    onChange={(e) => setHoldComment(e.target.value)}
-                    data-testid={`hold-comment-${m.id}`}
-                    rows={2}
-                    placeholder="e.g. PAN card image is blurry — please re-upload"
-                    className="w-full px-3 py-2 rounded-lg border border-[#E5E2DC] text-sm bg-white focus:border-[#0A1F5C] outline-none"
-                  />
-                  <div className="flex items-center justify-end gap-2">
-                    <button onClick={() => { setHoldingFor(null); setHoldComment(""); }} data-testid={`hold-cancel-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC] text-[#595959]">Cancel</button>
-                    <button onClick={() => hold(m.id)} disabled={busy === m.id || !holdComment.trim()} data-testid={`hold-confirm-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#E68910] text-white disabled:opacity-40">{busy === m.id ? "Saving…" : "Confirm Hold"}</button>
-                  </div>
-                </div>
-              )}
-              {rejectingId === m.id && (
-                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl space-y-2" data-testid={`reject-form-${m.id}`}>
-                  <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Reason for rejection (required)</label>
-                  <textarea
-                    value={rejectReason}
-                    onChange={(e) => setRejectReason(e.target.value)}
-                    data-testid={`reject-comment-${m.id}`}
-                    rows={2}
-                    placeholder="e.g. Documents incomplete — PAN card not legible"
-                    className="w-full px-3 py-2 rounded-lg border border-[#E5E2DC] text-sm bg-white focus:border-[#0A1F5C] outline-none"
-                  />
-                  <div className="flex items-center justify-end gap-2">
-                    <button onClick={() => { setRejectingId(null); setRejectReason(""); }} data-testid={`reject-cancel-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC] text-[#595959]">Cancel</button>
-                    <button onClick={() => confirmReject(m.id)} disabled={busy === m.id || !rejectReason.trim()} data-testid={`reject-confirm-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-40">{busy === m.id ? "Saving…" : "Confirm Reject"}</button>
-                  </div>
-                </div>
-              )}
-              {planFor === m.id && (
-                <div className="mt-3 p-3 bg-[#F5F0FF] border border-purple-200 rounded-xl space-y-2" data-testid={`plan-form-${m.id}`}>
-                  <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Activate / change plan</label>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={planSelection}
-                      onChange={(e) => setPlanSelection(e.target.value)}
-                      className="flex-1 px-3 py-2 rounded-lg border border-[#E5E2DC] text-sm bg-white focus:border-[#0A1F5C] outline-none"
-                    >
-                      <option value="free">Free</option>
-                      <option value="starter">Starter — ₹499/mo</option>
-                      <option value="growth">Growth — ₹999/mo</option>
-                      <option value="pro">Pro — ₹1,999/mo</option>
-                    </select>
-                    <button onClick={() => setPlanFor(null)} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC] text-[#595959]">Cancel</button>
-                    <button onClick={() => activatePlan(m.id)} disabled={planBusy === m.id} data-testid={`plan-activate-${m.id}`} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-purple-600 text-white disabled:opacity-40">{planBusy === m.id ? "Saving…" : "Activate"}</button>
-                  </div>
-                </div>
-              )}
-              {storeMap[m.id] && (
-                <div className="mt-3 pt-3 border-t border-[#F0EFED] flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-3 text-xs text-[#595959] flex-wrap">
-                    <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] uppercase ${
-                      storeMap[m.id]?.paused ? "bg-red-100 text-red-500"
-                        : storeMap[m.id]?.published ? "bg-green-100 text-green-600"
-                        : "bg-zinc-100 text-zinc-500"
-                    }`}>
-                      {storeMap[m.id]?.paused ? "paused" : storeMap[m.id]?.published ? "live" : "draft"}
-                    </span>
-                    <span>{storeMap[m.id]?.locality || "no area"}</span>
-                    <span>{storeMap[m.id]?.product_count ?? 0} products</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => toggleStore(storeMap[m.id]!)}
-                      disabled={busy === `store-${storeMap[m.id]?.id}`}
-                      className="text-xs font-semibold text-[#E68910] hover:underline disabled:opacity-50"
-                    >
-                      {storeMap[m.id]?.paused ? "Unpause store" : "Pause store"}
-                    </button>
-                    <button
-                      onClick={() => requestDeleteOtp(storeMap[m.id]!)}
-                      disabled={busy === `store-${storeMap[m.id]?.id}`}
-                      className="text-xs font-semibold text-red-500 hover:underline disabled:opacity-50"
-                    >
-                      Delete store
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {deleteFor && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setDeleteFor(null)}>
-          <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl max-w-md w-full p-6">
-            <div className="font-display text-xl font-bold text-[#0A1F5C]">Delete {deleteFor.name}?</div>
-            <p className="text-xs text-[#595959] mt-2">
-              This wipes the store, its products, the merchant account, and all related orders. An OTP has been sent to the admin inbox.
-            </p>
-            <input value={deleteOtp} onChange={(e) => setDeleteOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              placeholder="6-digit OTP"
-              className="mt-4 w-full px-4 py-3 rounded-xl border border-[#E5E2DC] text-center font-mono text-lg tracking-[0.4em]" />
-            <div className="flex items-center justify-end gap-2 mt-5">
-              <button onClick={() => setDeleteFor(null)} className="px-4 py-2 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC]">Cancel</button>
-              <button onClick={confirmDeleteStore} disabled={!deleteSent || deleteOtp.length !== 6}
-                className="px-4 py-2 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-50">
-                Confirm delete
-              </button>
-            </div>
-          </div>
+        <div className="bg-white border border-[#E5E2DC] rounded-2xl overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-[#FDFBF7] text-left text-[10px] uppercase text-[#595959]">
+              <tr>
+                <th className="px-4 py-3">Store</th>
+                <th className="px-4 py-3">Merchant</th>
+                <th className="px-4 py-3">Location</th>
+                <th className="px-4 py-3">KYC</th>
+                <th className="px-4 py-3 text-right">Products</th>
+                <th className="px-4 py-3">Store status</th>
+                <th className="px-4 py-3">Updated</th>
+                <th className="px-4 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((m) => {
+                const st = storeMap[m.id];
+                const kyc = kycTabMeta(m.kyc_status);
+                const lastUpdated = m.kyc_submitted_at || m.approved_at;
+                return (
+                  <tr key={m.id} onClick={() => router.push(`/admin/merchants/${m.id}`)} data-testid={`merchant-row-${m.id}`}
+                    className="border-t border-[#E5E2DC] cursor-pointer hover:bg-[#FDFBF7]">
+                    <td className="px-4 py-3 font-semibold text-[#0A1F5C]">{m.store_name}</td>
+                    <td className="px-4 py-3 text-[#595959]">{m.owner_name || "—"}</td>
+                    <td className="px-4 py-3 text-[#595959]">{st?.locality || "—"}</td>
+                    <td className="px-4 py-3"><span className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded-full ${kyc.cls}`}>{kyc.label}</span></td>
+                    <td className="px-4 py-3 text-right">{st?.product_count ?? 0}</td>
+                    <td className="px-4 py-3">
+                      {st ? (
+                        <span className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded-full ${st.paused ? "bg-red-100 text-red-500" : st.published ? "bg-green-100 text-green-600" : "bg-zinc-100 text-zinc-500"}`}>
+                          {st.paused ? "suspended" : st.published ? "live" : "draft"}
+                        </span>
+                      ) : <span className="text-[#94A3B8]">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-[#595959] whitespace-nowrap">{lastUpdated ? lastUpdated.slice(0, 10) : "—"}</td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      {m.kyc_status === "submitted" && (
+                        <button onClick={(e) => approve(m.id, e)} disabled={busy === m.id} data-testid={`approve-${m.id}`}
+                          className="text-xs font-semibold text-[#4F7363] hover:underline disabled:opacity-50 mr-3">
+                          {busy === m.id ? "…" : "Quick approve"}
+                        </button>
+                      )}
+                      <span className="text-xs font-semibold text-[#0A1F5C]">Open →</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
   );
 }
 
+const KYC_TAB_META: Record<string, { label: string; cls: string }> = {
+  draft: { label: "Not submitted", cls: "bg-zinc-100 text-zinc-500" },
+  submitted: { label: "Pending review", cls: "bg-[#E68910]/15 text-[#E68910]" },
+  approved: { label: "Approved", cls: "bg-green-100 text-green-700" },
+  rejected: { label: "Rejected", cls: "bg-red-100 text-red-600" },
+  on_hold: { label: "Needs changes", cls: "bg-[#E68910]/15 text-[#E68910]" },
+};
+function kycTabMeta(status: string) {
+  return KYC_TAB_META[status] || { label: status, cls: "bg-zinc-100 text-zinc-500" };
+}
+
 // ---------------- Products ----------------
+// G25: kept as a lean, secondary, all-stores discovery tool (per the task's
+// explicit allowance) now that product management itself lives inside the
+// Merchant Detail page. Only addition here is a per-row jump to the
+// owning merchant, derived from the deterministic store_id convention
+// `store-m-{merchant_id}` — no new lookup/endpoint needed for that.
 function ProductsTab() {
+  const router = useRouter();
   const [items, setItems] = useState<AdminProduct[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState("");
 
   const load = async () => {
-    try { setItems(await adminFetch<AdminProduct[]>("/api/products?limit=2000")); }
+    // Admin-scoped endpoint (not the public customer catalog) — must show
+    // products regardless of store KYC/publish/pause status, since a
+    // pending or suspended merchant's inventory still needs to be
+    // findable and manageable here.
+    try { setItems(await adminFetch<AdminProduct[]>("/api/admin/products?limit=2000")); }
     catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
   };
   useEffect(() => { void load(); }, []);
@@ -543,6 +389,7 @@ function ProductsTab() {
                 <td className="px-4 py-3 text-right">₹{Number(p.price).toLocaleString()}</td>
                 <td className="px-4 py-3"><span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${p.paused ? "bg-red-100 text-red-500" : "bg-[#4F7363]/15 text-[#4F7363]"}`}>{p.paused ? "paused" : "active"}</span></td>
                 <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                  <button onClick={() => router.push(`/admin/merchants/${p.merchant_id || p.store_id.replace(/^store-m-/, "")}`)} data-testid={`admin-prod-merchant-${p.id}`} className="text-xs font-semibold text-[#0A1F5C] hover:underline">Merchant →</button>
                   <button onClick={() => toggle(p)} disabled={busy === p.id} data-testid={`admin-prod-toggle-${p.id}`} className="text-xs font-semibold text-[#E68910] hover:underline disabled:opacity-50">{p.paused ? "Unpause" : "Pause"}</button>
                   <button onClick={() => remove(p)} disabled={busy === p.id} data-testid={`admin-prod-delete-${p.id}`} className="text-xs font-semibold text-red-500 hover:underline disabled:opacity-50">Delete</button>
                 </td>

@@ -6696,17 +6696,44 @@ async def kyc_submit(payload: KycSubmit, user: dict = Depends(get_current_user))
         {"id": user["sub"]},
         {"_id": 0,
          "pan_doc_b64": 1, "gst_doc_b64": 1, "cancelled_cheque_b64": 1,
-         "pan_doc_public_id": 1, "gst_doc_public_id": 1, "cancelled_cheque_public_id": 1}
+         "pan_doc_public_id": 1, "gst_doc_public_id": 1, "cancelled_cheque_public_id": 1,
+         "kyc_status": 1, "kyc_submitted_at": 1, "kyc_rejected_reason": 1,
+         "kyc_rejected_at": 1, "kyc_rejected_by": 1, "hold_comment": 1, "hold_at": 1}
     ) or {}
     for k in ("pan_doc_b64", "gst_doc_b64", "cancelled_cheque_b64",
               "pan_doc_public_id", "gst_doc_public_id", "cancelled_cheque_public_id"):
         if not (update.get(k) or "").strip() and existing.get(k):
             update[k] = existing[k]
-    await db.merchants.update_one({"id": user["sub"]}, {"$set": {
+    now = datetime.now(timezone.utc).isoformat()
+    mutation: dict = {"$set": {
         **update,
         "kyc_status": "submitted",
-        "kyc_submitted_at": datetime.now(timezone.utc).isoformat(),
-        "hold_comment": None, "hold_at": None}})
+        "kyc_submitted_at": now,
+        "hold_comment": None, "hold_at": None,
+        "kyc_rejected_reason": None, "kyc_rejected_at": None, "kyc_rejected_by": None,
+    }}
+    # G25 — KYC history (data policy: do not destroy compliance/audit
+    # history merely to make the UI cleaner). A rejected/on_hold outcome
+    # used to be silently overwritten in place on resubmission, with no
+    # trace it ever happened. Now, only on a genuine RESUBMISSION (the
+    # merchant already had a rejected/on_hold outcome to move on from —
+    # a brand new "draft" first submission has nothing worth archiving),
+    # the outgoing outcome is archived into `kyc_history` before being
+    # overwritten, so Admin can show "current state" + "previous
+    # submissions" instead of one state that quietly loses its past.
+    prior_status = existing.get("kyc_status")
+    if prior_status in ("rejected", "on_hold"):
+        mutation["$push"] = {"kyc_history": {
+            "status": prior_status,
+            "submitted_at": existing.get("kyc_submitted_at"),
+            "rejected_reason": existing.get("kyc_rejected_reason"),
+            "rejected_at": existing.get("kyc_rejected_at"),
+            "rejected_by": existing.get("kyc_rejected_by"),
+            "hold_comment": existing.get("hold_comment"),
+            "hold_at": existing.get("hold_at"),
+            "archived_at": now,
+        }}
+    await db.merchants.update_one({"id": user["sub"]}, mutation)
     return {"ok": True, "kyc_status": "submitted"}
 
 @api.get("/merchant/kyc/status")
@@ -7008,11 +7035,13 @@ async def _create_product_for_merchant(payload: ProductCreate, merchant_id: str)
 async def create_merchant_product(payload: ProductCreate, user: dict = Depends(get_current_user)):
     return await _create_product_for_merchant(payload, user["sub"])
 
-@api.put("/merchant/products/{pid}")
-async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(get_current_user)):
-    p = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0})
-    if not p: raise HTTPException(404, "Product not found")
-    payload.pop("id", None); payload.pop("merchant_id", None)
+async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
+    """Shared product-content-update logic — the caller has already
+    fetched the existing product doc `p` and confirmed the caller is
+    allowed to edit it (merchant ownership check, or admin). G25 reuses
+    this exact function for the new PUT /admin/products/{pid} instead of
+    building a second, parallel product-update implementation."""
+    payload.pop("id", None); payload.pop("merchant_id", None); payload.pop("store_id", None)
     if "return_window_hours" in payload and payload["return_window_hours"] is not None:
         try:
             rwh = int(payload["return_window_hours"])
@@ -7037,12 +7066,18 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
         for stale in (old_ids - new_ids):
             await cloudinary_service.delete_image(stale)
     await db.products.update_one({"id": pid}, {"$set": payload})
-    # If the product was just unpaused, recompute count and maybe auto-publish.
+    # If the product was just paused/unpaused, recompute count and maybe
+    # auto-publish. Reads store_id off the product doc itself (rather than
+    # deriving it from a merchant id the admin-facing caller doesn't have)
+    # so this one implementation works unchanged for both callers.
     if "paused" in payload:
-        store_id = f"store-m-{user['sub']}"
-        cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
-        await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
-        await _maybe_autopublish_store(user["sub"])
+        store_id = p.get("store_id")
+        if store_id:
+            cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
+            await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
+            merchant_id = p.get("merchant_id")
+            if merchant_id:
+                await _maybe_autopublish_store(merchant_id)
     if "brand_id" in payload:
         old_brand_id = p.get("brand_id")
         new_brand_id = payload.get("brand_id")
@@ -7050,6 +7085,13 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
             await _recompute_brand_product_count(old_brand_id)
         await _recompute_brand_product_count(new_brand_id)
     return await db.products.find_one({"id": pid}, {"_id": 0})
+
+
+@api.put("/merchant/products/{pid}")
+async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(get_current_user)):
+    p = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0})
+    if not p: raise HTTPException(404, "Product not found")
+    return await _apply_product_update(pid, p, payload)
 
 @api.patch("/merchant/products/{pid}")
 async def quick_update_product(pid: str, payload: dict, user: dict = Depends(get_current_user)):
@@ -8831,10 +8873,52 @@ async def admin_merchant_detail(mid: str, admin: dict = Depends(require_admin)):
     if not m: raise HTTPException(404, "Not found")
     return m
 
+# G25 — merchant-submitted identity fields an Admin operator can clean up
+# (capitalization, "store name typed into the person's name field", etc.)
+# without touching KYC/compliance fields (pan_number, gst_number, bank
+# details) or the login-identifying phone number, which stay untouched
+# here deliberately — see this endpoint's own docstring.
+ALLOWED_ADMIN_MERCHANT_FIELDS = {"owner_name", "store_name", "email"}
+
+
+@api.put("/admin/merchants/{mid}")
+async def admin_update_merchant(mid: str, payload: dict, admin: dict = Depends(require_admin)):
+    """Admin content cleanup for merchant identity fields only (name/store
+    name/email) — NOT a general merchant-profile editor. Deliberately does
+    not touch phone/phone_canonical (the login identifier — changing it
+    is a much bigger, riskier operation than fixing a capitalization
+    typo) or any KYC/compliance field (those are reviewed via the
+    approve/reject/hold flow, not free-text-edited).
+
+    `store_name` is the one field that also drives the STORE's own
+    customer-facing `name` (see storefront_update's own "name": m
+    ["store_name"] derivation) — kept in sync here the same way, so an
+    admin fixing the merchant's store_name doesn't leave the live store
+    page showing the old, uncorrected name.
+    """
+    m = await db.merchants.find_one({"id": mid}, {"_id": 0, "id": 1})
+    if not m: raise HTTPException(404, "Merchant not found")
+    update = {k: (v.strip() if isinstance(v, str) else v) for k, v in payload.items() if k in ALLOWED_ADMIN_MERCHANT_FIELDS}
+    if "store_name" in update and not update["store_name"]:
+        raise HTTPException(400, "Store name cannot be empty")
+    if not update:
+        raise HTTPException(400, "No editable fields in payload")
+    await db.merchants.update_one({"id": mid}, {"$set": update})
+    if "store_name" in update:
+        store_id = f"store-m-{mid}"
+        await db.stores.update_one({"id": store_id}, {"$set": {"name": update["store_name"]}})
+    return await db.merchants.find_one({"id": mid}, {"_id": 0, "password_hash": 0})
+
 @api.post("/admin/merchants/{mid}/approve")
 async def admin_approve(mid: str, admin: dict = Depends(require_admin)):
     now = datetime.now(timezone.utc).isoformat()
-    await db.merchants.update_one({"id": mid}, {"$set": {"kyc_status": "approved", "approved_at": now},
+    await db.merchants.update_one({"id": mid}, {"$set": {
+        "kyc_status": "approved", "approved_at": now,
+        # G25 — clear any stale rejection record now that this submission is
+        # approved, so the Admin KYC panel never shows an old rejection
+        # reason alongside a currently-approved status.
+        "kyc_rejected_reason": None, "kyc_rejected_at": None, "kyc_rejected_by": None,
+    },
         "$push": {"notifications": {"type": "kyc-approved", "title": "Your KYC is approved",
             "body": "Welcome aboard! Set up your storefront and start adding products.", "time": now}}})
     m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1, "store_name": 1})
@@ -8849,7 +8933,19 @@ async def admin_approve(mid: str, admin: dict = Depends(require_admin)):
 async def admin_reject(mid: str, body: dict = None, admin: dict = Depends(require_admin)):
     reason = (body or {}).get("reason", "Documents need re-verification.")
     now = datetime.now(timezone.utc).isoformat()
-    await db.merchants.update_one({"id": mid}, {"$set": {"kyc_status": "rejected"},
+    # G25 — the rejection reason used to live ONLY in the ephemeral
+    # `notifications` array (ever-growing, not filterable/queryable, and
+    # not what the merchant-facing KYC screen or a future Admin detail
+    # view reads for "why was this rejected"). Persisted as first-class
+    # fields now, same pattern `hold_comment`/`hold_at` already used for
+    # the on-hold state — so "current rejection state" is always a direct
+    # field read, never a scan through notification history.
+    await db.merchants.update_one({"id": mid}, {"$set": {
+        "kyc_status": "rejected",
+        "kyc_rejected_reason": reason,
+        "kyc_rejected_at": now,
+        "kyc_rejected_by": admin.get("id"),
+    },
         "$push": {"notifications": {"type": "kyc-rejected", "title": "KYC needs attention",
             "body": reason, "time": now}}})
     return {"ok": True}
@@ -8895,9 +8991,19 @@ async def merchant_kyc_resubmit(user: dict = Depends(get_current_user)):
     if m.get("kyc_status") != "on_hold":
         raise HTTPException(400, "Only on-hold submissions can be resubmitted")
     now = datetime.now(timezone.utc).isoformat()
+    # G25 — same KYC-history archiving as /merchant/kyc/submit's resubmit
+    # path (see that endpoint's own comment): don't let the on-hold state
+    # this merchant is moving on from disappear without a trace.
     await db.merchants.update_one({"id": user["sub"]}, {
         "$set": {"kyc_status": "submitted", "kyc_submitted_at": now,
                  "hold_comment": None, "hold_at": None},
+        "$push": {"kyc_history": {
+            "status": "on_hold",
+            "submitted_at": m.get("kyc_submitted_at"),
+            "hold_comment": m.get("hold_comment"),
+            "hold_at": m.get("hold_at"),
+            "archived_at": now,
+        }},
     })
     return {"ok": True}
 
@@ -8976,10 +9082,25 @@ async def admin_export(period: Optional[str] = "30d", admin: dict = Depends(requ
         headers={"Content-Disposition": f'attachment; filename="approvals-{period}.csv"'})
 
 @api.get("/admin/stores")
-async def admin_stores(admin: dict = Depends(require_admin)):
-    stores = await db.stores.find({}, {"_id": 0}).to_list(500)
+async def admin_stores(merchant_id: Optional[str] = None, admin: dict = Depends(require_admin)):
+    # G25 — `merchant_id` is an optional additive filter (was previously
+    # always "every store"). The Merchant Detail page uses it to fetch
+    # exactly one store (with its embedded products/merchant enrichment
+    # reused unchanged below) instead of pulling all 500 stores' worth of
+    # products just to show one merchant.
+    q: dict = {"merchant_id": merchant_id} if merchant_id else {}
+    stores = await db.stores.find(q, {"_id": 0}).to_list(500)
     for s in stores:
         s["products"] = await db.products.find({"store_id": s["id"]}, {"_id": 0}).to_list(500)
+        # G25 — stamp the SAME availability computation every customer-
+        # facing surface already uses (_store_availability, unchanged) so
+        # Admin's status display can never contradict what a customer
+        # actually sees. Not a second/parallel status calculation.
+        avail = _store_availability(s)
+        s["badge"] = avail["badge"]
+        s["can_order"] = avail["can_order"]
+        s["eta_message"] = avail["eta_message"]
+        s["opens_at_label"] = avail.get("opens_at_label")
         # Enrich with merchant KYC + bank details (PII for admin only)
         m = await db.merchants.find_one({"id": s.get("merchant_id")}, {"_id": 0, "password_hash": 0}) if s.get("merchant_id") else None
         if m:
@@ -9094,6 +9215,48 @@ async def admin_orders(status: Optional[str] = None, limit: int = 200,
         o["store_breakdown"] = bd
     return orders
 
+@api.get("/admin/products")
+async def admin_products(q: Optional[str] = None, store_id: Optional[str] = None,
+                          merchant_id: Optional[str] = None, status: Optional[str] = None,
+                          limit: int = 2000, admin: dict = Depends(require_admin)):
+    """Admin-scoped product listing — deliberately independent of customer
+    storefront visibility. The public GET /products applies
+    _visible_store_filter() (kyc approved + published + not paused/deleted),
+    which is correct for customers but wrong for admin: a product belonging
+    to a pending, rejected, unpublished, or suspended store still needs to
+    be visible and manageable here. This queries db.products directly with
+    no store-visibility filter at all — only the explicit params below."""
+    query: dict = {}
+    if store_id: query["store_id"] = store_id
+    if merchant_id: query["merchant_id"] = merchant_id
+    if status == "active": query["paused"] = {"$ne": True}
+    elif status == "paused": query["paused"] = True
+    if q:
+        query["name"] = {"$regex": _re.escape(q), "$options": "i"}
+    items = await db.products.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    # Product docs don't store their own store_name (confirmed — no such
+    # field on ProductCreate/insert), so the pre-G25 admin Products tab's
+    # "Store" column always rendered blank. Join it in here.
+    store_ids = list({p["store_id"] for p in items if p.get("store_id")})
+    stores = await db.stores.find({"id": {"$in": store_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(store_ids) or 1)
+    name_by_store = {s["id"]: s["name"] for s in stores}
+    for p in items:
+        p["store_name"] = name_by_store.get(p.get("store_id"), "")
+    return items
+
+
+@api.put("/admin/products/{pid}")
+async def admin_update_product(pid: str, payload: dict, admin: dict = Depends(require_admin)):
+    """Admin product-content editing (title/description/price/mrp/images/
+    category/stock/etc.) — reuses `_apply_product_update`, the exact same
+    field-handling/validation/Cloudinary-cleanup/count-recompute logic the
+    merchant's own PUT /merchant/products/{pid} already uses, not a
+    second implementation."""
+    p = await db.products.find_one({"id": pid}, {"_id": 0})
+    if not p: raise HTTPException(404, "Product not found")
+    return await _apply_product_update(pid, p, payload)
+
+
 @api.post("/admin/products/{pid}/pause")
 async def admin_pause_product(pid: str, admin: dict = Depends(require_admin)):
     await db.products.update_one({"id": pid}, {"$set": {"paused": True}})
@@ -9131,6 +9294,38 @@ async def admin_pause_store(sid: str, admin: dict = Depends(require_admin)):
 async def admin_unpause_store(sid: str, admin: dict = Depends(require_admin)):
     await db.stores.update_one({"id": sid}, {"$set": {"paused": False}})
     return {"ok": True}
+
+# G25 — customer-facing store CONTENT an admin can clean up (capitalization,
+# a garbled address, a store description that's just "N/A", etc.).
+# Deliberately separate from pause/unpause above — availability/status
+# must never be a side effect of a content edit, and vice versa (the
+# exact "don't conflate hours-closed with taken-offline with suspended"
+# rule this phase is built around). Also excludes lat/lng/location (a
+# geo-pin edit needs a map picker UI this phase doesn't build) and
+# `online`/`paused` (status, not content — see the dedicated toggles).
+ALLOWED_ADMIN_STORE_FIELDS = {
+    "tagline", "story", "banner", "banners", "logo",
+    "area", "area_label", "locality", "pincode", "address",
+    "timing", "opens_at", "closes_at", "weekly_off", "specialties",
+}
+
+
+@api.put("/admin/stores/{sid}")
+async def admin_update_store(sid: str, payload: dict, admin: dict = Depends(require_admin)):
+    """Admin content cleanup for a store's customer-facing fields. `name`
+    is intentionally NOT editable here — it's always derived from the
+    merchant's own `store_name` (see storefront_update's own comment);
+    fix it via PUT /admin/merchants/{mid} instead, which keeps both in
+    sync in one place rather than letting store.name and
+    merchant.store_name drift apart.
+    """
+    s = await db.stores.find_one({"id": sid}, {"_id": 0, "id": 1})
+    if not s: raise HTTPException(404, "Store not found")
+    update = {k: (v.strip() if isinstance(v, str) else v) for k, v in payload.items() if k in ALLOWED_ADMIN_STORE_FIELDS}
+    if not update:
+        raise HTTPException(400, "No editable fields in payload")
+    await db.stores.update_one({"id": sid}, {"$set": update})
+    return await db.stores.find_one({"id": sid}, {"_id": 0})
 
 # ===== OTP-protected delete (mocked email) =====
 @api.post("/admin/stores/{sid}/request-delete-otp")

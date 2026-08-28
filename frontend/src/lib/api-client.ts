@@ -262,6 +262,17 @@ function createApiClient(): AxiosInstance {
       const scope = classify(originalRequest.url ?? "");
       if (scope === "public") return Promise.reject(error);
 
+      // A request that never carried a bearer token in the first place (e.g.
+      // a login POST itself, or any other call made while logged out) has no
+      // session to refresh — attempting one here just replaces the real 401
+      // (e.g. "Invalid admin credentials") with the refresh call's own
+      // "Refresh token missing" 401, silently masking the actual error.
+      // Only requests that WERE authenticated (and got rejected) are
+      // refresh-and-retry candidates.
+      if (!originalRequest.headers?.Authorization) {
+        return Promise.reject(error);
+      }
+
       originalRequest._retry = true;
 
       try {
