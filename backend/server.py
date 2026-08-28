@@ -8901,9 +8901,24 @@ async def admin_update_merchant(mid: str, payload: dict, admin: dict = Depends(r
     update = {k: (v.strip() if isinstance(v, str) else v) for k, v in payload.items() if k in ALLOWED_ADMIN_MERCHANT_FIELDS}
     if "store_name" in update and not update["store_name"]:
         raise HTTPException(400, "Store name cannot be empty")
+    if "email" in update and not update["email"]:
+        # merchants.email has a partial unique index that only applies to
+        # string-typed values (None is exempt, by design — many merchants
+        # never set an email). The edit form displays a missing email as ""
+        # (merchant.email || ""), so a no-op save on a null-email merchant
+        # round-trips "" back here. Storing "" instead of None would make
+        # this doc a string-typed duplicate the moment a SECOND null-email
+        # merchant is ever saved the same way — an uncaught DuplicateKeyError
+        # (confirmed by reproducing it directly: E11000 on idx_merchants_
+        # email_unique, dup key: { email: "" }). Normalize back to None so
+        # "no email" is never represented as a colliding empty string.
+        update["email"] = None
     if not update:
         raise HTTPException(400, "No editable fields in payload")
-    await db.merchants.update_one({"id": mid}, {"$set": update})
+    try:
+        await db.merchants.update_one({"id": mid}, {"$set": update})
+    except DuplicateKeyError:
+        raise HTTPException(400, "That email is already used by another merchant")
     if "store_name" in update:
         store_id = f"store-m-{mid}"
         await db.stores.update_one({"id": store_id}, {"$set": {"name": update["store_name"]}})
