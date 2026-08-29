@@ -1,17 +1,16 @@
-"""WhatsApp merchant product-addition — Phase 1 MVP.
+"""WhatsApp merchant product-addition.
 
-Real production route (supersedes the throwaway `gupshup_poc.py` PoC, which
-this implementation is built directly from — see that module's captured
-payload shapes, confirmed live against the Gupshup account already
-configured in backend/.env).
-
-Flow: merchant sends "ADD PRODUCT" -> bot explains the structured format ->
-merchant sends a photo + as many fields as they want, in any order, across
-as many messages as it takes -> bot merges + validates after every message,
-asking only for what's still missing/invalid -> once everything required is
-present, bot shows a summary -> merchant replies YES -> product is created
-through the EXISTING canonical `_create_product_for_merchant` path — no
-duplicate insert/validation logic here.
+AI-assisted, AI-minimised redesign. Merchants send product photos and
+details in ANY natural format, across as many messages as they like — no
+rigid template, no manual category/product-type selection required in the
+normal path. Deterministic parsing (services/whatsapp_parser.py) is always
+tried FIRST; OpenAI (services/whatsapp_ai.py) is called ONLY when
+deterministic parsing genuinely cannot resolve what's needed — messy/
+unstructured text, or taxonomy classification with no explicit category
+given. See _needs_ai_for_collection()/_needs_ai_for_correction() for the
+exact decision rules. AI never sees images and never writes to Mongo or
+calls _create_product_for_merchant — this route owns all state and all
+product-creation logic exactly as before.
 
 `init(db, ...)` factory pattern matches routes/geo.py and routes/addresses.py
 — this module never imports server.py directly at module load time (would
@@ -19,12 +18,16 @@ create a circular import); server.py hands in the private helpers this
 needs. `ProductCreate` is imported lazily inside `_finalize_product` for the
 same reason.
 
-Post-audit hardening (this revision): every write to a draft that isn't the
-one-shot YES->PRODUCT_CREATED transition now goes through an optimistic
-version-guarded update (`_atomic_merge_update`), so two inbound messages
-processed concurrently for the same phone can never silently clobber each
-other's fields. See `_atomic_merge_update`'s docstring and `_finalize_product`'s
-for the exact guarantees."""
+Concurrency (unchanged discipline from the original hardening pass, now
+also covering AI calls): every draft write goes through the optimistic
+version-guarded `_atomic_merge_update`. For an AI-involving message: read
+draft at version N -> decide AI is needed -> call AI against that
+snapshot -> attempt the write conditioned on version N -> if the draft
+changed underneath (conflict), the stale AI result is discarded entirely,
+the draft is re-read, and the whole decision (including whether AI is
+even still needed) is re-evaluated from scratch — bounded to
+MERGE_RETRY_ATTEMPTS, never an unbounded loop. A stale AI result can never
+overwrite newer merchant information."""
 from __future__ import annotations
 
 import asyncio
@@ -42,10 +45,14 @@ from pymongo.errors import DuplicateKeyError
 from seed_data import L1_CATEGORIES, L2_BY_L1
 from services import cloudinary_service
 from services.audit_service import AuditService
+from services.whatsapp_ai import extract as ai_extract, AIExtractionError
 from services.whatsapp_parser import (
-    parse_structured_text, merge_fields, compute_missing,
-    format_missing_prompt, format_confirmation_summary,
-    resolve_numbered_choice, l1_name, l2_name, l2_options_for,
+    parse_any, parse_structured_text, parse_loose_fields_with_remainder, merge_fields, merge_ai_fields,
+    compute_core_missing, taxonomy_resolved, taxonomy_payload, validate_taxonomy,
+    format_missing_prompt_natural, format_taxonomy_fallback_prompt,
+    format_confirmation_summary, format_policy_prompt, parse_policy_answer,
+    resolve_numbered_choice, infer_name_from_single_line, infer_name_from_remainder, infer_name_from_first_line,
+    l1_name, l2_name, l2_options_for,
 )
 from notifications import GupshupProvider
 
@@ -54,14 +61,9 @@ log = logging.getLogger("lokl.whatsapp")
 router = APIRouter(prefix="/api/webhooks/gupshup", tags=["whatsapp"])
 
 TERMINAL_STATES = ("PRODUCT_CREATED", "CANCELLED", "EXPIRED")
+POLICY_FIELDS = ("returnable", "return_window_hours", "try_and_buy")
+MAX_IMAGES = 5
 
-# Retention is state-dependent (post-audit fix): an ACTIVE/incomplete draft
-# is abandoned-and-purged quickly, a CANCELLED one is kept briefly for
-# immediate support follow-up, but a PRODUCT_CREATED one — a real,
-# successful conversation — is kept much longer so "which WhatsApp message
-# created product X" stays answerable. All three still use the SAME single
-# expires_at TTL index; only the value written differs by state. No new
-# database system, no second index.
 DRAFT_TTL_MINUTES = 30
 CANCELLED_RETENTION_HOURS = 24
 PRODUCT_CREATED_RETENTION_DAYS = 90
@@ -69,35 +71,19 @@ PRODUCT_CREATED_RETENTION_DAYS = 90
 WEBHOOK_EVENT_TTL_DAYS = 7
 MERGE_RETRY_ATTEMPTS = 3
 
+# Deliberately short — no template, no examples, no taxonomy exposed.
 _INSTRUCTIONS = (
-    "Let's add a product! Send a photo of the product, plus its details in this format "
-    "(you can leave lines out and send them later, and in any order):\n\n"
-    "Product Name: \n"
-    "Description: \n"
-    "Category: \n"
-    "Product Type: \n"
-    "MRP: \n"
-    "Selling Price: \n"
-    "Sizes: \n"
-    "Stock per Size: \n"
-    "Returnable: \n"
-    "Return Window: \n"
-    "Try & Buy: \n"
-    "Brand: \n\n"
-    "Example:\n"
-    "Product Name: Black Round Neck T-Shirt\n"
-    "Category: Men\n"
-    "Product Type: T-Shirts\n"
-    "Selling Price: 799\n"
-    "Sizes: S;M;L\n"
-    "Stock per Size: 3;4;5\n\n"
-    "At any point, reply CANCEL to discard this product or RESTART to start over."
+    "Send product photos and details like name, price, sizes and stock. "
+    "You can send everything in any order, across as many messages as you like.\n\n"
+    "At any point, reply CANCEL to discard or RESTART to start over."
 )
 
 _CONFIRMATION_HELP = (
-    "Reply YES to confirm, CANCEL to discard, RESTART to start over, "
-    "or send corrected details (e.g. 'Selling Price: 899')."
+    "Reply YES to add it, CANCEL to discard, RESTART to start over, "
+    "or just tell me what to change."
 )
+
+_UNRECOGNIZED_MESSAGE = "Sorry, I can only read text and photos right now. Please resend as text or a photo."
 
 
 def _gupshup_provider() -> GupshupProvider:
@@ -106,10 +92,9 @@ def _gupshup_provider() -> GupshupProvider:
 
 async def _reply(provider: GupshupProvider, phone10: str, text: str) -> None:
     """GupshupProvider.send_session_text() uses `requests` (sync/blocking)
-    — same event-loop-blocking hazard the Cloudinary upload incident fixed
-    (see cloudinary_service.py's own comment on _do_upload). Run it on a
-    worker thread so a slow/hung Gupshup call never stalls the whole
-    backend the way the pre-fix Cloudinary upload did."""
+    — same event-loop-blocking hazard the Cloudinary upload incident fixed.
+    Run it on a worker thread so a slow/hung Gupshup call never stalls the
+    whole backend."""
     try:
         await asyncio.to_thread(provider.send_session_text, phone10, text)
     except Exception:
@@ -121,7 +106,60 @@ def _expiry_for(state: str, now: datetime) -> datetime:
         return now + timedelta(days=PRODUCT_CREATED_RETENTION_DAYS)
     if state == "CANCELLED":
         return now + timedelta(hours=CANCELLED_RETENTION_HOURS)
-    return now + timedelta(minutes=DRAFT_TTL_MINUTES)  # AWAITING_* / EXPIRED-not-yet-reached
+    return now + timedelta(minutes=DRAFT_TTL_MINUTES)
+
+
+def _raw_entry(kind: str, *, text: str | None = None, image_url: str | None = None) -> dict:
+    return {"type": kind, "text": text, "image_url": image_url, "at": datetime.now(timezone.utc)}
+
+
+def _recent_text_context(draft: dict, current_message: str, limit: int = 4) -> str:
+    """What gets sent to the AI: the current message plus a BOUNDED tail of
+    prior raw text — not the entire conversation history, and never
+    duplicated once a field is already confidently structured (the
+    `already_known_fields` the AI also receives tells it what NOT to
+    re-derive)."""
+    prior = [m["text"] for m in (draft.get("raw_messages") or []) if m.get("text")][-limit:]
+    return "\n".join(prior + [current_message])
+
+
+def _ai_meta_entry(reason: str, model: str, success: bool, confidence: float | None,
+                    name_for_taxonomy: str | None = None) -> dict:
+    return {
+        "last_reason": reason, "last_model": model, "last_success": success,
+        "last_confidence": confidence, "last_at": datetime.now(timezone.utc),
+        "last_name_for_taxonomy": name_for_taxonomy,
+    }
+
+
+def _needs_ai_for_collection(fields: dict, deterministic_found_anything: bool,
+                              text: str, draft: dict) -> tuple[bool, str]:
+    """The ONLY place this decision is made. AI is skipped for: empty/blank
+    messages, YES/CANCEL/RESTART, very short acks, and — critically — any
+    message where deterministic parsing already found what it needed and
+    taxonomy is already resolved. This directly implements the product
+    spec's Level-1/2/3 hierarchy."""
+    t = (text or "").strip()
+    if not t or t.upper() in ("YES", "CANCEL", "RESTART"):
+        return False, ""
+    if len(t) < 4:
+        return False, ""
+
+    if not taxonomy_resolved(fields) and fields.get("name"):
+        # Re-attempt only when the name has actually changed since the last
+        # taxonomy attempt — NOT simply because this message also resolved
+        # some unrelated field (e.g. a price correction), which would
+        # otherwise re-invoke AI on every single message indefinitely.
+        last_tried = (draft.get("ai_meta") or {}).get("last_name_for_taxonomy")
+        if last_tried != fields.get("name"):
+            return True, "taxonomy_classification"
+
+    if not deterministic_found_anything:
+        core_incomplete = not fields.get("name") or fields.get("price") is None or fields.get("stock") is None
+        if core_incomplete:
+            return True, "messy_extraction"
+
+    return False, ""
 
 
 def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merchant, rate_limit):
@@ -132,14 +170,11 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
     - create_product_for_merchant: server.py's `_create_product_for_merchant`
       — the ONLY place a Product document gets created. Never duplicated here.
     - rate_limit: server.py's `_limit` (slowapi decorator alias) — injected
-      rather than imported directly, since importing server.py's module-level
-      name at this module's top level would be a circular import (server.py
-      imports THIS module to call init()). Applied exactly the same way
-      every other webhook in this codebase applies it."""
+      to avoid a circular import."""
 
     drafts = db.whatsapp_product_drafts
     events = db.whatsapp_webhook_events
-    audit_service = AuditService(db)  # generic; its .log() call is annotated below with the caveat
+    audit_service = AuditService(db)
 
     async def ensure_indexes():
         try:
@@ -149,16 +184,6 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             log.warning("whatsapp_webhook_events indexes: %s", e)
         try:
             await drafts.create_index("expires_at", expireAfterSeconds=0)
-            # Partial unique index: at most ONE non-terminal draft per phone,
-            # enforced by MongoDB itself — not just application logic. Keyed
-            # on a plain `is_active: True` equality (kept in sync by _touch()
-            # and the YES-claim below) rather than `state $nin [...]` —
-            # MongoDB's partialFilterExpression does not support $not/$nin,
-            # only equality/$exists/comparison operators (confirmed live:
-            # the $nin form fails index creation with "Expression not
-            # supported in partial index: $not"). A document drops out of
-            # this index the instant is_active flips to False, freeing that
-            # phone up for a new draft.
             await drafts.create_index(
                 "whatsapp_phone", unique=True, name="uniq_active_draft_per_phone",
                 partialFilterExpression={"is_active": True},
@@ -167,12 +192,6 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             log.warning("whatsapp_product_drafts indexes: %s", e)
 
     def _touch(fields: dict) -> dict:
-        """Stamps updated_at/expires_at/is_active. Retention depends on the
-        STATE being written this update (see _expiry_for) — active states
-        keep the short inactivity window, terminal states get their own
-        longer/shorter retention regardless of when they're written.
-        is_active must stay in lockstep with state — it's what the partial
-        unique index (one active draft per phone) is keyed on."""
         now = datetime.now(timezone.utc)
         fields = dict(fields)
         state = fields.get("state", "AWAITING_MISSING_DETAILS")
@@ -182,14 +201,6 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
         return fields
 
     async def _atomic_merge_update(draft_id: str, version: int, set_fields: dict):
-        """Optimistic-concurrency write: succeeds only if `version` still
-        matches what THIS caller last read. Returns the updated document on
-        success, or None on a version conflict (someone else wrote first)
-        — callers must re-read and retry rather than silently dropping the
-        conflicting write, which is exactly the lost-update bug this fixes.
-        `$inc`'s version bump makes every write — successful or not tried
-        again — monotonically ordered, so version doubles as a cheap audit
-        trail of how many times a draft was touched."""
         return await drafts.find_one_and_update(
             {"id": draft_id, "version": version},
             {"$set": set_fields, "$inc": {"version": 1}},
@@ -197,16 +208,9 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
         )
 
     async def _get_active_draft(phone10: str):
-        # Filters on is_active (not state $nin) so this query is servable by
-        # the partial unique index above, rather than a full collection scan.
         return await drafts.find_one({"whatsapp_phone": phone10, "is_active": True}, {"_id": 0})
 
     async def _new_draft(phone10: str, merchant_id: str, store_id: str) -> dict:
-        """Insert-or-adopt: the partial unique index on whatsapp_phone means
-        a concurrent second "ADD PRODUCT" (or a RESTART racing an ADD
-        PRODUCT) can never create a second live draft for the same phone —
-        the loser's insert raises DuplicateKeyError, and it simply adopts
-        whichever draft the winner created instead of erroring."""
         now = datetime.now(timezone.utc)
         doc = {
             "id": uuid.uuid4().hex,
@@ -217,12 +221,16 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             "version": 0,
             "is_active": True,
             "fields": {},
-            "image_source_url": None,
-            "image_public_id": None,
-            "image_hosted_url": None,
-            "missing_fields": ["image", "name", "category", "product_type", "price", "stock"],
+            "raw_messages": [],
+            "image_source_urls": [],
+            "image_hosted_urls": [],
+            "image_public_ids": [],
+            "missing_fields": ["image", "name", "price", "stock"],
             "invalid_fields": {},
             "pending_choice": None,
+            "taxonomy_fallback": False,
+            "ai_meta": None,
+            "ai_call_count": 0,
             "product_id": None,
             "last_error": None,
             "created_at": now,
@@ -236,77 +244,333 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             existing = await _get_active_draft(phone10)
             return existing or doc
 
-    def _compute_pending_choice(fields: dict, missing: list[str]) -> dict | None:
-        if "product_type" in missing and fields.get("l1_id"):
+    def _fallback_pending_choice(fields: dict) -> dict:
+        l1_id = fields.get("l1_id")
+        if l1_id:
             return {"field": "product_type",
-                    "options": [{"id": o["id"], "name": o["name"]} for o in l2_options_for(fields["l1_id"])]}
-        if "category" in missing:
-            return {"field": "category",
-                    "options": [{"id": c["id"], "name": c["name"]} for c in L1_CATEGORIES]}
-        return None
+                    "options": [{"id": o["id"], "name": o["name"]} for o in l2_options_for(l1_id)]}
+        return {"field": "category",
+                "options": [{"id": c["id"], "name": c["name"]} for c in L1_CATEGORIES]}
 
-    async def _apply_message_to_draft(draft: dict, text: str) -> tuple[dict, str]:
-        """Parses `text`, merges into the draft, persists with an optimistic
-        version guard, and returns (updated_draft, reply_text). Does NOT
-        send the reply — caller does. Reused for BOTH the normal
-        collection states AND for corrections sent during
-        AWAITING_CONFIRMATION — merge/validate/next-state logic is
-        identical either way; the caller just decides when to invoke it.
+    def _build_collection_reply(state: str, fields: dict, core_missing: list[str],
+                                 taxonomy_fallback: bool, n_images: int) -> str:
+        if state == "AWAITING_POLICY_DETAILS":
+            return format_policy_prompt()
+        if state == "AWAITING_CONFIRMATION":
+            return format_confirmation_summary(fields, n_images)
+        if taxonomy_fallback:
+            return format_taxonomy_fallback_prompt(fields)
+        return format_missing_prompt_natural(core_missing)
 
-        On a version conflict (a concurrent write beat this one), re-reads
-        the latest draft and retries the SAME parse against the fresh
-        fields — this is what prevents an image upload and a text message
-        arriving back-to-back from silently losing whichever one lost the
-        race, per the audit's requirement."""
+    async def _run_ai_or_none(text: str, fields: dict, draft: dict, reason: str):
+        """Returns (ai_result_or_None, ai_meta_dict). Never raises — an AI
+        failure is recorded and the caller proceeds with whatever
+        deterministic parsing already found, per the required safe-failure
+        behavior."""
+        # Recorded regardless of success/failure — this is what lets the
+        # dedup check in _needs_ai_for_collection tell "already tried
+        # classifying this exact name" apart from "never tried" even when
+        # every attempt fails (e.g. no API key configured locally).
+        name_for_taxonomy = fields.get("name") if reason == "taxonomy_classification" else None
+        try:
+            result = await ai_extract(
+                raw_text=_recent_text_context(draft, text),
+                current_fields={k: v for k, v in fields.items() if k in
+                                 ("name", "description", "mrp", "price", "sizes", "stock", "l1_id", "l2_id", "brand_raw")},
+                taxonomy=taxonomy_payload(),
+                merchant_context={},
+                reason=reason,
+            )
+            meta = _ai_meta_entry(reason, result.model, True, result.confidence, name_for_taxonomy=name_for_taxonomy)
+            return result, meta
+        except AIExtractionError as e:
+            log.warning("[whatsapp] AI extraction failed (reason=%s): %s", reason, e)
+            meta = _ai_meta_entry(reason, os.environ.get("OPENAI_WHATSAPP_MODEL", "gpt-4o-mini"), False, None,
+                                   name_for_taxonomy=name_for_taxonomy)
+            return None, meta
+
+    async def _process_collection_message(draft: dict, text: str) -> tuple[dict, str]:
+        """Deterministic-first, AI-assisted-fallback message processing for
+        the collection states (AWAITING_PRODUCT_DETAILS/AWAITING_MISSING_DETAILS).
+        Implements the exact concurrency pattern required: re-decide and
+        re-attempt AI from scratch against the freshest draft on every
+        version conflict, bounded retries."""
         current = draft
         for _ in range(MERGE_RETRY_ATTEMPTS):
-            parsed = parse_structured_text(text)
-            if not parsed and text.strip().isdigit() and current.get("pending_choice"):
-                resolved_id = resolve_numbered_choice(current["pending_choice"], text)
-                field = current["pending_choice"]["field"]
+            loose_fields, remainder = parse_loose_fields_with_remainder(text)
+            strict_fields = parse_structured_text(text)
+            parsed = {**loose_fields, **strict_fields}
+            existing_fields = current.get("fields", {})
+            has_name_already = bool(existing_fields.get("name"))
+            name_candidate = infer_name_from_single_line(text, has_name_already, parsed)
+            if not name_candidate:
+                name_candidate = infer_name_from_first_line(text, has_name_already)
+            if not name_candidate and loose_fields:
+                # A messier line where SOME loose fields (mrp/price/size-stock)
+                # were found — try the leftover text as the name too, e.g.
+                # "Pink tshirt" out of "Pink tshirt, M 2 L4 S7, mrp 899, SP 399".
+                # Still zero AI cost: this is regex leftover, not inference.
+                name_candidate = infer_name_from_remainder(remainder, has_name_already)
+            if name_candidate:
+                parsed = {**parsed, "name": name_candidate}
+
+            if not parsed and current.get("pending_choice"):
+                pending = current["pending_choice"]
+                resolved_id = None
+                if text.strip().isdigit():
+                    resolved_id = resolve_numbered_choice(pending, text)
+                else:
+                    # Accept the option's name typed directly, not just its
+                    # number — the fallback prompt explicitly offers both.
+                    t_norm = text.strip().lower()
+                    for opt in pending["options"]:
+                        if opt["name"].strip().lower() == t_norm:
+                            resolved_id = opt["id"]
+                            break
                 if resolved_id:
+                    field = pending["field"]
                     if field == "category":
                         parsed = {"category": l1_name(resolved_id)}
                     elif field == "product_type":
-                        parsed = {"product_type": l2_name(current["fields"].get("l1_id"), resolved_id)}
+                        parsed = {"product_type": l2_name(existing_fields.get("l1_id"), resolved_id)}
 
-            fields, errors = merge_fields(current.get("fields", {}), parsed)
-            has_image = bool(current.get("image_hosted_url"))
-            missing = compute_missing(fields, has_image)
-            pending_choice = _compute_pending_choice(fields, missing)
-            new_state = "AWAITING_CONFIRMATION" if not missing else "AWAITING_MISSING_DETAILS"
+            fields, errors = merge_fields(existing_fields, parsed)
+            deterministic_found_anything = bool(parsed)
+
+            ai_meta_update = None
+            needs_ai, reason = _needs_ai_for_collection(fields, deterministic_found_anything, text, current)
+            if needs_ai:
+                ai_result, ai_meta_update = await _run_ai_or_none(text, fields, current, reason)
+                if ai_result is not None:
+                    fields = merge_ai_fields(fields, ai_result, mode="fill")
+
+            has_image = bool(current.get("image_hosted_urls"))
+            core_missing = compute_core_missing(fields, has_image)
+            tax_resolved = taxonomy_resolved(fields)
+
+            taxonomy_fallback = current.get("taxonomy_fallback", False)
+            if tax_resolved:
+                taxonomy_fallback = False
+            elif needs_ai:
+                low_conf = ai_meta_update and ai_meta_update["last_success"] and (ai_meta_update["last_confidence"] or 0) < 0.5
+                ai_failed = ai_meta_update and not ai_meta_update["last_success"]
+                # A model can be CONFIDENTLY WRONG: it can return a real
+                # l1_id and a real l2_id that simply don't belong together
+                # (observed live: "Women's heels" -> l1-women + a footwear
+                # l2). merge_ai_fields already refuses to write that combo
+                # into `fields` (validate_taxonomy), but without this check
+                # the draft would be silently stuck forever — taxonomy
+                # never resolves, yet nothing ever asks the merchant either,
+                # since low_conf/ai_failed alone don't cover "succeeded,
+                # confident, and just wrong". Any attempted-but-invalid
+                # combo routes to the same numbered-list fallback.
+                ai_attempted_invalid_combo = (
+                    needs_ai and ai_result is not None and (ai_result.l1_id or ai_result.l2_id)
+                    and not validate_taxonomy(ai_result.l1_id, ai_result.l2_id)
+                )
+                if low_conf or ai_failed or ai_attempted_invalid_combo:
+                    taxonomy_fallback = True
+
+            if not core_missing and tax_resolved:
+                new_state = "AWAITING_POLICY_DETAILS"
+            else:
+                new_state = "AWAITING_MISSING_DETAILS"
+
+            pending_choice = _fallback_pending_choice(fields) if taxonomy_fallback else None
 
             set_fields = _touch({
-                "fields": fields, "missing_fields": missing, "invalid_fields": errors,
-                "pending_choice": pending_choice, "state": new_state,
+                "fields": fields,
+                "raw_messages": current.get("raw_messages", []) + [_raw_entry("text", text=text)],
+                "missing_fields": core_missing, "invalid_fields": errors,
+                "pending_choice": pending_choice, "taxonomy_fallback": taxonomy_fallback,
+                "state": new_state,
+            })
+            if ai_meta_update:
+                set_fields["ai_meta"] = ai_meta_update
+                set_fields["ai_call_count"] = current.get("ai_call_count", 0) + 1
+
+            updated = await _atomic_merge_update(current["id"], current["version"], set_fields)
+            if updated is not None:
+                n_images = len(updated.get("image_hosted_urls") or [])
+                reply = _build_collection_reply(new_state, fields, core_missing, taxonomy_fallback, n_images)
+                return updated, reply
+
+            fresh = await drafts.find_one({"id": current["id"]}, {"_id": 0})
+            if fresh is None or fresh["state"] in TERMINAL_STATES:
+                return current, "Your conversation state just changed — please resend your last message."
+            current = fresh  # re-evaluate everything, including whether AI is still needed, from scratch
+
+        log.warning("[whatsapp] gave up merging draft %s after %d version conflicts", draft["id"], MERGE_RETRY_ATTEMPTS)
+        return current, "We're processing another message from you right now — please resend your last message in a moment."
+
+    async def _process_policy_message(draft: dict, text: str) -> tuple[dict, str]:
+        current = draft
+        for _ in range(MERGE_RETRY_ATTEMPTS):
+            fields = dict(current.get("fields", {}))
+            still_missing = [f for f in POLICY_FIELDS if fields.get(f) is None and not (f == "return_window_hours" and not fields.get("returnable"))]
+            answered = parse_policy_answer(text, still_missing)
+            fields.update(answered)
+
+            # Return Window is only meaningful when Returnable=Yes — force
+            # it to None otherwise, regardless of what was in the combined
+            # answer (e.g. "No, 0, No" would otherwise store an
+            # out-of-range 0 and fail ProductCreate's own validator at
+            # finalize time; caught safely by the existing rollback, but
+            # better not to store a meaningless value in the first place).
+            if fields.get("returnable") is False:
+                fields["return_window_hours"] = None
+            remaining = [f for f in POLICY_FIELDS
+                         if fields.get(f) is None and not (f == "return_window_hours" and fields.get("returnable") is False)]
+
+            new_state = "AWAITING_CONFIRMATION" if not remaining else "AWAITING_POLICY_DETAILS"
+            set_fields = _touch({
+                "fields": fields,
+                "raw_messages": current.get("raw_messages", []) + [_raw_entry("text", text=text)],
+                "state": new_state,
             })
             updated = await _atomic_merge_update(current["id"], current["version"], set_fields)
             if updated is not None:
-                reply = format_confirmation_summary(fields) if new_state == "AWAITING_CONFIRMATION" else format_missing_prompt(missing, errors, fields)
-                return updated, reply
+                if new_state == "AWAITING_CONFIRMATION":
+                    n_images = len(updated.get("image_hosted_urls") or [])
+                    return updated, format_confirmation_summary(fields, n_images)
+                return updated, format_policy_prompt()
 
             fresh = await drafts.find_one({"id": current["id"]}, {"_id": 0})
             if fresh is None or fresh["state"] in TERMINAL_STATES:
                 return current, "Your conversation state just changed — please resend your last message."
             current = fresh
 
-        log.warning("[whatsapp] gave up merging draft %s after %d version conflicts", draft["id"], MERGE_RETRY_ATTEMPTS)
-        return current, "We're processing another message from you right now — please resend your last message in a moment."
+        return current, "We're processing another message from you right now — please resend in a moment."
+
+    async def _process_correction(draft: dict, text: str) -> tuple[dict, str]:
+        """Corrections during AWAITING_CONFIRMATION. Deterministic parse
+        first (an explicit "Selling Price: 699" or "SP 699" is handled with
+        zero AI cost, same as collection); only a genuinely natural-language
+        correction ("Actually it's Girls Ethnic Wear") reaches AI, in
+        "correct" merge mode (explicit intent to overwrite, not fill-only)."""
+        current = draft
+        for _ in range(MERGE_RETRY_ATTEMPTS):
+            fields = dict(current.get("fields", {}))
+            parsed = parse_any(text)
+
+            ai_meta_update = None
+            ai_result = None
+            if parsed:
+                fields, errors = merge_fields(fields, parsed)
+            else:
+                ai_result, ai_meta_update = await _run_ai_or_none(text, fields, current, "correction")
+                errors = {}
+                if ai_result is not None:
+                    fields = merge_ai_fields(fields, ai_result, mode="correct")
+
+            has_image = bool(current.get("image_hosted_urls"))
+            core_missing = compute_core_missing(fields, has_image)
+            tax_resolved = taxonomy_resolved(fields)
+            new_state = "AWAITING_CONFIRMATION" if (not core_missing and tax_resolved) else "AWAITING_MISSING_DETAILS"
+
+            taxonomy_fallback = current.get("taxonomy_fallback", False)
+            if tax_resolved:
+                taxonomy_fallback = False
+            elif ai_meta_update and not ai_meta_update["last_success"]:
+                taxonomy_fallback = True
+            elif ai_meta_update and (ai_meta_update["last_confidence"] or 0) < 0.5:
+                taxonomy_fallback = True
+            elif (ai_result is not None and (ai_result.l1_id or ai_result.l2_id)
+                  and not validate_taxonomy(ai_result.l1_id, ai_result.l2_id)):
+                # Same "confidently wrong" case as the collection path —
+                # AI succeeded but the l1/l2 pair it chose doesn't exist
+                # together in the real taxonomy.
+                taxonomy_fallback = True
+            pending_choice = _fallback_pending_choice(fields) if (new_state != "AWAITING_CONFIRMATION" and taxonomy_fallback) else None
+
+            set_fields = _touch({
+                "fields": fields,
+                "raw_messages": current.get("raw_messages", []) + [_raw_entry("text", text=text)],
+                "missing_fields": core_missing, "invalid_fields": errors,
+                "pending_choice": pending_choice, "taxonomy_fallback": taxonomy_fallback,
+                "state": new_state,
+            })
+            if ai_meta_update:
+                set_fields["ai_meta"] = ai_meta_update
+                set_fields["ai_call_count"] = current.get("ai_call_count", 0) + 1
+
+            updated = await _atomic_merge_update(current["id"], current["version"], set_fields)
+            if updated is not None:
+                n_images = len(updated.get("image_hosted_urls") or [])
+                if new_state == "AWAITING_CONFIRMATION":
+                    return updated, format_confirmation_summary(fields, n_images)
+                if taxonomy_fallback:
+                    return updated, format_taxonomy_fallback_prompt(fields)
+                return updated, format_missing_prompt_natural(core_missing)
+
+            fresh = await drafts.find_one({"id": current["id"]}, {"_id": 0})
+            if fresh is None or fresh["state"] in TERMINAL_STATES:
+                return current, "Your conversation state just changed — please resend your last message."
+            current = fresh
+
+        return current, "We're processing another message from you right now — please resend in a moment."
+
+    async def _recompute_after_image(draft: dict) -> tuple[dict, str]:
+        """After a captionless image is appended, re-derive state/missing
+        fields for the new image count only — no parsing, no AI decision,
+        no raw_messages entry (the image itself was already logged by the
+        caller). Only meaningful in the collection states; confirmation/
+        policy just get a plain acknowledgement since core+taxonomy are
+        already settled by the time those states are reached."""
+        if draft["state"] not in ("AWAITING_PRODUCT_DETAILS", "AWAITING_MISSING_DETAILS"):
+            if draft["state"] == "AWAITING_CONFIRMATION":
+                n_images = len(draft.get("image_hosted_urls") or [])
+                return draft, format_confirmation_summary(draft.get("fields", {}), n_images)
+            return draft, "Got it — photo added."
+
+        current = draft
+        for _ in range(MERGE_RETRY_ATTEMPTS):
+            fields = current.get("fields", {})
+            has_image = bool(current.get("image_hosted_urls"))
+            core_missing = compute_core_missing(fields, has_image)
+            tax_resolved = taxonomy_resolved(fields)
+            new_state = "AWAITING_POLICY_DETAILS" if (not core_missing and tax_resolved) else "AWAITING_MISSING_DETAILS"
+
+            updated = await _atomic_merge_update(current["id"], current["version"],
+                                                  _touch({"missing_fields": core_missing, "state": new_state}))
+            if updated is not None:
+                n_images = len(updated.get("image_hosted_urls") or [])
+                return updated, _build_collection_reply(new_state, fields, core_missing, current.get("taxonomy_fallback", False), n_images)
+            fresh = await drafts.find_one({"id": current["id"]}, {"_id": 0})
+            if fresh is None or fresh["state"] in TERMINAL_STATES:
+                return current, "Got it — photo added."
+            current = fresh
+        return current, "Got it — photo added."
 
     async def _handle_image(draft: dict, merchant_id: str, image_url: str, caption: str) -> tuple[dict, str]:
+        current_count = len(draft.get("image_hosted_urls") or [])
+        if current_count >= MAX_IMAGES:
+            reply = f"You've already sent the maximum of {MAX_IMAGES} photos for this product."
+            if caption.strip():
+                _, reply2 = await _route_text_by_state(draft, caption)
+                reply = reply2
+            return draft, reply
+
         try:
             uploaded = await cloudinary_service.upload_image_from_url(image_url, "product", merchant_id)
         except HTTPException as e:
             return draft, f"Couldn't process that photo ({e.detail}). Please try sending it again."
 
-        image_fields = {
-            "image_source_url": image_url,
-            "image_hosted_url": uploaded["image_url"],
-            "image_public_id": uploaded["public_id"],
-        }
         current = draft
         for _ in range(MERGE_RETRY_ATTEMPTS):
-            updated = await _atomic_merge_update(current["id"], current["version"], _touch(dict(image_fields)))
+            src = current.get("image_source_urls") or []
+            hosted = current.get("image_hosted_urls") or []
+            pids = current.get("image_public_ids") or []
+            if len(hosted) >= MAX_IMAGES:
+                return current, f"You've already sent the maximum of {MAX_IMAGES} photos for this product."
+            set_fields = _touch({
+                "image_source_urls": src + [image_url],
+                "image_hosted_urls": hosted + [uploaded["image_url"]],
+                "image_public_ids": pids + [uploaded["public_id"]],
+                "raw_messages": current.get("raw_messages", []) + [_raw_entry("image", image_url=image_url, text=caption or None)],
+                "state": current["state"],
+            })
+            updated = await _atomic_merge_update(current["id"], current["version"], set_fields)
             if updated is not None:
                 current = updated
                 break
@@ -317,26 +581,30 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
         else:
             return current, "We're processing another message from you right now — please resend your photo in a moment."
 
-        # Re-validate now that the image is attached. An empty-text call to
-        # _apply_message_to_draft merges nothing new but correctly
-        # recomputes missing/state with has_image now true — reuses the
-        # exact same merge/validate/write path instead of a second copy of it.
-        return await _apply_message_to_draft(current, caption or "")
+        if caption.strip():
+            return await _route_text_by_state(current, caption)
+
+        # No caption — just recompute completeness/state for the new image
+        # count, without treating this as a text message (no AI decision,
+        # no phantom empty raw_messages entry).
+        return await _recompute_after_image(current)
+
+    async def _route_text_by_state(draft: dict, text: str) -> tuple[dict, str]:
+        if draft["state"] in ("AWAITING_PRODUCT_DETAILS", "AWAITING_MISSING_DETAILS"):
+            return await _process_collection_message(draft, text)
+        if draft["state"] == "AWAITING_POLICY_DETAILS":
+            return await _process_policy_message(draft, text)
+        if draft["state"] == "AWAITING_CONFIRMATION":
+            return await _process_correction(draft, text)
+        return draft, _UNRECOGNIZED_MESSAGE
 
     async def _finalize_product(draft: dict) -> str:
-        """Atomically claims the AWAITING_CONFIRMATION -> PRODUCT_CREATED
-        transition (still the ONLY guard needed against duplicate YES —
-        unchanged from before), but now everything between the claim and a
-        confirmed product_id is inside the SAME try/except. Post-audit fix:
-        previously the claim happened, then several unprotected steps
-        (dict access, brand resolution, ProductCreate construction) ran
-        BEFORE the try block even started — any exception there left the
-        draft permanently stuck at PRODUCT_CREATED with product_id=None,
-        with no way to retell the merchant or retry. Now ANY failure in
-        that whole path rolls the draft back to AWAITING_CONFIRMATION
-        with last_error set, so PRODUCT_CREATED is reachable ONLY via the
-        single line at the very end, right after create_product_for_merchant
-        has already returned successfully."""
+        """Atomically claims AWAITING_CONFIRMATION -> PRODUCT_CREATED, then
+        everything up to a confirmed product_id runs inside ONE try/except
+        — any failure anywhere in that path rolls the draft back to
+        AWAITING_CONFIRMATION with last_error set. PRODUCT_CREATED is
+        reachable ONLY via the single line right after
+        create_product_for_merchant has already returned successfully."""
         claimed = await drafts.find_one_and_update(
             {"id": draft["id"], "state": "AWAITING_CONFIRMATION"},
             {"$set": {"state": "PRODUCT_CREATED", "is_active": False, "updated_at": datetime.now(timezone.utc)},
@@ -344,13 +612,18 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
         )
         if claimed is None:
             log.warning("[whatsapp] duplicate YES for draft %s ignored (already processed)", draft["id"])
-            return ""  # already handled by a prior message — no reply needed
+            return ""
 
         try:
             fields = draft["fields"]
             l1_id = fields["l1_id"]
             l2_id = fields.get("l2_id") or ""
-            gender = "unisex" if l1_id not in L2_BY_L1 else ""  # defensive fallback; every current L1 has L2 entries
+            gender = "unisex" if l1_id not in L2_BY_L1 else ""
+
+            hosted = draft.get("image_hosted_urls") or []
+            pids = draft.get("image_public_ids") or []
+            if not hosted:
+                raise HTTPException(400, "No product photo on file")
 
             brand_id = None
             if fields.get("brand_raw"):
@@ -362,10 +635,10 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
                 l1_id=l1_id, l2_id=l2_id, gender=gender,
                 description=fields.get("description") or "",
                 sizes=fields.get("sizes") or [], stock=fields.get("stock"),
-                image=draft["image_hosted_url"], image_public_id=draft["image_public_id"],
-                images=[draft["image_hosted_url"]], image_public_ids=[draft["image_public_id"]],
+                image=hosted[0], image_public_id=pids[0],
+                images=hosted, image_public_ids=pids,
                 return_eligible=bool(fields.get("returnable")),
-                return_window_hours=fields.get("return_window_hours"),
+                return_window_hours=fields.get("return_window_hours") if fields.get("returnable") else None,
                 try_at_doorstep=bool(fields.get("try_and_buy")),
                 brand_id=brand_id,
                 provider="whatsapp",
@@ -383,15 +656,7 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             "state": "PRODUCT_CREATED", "product_id": doc["id"],
         })})
 
-        # Audit trail (post-audit fix). NOTE: AuditService.log() writes to
-        # the `payment_audit_log` collection — it's payment-shaped
-        # (razorpay_order_id/razorpay_payment_id/currency fields), not a
-        # generic audit log, despite the generic class name. Reusing it
-        # here (as explicitly instructed) rather than building a new audit
-        # mechanism; the payment-specific fields are simply left None and
-        # everything WhatsApp-specific goes in `metadata`. Worth renaming/
-        # splitting properly if this collection becomes a real cross-
-        # product audit trail later — flagged, not fixed here (out of scope).
+        ai_meta = draft.get("ai_meta") or {}
         try:
             await audit_service.log(
                 event_type="whatsapp_product_created",
@@ -400,6 +665,9 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
                     "channel": "whatsapp", "merchant_id": draft["merchant_id"],
                     "store_id": draft["store_id"], "product_id": doc["id"],
                     "whatsapp_phone": draft["whatsapp_phone"], "price": doc.get("price"),
+                    "ai_used": draft.get("ai_call_count", 0) > 0,
+                    "ai_call_count": draft.get("ai_call_count", 0),
+                    "final_taxonomy_confidence": ai_meta.get("last_confidence"),
                 },
             )
         except Exception:
@@ -410,11 +678,6 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
     @router.post("/inbound")
     @rate_limit("120/minute")
     async def gupshup_inbound(request: Request):
-        # Keyed by source IP (slowapi default) — ALL genuine Gupshup traffic
-        # comes from Gupshup's own servers, not per-merchant IPs, so this
-        # bounds combined webhook throughput across every merchant at once,
-        # matching the existing Shopify webhook's own rate (house convention),
-        # not a per-merchant cap. Ample headroom for a controlled pilot.
         secret = (os.environ.get("GUPSHUP_WEBHOOK_SECRET") or "").strip()
         received = request.headers.get("x-lokl-webhook-secret", "")
         if not secret or not hmac.compare_digest(secret, received):
@@ -428,9 +691,6 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             return PlainTextResponse("", status_code=200)
 
         if not isinstance(body, dict) or body.get("type") != "message":
-            # sandbox-start / message-event (delivery receipts for OUR own
-            # outbound sends) / any unrecognized event category — nothing
-            # to do. Never let a non-"message" event reach the state machine.
             return PlainTextResponse("", status_code=200)
 
         msg = body.get("payload")
@@ -450,10 +710,6 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
         except DuplicateKeyError:
             return PlainTextResponse("", status_code=200)
 
-        # Everything from here on is a defensive backstop against a
-        # malformed-but-superficially-valid payload (unexpected types
-        # nested deeper than the checks above cover) or any other
-        # unanticipated failure — never let it escape as an unhandled 500.
         try:
             raw_source = msg.get("source") or (msg.get("sender") or {}).get("phone") or ""
             phone10 = normalize_merchant_phone(raw_source) if isinstance(raw_source, str) else None
@@ -502,41 +758,19 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
                 await _reply(provider, phone10, _INSTRUCTIONS)
                 return PlainTextResponse("", status_code=200)
 
-            if draft["state"] in ("AWAITING_PRODUCT_DETAILS", "AWAITING_MISSING_DETAILS"):
-                if msg_type == "image" and image_url:
-                    draft, reply = await _handle_image(draft, merchant_id, image_url, text_body)
-                elif msg_type == "text":
-                    draft, reply = await _apply_message_to_draft(draft, text_body)
-                else:
-                    reply = "Sorry, I can only read text and photos right now. Please resend as text or a photo."
-                await _reply(provider, phone10, reply)
+            if draft["state"] == "AWAITING_CONFIRMATION" and upper == "YES":
+                reply = await _finalize_product(draft)
+                if reply:
+                    await _reply(provider, phone10, reply)
                 return PlainTextResponse("", status_code=200)
 
-            if draft["state"] == "AWAITING_CONFIRMATION":
-                if upper == "YES":
-                    reply = await _finalize_product(draft)
-                    if reply:
-                        await _reply(provider, phone10, reply)
-                else:
-                    # Corrections during confirmation (post-audit fix): try
-                    # to parse the message as structured field corrections
-                    # instead of only accepting YES. Reuses the exact same
-                    # merge/validate/next-state logic as the collection
-                    # states — a correction that breaks completeness
-                    # correctly drops back to AWAITING_MISSING_DETAILS, a
-                    # valid same-shape correction re-shows the summary and
-                    # stays effectively at AWAITING_CONFIRMATION.
-                    if parse_structured_text(text_body):
-                        draft, reply = await _apply_message_to_draft(draft, text_body)
-                        await _reply(provider, phone10, reply)
-                    else:
-                        await _reply(provider, phone10, _CONFIRMATION_HELP)
-                return PlainTextResponse("", status_code=200)
-
-            # PRODUCT_CREATED (terminal, but _get_active_draft already
-            # excludes it — reachable only via a race between two
-            # concurrent messages).
-            await _reply(provider, phone10, "This product was already added. Send ADD PRODUCT to add another.")
+            if msg_type == "image" and image_url:
+                draft, reply = await _handle_image(draft, merchant_id, image_url, text_body)
+            elif msg_type == "text":
+                draft, reply = await _route_text_by_state(draft, text_body)
+            else:
+                reply = _UNRECOGNIZED_MESSAGE
+            await _reply(provider, phone10, reply)
             return PlainTextResponse("", status_code=200)
         except Exception:
             log.exception("[whatsapp] unhandled error processing inbound message %s", message_id)
