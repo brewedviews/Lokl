@@ -10399,6 +10399,21 @@ from services.audit_service import AuditService
 from services.delivery_service import DeliveryService
 app.include_router(_init_geo(db))
 app.include_router(_init_addresses(db, merchant_user))
+
+# ===== WhatsApp merchant product-addition (Phase 1 MVP) =====
+# Built directly from the Gupshup technical proof-of-concept's captured
+# payloads — see routes/whatsapp.py's own docstring. Reuses
+# _normalize_merchant_phone_10 / _resolve_brand / _create_product_for_merchant
+# unchanged; never duplicates product-creation or category-validation logic.
+from routes.whatsapp import init as _init_whatsapp
+_whatsapp_router, _ensure_whatsapp_indexes = _init_whatsapp(
+    db,
+    normalize_merchant_phone=_normalize_merchant_phone_10,
+    resolve_brand=_resolve_brand,
+    create_product_for_merchant=_create_product_for_merchant,
+    rate_limit=_limit,
+)
+app.include_router(_whatsapp_router)
 audit_service = AuditService(db)
 # Shared instance for create_order's own server-authoritative delivery-fee
 # recompute — same class routes/geo.py's own delivery_estimate handler uses,
@@ -10757,6 +10772,9 @@ async def startup_seed():
         await db.revoked_refresh_jti.create_index("expires_at", expireAfterSeconds=0)
     except Exception as e:
         log.warning("revoked_refresh_jti indexes: %s", e)
+
+    # WhatsApp product-addition draft/idempotency indexes (routes/whatsapp.py).
+    await _ensure_whatsapp_indexes()
 
     # Keep demo merchant auto-approved
     demo = await db.merchants.find_one({"email": "demo@bharat-os.com"}, {"_id": 0})

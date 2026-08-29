@@ -879,6 +879,75 @@ class GupshupProvider(NotificationProvider):
             self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp", "error": str(e)}
             return None
 
+    def send_session_text(self, to: str, message: str) -> Optional[str]:
+        """Freeform/session WhatsApp text — a SEPARATE Gupshup endpoint from
+        send_whatsapp()'s template-only `/template/msg`. Confirmed live via
+        the WhatsApp Merchant Product Addition technical proof-of-concept
+        (2026-08-29): POST /wa/api/v1/msg, message={"type":"text","text":..}.
+
+        Only deliverable to a recipient with an ACTIVE WhatsApp session
+        (i.e. they messaged this number within the last 24h) — this is
+        standard WhatsApp Business Platform behavior, not a Gupshup-side
+        bug (confirmed directly: an identical call to a number with no
+        active session returned the same 202/submitted response but never
+        delivered; the same call to a number that had just messaged in
+        delivered immediately). Every caller of this method today is a
+        reply in a merchant-initiated conversation, so the session is
+        always active by construction.
+
+        Used ONLY by the WhatsApp product-addition conversation flow
+        (routes/whatsapp.py) — not part of the generic notify_* /
+        send_with_fallback surface, and deliberately not merged into
+        send_whatsapp()'s template-only contract."""
+        api_key = self._api_key()
+        if not api_key:
+            self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp_session",
+                                 "error": "GUPSHUP_API_KEY not configured"}
+            return None
+        source = (os.environ.get("GUPSHUP_WHATSAPP_NUMBER") or "").strip()
+        app_name = (os.environ.get("GUPSHUP_APP_NAME") or "").strip()
+        if not source or not app_name:
+            log.warning("[gupshup-wa-session] GUPSHUP_WHATSAPP_NUMBER/GUPSHUP_APP_NAME not configured — skipping to %s", to)
+            self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp_session",
+                                 "error": "GUPSHUP_WHATSAPP_NUMBER or GUPSHUP_APP_NAME not configured"}
+            return None
+        mobile = _to_gupshup_mobile(to)
+        if not mobile:
+            log.warning("[gupshup-wa-session] invalid phone: %r", to)
+            self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp_session", "error": f"invalid phone: {to!r}"}
+            return None
+        try:
+            import requests
+            payload = {
+                "channel": "whatsapp",
+                "source": source,
+                "destination": mobile,
+                "src.name": app_name,
+                "message": json.dumps({"type": "text", "text": message}),
+            }
+            resp = requests.post(
+                f"{_GUPSHUP_BASE}/msg",
+                data=payload,
+                headers={"apikey": api_key, "Content-Type": "application/x-www-form-urlencoded"},
+                timeout=10,
+            )
+            data = resp.json() if resp.content else {}
+            if resp.status_code == 202 and str(data.get("status", "")).lower() == "submitted":
+                msg_id = data.get("messageId")
+                log.info("[gupshup-wa-session] %s submitted (id=%s)", mobile, msg_id)
+                self.last_result = {"ok": True, "provider": "gupshup", "channel": "whatsapp_session",
+                                     "status_code": resp.status_code, "message_id": msg_id, "response": data}
+                return str(msg_id) if msg_id else None
+            log.warning("[gupshup-wa-session] send to %s failed: status=%s response=%s", mobile, resp.status_code, data)
+            self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp_session",
+                                 "status_code": resp.status_code,
+                                 "error": data.get("message", f"HTTP {resp.status_code}"), "response": data}
+            return None
+        except Exception as e:
+            log.warning("[gupshup-wa-session] send to %s failed: %s", mobile, e)
+            self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp_session", "error": str(e)}
+            return None
+
     def send_otp(self, to: str, otp: Optional[str] = None) -> str:
         log.warning("[gupshup] send_otp() is not implemented for Gupshup in this pass — "
                     "OTP is always locally generated (server.py); use send_whatsapp() with an "
