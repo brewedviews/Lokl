@@ -302,15 +302,26 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             parsed = {**loose_fields, **strict_fields}
             existing_fields = current.get("fields", {})
             has_name_already = bool(existing_fields.get("name"))
-            name_candidate = infer_name_from_single_line(text, has_name_already, parsed)
-            if not name_candidate:
-                name_candidate = infer_name_from_first_line(text, has_name_already)
-            if not name_candidate and loose_fields:
-                # A messier line where SOME loose fields (mrp/price/size-stock)
-                # were found — try the leftover text as the name too, e.g.
-                # "Pink tshirt" out of "Pink tshirt, M 2 L4 S7, mrp 899, SP 399".
-                # Still zero AI cost: this is regex leftover, not inference.
-                name_candidate = infer_name_from_remainder(remainder, has_name_already)
+            # An explicit "Product name:"/"Name:" label always wins outright
+            # — strict_fields already resolved it correctly (including
+            # truncating at the next field on the same comma/pipe-separated
+            # line). The remainder/first-line/single-line fallbacks below
+            # are only for messages with NO explicit name label at all;
+            # running them unconditionally would let a worse loose-text
+            # guess (which has no notion of the "Product name" label at
+            # all, since that's strict parsing's domain) clobber a
+            # perfectly good explicit result.
+            name_candidate = None
+            if "name" not in strict_fields:
+                name_candidate = infer_name_from_single_line(text, has_name_already, parsed)
+                if not name_candidate:
+                    name_candidate = infer_name_from_first_line(text, has_name_already)
+                if not name_candidate and loose_fields:
+                    # A messier line where SOME loose fields (mrp/price/size-stock)
+                    # were found — try the leftover text as the name too, e.g.
+                    # "Pink tshirt" out of "Pink tshirt, M 2 L4 S7, mrp 899, SP 399".
+                    # Still zero AI cost: this is regex leftover, not inference.
+                    name_candidate = infer_name_from_remainder(remainder, has_name_already)
             if name_candidate:
                 parsed = {**parsed, "name": name_candidate}
 
@@ -531,10 +542,26 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             tax_resolved = taxonomy_resolved(fields)
             new_state = "AWAITING_POLICY_DETAILS" if (not core_missing and tax_resolved) else "AWAITING_MISSING_DETAILS"
 
+            # This image genuinely resolved something (state changed, or the
+            # missing-fields set actually shrank/changed) only when it
+            # differs from what was already recorded before this image —
+            # e.g. the FIRST photo removes "image" from missing_fields. A
+            # 2nd/3rd photo when name/price/stock are still outstanding
+            # changes nothing here, so re-showing the identical "please
+            # send X, Y, Z" prompt would just be a duplicate. This is what
+            # fixes the reported duplicate-prompt bug — not a race
+            # condition (the existing version-guarded write below already
+            # serializes concurrent images correctly), just the reply
+            # logic not checking whether anything actually changed.
+            prior_missing = current.get("missing_fields") or []
+            unchanged = (new_state == current["state"] and core_missing == prior_missing)
+
             updated = await _atomic_merge_update(current["id"], current["version"],
                                                   _touch({"missing_fields": core_missing, "state": new_state}))
             if updated is not None:
                 n_images = len(updated.get("image_hosted_urls") or [])
+                if unchanged:
+                    return updated, f"📸 Photo added ({n_images}/{MAX_IMAGES})."
                 return updated, _build_collection_reply(new_state, fields, core_missing, current.get("taxonomy_fallback", False), n_images)
             fresh = await drafts.find_one({"id": current["id"]}, {"_id": 0})
             if fresh is None or fresh["state"] in TERMINAL_STATES:

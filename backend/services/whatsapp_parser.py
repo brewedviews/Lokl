@@ -61,6 +61,25 @@ _KEY_ALIASES = {
 
 _LINE_RE = re.compile(r"^\s*([A-Za-z][A-Za-z &]*?)\s*[:\-=]\s*(.+?)\s*$")
 
+# _LINE_RE's value capture is greedy to end-of-line — correct when a message
+# puts one field per line, but wrong when a merchant puts several fields on
+# ONE comma/pipe-separated line, e.g. "Product name - Black Jeans, mrp 1099,
+# sp 799, stock 4": without this, "name" would swallow the entire rest of
+# the line. _truncate_free_text_value() cuts a free-text field's value at
+# the first point that looks like another recognized field label, so the
+# loose parser (which scans the whole original text independently) is free
+# to pick up the mrp/price/stock that follows.
+_TRUNCATE_LABELS_SORTED = sorted(_KEY_ALIASES.keys(), key=len, reverse=True)
+_TRUNCATE_AT_NEXT_FIELD_RE = re.compile(
+    r"[,;|]\s*(?:" + "|".join(re.escape(k) for k in _TRUNCATE_LABELS_SORTED) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _truncate_free_text_value(value: str) -> str:
+    m = _TRUNCATE_AT_NEXT_FIELD_RE.search(value)
+    return value[:m.start()].strip() if m else value
+
 
 def parse_structured_text(text: str) -> dict:
     """Line-based `Key: Value` (also accepts `-`/`=` separators) parser.
@@ -75,7 +94,10 @@ def parse_structured_text(text: str) -> dict:
         canonical = _KEY_ALIASES.get(key)
         if not canonical:
             continue
-        out[canonical] = m.group(2).strip()
+        value = m.group(2).strip()
+        if canonical == "name":
+            value = _truncate_free_text_value(value)
+        out[canonical] = value
     return out
 
 
@@ -98,11 +120,20 @@ _SIZE_TOKENS = ("XXXL", "XXL", "XL", "XXS", "XS", "S", "M", "L", "2XL", "3XL", "
 _SIZE_ALT = "|".join(sorted(_SIZE_TOKENS, key=len, reverse=True))
 # No trailing \b after the size token: "L4"/"S7" (no separator at all)
 # would otherwise fail, since a letter immediately followed by a digit has
-# no word boundary between them. The leading \b alone (plus requiring what
-# follows to resolve to a digit) is enough to avoid matching "S" inside
-# "SIZE" or similar — and MRP/SP spans are already blanked out before this
-# runs, so "SP 399" can't be misread as size "S".
-_LOOSE_SIZE_STOCK_RE = re.compile(rf"\b({_SIZE_ALT})\s*[:=\-]?\s*(\d+)", re.IGNORECASE)
+# no word boundary between them. The leading boundary is deliberately
+# whitespace-or-start-of-string rather than a generic \b: a generic \b
+# would (wrongly) match the "s" in "Levi's" (preceded by an apostrophe,
+# a non-word character) as size token "S" if a number followed nearby —
+# confirmed a real risk for product names containing numbers, e.g.
+# "Levi's 511 Jeans". MRP/SP spans are already blanked out before this
+# runs, so "SP 399" can't be misread as size "S" either way.
+_LOOSE_SIZE_STOCK_RE = re.compile(rf"(?:^|(?<=\s))({_SIZE_ALT})\s*[:=\-]?\s*(\d+)", re.IGNORECASE)
+
+# Bare "stock 4" / "Stock: 4" with no size breakdown at all — a single
+# total, matching the existing {"default": n} single-bucket convention.
+# Only consulted when no per-size breakdown was found (see below) — a real
+# per-size split always takes precedence over a stray "stock" word.
+_LOOSE_STOCK_RE = re.compile(rf"\bstock\b\s*[:\-]?\s*{_NUM_FRAGMENT}", re.IGNORECASE)
 
 
 def parse_loose_fields_with_remainder(text: str) -> tuple[dict, str]:
@@ -137,6 +168,14 @@ def parse_loose_fields_with_remainder(text: str) -> tuple[dict, str]:
         out["stock_per_size"] = ";".join(sizes.values())
         for mm in reversed(matches):  # remove from the end so earlier spans' indices stay valid
             working = working[:mm.start()] + (" " * (mm.end() - mm.start())) + working[mm.end():]
+    else:
+        # No per-size breakdown found — check for a bare "stock 4" / "Stock:
+        # 4" total instead. Previously unhandled by any deterministic layer,
+        # forcing an AI call for something this obviously structured.
+        m = _LOOSE_STOCK_RE.search(working)
+        if m:
+            out["stock_per_size"] = m.group(1)
+            working = working[:m.start()] + (" " * (m.end() - m.start())) + working[m.end():]
 
     remainder = re.sub(r"[\s,;:\-]+", " ", working).strip()
     return out, remainder
@@ -687,8 +726,16 @@ def format_confirmation_summary(fields: dict, n_images: int = 0) -> str:
         lines.append(f"MRP: {_format_inr(fields['mrp'])}")
     lines.append(f"Selling Price: {_format_inr(fields.get('price', 0))}")
     if stock:
-        if list(stock.keys()) == ["default"]:
-            lines.append(f"Stock: {stock['default']}")
+        if len(stock) == 1:
+            # A single stock entry is a plain total regardless of what key
+            # it's stored under — deliberately NOT keyed on the literal
+            # string "default": AI-filled stock (merge_ai_fields) isn't
+            # guaranteed to use that exact placeholder, and showing
+            # whatever key it DID pick (e.g. "null", "none") verbatim would
+            # leak an internal placeholder to the merchant. One real size
+            # explicitly given by the merchant would also just show as a
+            # plain total here — an accepted, minor simplification.
+            lines.append(f"Stock: {next(iter(stock.values()))}")
         else:
             lines.append("Sizes: " + ", ".join(f"{k} ({v})" for k, v in stock.items()))
     lines.append("")
