@@ -66,10 +66,21 @@ def create_token(user_id: str, role: str = "merchant", token_type: str = "access
     elif role in ("admin", "merchant"):
         delta = timedelta(hours=8)
     elif role in ("customer", "rider"):
-        # Riders are phone-first field workers mid-delivery — a 15-minute
-        # merchant-style expiry would 401 them at a customer's door. Same
-        # long-lived tradeoff as customer tokens, for the same reason.
-        delta = timedelta(days=365)
+        # Security fix (audit High finding): this used to be 365 days.
+        # Access tokens carry no `jti` and are never individually
+        # revocable (only refresh tokens are, via revoked_refresh_jti) —
+        # a 365-day access token meant a single theft (XSS, a compromised
+        # device) granted a full year of session access that logout,
+        # password/OTP reset, or account deactivation could not touch.
+        # The original 365-day choice was reasoning about the wrong
+        # token: a rider mid-delivery needs their SESSION to survive, not
+        # their access token specifically — that's exactly what the
+        # refresh-token flow is for. Riders now get one on login (see
+        # rider_verify_otp), matching customers, so a short-lived access
+        # token here costs nothing in UX (the existing silent-refresh
+        # interceptor renews it transparently) while shrinking the
+        # exploitable window by three orders of magnitude.
+        delta = timedelta(hours=24)
     else:
         delta = timedelta(minutes=JWT_ACCESS_MIN)
     payload = {

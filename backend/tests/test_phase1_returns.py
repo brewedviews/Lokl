@@ -211,8 +211,9 @@ def test_twilio_inbound_marks_return_picked_up(admin_token, merchant):
         "Body": f"{otp} - Picked Up",
     }, timeout=10)
     assert r.status_code == 200, r.text
-    # Return should now be picked_up
-    state = requests.get(f"{API}/returns/{rid}", timeout=10).json()
+    # Return should now be picked_up. GET /returns/{id} requires auth
+    # (security fix — was previously unauthenticated).
+    state = requests.get(f"{API}/returns/{rid}", headers=ahdr, timeout=10).json()
     assert state["status"] == "picked_up"
     assert state.get("picked_via") == "rider-whatsapp"
 

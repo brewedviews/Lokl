@@ -57,6 +57,37 @@ init_sentry()
 client = AsyncIOMotorClient(os.environ["MONGO_URL"])
 db = client[os.environ["DB_NAME"]]
 
+
+async def _active_rider(user: dict) -> dict:
+    """Resolve+validate the calling rider's own doc from their JWT phone.
+    Raises 403 if suspended, or if the phone doesn't match any rider at all
+    (covers a still-valid JWT issued before a suspend — same re-check
+    rider_verify_otp does at login). rider_user allows role=='admin' tokens
+    too (for future support tooling), but an admin's `sub` is an admin id,
+    not a phone, so it naturally 403s here — Phase 1 doesn't build an
+    admin-acts-as-rider path, matching how /rider/status (Commit 2) already
+    behaves."""
+    phone = user.get("sub", "")
+    rider = await db.riders.find_one({"phone": phone, "status": "active"}, {"_id": 0})
+    if not rider:
+        raise HTTPException(403, "Rider account is not active")
+    return rider
+
+
+async def active_rider(user: dict = Depends(rider_user)) -> dict:
+    """FastAPI-dependency form of `_active_rider` — declared in a route's
+    signature (impossible to forget) rather than an internal call a future
+    endpoint could accidentally omit. Security fix (audit Medium finding):
+    `GET /rider/orders/available` and `PATCH /rider/status` used plain
+    `rider_user` with no active-status recheck, so a suspended rider with
+    a still-valid JWT could keep browsing incoming order legs (information
+    disclosure) and toggle themselves back online. Endpoints that already
+    call `_active_rider()` internally (leg accept/reached-store/out-for-
+    delivery/payment-completed/deliver) are left as-is to avoid a
+    redundant second DB round-trip — swap this in only where the check was
+    genuinely missing."""
+    return await _active_rider(user)
+
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
 ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "")
 # bcrypt-only. The legacy plain-text ADMIN_PASSWORD path has been removed —
@@ -64,7 +95,32 @@ ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "")
 if not ADMIN_EMAIL or not ADMIN_PASSWORD_HASH:
     raise ValueError("ADMIN_EMAIL and ADMIN_PASSWORD_HASH must be set in the environment")
 
-app = FastAPI(title="Lokl")
+# Security fix (audit Medium finding): /docs, /redoc, and /openapi.json
+# were reachable unauthenticated in every environment, handing anyone a
+# complete, accurate map of every endpoint/param/schema — real
+# reconnaissance value even though it doesn't bypass auth on its own.
+#
+# Architecture note (final G26 review): this was originally gated behind
+# FORCE_HTTPS, reusing it as a de-facto "are we in production" signal
+# alongside its real job (HSTS header, refresh-cookie `secure` flag).
+# That coupling is wrong: FORCE_HTTPS answers "is this deployment behind
+# TLS", not "is this production" — a platform that terminates TLS
+# upstream and never sets FORCE_HTTPS (because the app itself doesn't
+# need to enforce HTTPS redirects) would ALSO silently leave docs
+# exposed and OTP-debug logging on in real production, purely because
+# those two unrelated concerns were wired to the same flag. `ENVIRONMENT`
+# is an already-established (if only partially wired) convention in this
+# codebase — docker-compose.staging.yml already sets `ENVIRONMENT:
+# staging` for the backend service — so this reads that rather than
+# inventing a new APP_ENV variable. FORCE_HTTPS keeps its original,
+# narrower job (HSTS/secure-cookie) unchanged below.
+_IS_PRODUCTION = os.environ.get("ENVIRONMENT", "").strip().lower() == "production"
+app = FastAPI(
+    title="Lokl",
+    docs_url=None if _IS_PRODUCTION else "/docs",
+    redoc_url=None if _IS_PRODUCTION else "/redoc",
+    openapi_url=None if _IS_PRODUCTION else "/openapi.json",
+)
 api = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("lokl")
@@ -935,10 +991,19 @@ async def rider_request_otp(request: Request, payload: RiderOtpRequest):
 @api.post("/auth/rider/verify-otp")
 @_limit(_LIMIT_RIDER_OTP_VERIFY)
 async def rider_verify_otp(request: Request, payload: RiderOtpVerify):
-    """Verify the OTP and issue a rider JWT with a long TTL (see
-    auth.create_token's role in ("customer", "rider") branch — a mid-delivery
-    401 at a customer's door is a much worse failure than a long-lived
-    token risk). After 5 wrong attempts the OTP is invalidated."""
+    """Verify the OTP and issue a rider access + refresh JWT pair.
+
+    Security fix (audit High finding): riders previously got only a
+    365-day access token with no refresh flow at all — the "mid-delivery
+    401" concern this was meant to avoid is real, but a 365-day *access*
+    token (never revocable, since access tokens carry no `jti`) is a much
+    bigger blast radius than necessary to solve it. Now mirrors the
+    customer login pattern exactly: a short-lived access token (see
+    auth.create_token) plus a revocable refresh token in an httpOnly
+    cookie — the existing frontend 401-refresh-and-retry interceptor
+    already handles this transparently for any role with a refresh
+    cookie, so this closes the gap with no frontend change needed.
+    After 5 wrong attempts the OTP is invalidated."""
     phone = _normalize_customer_phone(payload.phone)
     if not phone or not payload.otp:
         raise HTTPException(400, "Invalid phone or OTP")
@@ -977,18 +1042,25 @@ async def rider_verify_otp(request: Request, payload: RiderOtpVerify):
         raise HTTPException(403, "Rider account is not active")
 
     access = create_token(phone, "rider", "access")
-    return {"token": access, "phone": phone, "role": "rider", "rider": rider}
+    refresh = create_token(phone, "rider", "refresh")
+    response = JSONResponse({"token": access, "phone": phone, "role": "rider", "rider": rider})
+    _set_refresh_cookie(response, refresh)
+    return response
 
 
 @api.patch("/rider/status")
-async def rider_update_status(payload: dict, user: dict = Depends(rider_user)):
+async def rider_update_status(payload: dict, rider: dict = Depends(active_rider)):
     """Rider self-service online/offline toggle. Body: {online: bool}. The
     future incoming-orders feed (Commit 3) only surfaces legs to riders with
-    online=True. Does not touch any order/delivery state — rider doc only."""
+    online=True. Does not touch any order/delivery state — rider doc only.
+
+    Security fix: now requires `active_rider` (was plain `rider_user`) so a
+    suspended rider with a still-valid JWT can no longer toggle themselves
+    back online."""
     online = bool(payload.get("online"))
     now = datetime.now(timezone.utc).isoformat()
     r = await db.riders.find_one_and_update(
-        {"phone": user["sub"]},
+        {"phone": rider["phone"]},
         {"$set": {"online": online, "last_seen_at": now, "updated_at": now}},
         projection={"_id": 0},
         return_document=True,
@@ -1125,7 +1197,7 @@ async def _merchant_next_route(merchant_id: str) -> str:
 
 
 @api.get("/merchant/next-route")
-async def merchant_next_route(user: dict = Depends(get_current_user)):
+async def merchant_next_route(user: dict = Depends(merchant_user)):
     """Returns where the merchant should land after login/refresh."""
     if user.get("role") != "merchant":
         raise HTTPException(403, "Merchant only")
@@ -2395,7 +2467,7 @@ async def merchant_upload_image(
 
 
 @api.delete("/merchant/upload-image")
-async def merchant_delete_image(public_id: str, user: dict = Depends(get_current_user)):
+async def merchant_delete_image(public_id: str, user: dict = Depends(merchant_user)):
     """Delete an image from Cloudinary by public_id. Best-effort; returns ok flag."""
     if user.get("role") not in ("merchant", "admin"):
         raise HTTPException(403, "Merchant access required")
@@ -5145,7 +5217,12 @@ async def razorpay_create_payment_order(
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
-        raise HTTPException(502, f"Payment gateway error: {e}")
+        # Security fix (audit Low/Medium finding): raw SDK exception text
+        # (which can include gateway-internal detail) was relayed verbatim
+        # to the client. Log the full error server-side; return only a
+        # generic, client-safe message.
+        log.error("[Payment] Razorpay order creation failed: %s", e)
+        raise HTTPException(502, "Payment gateway is temporarily unavailable. Please try again or use COD.")
     if rp_order is None:
         raise HTTPException(503, "Online payment unavailable. Try COD.")
     return {
@@ -5274,6 +5351,13 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
     # Track every successful stock decrement so we can roll back if any later
     # item fails (atomicity across multiple non-transactional Mongo writes).
     reservations: list[tuple[str, str, int]] = []  # (product_id, size, qty)
+    # Set only if THIS attempt is the one that successfully claimed the
+    # payment_id in processed_payments below — used to un-claim it on
+    # rollback so a legitimate retry (e.g. a transient DB error after
+    # payment was already verified) isn't permanently locked out by its
+    # own prior attempt. Never touched if the claim failed with
+    # DuplicateKeyError — that record belongs to a different attempt.
+    claimed_payment_id: Optional[str] = None
 
     try:
         for it in payload.items:
@@ -5489,11 +5573,65 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         pm = (payload.payment_method or "COD").lower()
         if pm in ("razorpay", "online"):
             # Payment-first flow: frontend verifies payment then calls POST /orders.
-            # Signature proves the payment was captured before the order is created.
+            # Signature proves the payment_id/order_id PAIRING is genuinely
+            # Razorpay-issued — it says nothing about how much was actually
+            # paid. Security fix (audit finding C-2): a client could
+            # previously create a Razorpay order for an arbitrary (tampered)
+            # low amount via /payments/razorpay/create-order, pay that low
+            # amount, then submit their real (higher-value) cart here with
+            # the genuinely-signed-but-mismatched payment proof and have it
+            # accepted as paid. Fetch the ACTUAL captured amount directly
+            # from Razorpay's API (server-to-server) and require it to
+            # exactly match this order's server-computed total before ever
+            # setting payment_status="paid" — the same check
+            # _handle_payment_captured (the async webhook) already performs;
+            # this closes the gap where the synchronous path could mark an
+            # order paid before that webhook arrives.
             if not payload.razorpay_payment_id or not payload.razorpay_order_id or not payload.razorpay_signature:
                 raise HTTPException(400, "razorpay_payment_id, razorpay_order_id and razorpay_signature are required for Razorpay payments")
             if not verify_payment_signature(payload.razorpay_order_id, payload.razorpay_payment_id, payload.razorpay_signature):
                 raise HTTPException(400, "Invalid Razorpay payment signature")
+            captured = fetch_captured_payment(payload.razorpay_order_id, payload.razorpay_payment_id)
+            if captured is None:
+                log.warning("[Payment] could not confirm captured payment order_id=%s rp_order=%s rp_payment=%s",
+                            order_id, payload.razorpay_order_id, payload.razorpay_payment_id)
+                raise HTTPException(400, "Payment could not be confirmed. If you were charged, contact support before retrying.")
+            expected_paise = int((server_total * 100).quantize(Decimal("1")))
+            captured_paise = int(captured.get("amount", 0))
+            if captured_paise != expected_paise:
+                await audit_service.log(
+                    "amount_mismatch_detected", order_id=order_id,
+                    razorpay_order_id=payload.razorpay_order_id, razorpay_payment_id=payload.razorpay_payment_id,
+                    amount=captured_paise / 100, actor="create_order",
+                    metadata={"expected_paise": expected_paise, "received_paise": captured_paise},
+                )
+                log.warning("[Payment] amount mismatch order_id=%s expected_paise=%s captured_paise=%s",
+                            order_id, expected_paise, captured_paise)
+                raise HTTPException(400, "Payment amount does not match order total. Please contact support before retrying.")
+            # Final gate (audit deep-review finding): a genuinely captured,
+            # amount-matched payment could still be replayed against
+            # MULTIPLE Lokl orders (or the same order twice, under a
+            # double-click/retry race) — nothing previously stopped the
+            # same razorpay_payment_id from being attached more than once.
+            # `processed_payments` already existed (unique index on
+            # payment_id, created at startup) but was never actually wired
+            # up anywhere — this is that wiring, not a new collection. The
+            # unique-index insert is atomic, so two concurrent requests
+            # racing the same payment_id can only ever have one succeed,
+            # regardless of timing (the exact race the task asks about).
+            try:
+                await db.processed_payments.insert_one({
+                    "payment_id": payload.razorpay_payment_id,
+                    "razorpay_order_id": payload.razorpay_order_id,
+                    "order_id": order_id,
+                    "amount_paise": captured_paise,
+                    "processed_at": now,
+                })
+                claimed_payment_id = payload.razorpay_payment_id
+            except DuplicateKeyError:
+                log.warning("[Payment] razorpay_payment_id %s already used for another order (attempted reuse for order_id=%s)",
+                            payload.razorpay_payment_id, order_id)
+                raise HTTPException(400, "This payment has already been used for another order.")
             doc["payment_method"] = "razorpay"
             doc["payment_status"] = "paid"
             doc["razorpay_order_id"] = payload.razorpay_order_id
@@ -5512,6 +5650,13 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         # (positive delta out to the source platform, same as a real
         # cancel), since the Lokl order behind it never actually got created.
         await _restock_order_items({"items": [{"id": pid, "size": sz, "qty": qty} for pid, sz, qty in reservations]})
+        if claimed_payment_id:
+            # This attempt claimed the payment_id but the order was never
+            # actually created (e.g. the orders.insert_one itself failed
+            # for an unrelated reason) — release the claim so a genuine
+            # retry with the same real payment isn't permanently blocked
+            # by its own earlier failed attempt.
+            await db.processed_payments.delete_one({"payment_id": claimed_payment_id})
         raise
 
     if order_type != "pickup" and payload.customer and payload.customer.get("phone"):
@@ -5680,22 +5825,6 @@ async def get_order(order_id: str, request: Request):
 # from what the merchant dashboard or the WhatsApp fallback already do,
 # because they're literally the same function. The WhatsApp/Twilio path is
 # untouched and keeps running in parallel; both funnel through one place.
-
-async def _active_rider(user: dict) -> dict:
-    """Resolve+validate the calling rider's own doc from their JWT phone.
-    Raises 403 if suspended, or if the phone doesn't match any rider at all
-    (covers a still-valid JWT issued before a suspend — same re-check
-    rider_verify_otp does at login). rider_user allows role=='admin' tokens
-    too (for future support tooling), but an admin's `sub` is an admin id,
-    not a phone, so it naturally 403s here — Phase 1 doesn't build an
-    admin-acts-as-rider path, matching how /rider/status (Commit 2) already
-    behaves."""
-    phone = user.get("sub", "")
-    rider = await db.riders.find_one({"phone": phone, "status": "active"}, {"_id": 0})
-    if not rider:
-        raise HTTPException(403, "Rider account is not active")
-    return rider
-
 
 async def _rider_owned_leg(oid: str, mid: str, rider_id: str) -> dict:
     """Fetch the order fresh and verify THIS rider owns leg `mid` via
@@ -6281,7 +6410,7 @@ async def rate_order_product(oid: str, payload: dict, user: dict = Depends(custo
 
 
 @api.get("/merchant/orders")
-async def merchant_orders(user: dict = Depends(get_current_user)):
+async def merchant_orders(user: dict = Depends(merchant_user)):
     """Returns this merchant's orders with customer PII redacted (name + pincode + landmark only).
     Items are FILTERED to only this merchant's items — multi-store orders no
     longer leak each merchant's products to every merchant."""
@@ -6343,7 +6472,7 @@ async def merchant_orders(user: dict = Depends(get_current_user)):
     return cleaned
 
 @api.post("/merchant/orders/{oid}/accept")
-async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)):
+async def merchant_accept_order(oid: str, user: dict = Depends(merchant_user)):
     o = await db.orders.find_one({"id": oid, "merchant_ids": user["sub"]}, {"_id": 0})
     if not o: raise HTTPException(404, "Order not found")
     mid = user["sub"]
@@ -6427,7 +6556,7 @@ async def merchant_accept_order(oid: str, user: dict = Depends(get_current_user)
     return {"ok": True, "otp": my_otp, "all_accepted": all_accepted, "my_state": "accepted"}
 
 @api.post("/merchant/orders/{oid}/handed-to-rider")
-async def merchant_handed_to_rider(oid: str, user: dict = Depends(get_current_user)):
+async def merchant_handed_to_rider(oid: str, user: dict = Depends(merchant_user)):
     """DEPRECATED as a state-advancing action (rider-flow redesign). The
     merchant's only order action is now ACCEPT (merchant_accept_order above)
     — handoff verification moved to the rider, who submits the merchant-
@@ -6686,7 +6815,7 @@ async def admin_cancel_order(oid: str, payload: Optional[dict] = None, admin: di
 
 # ===== Merchant KYC =====
 @api.post("/merchant/kyc/submit")
-async def kyc_submit(payload: KycSubmit, user: dict = Depends(get_current_user)):
+async def kyc_submit(payload: KycSubmit, user: dict = Depends(merchant_user)):
     # Re-submitting clears any prior hold so admins see it as a fresh review.
     update = payload.model_dump()
     # Preserve previously-uploaded docs when this submission omits them (merchant just
@@ -6737,7 +6866,7 @@ async def kyc_submit(payload: KycSubmit, user: dict = Depends(get_current_user))
     return {"ok": True, "kyc_status": "submitted"}
 
 @api.get("/merchant/kyc/status")
-async def kyc_status(user: dict = Depends(get_current_user)):
+async def kyc_status(user: dict = Depends(merchant_user)):
     m = await db.merchants.find_one({"id": user["sub"]},
         {"_id": 0, "password_hash": 0, "pan_doc_b64": 0, "gst_doc_b64": 0, "cancelled_cheque_b64": 0})
     if not m: raise HTTPException(404, "Not found")
@@ -6757,14 +6886,14 @@ async def kyc_status(user: dict = Depends(get_current_user)):
     return {"kyc_status": m.get("kyc_status", "draft"), "merchant": m, "docs_present": docs_present}
 
 @api.get("/merchant/notifications")
-async def merchant_notifications(user: dict = Depends(get_current_user)):
+async def merchant_notifications(user: dict = Depends(merchant_user)):
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0, "notifications": 1})
     return m.get("notifications", []) if m else []
 
 
 # ===== Change Requests (bank/address) =====
 @api.post("/merchant/change-request")
-async def submit_change_request(payload: ChangeRequest, user: dict = Depends(get_current_user)):
+async def submit_change_request(payload: ChangeRequest, user: dict = Depends(merchant_user)):
     cid = f"cr-{uuid.uuid4().hex[:10]}"
     doc = {"id": cid, "merchant_id": user["sub"], "change_type": payload.change_type,
            "new_values": payload.new_values, "supporting_doc_b64": payload.supporting_doc_b64,
@@ -6774,14 +6903,14 @@ async def submit_change_request(payload: ChangeRequest, user: dict = Depends(get
     return {"ok": True, "id": cid}
 
 @api.get("/merchant/change-requests")
-async def my_change_requests(user: dict = Depends(get_current_user)):
+async def my_change_requests(user: dict = Depends(merchant_user)):
     return await db.change_requests.find({"merchant_id": user["sub"]},
         {"_id": 0, "supporting_doc_b64": 0}).sort("created_at", -1).to_list(100)
 
 
 # ===== Merchant Storefront / Products / Publish =====
 @api.get("/merchant/storefront")
-async def get_storefront(user: dict = Depends(get_current_user)):
+async def get_storefront(user: dict = Depends(merchant_user)):
     """Return the saved storefront for the authenticated merchant."""
     sid = f"store-m-{user['sub']}"
     s = await db.stores.find_one({"id": sid}, {"_id": 0})
@@ -6791,7 +6920,7 @@ async def get_storefront(user: dict = Depends(get_current_user)):
 
 
 @api.post("/merchant/storefront")
-async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_current_user)):
+async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(merchant_user)):
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
     if not m: raise HTTPException(404, "Not found")
     if m.get("kyc_status") != "approved": raise HTTPException(403, "KYC not approved yet")
@@ -6848,7 +6977,7 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(get_
     return {"ok": True, "store": store_doc}
 
 @api.post("/merchant/publish")
-async def merchant_publish(user: dict = Depends(get_current_user)):
+async def merchant_publish(user: dict = Depends(merchant_user)):
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
     if m.get("kyc_status") != "approved": raise HTTPException(403, "KYC not approved")
     store_id = f"store-m-{user['sub']}"
@@ -6866,7 +6995,7 @@ async def merchant_publish(user: dict = Depends(get_current_user)):
 
 
 @api.get("/merchant/store/state")
-async def merchant_store_state(user: dict = Depends(get_current_user)):
+async def merchant_store_state(user: dict = Depends(merchant_user)):
     """Returns just what the sidebar needs: is the merchant fully launched + their online toggle.
 
     `online` here is the LIVE-with-12h-cap-and-closing-time-aware computed
@@ -6908,7 +7037,7 @@ async def merchant_store_state(user: dict = Depends(get_current_user)):
 
 
 @api.post("/merchant/store/online")
-async def merchant_store_online(payload: dict, user: dict = Depends(get_current_user)):
+async def merchant_store_online(payload: dict, user: dict = Depends(merchant_user)):
     """Merchant self-service availability toggle. Body: {online: bool}.
     When `online=False`: store stays visible on the listing but is marked
     "Offline — back soon" and all products from this store are hidden from the
@@ -6944,7 +7073,7 @@ async def merchant_store_online(payload: dict, user: dict = Depends(get_current_
     return {"ok": True, "online": online}
 
 @api.get("/merchant/products")
-async def merchant_products(user: dict = Depends(get_current_user)):
+async def merchant_products(user: dict = Depends(merchant_user)):
     # Strip heavy `images` carousel array from the list response (often 5x ~200 KB
     # base64 strings per product), the merchant dashboard only needs the cover
     # `image` for the row thumbnail. The full `images` array is re-fetched on
@@ -7009,7 +7138,7 @@ async def _create_product_for_merchant(payload: ProductCreate, merchant_id: str)
     store_id = f"store-m-{merchant_id}"
     store = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if not store: raise HTTPException(400, "Set up storefront first")
-    merchant_plan = m.get("plan", "free")
+    merchant_plan = _merchant_effective_plan(m)
     plan_config = PLAN_LIMITS.get(merchant_plan, PLAN_LIMITS["free"])
     product_limit = plan_config.get("products", 10)
     existing_count = await db.products.count_documents({"merchant_id": merchant_id, "is_deleted": {"$ne": True}})
@@ -7032,8 +7161,27 @@ async def _create_product_for_merchant(payload: ProductCreate, merchant_id: str)
 
 
 @api.post("/merchant/products")
-async def create_merchant_product(payload: ProductCreate, user: dict = Depends(get_current_user)):
+async def create_merchant_product(payload: ProductCreate, user: dict = Depends(merchant_user)):
     return await _create_product_for_merchant(payload, user["sub"])
+
+# Security fix (audit Medium finding — mass assignment): the raw payload
+# used to go straight into `$set` after only popping id/merchant_id/
+# store_id, so any authenticated caller who could reach this function
+# (merchant on their own product, or admin) could also overwrite fields
+# that were never meant to be client-editable — most importantly
+# `provider`/`source_item_id`/`remote_variant_ids` (integration linkage,
+# set only by `_publish_staged_import`, used to sync orders back to the
+# source platform's own inventory — corrupting these silently breaks that
+# sync) and `total_stock` (always derived from `stock` below, never a
+# direct input). Mirrors the same allowlist pattern already used by
+# `ALLOWED_ADMIN_MERCHANT_FIELDS`/`ALLOWED_ADMIN_STORE_FIELDS`.
+ALLOWED_PRODUCT_UPDATE_FIELDS = {
+    "name", "price", "mrp", "l1_id", "l2_id", "gender", "description",
+    "sizes", "image", "images", "image_public_id", "image_public_ids",
+    "ai_enhanced", "try_at_doorstep", "return_eligible", "return_window_hours",
+    "stock", "size_type", "fit_note", "brand_id", "paused",
+}
+
 
 async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
     """Shared product-content-update logic — the caller has already
@@ -7041,7 +7189,7 @@ async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
     allowed to edit it (merchant ownership check, or admin). G25 reuses
     this exact function for the new PUT /admin/products/{pid} instead of
     building a second, parallel product-update implementation."""
-    payload.pop("id", None); payload.pop("merchant_id", None); payload.pop("store_id", None)
+    payload = {k: v for k, v in payload.items() if k in ALLOWED_PRODUCT_UPDATE_FIELDS}
     if "return_window_hours" in payload and payload["return_window_hours"] is not None:
         try:
             rwh = int(payload["return_window_hours"])
@@ -7088,13 +7236,13 @@ async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
 
 
 @api.put("/merchant/products/{pid}")
-async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(get_current_user)):
+async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(merchant_user)):
     p = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0})
     if not p: raise HTTPException(404, "Product not found")
     return await _apply_product_update(pid, p, payload)
 
 @api.patch("/merchant/products/{pid}")
-async def quick_update_product(pid: str, payload: dict, user: dict = Depends(get_current_user)):
+async def quick_update_product(pid: str, payload: dict, user: dict = Depends(merchant_user)):
     """Quick partial update — price, mrp, total_stock, paused, status only."""
     product = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0, "id": 1})
     if not product:
@@ -7106,7 +7254,7 @@ async def quick_update_product(pid: str, payload: dict, user: dict = Depends(get
     return {"ok": True}
 
 @api.post("/merchant/ai/enhance-image")
-async def merchant_ai_enhance_image(payload: dict, user: dict = Depends(get_current_user)):
+async def merchant_ai_enhance_image(payload: dict, user: dict = Depends(merchant_user)):
     """Generate 4 standalone catalog-grade images from a raw product photo.
 
     Payload: {image: base64 (data-URL or bare)}
@@ -7131,7 +7279,7 @@ async def merchant_ai_enhance_image(payload: dict, user: dict = Depends(get_curr
 
 
 @api.post("/merchant/ai/enhance-image/one")
-async def merchant_ai_enhance_one(payload: dict, user: dict = Depends(get_current_user)):
+async def merchant_ai_enhance_one(payload: dict, user: dict = Depends(merchant_user)):
     """Generate ONE of the 4 catalog images. Frontend fires 4 parallel calls.
 
     Payload: {image: base64|http(s)-url|data-URI, kind: 'outdoor_1'|'outdoor_2'|'studio_1'|'studio_2'}
@@ -7156,7 +7304,7 @@ async def merchant_ai_enhance_one(payload: dict, user: dict = Depends(get_curren
 
 
 @api.post("/merchant/products/bulk-action")
-async def merchant_products_bulk_action(payload: dict, user: dict = Depends(get_current_user)):
+async def merchant_products_bulk_action(payload: dict, user: dict = Depends(merchant_user)):
     """Bulk delete / publish (= unpause) / pause for selected product ids."""
     ids = payload.get("ids") or []
     action = (payload.get("action") or "").lower()
@@ -7211,7 +7359,7 @@ def _category_name_maps() -> tuple[dict, dict, dict]:
 
 
 @api.get("/merchant/products/template.xlsx")
-async def merchant_bulk_template(user: dict = Depends(get_current_user)):
+async def merchant_bulk_template(user: dict = Depends(merchant_user)):
     """Return the Lokl xlsx template with L1/L2/gender/returnable dropdowns and 3 example rows."""
     from xlsx_template import build_template_xlsx
     data = build_template_xlsx()
@@ -7517,7 +7665,7 @@ async def bulk_products(
     store = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if not store: raise HTTPException(400, "Set up storefront first")
 
-    merchant_plan = m.get("plan", "free")
+    merchant_plan = _merchant_effective_plan(m)
     plan_config = PLAN_LIMITS.get(merchant_plan, PLAN_LIMITS["free"])
     product_limit = plan_config.get("products", 10)
     existing_count = await db.products.count_documents({"merchant_id": user["sub"], "is_deleted": {"$ne": True}})
@@ -8086,7 +8234,7 @@ async def _publish_staged_import(row: dict, merchant_id: str) -> dict:
 
 
 @api.post("/merchant/integrations/vasyerp/connect")
-async def vasyerp_connect(payload: VasyERPConnectRequest, user: dict = Depends(get_current_user)):
+async def vasyerp_connect(payload: VasyERPConnectRequest, user: dict = Depends(merchant_user)):
     if user.get("role") != "merchant":
         raise HTTPException(403, "Merchant access required")
     token = payload.api_token.strip()
@@ -8109,7 +8257,7 @@ async def vasyerp_connect(payload: VasyERPConnectRequest, user: dict = Depends(g
 
 
 @api.post("/merchant/integrations/vasyerp/select-branch")
-async def vasyerp_select_branch(payload: VasyERPSelectBranchRequest, user: dict = Depends(get_current_user)):
+async def vasyerp_select_branch(payload: VasyERPSelectBranchRequest, user: dict = Depends(merchant_user)):
     if user.get("role") != "merchant":
         raise HTTPException(403, "Merchant access required")
     integ = await _get_integration(user["sub"], "vasyerp")
@@ -8138,7 +8286,7 @@ def _shopify_webhook_callback_url() -> Optional[str]:
 
 
 @api.post("/merchant/integrations/shopify/connect")
-async def shopify_connect(payload: ShopifyConnectRequest, user: dict = Depends(get_current_user)):
+async def shopify_connect(payload: ShopifyConnectRequest, user: dict = Depends(merchant_user)):
     if user.get("role") != "merchant":
         raise HTTPException(403, "Merchant access required")
     shop_domain = payload.shop_domain.strip()
@@ -8198,7 +8346,7 @@ async def shopify_connect(payload: ShopifyConnectRequest, user: dict = Depends(g
 
 
 @api.get("/merchant/integrations/status")
-async def integrations_status(user: dict = Depends(get_current_user)):
+async def integrations_status(user: dict = Depends(merchant_user)):
     """Every connected integration for this merchant, across all
     providers — never returns credential fields, encrypted or not."""
     rows = await db.merchant_integrations.find(
@@ -8208,7 +8356,7 @@ async def integrations_status(user: dict = Depends(get_current_user)):
 
 
 @api.post("/merchant/integrations/vasyerp/import")
-async def vasyerp_import(user: dict = Depends(get_current_user)):
+async def vasyerp_import(user: dict = Depends(merchant_user)):
     if user.get("role") != "merchant":
         raise HTTPException(403, "Merchant access required")
     integ = await _get_integration(user["sub"], "vasyerp")
@@ -8266,7 +8414,7 @@ async def vasyerp_import(user: dict = Depends(get_current_user)):
 
 
 @api.post("/merchant/integrations/shopify/import")
-async def shopify_import(user: dict = Depends(get_current_user)):
+async def shopify_import(user: dict = Depends(merchant_user)):
     if user.get("role") != "merchant":
         raise HTTPException(403, "Merchant access required")
     integ = await _get_integration(user["sub"], "shopify")
@@ -8343,7 +8491,7 @@ async def shopify_import(user: dict = Depends(get_current_user)):
 
 
 @api.get("/merchant/integrations/staged")
-async def list_staged(provider: Optional[str] = None, status: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def list_staged(provider: Optional[str] = None, status: Optional[str] = None, user: dict = Depends(merchant_user)):
     if user.get("role") != "merchant":
         raise HTTPException(403, "Merchant access required")
     q: dict = {"merchant_id": user["sub"]}
@@ -8367,7 +8515,7 @@ async def list_staged(provider: Optional[str] = None, status: Optional[str] = No
 
 
 @api.put("/merchant/integrations/staged/{sid}")
-async def update_staged(sid: str, payload: dict, user: dict = Depends(get_current_user)):
+async def update_staged(sid: str, payload: dict, user: dict = Depends(merchant_user)):
     """Merchant corrects category/brand and/or attaches an image (already
     uploaded via the existing /merchant/upload-image endpoint — this route
     only accepts the resulting {image_url, public_id}, it does not accept
@@ -8454,7 +8602,7 @@ async def update_staged(sid: str, payload: dict, user: dict = Depends(get_curren
 
 
 @api.post("/merchant/integrations/staged/{sid}/publish")
-async def publish_staged(sid: str, user: dict = Depends(get_current_user)):
+async def publish_staged(sid: str, user: dict = Depends(merchant_user)):
     if user.get("role") != "merchant":
         raise HTTPException(403, "Merchant access required")
     row = await db.staged_imports.find_one({"id": sid, "merchant_id": user["sub"]}, {"_id": 0})
@@ -8466,7 +8614,7 @@ async def publish_staged(sid: str, user: dict = Depends(get_current_user)):
 
 
 @api.post("/merchant/integrations/staged/publish-bulk")
-async def publish_staged_bulk(payload: dict, user: dict = Depends(get_current_user)):
+async def publish_staged_bulk(payload: dict, user: dict = Depends(merchant_user)):
     if user.get("role") != "merchant":
         raise HTTPException(403, "Merchant access required")
     ids = payload.get("ids") or []
@@ -8488,7 +8636,7 @@ async def publish_staged_bulk(payload: dict, user: dict = Depends(get_current_us
 
 
 @api.delete("/merchant/integrations/staged/{sid}")
-async def delete_staged(sid: str, user: dict = Depends(get_current_user)):
+async def delete_staged(sid: str, user: dict = Depends(merchant_user)):
     """Removes a StagedImport row from the pipeline entirely — independent
     of whether it's linked to a product. Never touches db.products itself;
     a merchant deletes the actual product from /merchant/products
@@ -8512,7 +8660,7 @@ async def delete_staged(sid: str, user: dict = Depends(get_current_user)):
 
 
 @api.post("/merchant/integrations/staged/remove-bulk")
-async def remove_staged_bulk(payload: dict, user: dict = Depends(get_current_user)):
+async def remove_staged_bulk(payload: dict, user: dict = Depends(merchant_user)):
     if user.get("role") != "merchant":
         raise HTTPException(403, "Merchant access required")
     ids = payload.get("ids") or []
@@ -8524,12 +8672,12 @@ async def remove_staged_bulk(payload: dict, user: dict = Depends(get_current_use
 
 # ===== Merchant AI =====
 @api.post("/merchant/ai/copy")
-async def merchant_ai_copy(payload: AICopyRequest, user: dict = Depends(get_current_user)):
+async def merchant_ai_copy(payload: AICopyRequest, user: dict = Depends(merchant_user)):
     try: return await generate_product_copy(payload.product_name, payload.category or "", payload.notes or "")
     except Exception as e: raise HTTPException(500, f"AI copy generation failed: {e}")
 
 @api.post("/merchant/ai/tryon")
-async def merchant_ai_tryon(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+async def merchant_ai_tryon(file: UploadFile = File(...), user: dict = Depends(merchant_user)):
     await _validate_image_upload(file)
     b64 = base64.b64encode(await file.read()).decode()
     result = await ai_model_tryon(b64)
@@ -8551,7 +8699,7 @@ def _period_window(period: str):
     return now - timedelta(days=30), now
 
 @api.get("/merchant/analytics")
-async def merchant_analytics(period: str = "30d", user: dict = Depends(get_current_user)):
+async def merchant_analytics(period: str = "30d", user: dict = Depends(merchant_user)):
     start, end = _period_window(period)
     # Revenue is only counted for delivered orders — pre-revenue merchants see zeros.
     orders = await db.orders.find({
@@ -8617,15 +8765,54 @@ PLAN_LIMITS = {
     "starter": {"products": 30,   "boosts": 0,  "images": 1,  "priority": 1, "expires_days": 30},
     "growth":  {"products": 100,  "boosts": 3,  "images": 5,  "priority": 2, "expires_days": 30},
     "pro":     {"products": 9999, "boosts": 10, "images": 10, "priority": 3, "expires_days": 30},
+    # G26 — upcoming pricing tiers (model prep only; no checkout/payment UI
+    # built yet, per the security-audit remediation task). Basic supports a
+    # genuine self-service 30-day trial (see activate_subscription) since
+    # no money changes hands; Premium is "coming soon" — admin-activation
+    # only for now, not yet client-requestable via any checkout flow.
+    "basic":   {"products": 30,   "boosts": 1,  "images": 3,  "priority": 1, "expires_days": 30, "price_inr": 999},
+    "premium": {"products": 9999, "boosts": 10, "images": 10, "priority": 3, "expires_days": 30, "price_inr": 1999},
 }
 
 
+def _merchant_effective_plan(merchant: dict) -> str:
+    """The plan actually in force for feature-gating purposes.
+
+    Security fix (audit High finding): feature gates previously read
+    `merchant.get("plan")` directly, but a merchant could set that field
+    to any paid tier themselves via activate_subscription with zero
+    payment verification (subscription_status was written alongside it
+    but never actually checked anywhere). This reads subscription
+    VALIDITY — status must be "trial" or "active" AND not past its own
+    expiry — before ever honoring a non-free `plan` value. A merchant
+    whose subscription lapsed, was never admin-verified, or is sitting in
+    "pending_verification" is treated as `free` for gating, regardless of
+    what the `plan` field still says.
+    """
+    plan = merchant.get("plan", "free")
+    if plan == "free":
+        return "free"
+    if merchant.get("subscription_status") not in ("trial", "active"):
+        return "free"
+    expires_at = merchant.get("plan_expires_at")
+    if expires_at:
+        try:
+            exp_dt = datetime.fromisoformat(str(expires_at))
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            if exp_dt < datetime.now(timezone.utc):
+                return "free"
+        except Exception:
+            pass
+    return plan
+
+
 @api.get("/merchant/subscription")
-async def get_subscription(user: dict = Depends(get_current_user)):
+async def get_subscription(user: dict = Depends(merchant_user)):
     merchant = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
     if not merchant:
         raise HTTPException(404, "Merchant not found")
-    plan = merchant.get("plan", "free")
+    plan = _merchant_effective_plan(merchant)
     expires_at = merchant.get("plan_expires_at")
     now = datetime.now(timezone.utc)
     is_expired = False
@@ -8648,6 +8835,7 @@ async def get_subscription(user: dict = Depends(get_current_user)):
             pass
     return {
         "plan": plan,
+        "requested_plan": merchant.get("requested_plan"),
         "status": "expired" if is_expired else merchant.get("subscription_status", "active"),
         "expires_at": expires_at,
         "days_left": days_left,
@@ -8657,18 +8845,53 @@ async def get_subscription(user: dict = Depends(get_current_user)):
 
 
 @api.post("/merchant/subscription/activate")
-async def activate_subscription(payload: dict, user: dict = Depends(get_current_user)):
-    plan = payload.get("plan", "starter")
-    if plan not in ["starter", "growth", "pro"]:
+async def activate_subscription(payload: dict, user: dict = Depends(merchant_user)):
+    """Merchant-initiated subscription action.
+
+    Security fix (audit High finding): this endpoint used to write `plan`
+    directly from client input — immediately granting paid-tier limits —
+    while `subscription_status` was set to "pending_verification" but
+    never actually read by any feature gate (see
+    `_merchant_effective_plan`'s own docstring). Any authenticated
+    merchant could self-grant the top-tier plan for free, indefinitely,
+    with a single POST.
+
+    Now: "basic" is a genuine, self-service, non-paid 30-day TRIAL — a
+    merchant may activate it themselves exactly like before, once,
+    because no money changes hands. Any other (paid) plan request only
+    records `requested_plan` + subscription_status="pending_verification"
+    and notifies admin — it never touches the merchant's actual `plan`
+    until `admin_activate_plan` below (or, in the future, a verified
+    Razorpay payment) does so.
+    """
+    plan = payload.get("plan", "basic")
+    if plan not in PLAN_LIMITS or plan == "free":
         raise HTTPException(400, "Invalid plan")
     now = datetime.now(timezone.utc)
-    expires_at = now + timedelta(days=30)
+
+    if plan == "basic":
+        m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0, "trial_used": 1})
+        if (m or {}).get("trial_used"):
+            raise HTTPException(400, "Trial already used. Request Basic again to have it verified by our team.")
+        expires_at = now + timedelta(days=30)
+        await db.merchants.update_one(
+            {"id": user["sub"]},
+            {"$set": {
+                "plan": "basic",
+                "plan_started_at": now.isoformat(),
+                "plan_expires_at": expires_at.isoformat(),
+                "subscription_status": "trial",
+                "trial_used": True,
+                "requested_plan": None,
+            }}
+        )
+        return {"message": "Your 30-day Basic trial is active.", "status": "trial",
+                "expires_at": expires_at.isoformat()}
+
     await db.merchants.update_one(
         {"id": user["sub"]},
         {"$set": {
-            "plan": plan,
-            "plan_started_at": now.isoformat(),
-            "plan_expires_at": expires_at.isoformat(),
+            "requested_plan": plan,
             "subscription_status": "pending_verification",
             "subscription_payment_ref": payload.get("payment_ref", ""),
             "subscription_requested_at": now.isoformat(),
@@ -8685,7 +8908,7 @@ async def activate_subscription(payload: dict, user: dict = Depends(get_current_
 
 
 @api.get("/merchant/analytics/summary")
-async def merchant_analytics_summary(user: dict = Depends(get_current_user)):
+async def merchant_analytics_summary(user: dict = Depends(merchant_user)):
     merchant_id = user["sub"]
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -8751,7 +8974,7 @@ async def merchant_analytics_summary(user: dict = Depends(get_current_user)):
 
 
 @api.get("/merchant/analytics/report.csv")
-async def merchant_report_csv(period: str = "30d", user: dict = Depends(get_current_user)):
+async def merchant_report_csv(period: str = "30d", user: dict = Depends(merchant_user)):
     start, end = _period_window(period)
     orders = await db.orders.find({
         "merchant_ids": user["sub"],
@@ -8982,8 +9205,12 @@ async def admin_hold(mid: str, body: dict = None, admin: dict = Depends(require_
 
 @api.post("/admin/merchant/{mid}/activate-plan")
 async def admin_activate_plan(mid: str, payload: dict, admin: dict = Depends(require_admin)):
+    """The one legitimate way to grant a merchant a paid plan — after an
+    admin has verified payment (or as a manual comp/override). This is
+    the only write path `_merchant_effective_plan` trusts for a non-trial,
+    non-free plan."""
     plan = payload.get("plan", "starter")
-    if plan not in ["free", "starter", "growth", "pro"]:
+    if plan not in PLAN_LIMITS:
         raise HTTPException(400, "Invalid plan")
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(days=30)
@@ -8994,12 +9221,13 @@ async def admin_activate_plan(mid: str, payload: dict, admin: dict = Depends(req
             "plan_started_at": now.isoformat(),
             "plan_expires_at": expires_at.isoformat(),
             "subscription_status": "active",
+            "requested_plan": None,
         }}
     )
     return {"message": f"Plan {plan} activated for merchant {mid}"}
 
 @api.post("/merchant/kyc/resubmit")
-async def merchant_kyc_resubmit(user: dict = Depends(get_current_user)):
+async def merchant_kyc_resubmit(user: dict = Depends(merchant_user)):
     """Merchant clicks 'I have fixed the issue' — flips kyc_status back to `submitted` for re-review."""
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
     if not m: raise HTTPException(404, "Not found")
@@ -9351,9 +9579,23 @@ async def request_delete_otp(sid: str, admin: dict = Depends(require_admin)):
     await db.admin_otps.update_one({"sid": sid},
         {"$set": {"otp": otp, "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()}},
         upsert=True)
-    # MOCK email — log to console + return in response
+    # MOCK email — no real email-sending integration exists yet, so the OTP
+    # has nowhere else to go. Security fix (audit Medium finding): this
+    # used to unconditionally log the OTP AND return it in the API
+    # response in every environment, defeating the whole point of an
+    # out-of-band verification step for a destructive action — an admin
+    # session (own or hijacked) could self-serve the code instead of
+    # needing actual email access. Gated behind `_IS_PRODUCTION` (see its
+    # own comment near the FastAPI app instantiation — ENVIRONMENT, not
+    # FORCE_HTTPS, is the "are we in production" signal; FORCE_HTTPS is
+    # unrelated and stays scoped to HSTS/secure-cookie behavior) so local
+    # dev keeps working with no real email service, while production
+    # never logs or returns the literal code.
+    if _IS_PRODUCTION:
+        log.warning("[ADMIN OTP] delete-store OTP requested for store '%s' — mock email delivery only, no real send configured", s.get("name"))
+        return {"ok": True, "message": f"OTP sent to {ADMIN_EMAIL}"}
     log.warning("[ADMIN OTP] Email mock to %s: OTP for deleting store '%s' is %s", ADMIN_EMAIL, s.get("name"), otp)
-    return {"ok": True, "otp_demo": otp, "message": f"OTP sent to {ADMIN_EMAIL} (mocked — shown here for demo)"}
+    return {"ok": True, "otp_demo": otp, "message": f"OTP sent to {ADMIN_EMAIL} (mocked — shown here for demo, dev-only)"}
 
 @api.delete("/admin/stores/{sid}")
 async def admin_delete_store(sid: str, body: OtpVerifyDelete, admin: dict = Depends(require_admin)):
@@ -9712,9 +9954,53 @@ async def create_return(oid: str, payload: dict, user: dict = Depends(customer_u
 
 
 @api.get("/returns/{rid}")
-async def get_return(rid: str):
+async def get_return(rid: str, user: dict = Depends(get_current_user)):
+    """Role-aware return lookup. Was previously unauthenticated (security
+    audit finding C-1) — leaked customer_phone, order items, and the
+    reverse-pickup OTP to anyone who obtained a return id.
+
+    Authorization: customer who owns the return; a merchant party to it
+    (merchant_ids); the rider actually assigned to deliver the underlying
+    order for one of this return's merchants (returns pickup has no
+    per-return rider-assignment field of its own — it's still a single-
+    ops-phone WhatsApp broadcast, see admin_return_action — so this reuses
+    the real rider_assignments on the source order rather than inventing a
+    new field); admin, unconditionally.
+
+    OTP exposure: stripped from the response for customer/merchant callers
+    — only admin and the assigned rider (the parties who actually need it
+    to authorize physical pickup) ever see it.
+    """
     r = await db.returns.find_one({"id": rid}, {"_id": 0})
     if not r: raise HTTPException(404, "Return not found")
+
+    role = user.get("role")
+    sub = user.get("sub")
+    authorized = False
+    include_otp = False
+
+    if role == "admin":
+        authorized = True
+        include_otp = True
+    elif role == "customer" and r.get("customer_phone") == sub:
+        authorized = True
+    elif role == "merchant" and sub in (r.get("merchant_ids") or []):
+        authorized = True
+    elif role == "rider":
+        rider = await _active_rider(user)
+        o = await db.orders.find_one({"id": r.get("order_id")}, {"_id": 0, "rider_assignments": 1})
+        assignments = (o or {}).get("rider_assignments") or {}
+        return_merchant_ids = set(r.get("merchant_ids") or [])
+        if any(mid in return_merchant_ids and (a or {}).get("rider_id") == rider["id"]
+               for mid, a in assignments.items()):
+            authorized = True
+            include_otp = True
+
+    if not authorized:
+        raise HTTPException(403, "Not authorized to view this return")
+    if not include_otp:
+        r.pop("otp", None)
+
     if not r.get("timeline"):
         created = r.get("created_at")
         r["timeline"] = [
@@ -9831,7 +10117,7 @@ async def admin_returns_list(status: Optional[str] = None, admin: dict = Depends
 
 
 @api.get("/merchant/returns")
-async def merchant_returns(user: dict = Depends(get_current_user)):
+async def merchant_returns(user: dict = Depends(merchant_user)):
     """Merchant view: return requests for orders that include their items, with customer PII redacted."""
     rs = await db.returns.find({"merchant_ids": user["sub"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
     # Redact customer phone like merchant_orders does
@@ -9841,7 +10127,7 @@ async def merchant_returns(user: dict = Depends(get_current_user)):
 
 
 @api.get("/merchant/analytics/returns")
-async def merchant_returns_analytics(user: dict = Depends(get_current_user)):
+async def merchant_returns_analytics(user: dict = Depends(merchant_user)):
     """Returns rate + reason histogram for the calling merchant."""
     mid = user["sub"]
     delivered_count = await db.orders.count_documents({"merchant_ids": mid, "status": {"$in": ["delivered", "returned"]}})
@@ -9945,7 +10231,7 @@ async def customer_complaints(phone: str, user: dict = Depends(customer_user)):
 
 
 @api.get("/merchant/complaints")
-async def merchant_complaints(user: dict = Depends(get_current_user)):
+async def merchant_complaints(user: dict = Depends(merchant_user)):
     docs = await db.complaints.find({"merchant_ids": user["sub"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
     for d in docs:
         d["customer_phone"] = "(hidden)"
@@ -10107,6 +10393,7 @@ from routes.addresses import init as _init_addresses
 from services.cache_service import cache_service
 from services.payment_service import (create_razorpay_order, refund_payment,
                                        verify_webhook_signature, verify_payment_signature,
+                                       fetch_captured_payment,
                                        is_enabled as razorpay_enabled)
 from services.audit_service import AuditService
 from services.delivery_service import DeliveryService
