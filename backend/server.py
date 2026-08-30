@@ -10099,6 +10099,13 @@ ALLOWED_ADMIN_STORE_FIELDS = {
     "tagline", "story", "banner", "banners", "logo",
     "area", "area_label", "locality", "pincode", "address",
     "timing", "opens_at", "closes_at", "weekly_off", "specialties",
+    # Admin/merchant parity audit — these are all fields the merchant's own
+    # storefront form (POST /merchant/storefront) already lets them set;
+    # they were simply missing from this allowlist (an omission from before
+    # they existed, per iter-29's own area/pincode/lat/lng additions to the
+    # merchant flow — not a deliberate compliance exclusion the way KYC/
+    # bank fields on ALLOWED_ADMIN_MERCHANT_FIELDS are).
+    "banner_public_ids", "logo_public_id", "upi_qr_url", "lat", "lng", "area_slug",
 }
 
 
@@ -10110,12 +10117,28 @@ async def admin_update_store(sid: str, payload: dict, admin: dict = Depends(requ
     fix it via PUT /admin/merchants/{mid} instead, which keeps both in
     sync in one place rather than letting store.name and
     merchant.store_name drift apart.
+
+    `lat`/`lng` mirror storefront_update's own derivation of the `location`
+    GeoJSON point (used by the existing 2dsphere within-radius queries) —
+    updating one without the other would desync them, so both must be
+    present together to change either.
     """
     s = await db.stores.find_one({"id": sid}, {"_id": 0, "id": 1})
     if not s: raise HTTPException(404, "Store not found")
     update = {k: (v.strip() if isinstance(v, str) else v) for k, v in payload.items() if k in ALLOWED_ADMIN_STORE_FIELDS}
     if not update:
         raise HTTPException(400, "No editable fields in payload")
+    if "lat" in update or "lng" in update:
+        if "lat" not in update or "lng" not in update:
+            raise HTTPException(400, "lat and lng must be updated together")
+        try:
+            lat, lng = float(update["lat"]), float(update["lng"])
+        except (TypeError, ValueError):
+            raise HTTPException(400, "lat/lng must be numbers")
+        if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+            raise HTTPException(400, "Invalid coordinates")
+        update["lat"], update["lng"] = lat, lng
+        update["location"] = {"type": "Point", "coordinates": [lng, lat]}
     await db.stores.update_one({"id": sid}, {"$set": update})
     return await db.stores.find_one({"id": sid}, {"_id": 0})
 

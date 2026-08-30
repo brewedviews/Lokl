@@ -28,9 +28,16 @@ import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   ArrowLeft, ExternalLink, FileText, Loader2, Pencil, ShieldCheck,
-  Store as StoreIcon, Package, ClipboardList, History, AlertTriangle,
+  Store as StoreIcon, Package, ClipboardList, Landmark, AlertTriangle,
+  ImagePlus, X, Star,
 } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
+// Merchant/Admin parity audit — reuses the EXACT SAME upload/delete helpers
+// and Bhilai area data the merchant's own storefront page (app/merchant/
+// storefront/page.tsx) uses. No second Cloudinary upload implementation,
+// no duplicated area list.
+import { uploadImage, deleteUploadedImage } from "@/lib/uploads";
+import { BHILAI_AREAS } from "@/data/bhilai-areas";
 // Admin Product Creation feature — genuinely new endpoints, so per
 // lib/legacy-admin.ts's own explicit "DO NOT extend this file with new
 // endpoints — new code must use api-client.ts" rule, these go through the
@@ -96,11 +103,20 @@ interface AdminProduct {
   mrp?: number | null;
   l1_id?: string;
   l2_id?: string;
+  gender?: string;
+  brand_id?: string | null;
   image?: string;
   images?: string[];
+  image_public_id?: string;
+  image_public_ids?: string[];
   paused?: boolean;
+  sizes?: string[];
   stock?: Record<string, number>;
   total_stock?: number;
+  size_type?: string;
+  return_eligible?: boolean;
+  return_window_hours?: number | null;
+  try_at_doorstep?: boolean;
   store_id: string;
   updated_at?: string;
   created_at?: string;
@@ -113,8 +129,12 @@ interface AdminStore {
   tagline?: string;
   story?: string;
   banner?: string;
+  banners?: string[];
+  banner_public_ids?: string[];
   logo?: string;
+  logo_public_id?: string;
   area?: string;
+  area_slug?: string;
   area_label?: string;
   locality?: string;
   pincode?: string;
@@ -124,6 +144,9 @@ interface AdminStore {
   closes_at?: string;
   weekly_off?: string[];
   specialties?: string[];
+  upi_qr_url?: string;
+  lat?: number;
+  lng?: number;
   online?: boolean;
   paused?: boolean;
   published?: boolean;
@@ -148,7 +171,7 @@ interface ChangeRequest {
   new_values?: Record<string, unknown>;
 }
 
-type Section = "overview" | "store" | "products" | "kyc" | "activity";
+type Section = "overview" | "storefront" | "products" | "kyc" | "bank";
 
 // ---------------------------------------------------------------------
 // Status presentation — one place that turns raw fields into a label +
@@ -271,12 +294,18 @@ export default function MerchantDetailPage() {
   const warnings = qualityWarnings(merchant, store);
   const initial = (merchant.store_name || merchant.owner_name || "M").trim().charAt(0).toUpperCase();
 
-  const SECTIONS: Array<{ id: Section; label: string; icon: React.ComponentType<{ size?: number }> }> = [
+  // Admin merchant UI reorganization — pending-count badges give a
+  // glanceable "does this need my attention" signal on the tab bar itself
+  // (Products already had one; KYC/Bank previously had none, so a
+  // submitted KYC or a pending bank change could sit unnoticed until an
+  // admin happened to click in).
+  const pendingBankChanges = changeRequests.filter((cr) => cr.status === "submitted").length;
+  const SECTIONS: Array<{ id: Section; label: string; icon: React.ComponentType<{ size?: number }>; badge?: number }> = [
     { id: "overview", label: "Overview", icon: ClipboardList },
-    { id: "store", label: "Store", icon: StoreIcon },
-    { id: "products", label: "Products", icon: Package },
-    { id: "kyc", label: "KYC", icon: ShieldCheck },
-    { id: "activity", label: "Activity", icon: History },
+    { id: "storefront", label: "Storefront", icon: StoreIcon },
+    { id: "products", label: "Products", icon: Package, badge: store?.products?.length || undefined },
+    { id: "kyc", label: "KYC & Verification", icon: ShieldCheck, badge: merchant.kyc_status === "submitted" ? 1 : undefined },
+    { id: "bank", label: "Bank & Payout", icon: Landmark, badge: pendingBankChanges || undefined },
   ];
 
   return (
@@ -332,21 +361,34 @@ export default function MerchantDetailPage() {
         {SECTIONS.map((s) => {
           const Icon = s.icon;
           const active = section === s.id;
+          // "products" keeps its plain grey count (informational, not
+          // action-needed); kyc/bank badges are amber — they mean
+          // "something is waiting on you".
+          const isActionBadge = s.id === "kyc" || s.id === "bank";
           return (
             <button key={s.id} onClick={() => setSection(s.id)} data-testid={`merchant-section-${s.id}`}
               className={`inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold whitespace-nowrap border-b-2 ${active ? "border-[#E68910] text-[#0A1F5C]" : "border-transparent text-[#595959] hover:text-[#0A1F5C]"}`}>
               <Icon size={13} /> {s.label}
-              {s.id === "products" && store?.products?.length ? <span className="text-[10px] text-[#94A3B8]">({store.products.length})</span> : null}
+              {!!s.badge && (
+                <span
+                  data-testid={`merchant-section-badge-${s.id}`}
+                  className={isActionBadge
+                    ? "text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#E68910] text-white"
+                    : "text-[10px] text-[#94A3B8]"}
+                >
+                  {isActionBadge ? s.badge : `(${s.badge})`}
+                </span>
+              )}
             </button>
           );
         })}
       </div>
 
       {section === "overview" && <OverviewSection merchant={merchant} store={store} onReload={load} />}
-      {section === "store" && <StoreSection store={store} onEdit={() => setEditingStore(true)} onReload={load} />}
+      {section === "storefront" && <StorefrontSection store={store} onEdit={() => setEditingStore(true)} onReload={load} />}
       {section === "products" && <ProductsSection store={store} merchantId={merchant.id} onReload={load} />}
       {section === "kyc" && <KycSection merchant={merchant} onReload={load} />}
-      {section === "activity" && <ActivitySection changeRequests={changeRequests} />}
+      {section === "bank" && <BankPayoutSection merchant={merchant} changeRequests={changeRequests} onReload={load} />}
 
       {editingMerchant && (
         <EditMerchantModal merchant={merchant} onClose={() => setEditingMerchant(false)} onSaved={() => { setEditingMerchant(false); void load(); }} />
@@ -455,9 +497,9 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
 }
 
 // ---------------------------------------------------------------------
-// Store section
+// Storefront section
 // ---------------------------------------------------------------------
-function StoreSection({ store, onEdit, onReload }: { store: AdminStore | null; onEdit: () => void; onReload: () => void }) {
+function StorefrontSection({ store, onEdit, onReload }: { store: AdminStore | null; onEdit: () => void; onReload: () => void }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
@@ -465,7 +507,7 @@ function StoreSection({ store, onEdit, onReload }: { store: AdminStore | null; o
 
   if (!store) {
     return (
-      <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]" data-testid="store-section-empty">
+      <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]" data-testid="storefront-section-empty">
         This merchant hasn&apos;t set up a storefront yet.
       </div>
     );
@@ -493,7 +535,7 @@ function StoreSection({ store, onEdit, onReload }: { store: AdminStore | null; o
   };
 
   return (
-    <div className="space-y-4" data-testid="store-section">
+    <div className="space-y-4" data-testid="storefront-section">
       <div className="bg-white border border-[#E5E2DC] rounded-2xl p-4">
         <div className="flex items-start justify-between gap-3 mb-3">
           <h3 className="text-xs font-bold uppercase tracking-widest text-[#595959]">Store content</h3>
@@ -507,6 +549,9 @@ function StoreSection({ store, onEdit, onReload }: { store: AdminStore | null; o
           <Row label="Address" value={store.address || "—"} />
           <Row label="Timing" value={store.timing || `${store.opens_at || "—"} – ${store.closes_at || "—"}`} />
           <Row label="Weekly off" value={(store.weekly_off || []).join(", ") || "None"} />
+          <Row label="Cover images" value={String((store.banners || (store.banner ? [store.banner] : [])).length)} />
+          <Row label="UPI QR" value={store.upi_qr_url ? "Set ✓" : "Not set"} />
+          <Row label="Location pinned" value={store.lat != null && store.lng != null ? `${store.lat.toFixed(5)}, ${store.lng.toFixed(5)}` : "—"} />
           <Row label="Products" value={String(store.product_count ?? store.products?.length ?? 0)} />
         </div>
         {store.story && (
@@ -670,7 +715,17 @@ function ProductsSection({ store, merchantId, onReload }: { store: AdminStore | 
       )}
 
       {editing && (
-        <EditProductModal product={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); onReload(); }} />
+        <ProductForm
+          mode="edit"
+          cats={cats}
+          initialProduct={editing}
+          onSubmit={async (body: ProductFormBody) => {
+            await adminFetch(`/api/admin/products/${editing.id}`, { method: "PUT", body: JSON.stringify(body) });
+            toast.success("Product updated");
+            onReload();
+          }}
+          onClose={() => setEditing(null)}
+        />
       )}
 
       {showAddProduct && (
@@ -764,16 +819,15 @@ function KycSection({ merchant, onReload }: { merchant: Merchant; onReload: () =
           <Row label="Business address" value={merchant.business_address || "—"} />
           <Row label="PAN" value={merchant.pan_number || "—"} mono />
           <Row label="GST" value={merchant.gst_number || "—"} mono />
-          <Row label="Bank account" value={merchant.bank_account_number || "—"} mono />
-          <Row label="IFSC" value={merchant.bank_ifsc || "—"} mono />
-          <Row label="Account holder" value={merchant.account_holder_name || "—"} />
           <Row label="Submitted" value={fmtDate(merchant.kyc_submitted_at)} />
         </div>
 
+        {/* Bank fields/documents live in the dedicated "Bank & Payout" tab
+            now — see BankPayoutSection. Only identity/verification
+            documents (PAN, GST) stay here. */}
         <div className="flex items-center gap-2 mb-3">
           <button onClick={() => openDoc("pan_doc")} data-testid="kyc-doc-pan" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[#E5E2DC] hover:border-[#0A1F5C]"><FileText size={11} /> PAN <ExternalLink size={10} /></button>
           <button onClick={() => openDoc("gst_doc")} data-testid="kyc-doc-gst" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[#E5E2DC] hover:border-[#0A1F5C]"><FileText size={11} /> GST</button>
-          <button onClick={() => openDoc("cancelled_cheque")} data-testid="kyc-doc-cheque" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[#E5E2DC] hover:border-[#0A1F5C]"><FileText size={11} /> Cheque</button>
         </div>
 
         {merchant.kyc_status === "rejected" && (
@@ -855,27 +909,123 @@ function KycSection({ merchant, onReload }: { merchant: Merchant; onReload: () =
 }
 
 // ---------------------------------------------------------------------
-// Activity section — bank/address change requests scoped to this
-// merchant, reusing the existing GET /admin/change-requests data (no new
-// endpoint) filtered client-side.
+// Bank & Payout section — merchant/admin capability-parity audit. Two
+// things that used to live in different, poorly-labeled tabs, now
+// together under the name an admin would actually look for:
+//   1. The merchant's currently COMMITTED bank details (previously shown,
+//      confusingly, as plain Rows inside the KYC tab) + the cancelled
+//      cheque document link (same signed-URL mechanism KYC's own PAN/GST
+//      doc buttons already use — no new endpoint).
+//   2. Pending bank (and, generically, any other) change requests and
+//      their approve/reject actions — previously the "Activity" tab,
+//      whose name gave no hint this is where bank-detail approvals
+//      happen. Reuses the exact same POST /admin/change-requests/{id}/
+//      approve|reject endpoints unchanged; nothing about the review
+//      workflow itself changed, only where it's surfaced.
+// Committed bank fields are intentionally NOT editable here — same
+// "reviewed via approve/reject, not free-text-edited" rule
+// admin_update_merchant's own docstring documents for KYC fields.
 // ---------------------------------------------------------------------
-function ActivitySection({ changeRequests }: { changeRequests: ChangeRequest[] }) {
-  if (changeRequests.length === 0) {
-    return <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]" data-testid="activity-empty">No bank/address change requests from this merchant.</div>;
-  }
+function BankPayoutSection({ merchant, changeRequests, onReload }: { merchant: Merchant; changeRequests: ChangeRequest[]; onReload: () => void }) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+
+  const openChequeDoc = async () => {
+    try {
+      const r = await adminFetch<{ url: string }>(`/api/admin/kyc/${merchant.id}/signed-url?doc=cancelled_cheque`);
+      window.open(r.url, "_blank", "noopener,noreferrer");
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  };
+
+  const approve = async (cr: ChangeRequest) => {
+    setBusyId(cr.id);
+    try {
+      await adminFetch(`/api/admin/change-requests/${cr.id}/approve`, { method: "POST" });
+      toast.success(`${cr.change_type} change approved`);
+      onReload();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setBusyId(null); }
+  };
+  const confirmReject = async (cr: ChangeRequest) => {
+    setBusyId(cr.id);
+    try {
+      await adminFetch(`/api/admin/change-requests/${cr.id}/reject`, {
+        method: "POST", body: JSON.stringify({ reason: reason.trim() || undefined }),
+      });
+      toast.success(`${cr.change_type} change rejected`);
+      setRejectingId(null); setReason("");
+      onReload();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setBusyId(null); }
+  };
+
   return (
-    <div className="space-y-2" data-testid="activity-section">
-      {changeRequests.map((cr) => (
-        <div key={cr.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-3.5 flex items-center justify-between gap-3" data-testid={`activity-row-${cr.id}`}>
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-[#0A1F5C] capitalize">{cr.change_type} change request</div>
-            <div className="text-xs text-[#595959] mt-0.5">{fmtDate(cr.created_at)}</div>
-          </div>
-          <span className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded-full shrink-0 ${
-            cr.status === "approved" ? "bg-green-100 text-green-700" : cr.status === "rejected" ? "bg-red-100 text-red-600" : "bg-[#E68910]/15 text-[#E68910]"
-          }`}>{cr.status}</span>
+    <div className="space-y-4" data-testid="bank-payout-section">
+      <div className="bg-white border border-[#E5E2DC] rounded-2xl p-4">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-[#595959] mb-3">Committed bank details</h3>
+        <div className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm mb-3">
+          <Row label="Account holder" value={merchant.account_holder_name || "—"} />
+          <Row label="Account number" value={merchant.bank_account_number || "—"} mono />
+          <Row label="IFSC" value={merchant.bank_ifsc || "—"} mono />
         </div>
-      ))}
+        <button onClick={openChequeDoc} data-testid="bank-doc-cheque" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-[#E5E2DC] hover:border-[#0A1F5C]">
+          <FileText size={11} /> Cancelled cheque <ExternalLink size={10} />
+        </button>
+        <p className="text-[11px] text-[#94A3B8] mt-3">
+          These are only changed via the approve/reject flow below — never free-text-edited here.
+        </p>
+      </div>
+
+      <div>
+        <h3 className="text-xs font-bold uppercase tracking-widest text-[#595959] mb-3">Change requests</h3>
+        {changeRequests.length === 0 ? (
+          <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]" data-testid="bank-requests-empty">No bank change requests from this merchant.</div>
+        ) : (
+          <div className="space-y-2" data-testid="bank-requests-list">
+            {changeRequests.map((cr) => (
+        <div key={cr.id} className="bg-white border border-[#E5E2DC] rounded-2xl p-3.5" data-testid={`bank-request-row-${cr.id}`}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-[#0A1F5C] capitalize">{cr.change_type} change request</div>
+              <div className="text-xs text-[#595959] mt-0.5">{fmtDate(cr.created_at)}</div>
+            </div>
+            <span className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded-full shrink-0 ${
+              cr.status === "approved" ? "bg-green-100 text-green-700" : cr.status === "rejected" ? "bg-red-100 text-red-600" : "bg-[#E68910]/15 text-[#E68910]"
+            }`}>{cr.status}</span>
+          </div>
+          {cr.new_values && (
+            <div className="mt-2 pt-2 border-t border-[#F0EFED] grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              {Object.entries(cr.new_values).map(([k, v]) => (
+                <div key={k}><span className="text-[#94A3B8]">{k}:</span> <span className="font-mono text-[#1A2B4C]">{String(v)}</span></div>
+              ))}
+            </div>
+          )}
+          {cr.status === "submitted" && (
+            <div className="mt-3 flex items-center gap-2">
+              <button onClick={() => approve(cr)} disabled={busyId === cr.id} data-testid={`bank-request-approve-${cr.id}`}
+                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#4F7363] text-white disabled:opacity-50">Approve</button>
+              <button onClick={() => setRejectingId(cr.id)} disabled={busyId === cr.id} data-testid={`bank-request-reject-${cr.id}`}
+                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-50">Reject</button>
+            </div>
+          )}
+          {rejectingId === cr.id && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl space-y-2">
+              <label className="block text-[10px] uppercase tracking-widest font-semibold text-[#0A1F5C]">Reason (optional)</label>
+              <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} data-testid={`bank-request-reject-reason-${cr.id}`}
+                className="w-full px-3 py-2 rounded-lg border border-[#E5E2DC] text-sm bg-white focus:border-[#0A1F5C] outline-none" />
+              <div className="flex items-center justify-end gap-2">
+                <button onClick={() => { setRejectingId(null); setReason(""); }} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC] text-[#595959]">Cancel</button>
+                <button onClick={() => confirmReject(cr)} disabled={busyId === cr.id} data-testid={`bank-request-reject-confirm-${cr.id}`}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold bg-red-500 text-white disabled:opacity-40">{busyId === cr.id ? "Saving…" : "Confirm reject"}</button>
+              </div>
+            </div>
+          )}
+        </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -965,27 +1115,94 @@ function EditMerchantModal({ merchant, onClose, onSaved }: { merchant: Merchant;
 // ---------------------------------------------------------------------
 // Edit Store modal — PUT /admin/stores/{id}
 // ---------------------------------------------------------------------
+const WEEKLY_OFF_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// Merchant/Admin parity audit — every field here is one the merchant's own
+// storefront form (app/merchant/storefront/page.tsx) already lets them
+// set. Image upload/delete reuses uploadImage()/deleteUploadedImage()
+// (same /merchant/upload-image endpoint, already admin-accessible) with
+// the SAME deferred-delete pattern the merchant page uses: removing a
+// banner only queues its public_id, the actual Cloudinary delete fires
+// only after the save actually succeeds — never eagerly, never silently
+// via a stale-array diff (see the image-deletion-safety hardening this
+// endpoint's PUT handler already relies on for products).
 function EditStoreModal({ store, onClose, onSaved }: { store: AdminStore; onClose: () => void; onSaved: () => void }) {
   const [tagline, setTagline] = useState(store.tagline || "");
   const [story, setStory] = useState(store.story || "");
   const [address, setAddress] = useState(store.address || "");
+  const [areaSlug, setAreaSlug] = useState(store.area_slug || "");
   const [areaLabel, setAreaLabel] = useState(store.area_label || store.locality || "");
   const [pincode, setPincode] = useState(store.pincode || "");
   const [opensAt, setOpensAt] = useState(store.opens_at || "10:00");
   const [closesAt, setClosesAt] = useState(store.closes_at || "18:00");
+  const [weeklyOff, setWeeklyOff] = useState<string[]>(store.weekly_off || []);
+  const [lat, setLat] = useState(store.lat != null ? String(store.lat) : "");
+  const [lng, setLng] = useState(store.lng != null ? String(store.lng) : "");
+  const [banners, setBanners] = useState<string[]>(store.banners || (store.banner ? [store.banner] : []));
+  const [bannerPublicIds, setBannerPublicIds] = useState<string[]>(store.banner_public_ids || []);
+  const [upiQrUrl, setUpiQrUrl] = useState(store.upi_qr_url || "");
+  const [pendingDeletePublicIds, setPendingDeletePublicIds] = useState<string[]>([]);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [uploadingQr, setUploadingQr] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const onPickArea = (slug: string) => {
+    setAreaSlug(slug);
+    const a = BHILAI_AREAS.find((x) => x.slug === slug);
+    if (a) {
+      setAreaLabel(a.label);
+      setPincode(a.pincode);
+      if (!lat) setLat(a.lat.toFixed(6));
+      if (!lng) setLng(a.lng.toFixed(6));
+    }
+  };
+
+  const pickBanner = async (file: File | null) => {
+    if (!file) return;
+    if (banners.length >= 5) return toast.error("Up to 5 banners");
+    setUploadingBanner(true);
+    try {
+      const { image_url, public_id } = await uploadImage(file, "store_banner");
+      setBanners((b) => [...b, image_url]);
+      setBannerPublicIds((p) => [...p, public_id]);
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setUploadingBanner(false); }
+  };
+  const removeBanner = (idx: number) => {
+    const pid = bannerPublicIds[idx];
+    setBanners((b) => b.filter((_, i) => i !== idx));
+    setBannerPublicIds((p) => p.filter((_, i) => i !== idx));
+    if (pid) setPendingDeletePublicIds((ids) => [...ids, pid]);
+  };
+  const pickQr = async (file: File | null) => {
+    if (!file) return;
+    setUploadingQr(true);
+    try {
+      const { image_url } = await uploadImage(file, "store_banner");
+      setUpiQrUrl(image_url);
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+    finally { setUploadingQr(false); }
+  };
+
   const save = async () => {
+    if ((lat && !lng) || (!lat && lng)) return toast.error("Set both latitude and longitude, or neither");
     setBusy(true);
     try {
-      await adminFetch(`/api/admin/stores/${store.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          tagline: tagline.trim(), story: story.trim(), address: address.trim(),
-          area_label: areaLabel.trim(), pincode: pincode.trim(),
-          opens_at: opensAt, closes_at: closesAt,
-        }),
-      });
+      const body: Record<string, unknown> = {
+        tagline: tagline.trim(), story: story.trim(), address: address.trim(),
+        area_slug: areaSlug, area_label: areaLabel.trim(), pincode: pincode.trim(),
+        opens_at: opensAt, closes_at: closesAt, weekly_off: weeklyOff,
+        banners, banner_public_ids: bannerPublicIds,
+        banner: banners[0] || "", logo: banners[0] || "",
+        upi_qr_url: upiQrUrl,
+      };
+      if (lat && lng) { body.lat = Number(lat); body.lng = Number(lng); }
+      await adminFetch(`/api/admin/stores/${store.id}`, { method: "PUT", body: JSON.stringify(body) });
+      // Only now — once the save is confirmed persisted — delete any
+      // banners removed during this session. Same deferred pattern as the
+      // merchant's own storefront page: removing-then-discarding (closing
+      // this modal without saving) never touches Cloudinary.
+      for (const pid of pendingDeletePublicIds) void deleteUploadedImage(pid);
       toast.success("Store updated");
       onSaved();
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
@@ -996,17 +1213,81 @@ function EditStoreModal({ store, onClose, onSaved }: { store: AdminStore; onClos
     <ModalShell title="Edit store" onClose={onClose} wide>
       <div className="grid sm:grid-cols-2 gap-3">
         <Field label="Tagline"><input value={tagline} onChange={(e) => setTagline(e.target.value)} data-testid="edit-store-tagline" className={inputCls} /></Field>
-        <Field label="Area label"><input value={areaLabel} onChange={(e) => setAreaLabel(e.target.value)} data-testid="edit-store-area" className={inputCls} /></Field>
+        <Field label="Area">
+          <select value={areaSlug} onChange={(e) => onPickArea(e.target.value)} data-testid="edit-store-area-slug" className={inputCls}>
+            <option value="">Select area</option>
+            {BHILAI_AREAS.map((a) => <option key={a.slug} value={a.slug}>{a.label} — {a.pincode}</option>)}
+          </select>
+        </Field>
+        <Field label="Area label (display)"><input value={areaLabel} onChange={(e) => setAreaLabel(e.target.value)} data-testid="edit-store-area" className={inputCls} /></Field>
         <Field label="Pincode"><input value={pincode} onChange={(e) => setPincode(e.target.value)} data-testid="edit-store-pincode" className={inputCls} /></Field>
         <div className="grid grid-cols-2 gap-2">
           <Field label="Opens"><input type="time" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} data-testid="edit-store-opens" className={inputCls} /></Field>
           <Field label="Closes"><input type="time" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} data-testid="edit-store-closes" className={inputCls} /></Field>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Latitude"><input type="number" step="any" value={lat} onChange={(e) => setLat(e.target.value)} data-testid="edit-store-lat" className={inputCls} /></Field>
+          <Field label="Longitude"><input type="number" step="any" value={lng} onChange={(e) => setLng(e.target.value)} data-testid="edit-store-lng" className={inputCls} /></Field>
         </div>
         <div className="sm:col-span-2">
           <Field label="Address"><input value={address} onChange={(e) => setAddress(e.target.value)} data-testid="edit-store-address" className={inputCls} /></Field>
         </div>
         <div className="sm:col-span-2">
           <Field label="Description"><textarea value={story} onChange={(e) => setStory(e.target.value)} rows={3} data-testid="edit-store-story" className={inputCls} /></Field>
+        </div>
+        <div className="sm:col-span-2">
+          <div className="text-[11px] font-semibold uppercase tracking-widest text-[#595959] mb-1.5">Weekly off days</div>
+          <div className="flex flex-wrap gap-2">
+            {WEEKLY_OFF_DAYS.map((day) => {
+              const selected = weeklyOff.includes(day);
+              return (
+                <button key={day} type="button" data-testid={`edit-store-weekly-off-${day}`}
+                  onClick={() => setWeeklyOff((w) => selected ? w.filter((d) => d !== day) : [...w, day])}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${selected ? "bg-[#0A1F5C] text-white border-[#0A1F5C]" : "bg-white text-[#595959] border-[#E5E2DC]"}`}>
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="sm:col-span-2">
+          <div className="text-[11px] font-semibold uppercase tracking-widest text-[#595959] mb-1.5">Cover images (up to 5)</div>
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+            {banners.map((b, i) => (
+              <div key={i} className="relative aspect-[4/3] rounded-xl overflow-hidden bg-[#FDFBF7] border border-[#E5E2DC]" data-testid={`edit-store-banner-${i}`}>
+                <img src={b} alt={`banner ${i + 1}`} className="w-full h-full object-cover" />
+                <button type="button" onClick={() => removeBanner(i)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white/95 shadow flex items-center justify-center hover:bg-red-100">
+                  <X size={11} className="text-red-500" />
+                </button>
+                {i === 0 && <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-full bg-[#0A1F5C] text-white text-[8px] font-bold flex items-center gap-0.5"><Star size={7} /> COVER</div>}
+              </div>
+            ))}
+            {banners.length < 5 && (
+              <label className="aspect-[4/3] rounded-xl border-2 border-dashed border-[#E5E2DC] hover:border-[#0A1F5C] flex flex-col items-center justify-center gap-1 cursor-pointer text-[#595959] text-[10px]">
+                {uploadingBanner ? <Loader2 size={16} className="animate-spin" /> : <><ImagePlus size={16} /><span>Upload</span></>}
+                <input data-testid="edit-store-banner-upload" type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingBanner}
+                  onChange={(e) => { void pickBanner(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+              </label>
+            )}
+          </div>
+        </div>
+        <div className="sm:col-span-2">
+          <div className="text-[11px] font-semibold uppercase tracking-widest text-[#595959] mb-1.5">UPI QR code</div>
+          <div className="flex items-center gap-3">
+            {upiQrUrl && (
+              <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-[#E5E2DC]">
+                <img src={upiQrUrl} alt="UPI QR" className="w-full h-full object-cover" />
+                <button type="button" onClick={() => setUpiQrUrl("")} className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/70 text-white flex items-center justify-center"><X size={10} /></button>
+              </div>
+            )}
+            {!upiQrUrl && (
+              <label className="w-16 h-16 rounded-lg border-2 border-dashed border-[#E5E2DC] hover:border-[#0A1F5C] flex items-center justify-center cursor-pointer text-[#595959]">
+                {uploadingQr ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
+                <input data-testid="edit-store-qr-upload" type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingQr}
+                  onChange={(e) => { void pickQr(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+              </label>
+            )}
+          </div>
         </div>
       </div>
       <div className="flex items-center justify-end gap-2 mt-5">
@@ -1017,55 +1298,3 @@ function EditStoreModal({ store, onClose, onSaved }: { store: AdminStore; onClos
   );
 }
 
-// ---------------------------------------------------------------------
-// Edit Product modal — PUT /admin/products/{id}, reusing the exact
-// field-handling the merchant product editor's own backend uses.
-// ---------------------------------------------------------------------
-function EditProductModal({ product, onClose, onSaved }: { product: AdminProduct; onClose: () => void; onSaved: () => void }) {
-  const [name, setName] = useState(product.name);
-  const [description, setDescription] = useState(product.description || "");
-  const [price, setPrice] = useState(String(product.price));
-  const [mrp, setMrp] = useState(product.mrp ? String(product.mrp) : "");
-  const [paused, setPaused] = useState(!!product.paused);
-  const [busy, setBusy] = useState(false);
-
-  const save = async () => {
-    if (!name.trim()) { toast.error("Name cannot be empty"); return; }
-    const priceNum = Number(price);
-    if (!priceNum || priceNum <= 0) { toast.error("Enter a valid price"); return; }
-    setBusy(true);
-    try {
-      await adminFetch(`/api/admin/products/${product.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          name: name.trim(), description: description.trim(),
-          price: priceNum, mrp: mrp ? Number(mrp) : null,
-          paused,
-        }),
-      });
-      toast.success("Product updated");
-      onSaved();
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <ModalShell title="Edit product" onClose={onClose} wide>
-      <div className="grid sm:grid-cols-2 gap-3">
-        <div className="sm:col-span-2"><Field label="Title"><input value={name} onChange={(e) => setName(e.target.value)} data-testid="edit-product-name" className={inputCls} /></Field></div>
-        <Field label="Price (₹)"><input type="number" value={price} onChange={(e) => setPrice(e.target.value)} data-testid="edit-product-price" className={inputCls} /></Field>
-        <Field label="MRP (₹)"><input type="number" value={mrp} onChange={(e) => setMrp(e.target.value)} data-testid="edit-product-mrp" className={inputCls} /></Field>
-        <div className="sm:col-span-2"><Field label="Description"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} data-testid="edit-product-description" className={inputCls} /></Field></div>
-        <label className="inline-flex items-center gap-2 text-xs font-semibold text-[#0A1F5C]">
-          <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} data-testid="edit-product-paused" className="h-3.5 w-3.5 accent-[#0A1F5C]" />
-          Paused (hidden from customers)
-        </label>
-      </div>
-      <p className="text-[11px] text-[#94A3B8] mt-3">Images, category and stock-by-size are best edited from the merchant&apos;s own product form (richer image/variant tooling); this covers the quick content fixes admin needs most.</p>
-      <div className="flex items-center justify-end gap-2 mt-5">
-        <button onClick={onClose} className="px-4 py-2 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC]">Cancel</button>
-        <button onClick={save} disabled={busy} data-testid="edit-product-save" className="px-4 py-2 rounded-full text-xs font-semibold bg-[#0A1F5C] text-white disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
-      </div>
-    </ModalShell>
-  );
-}
