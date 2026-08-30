@@ -3870,6 +3870,77 @@ async def _area_store_counts(slugs: list) -> dict:
     return {r["_id"]: r["n"] for r in rows if r["_id"]}
 
 
+# Taxonomy order (see seed_data.L1_CATEGORIES' own `order` field) — the
+# deterministic tie-breaker below when two categories have an equal
+# product count for a store. Database/aggregation result order is NOT
+# stable and must never be used to pick a winner.
+_L1_ORDER_BY_ID = {c["id"]: c.get("order", 999) for c in L1_CATEGORIES}
+_L1_NAME_BY_ID = {c["id"]: c["name"] for c in L1_CATEGORIES}
+
+
+async def _store_offer_rollup(store_ids: list) -> dict:
+    """Real, query-time merchandising signals for store discovery cards —
+    max_discount_percent, starting_price, a correct visible product_count,
+    and primary_category — computed fresh via 2 aggregations total
+    (regardless of how many stores are being listed), never denormalized
+    onto the store doc. Mirrors _category_min_prices'/_area_store_counts'
+    own "single aggregation, not N+1" pattern.
+
+    Query-time (not denormalized) is the deliberate choice here: every one
+    of these values already needs `_visible_product_filter()` (excludes
+    paused + is_deleted) applied fresh to be trustworthy, and computing
+    that at read time means zero staleness risk and zero new write-path
+    hooks to keep in sync across the ~4 places a product's price/mrp/
+    paused state can change — a denormalized field would need every one
+    of those to also recompute this rollup, which is exactly the kind of
+    drift this codebase's own `product_count` field has already fallen
+    into (see admin_rollback_bulk_import's recompute call, which omits
+    is_deleted — a soft-deleted-but-not-paused product still counts there;
+    a pre-existing, separate issue this function does NOT inherit since it
+    filters via `_visible_product_filter()` fresh every time)."""
+    if not store_ids:
+        return {}
+    base_match = {**_visible_product_filter(), "store_id": {"$in": store_ids}}
+    rollup_rows = await db.products.aggregate([
+        {"$match": base_match},
+        {"$group": {
+            "_id": "$store_id",
+            "max_discount_percent": {"$max": "$discount_percent"},
+            "starting_price": {"$min": "$price"},
+            "product_count": {"$sum": 1},
+        }},
+    ]).to_list(len(store_ids))
+
+    category_rows = await db.products.aggregate([
+        {"$match": {**base_match, "l1_id": {"$nin": [None, ""]}}},
+        {"$group": {"_id": {"store_id": "$store_id", "l1_id": "$l1_id"}, "n": {"$sum": 1}}},
+    ]).to_list(len(store_ids) * max(len(L1_CATEGORIES), 1) + 10)
+
+    # Winning category per store: highest count first; ties broken by the
+    # category's own taxonomy `order` (lower wins) — deterministic
+    # regardless of aggregation result ordering.
+    best_category: dict[str, tuple] = {}
+    for r in category_rows:
+        sid, l1_id, n = r["_id"]["store_id"], r["_id"]["l1_id"], r["n"]
+        rank = (-n, _L1_ORDER_BY_ID.get(l1_id, 999), l1_id)
+        if sid not in best_category or rank < best_category[sid][0]:
+            best_category[sid] = (rank, l1_id)
+
+    result: dict[str, dict] = {}
+    for r in rollup_rows:
+        sid = r["_id"]
+        if not sid: continue
+        entry = {
+            "max_discount_percent": r.get("max_discount_percent") or 0,
+            "starting_price": r.get("starting_price"),
+            "product_count": r.get("product_count") or 0,
+        }
+        cat = best_category.get(sid)
+        entry["primary_category"] = _L1_NAME_BY_ID.get(cat[1]) if cat else None
+        result[sid] = entry
+    return result
+
+
 # DEPRECATED — replaced by _store_availability(). Do not use.
 def _is_store_open_now(store: dict) -> tuple[bool, str | None]:
     """Returns (is_open, next_open_label). 30-min buffer after opens_at and before closes_at.
@@ -4151,6 +4222,7 @@ async def list_stores(city: Optional[str] = None, area: Optional[str] = None, li
     if area: q["area_slug"] = area
     stores = await db.stores.find(q, {"_id": 0, "banner_images": 0}).to_list(limit)
     stores = _attach_distance_and_eta(stores, lat, lng)
+    rollup = await _store_offer_rollup([s["id"] for s in stores])
     for s in stores:
         avail = _store_availability(s)
         s["badge"] = avail["badge"]
@@ -4159,6 +4231,11 @@ async def list_stores(city: Optional[str] = None, area: Optional[str] = None, li
         s["availability_rank"] = avail["rank"]
         if avail.get("opens_at_label"):
             s["next_open_label"] = avail["opens_at_label"]
+        r = rollup.get(s["id"])
+        s["max_discount_percent"] = r["max_discount_percent"] if r else 0
+        s["starting_price"] = r["starting_price"] if r else None
+        s["product_count"] = r["product_count"] if r else 0
+        s["primary_category"] = r["primary_category"] if r else None
     stores.sort(key=lambda s: (
         s.get("availability_rank", 4),
         s.get("distance_km") if s.get("distance_km") is not None else 9999
@@ -4172,6 +4249,7 @@ async def feed_nearby_stores(lat: float, lng: float, limit: int = 10):
     await _refresh_test_account_merchant_ids()
     stores = await db.stores.find(_visible_store_filter(), {"_id": 0, "banner_images": 0}).to_list(200)
     stores = _attach_distance_and_eta(stores, lat, lng)
+    rollup = await _store_offer_rollup([s["id"] for s in stores])
     for s in stores:
         avail = _store_availability(s)
         s["badge"] = avail["badge"]
@@ -4180,6 +4258,11 @@ async def feed_nearby_stores(lat: float, lng: float, limit: int = 10):
         s["availability_rank"] = avail["rank"]
         if avail.get("opens_at_label"):
             s["next_open_label"] = avail["opens_at_label"]
+        r = rollup.get(s["id"])
+        s["max_discount_percent"] = r["max_discount_percent"] if r else 0
+        s["starting_price"] = r["starting_price"] if r else None
+        s["product_count"] = r["product_count"] if r else 0
+        s["primary_category"] = r["primary_category"] if r else None
     stores = [s for s in stores if s.get("distance_km") is not None]
     stores.sort(key=lambda s: (
         s.get("availability_rank", 4),
@@ -4204,6 +4287,7 @@ async def feed_popular_stores(limit: int = 10, lat: Optional[float] = None, lng:
         for it in (o.get("items") or []):
             sid = it.get("store_id")
             if sid: counts[sid] = counts.get(sid, 0) + 1
+    rollup = await _store_offer_rollup([s["id"] for s in stores])
     for s in stores:
         s["orders_30d"] = counts.get(s["id"], 0)
         avail = _store_availability(s)
@@ -4213,6 +4297,11 @@ async def feed_popular_stores(limit: int = 10, lat: Optional[float] = None, lng:
         s["availability_rank"] = avail["rank"]
         if avail.get("opens_at_label"):
             s["next_open_label"] = avail["opens_at_label"]
+        r = rollup.get(s["id"])
+        s["max_discount_percent"] = r["max_discount_percent"] if r else 0
+        s["starting_price"] = r["starting_price"] if r else None
+        s["product_count"] = r["product_count"] if r else 0
+        s["primary_category"] = r["primary_category"] if r else None
     stores.sort(key=lambda s: (s.get("availability_rank", 4), -s.get("orders_30d", 0)))
     return stores[:limit]
 
@@ -4600,10 +4689,30 @@ async def store_categories(store_id: str):
     return cats
 
 
+def _discount_range_query(min_discount: Optional[int], max_discount: Optional[int]) -> dict:
+    """Validates min_discount/max_discount (campaign filtering — GET
+    /products, /products/all) and returns the Mongo range fragment for
+    `discount_percent`, or {} when neither is supplied. FastAPI's own
+    `int` type annotation already rejects non-integer values (422) before
+    this runs; this only validates the domain rules an int type can't
+    express on its own. Raises HTTPException(400) — never silently clamps
+    or ignores an out-of-range/inverted value."""
+    for name, val in (("min_discount", min_discount), ("max_discount", max_discount)):
+        if val is not None and not (0 <= val <= 100):
+            raise HTTPException(400, f"{name} must be between 0 and 100")
+    if min_discount is not None and max_discount is not None and min_discount > max_discount:
+        raise HTTPException(400, "min_discount must not be greater than max_discount")
+    q: dict = {}
+    if min_discount is not None: q["$gte"] = min_discount
+    if max_discount is not None: q["$lte"] = max_discount
+    return q
+
+
 @api.get("/products")
 async def list_products(l1: Optional[str] = None, l2: Optional[str] = None,
                         gender: Optional[str] = None, store: Optional[str] = None,
                         brand_id: Optional[str] = None,
+                        min_discount: Optional[int] = None, max_discount: Optional[int] = None,
                         sort: str = "trending", limit: int = 100):
     avail_map = await _availability_map()
     sids = list(avail_map.keys()) if avail_map else []
@@ -4616,10 +4725,13 @@ async def list_products(l1: Optional[str] = None, l2: Optional[str] = None,
     if l2: q["l2_id"] = l2
     if gender: q["gender"] = gender
     if brand_id: q["brand_id"] = brand_id
+    discount_q = _discount_range_query(min_discount, max_discount)
+    if discount_q: q["discount_percent"] = discount_q
     cursor = db.products.find(q, {"_id": 0, "images": 0})
     if sort == "price_asc": cursor = cursor.sort("price", 1)
     elif sort == "price_desc": cursor = cursor.sort("price", -1)
     elif sort == "rating": cursor = cursor.sort("rating", -1)
+    elif sort == "discount": cursor = cursor.sort([("discount_percent", -1), ("created_at", -1)])
     items = await cursor.to_list(limit)
     items = _attach_store_avail(items, avail_map)
     items.sort(key=lambda p: p.get("store_availability_rank", 1))
@@ -4765,6 +4877,8 @@ async def all_products(
     l1: Optional[str] = None,
     sort: Optional[str] = None,
     search: Optional[str] = None,
+    min_discount: Optional[int] = None,
+    max_discount: Optional[int] = None,
     limit: int = 60,
 ):
     avail_map = await _availability_map()
@@ -4788,14 +4902,20 @@ async def all_products(
         q["price"] = {"$lt": 999}
     elif price == "under-1499":
         q["price"] = {"$lt": 1499}
-    sort_field, sort_dir = "created_at", -1
+    # Campaign filtering (GET /products?min_discount=50 etc.) — see
+    # _discount_range_query's own doc comment for validation rules.
+    discount_q = _discount_range_query(min_discount, max_discount)
+    if discount_q: q["discount_percent"] = discount_q
+    sort_spec = [("created_at", -1)]
     if sort == "price_asc":
-        sort_field, sort_dir = "price", 1
+        sort_spec = [("price", 1)]
     elif sort == "price_desc":
-        sort_field, sort_dir = "price", -1
+        sort_spec = [("price", -1)]
     elif sort == "discount":
-        sort_field, sort_dir = "discount_pct", -1
-    products = await db.products.find(q, {"_id": 0}).sort(sort_field, sort_dir).to_list(limit)
+        # Highest discount first; created_at as a stable tiebreaker so equal-
+        # discount products don't reorder unpredictably between requests.
+        sort_spec = [("discount_percent", -1), ("created_at", -1)]
+    products = await db.products.find(q, {"_id": 0}).sort(sort_spec).to_list(limit)
     products = _attach_store_avail(products, avail_map)
     products.sort(key=lambda p: p.get("store_availability_rank", 4))
     return {"products": products, "total": len(products)}
@@ -7205,6 +7325,28 @@ async def _maybe_autopublish_store(merchant_id: str) -> bool:
     return True
 
 
+def _calculate_discount_percent(mrp: Optional[float], price: Optional[float]) -> int:
+    """The ONE place discount_percent gets computed — every product create/
+    update path funnels through this (see _create_product_for_merchant,
+    _insert_bulk_product, _apply_product_update, quick_update_product).
+    Never trust a client-supplied discount_percent directly; it is always
+    re-derived from mrp/price.
+
+    Floored, not rounded — deterministic and intentionally conservative for
+    discount-threshold campaigns (GET /products?min_discount=N): MRP 1000 /
+    price 501 is a genuine 49.9% discount, which must NOT satisfy a "50% off
+    and above" filter. floor(49.9) = 49, so it correctly matches "49% off
+    and above" but not "50% off and above".
+
+    Returns 0 (no discount) whenever mrp is missing/falsy, price is
+    missing/falsy, or mrp does not exceed price — covers every product
+    lacking an MRP, a free/zero price, and the "selling at or above MRP"
+    case, none of which are a real discount."""
+    if not mrp or not price or mrp <= price:
+        return 0
+    return int((mrp - price) / mrp * 100)
+
+
 async def _create_product_for_merchant(
     payload: ProductCreate, merchant_id: str, *,
     creation_source: str = "merchant_manual",
@@ -7268,6 +7410,7 @@ async def _create_product_for_merchant(
         "created_at": datetime.now(timezone.utc).isoformat()}
     if isinstance(doc.get("stock"), dict):
         doc["total_stock"] = sum(int(v) for v in doc["stock"].values() if isinstance(v, (int, float)))
+    doc["discount_percent"] = _calculate_discount_percent(doc.get("mrp"), doc.get("price"))
     await db.products.insert_one(doc)
     if store:
         cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
@@ -7405,6 +7548,13 @@ async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
         payload["return_window_hours"] = rwh
     if isinstance(payload.get("stock"), dict):
         payload["total_stock"] = sum(int(v) for v in payload["stock"].values() if isinstance(v, (int, float)))
+    if "price" in payload or "mrp" in payload:
+        # A partial update may send only one of the two — fall back to the
+        # product's currently-stored value for whichever field is absent so
+        # the recomputed discount reflects the true combined state.
+        effective_mrp = payload["mrp"] if "mrp" in payload else p.get("mrp")
+        effective_price = payload["price"] if "price" in payload else p.get("price")
+        payload["discount_percent"] = _calculate_discount_percent(effective_mrp, effective_price)
     await db.products.update_one({"id": pid}, {"$set": payload})
     # If the product was just paused/unpaused, recompute count and maybe
     # auto-publish. Reads store_id off the product doc itself (rather than
@@ -7444,11 +7594,15 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
 @api.patch("/merchant/products/{pid}")
 async def quick_update_product(pid: str, payload: dict, user: dict = Depends(merchant_user)):
     """Quick partial update — price, mrp, total_stock, paused, status only."""
-    product = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0, "id": 1})
+    product = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0, "id": 1, "price": 1, "mrp": 1})
     if not product:
         raise HTTPException(404)
     allowed = {"price", "mrp", "total_stock", "paused", "status"}
     update = {k: v for k, v in payload.items() if k in allowed}
+    if "price" in update or "mrp" in update:
+        effective_mrp = update["mrp"] if "mrp" in update else product.get("mrp")
+        effective_price = update["price"] if "price" in update else product.get("price")
+        update["discount_percent"] = _calculate_discount_percent(effective_mrp, effective_price)
     if update:
         await db.products.update_one({"id": pid}, {"$set": update})
     return {"ok": True}
@@ -7877,6 +8031,7 @@ async def _insert_bulk_product(
         "created_at": datetime.now(timezone.utc).isoformat(),
         **doc_frag,
     }
+    doc["discount_percent"] = _calculate_discount_percent(doc.get("mrp"), doc.get("price"))
     await db.products.insert_one(doc)
     return pid
 

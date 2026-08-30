@@ -21,6 +21,12 @@ export interface Product {
   description: string;
   price: RupeeAmount;
   mrp: RupeeAmount | null;
+  /** Server-computed, floored — ((mrp - price) / mrp) * 100, 0 whenever
+   *  mrp is absent or does not exceed price. The single source of truth
+   *  for discount display AND for min_discount/max_discount campaign
+   *  filtering — never recompute this client-side with a different
+   *  rounding rule (see server.py's `_calculate_discount_percent`). */
+  discount_percent?: number;
 
   // Taxonomy
   l1_id: string;
@@ -94,7 +100,7 @@ export interface Product {
 /** Lightweight projection returned in feed lists / search hits. */
 export type ProductCard = Pick<
   Product,
-  | "id" | "name" | "price" | "mrp" | "image" | "images" | "rating"
+  | "id" | "name" | "price" | "mrp" | "discount_percent" | "image" | "images" | "rating"
   | "store_id" | "store_name" | "store_city" | "store_distance_km"
   | "try_at_doorstep" | "return_eligible" | "paused"
 > & {
@@ -127,7 +133,11 @@ export interface ProductFilters {
   brand_id?: string;
   min_price?: number;
   max_price?: number;
-  sort?: "popular" | "newest" | "price_asc" | "price_desc";
+  /** Campaign filtering — GET /products?min_discount=50 etc. Both are
+   *  integers 0-100; the backend rejects an inverted range (min > max). */
+  min_discount?: number;
+  max_discount?: number;
+  sort?: "popular" | "newest" | "price_asc" | "price_desc" | "discount";
   limit?: number;
   lat?: number;
   lng?: number;

@@ -15,6 +15,12 @@ interface PriceChipProps {
   /** Show the small discount-% label when mrp implies one. Default OFF —
    * price confident, not shouting a discount; opt in per placement. */
   showDiscount?: boolean;
+  /** Server-computed, floored discount_percent — the same value
+   *  min_discount campaign filtering matches against. Pass this whenever
+   *  the caller has it; falls back to a client computation only when
+   *  omitted, so this chip never disagrees with a product's own campaign
+   *  eligibility over a rounding difference. */
+  discountPercent?: number | null;
   className?: string;
 }
 
@@ -22,9 +28,9 @@ function formatInr(n: number): string {
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
 }
 
-export function PriceChip({ price, mrp, showDiscount = false, className = "" }: PriceChipProps) {
+export function PriceChip({ price, mrp, showDiscount = false, discountPercent, className = "" }: PriceChipProps) {
   const hasMrp = typeof mrp === "number" && mrp > price;
-  const discount = hasMrp ? Math.round((1 - price / mrp) * 100) : 0;
+  const discount = discountPercent != null ? discountPercent : hasMrp ? Math.floor((1 - price / mrp) * 100) : 0;
 
   return (
     <span className={`inline-flex items-baseline gap-1.5 ${className}`} data-testid="price-chip">

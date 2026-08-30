@@ -46,10 +46,17 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
 
   const inCart = mounted ? items.find((i) => i.id === p.id) : undefined;
   const qty = inCart?.qty ?? 0;
+  // Prefer the server-computed, floored discount_percent (the same value
+  // min_discount campaign filtering matches against) so this badge never
+  // claims a discount tier the product doesn't actually qualify for.
+  // Falls back to a client computation only for a response that predates
+  // the field — never a different rounding rule for the same product.
   const discount =
-    p.mrp && p.price && p.mrp > p.price
-      ? Math.round((1 - p.price / p.mrp) * 100)
-      : 0;
+    p.discount_percent != null
+      ? p.discount_percent
+      : p.mrp && p.price && p.mrp > p.price
+        ? Math.floor((1 - p.price / p.mrp) * 100)
+        : 0;
 
   const staticEta = p.store_eta_min ?? p.eta_min ?? 45;
   const eta = useDeliveryEta({

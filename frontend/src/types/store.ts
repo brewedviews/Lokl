@@ -73,6 +73,17 @@ export interface Store {
   trusted: boolean;
   specialties: string[];
 
+  // Merchandising rollup — computed fresh at query time from this store's
+  // own visible (non-paused, non-deleted) products via one aggregation
+  // per listing request (list_stores/feed-nearby/feed-popular), never
+  // denormalized/stale. Present on every store-listing endpoint response.
+  // `max_discount_percent` is 0 and `starting_price`/`primary_category`
+  // are null when the store has no visible products at all — never
+  // fabricated when there's nothing real to back the claim.
+  max_discount_percent?: number;
+  starting_price?: number | null;
+  primary_category?: string | null;
+
   created_at: IsoDateTime;
 }
 
@@ -84,6 +95,7 @@ export type StoreCard = Pick<
   | "distance_km" | "eta_min" | "rating" | "reviews" | "online" | "paused"
   | "product_count" | "specialties" | "trusted"
   | "badge" | "is_open" | "next_open_label" | "availability_rank"
+  | "max_discount_percent" | "starting_price" | "primary_category"
 >;
 
 /** A featured area tile for the homepage "Shop by Area" section —
