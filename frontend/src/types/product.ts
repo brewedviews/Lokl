@@ -70,6 +70,12 @@ export interface Product {
    *  dormant `colors` field on ProductDetailPanel. Render only when present. */
   fit_note?: string | null;
 
+  // Provenance (Admin Product Creation feature) — additive/optional, absent
+  // on every product created before this feature shipped. Never backfilled.
+  creation_source?: "merchant_manual" | "whatsapp" | "admin_manual" | "merchant_bulk" | "admin_bulk" | string;
+  created_by?: string | null;
+  bulk_import_id?: string | null;
+
   // Trust
   rating: number | null;
   reviews?: number;

@@ -75,4 +75,13 @@ export const downloads = {
       "lokl-approvals.csv",
       token,
     ),
+
+  /** Admin bulk-upload template — byte-identical to merchantProductsTemplate
+   *  above (same backend build_template_xlsx()), just admin-authenticated. */
+  adminProductsTemplate: (token: string | null): Promise<void> =>
+    streamDownload(
+      "/api/admin/products/template.xlsx",
+      "lokl-products-template.xlsx",
+      token,
+    ),
 };

@@ -704,7 +704,7 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
                 brand_id=brand_id,
                 provider="whatsapp",
             )
-            doc = await create_product_for_merchant(payload, draft["merchant_id"])
+            doc = await create_product_for_merchant(payload, draft["merchant_id"], creation_source="whatsapp")
         except Exception as e:
             detail = e.detail if isinstance(e, HTTPException) else str(e)
             log.warning("[whatsapp] product creation failed for draft %s: %s", draft["id"], detail)

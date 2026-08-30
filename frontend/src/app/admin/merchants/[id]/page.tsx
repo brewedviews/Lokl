@@ -31,6 +31,15 @@ import {
   Store as StoreIcon, Package, ClipboardList, History, AlertTriangle,
 } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
+// Admin Product Creation feature — genuinely new endpoints, so per
+// lib/legacy-admin.ts's own explicit "DO NOT extend this file with new
+// endpoints — new code must use api-client.ts" rule, these go through the
+// typed apiClient/adminApi rather than adminFetch (unlike this page's
+// existing pre-feature calls, which are left untouched).
+import { apiClient } from "@/lib/api-client";
+import { adminApi } from "@/lib/api/admin";
+import { ProductForm, type ProductFormCategory, type ProductFormBody } from "@/components/products/ProductForm";
+import { AdminBulkUploadModal } from "@/components/admin/AdminBulkUploadModal";
 
 // ---------------------------------------------------------------------
 // Types — mirror the real Mongo shapes (merchants/stores/products), same
@@ -335,7 +344,7 @@ export default function MerchantDetailPage() {
 
       {section === "overview" && <OverviewSection merchant={merchant} store={store} onReload={load} />}
       {section === "store" && <StoreSection store={store} onEdit={() => setEditingStore(true)} onReload={load} />}
-      {section === "products" && <ProductsSection store={store} onReload={load} />}
+      {section === "products" && <ProductsSection store={store} merchantId={merchant.id} onReload={load} />}
       {section === "kyc" && <KycSection merchant={merchant} onReload={load} />}
       {section === "activity" && <ActivitySection changeRequests={changeRequests} />}
 
@@ -541,11 +550,21 @@ function StoreSection({ store, onEdit, onReload }: { store: AdminStore | null; o
 // /admin/products/{id} content edit. No second product-management
 // implementation.
 // ---------------------------------------------------------------------
-function ProductsSection({ store, onReload }: { store: AdminStore | null; onReload: () => void }) {
+function ProductsSection({ store, merchantId, onReload }: { store: AdminStore | null; merchantId: string; onReload: () => void }) {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive" | "out_of_stock">("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminProduct | null>(null);
+  // Admin Product Creation feature — "+ Add Product" reuses the exact same
+  // shared <ProductForm> the merchant's own product page uses (see
+  // components/products/ProductForm.tsx); "Bulk Upload" reuses the same
+  // xlsx/csv parsing pipeline via the new admin bulk endpoints.
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [cats, setCats] = useState<ProductFormCategory[]>([]);
+  useEffect(() => {
+    apiClient.get<ProductFormCategory[]>("/api/categories").then((r) => setCats(r.data)).catch(() => {});
+  }, []);
 
   const products = store?.products || [];
   const filtered = products.filter((p) => {
@@ -596,6 +615,14 @@ function ProductsSection({ store, onReload }: { store: AdminStore | null; onRelo
             <option value="inactive">Inactive</option>
             <option value="out_of_stock">Out of stock</option>
           </select>
+          <button onClick={() => setShowBulkUpload(true)} data-testid="admin-bulk-upload-btn"
+            className="px-3 py-1.5 rounded-full border border-[#E5E2DC] text-xs font-semibold text-[#1A2B4C] hover:border-[#1A2B4C]">
+            Bulk upload
+          </button>
+          <button onClick={() => setShowAddProduct(true)} data-testid="admin-add-product-btn"
+            className="px-3 py-1.5 rounded-full bg-[#E68910] text-white text-xs font-semibold hover:bg-[#C9770E]">
+            + Add Product
+          </button>
         </div>
       </div>
 
@@ -644,6 +671,27 @@ function ProductsSection({ store, onReload }: { store: AdminStore | null; onRelo
 
       {editing && (
         <EditProductModal product={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); onReload(); }} />
+      )}
+
+      {showAddProduct && (
+        <ProductForm
+          mode="create"
+          cats={cats}
+          onSubmit={async (body: ProductFormBody) => {
+            await adminApi.createProduct(merchantId, { product: body });
+            toast.success("Product created");
+            onReload();
+          }}
+          onClose={() => setShowAddProduct(false)}
+        />
+      )}
+
+      {showBulkUpload && (
+        <AdminBulkUploadModal
+          merchantId={merchantId}
+          onClose={() => setShowBulkUpload(false)}
+          onImported={onReload}
+        />
       )}
     </div>
   );

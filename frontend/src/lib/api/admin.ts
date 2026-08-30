@@ -12,7 +12,86 @@ import type {
   Rider, RiderStatus, Brand, BrandListResponse,
   HeroSlide, HeroSlideCreatePayload,
   CmsStoreSectionOverride,
+  Product,
 } from "@/types";
+
+// ── Admin Product Creation (manual + bulk) ─────────────────────────────
+// Mirrors server.py's AdminProductCreateRequest / bulk detect+import+
+// rollback response shapes exactly — see backend/server.py's own
+// `admin_create_product`/`admin_bulk_products_detect`/
+// `admin_bulk_products_import`/`admin_rollback_bulk_import`.
+export interface AdminProductCreatePayload {
+  product: {
+    name: string; price: number; mrp?: number; l1_id: string; l2_id?: string; gender?: string;
+    description?: string; sizes?: string[]; stock?: Record<string, number>; size_type?: string;
+    image?: string; images?: string[]; image_public_id?: string; image_public_ids?: string[];
+    brand_id?: string; return_eligible?: boolean; return_window_hours?: number; try_at_doorstep?: boolean;
+  };
+  admin_override?: boolean;
+  bypass_plan_limit?: boolean;
+  publish_immediately?: boolean;
+}
+
+/** The response is the full created Product document. */
+export type AdminProduct = Product;
+
+export interface AdminBulkPreviewRow {
+  row: number;
+  name: string | null;
+  status: "valid" | "warning" | "error";
+  messages: string[];
+  category: string | null;
+  price: number | null;
+  mrp?: number | null;
+  stock_summary: Record<string, number> | null;
+}
+
+export interface AdminBulkDetectResult {
+  import_id: string;
+  rows: AdminBulkPreviewRow[];
+  total_rows: number;
+  valid_count: number;
+  warning_count: number;
+  error_count: number;
+}
+
+export interface AdminBulkRowError {
+  row: number;
+  message: string;
+}
+
+export interface AdminBulkImportResult {
+  import_id: string;
+  status: "completed" | "completed_with_errors";
+  successful_rows: number;
+  failed_rows: number;
+  created_product_ids: string[];
+  row_errors: AdminBulkRowError[];
+}
+
+export interface AdminBulkImport {
+  id: string;
+  merchant_id: string;
+  store_id: string;
+  uploaded_by: string;
+  filename: string;
+  creation_source: string;
+  total_rows: number;
+  successful_rows: number;
+  failed_rows: number;
+  status: "pending_review" | "processing" | "completed" | "completed_with_errors" | "rolled_back";
+  row_errors: AdminBulkRowError[];
+  created_product_ids: string[];
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface AdminBulkRollbackResult {
+  import_id: string;
+  status: "rolled_back";
+  products_soft_deleted: number;
+  total_products_in_import: number;
+}
 
 export interface AdminCreateRiderPayload {
   phone: string;
@@ -258,6 +337,46 @@ export const adminApi = {
     const r = await apiClient.get<TopClicksResponse>(
       `/api/admin/analytics/top-clicks?asset_type=${assetType}&days=${days}&limit=${limit}`,
     );
+    return r.data;
+  },
+
+  // ── Admin Product Creation (manual + bulk) ───────────────────
+  // Template download is `downloads.adminProductsTemplate()` (binary
+  // stream, bypasses axios like every other CSV/XLSX export — see
+  // lib/downloads.ts's own doc comment), not a method here.
+
+  createProduct: async (merchantId: string, payload: AdminProductCreatePayload): Promise<AdminProduct> => {
+    const r = await apiClient.post<AdminProduct>(`/api/admin/merchants/${merchantId}/products`, payload);
+    return r.data;
+  },
+
+  bulkDetectProducts: async (merchantId: string, file: File): Promise<AdminBulkDetectResult> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await apiClient.post<AdminBulkDetectResult>(
+      `/api/admin/merchants/${merchantId}/products/bulk/detect`, fd,
+      { headers: { "Content-Type": undefined as unknown as string } },
+    );
+    return r.data;
+  },
+
+  bulkImportProducts: async (
+    merchantId: string, importId: string, rowNumbers?: number[],
+  ): Promise<AdminBulkImportResult> => {
+    const r = await apiClient.post<AdminBulkImportResult>(
+      `/api/admin/merchants/${merchantId}/products/bulk/import`,
+      { import_id: importId, row_numbers: rowNumbers ?? null },
+    );
+    return r.data;
+  },
+
+  getBulkImport: async (importId: string): Promise<AdminBulkImport> => {
+    const r = await apiClient.get<AdminBulkImport>(`/api/admin/bulk-imports/${importId}`);
+    return r.data;
+  },
+
+  rollbackBulkImport: async (importId: string): Promise<AdminBulkRollbackResult> => {
+    const r = await apiClient.post<AdminBulkRollbackResult>(`/api/admin/bulk-imports/${importId}/rollback`);
     return r.data;
   },
 };

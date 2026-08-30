@@ -51,6 +51,7 @@ _BACKEND_LIVE = _backend_reachable(os.environ["REACT_APP_BACKEND_URL"])
 # Files that contact the live API over HTTP. Skipped automatically when
 # the backend isn't reachable from the test runner (CI, fresh sandbox).
 _INTEGRATION_FILES = {
+    "test_admin_product_creation.py",
     "test_backend.py",
     "test_backlog_lokl_prefix.py",
     "test_db_hardening.py",

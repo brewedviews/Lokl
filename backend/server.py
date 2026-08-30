@@ -2431,6 +2431,11 @@ ALLOWED_BULK_MIMES = {
 }
 MAX_IMAGE_BYTES = 5 * 1024 * 1024     # 5 MB
 MAX_BULK_BYTES = 10 * 1024 * 1024     # 10 MB
+# Admin Product Creation feature only — the existing merchant bulk upload
+# (bulk_products below) has no row-count cap today (only the file-size cap
+# above) and is deliberately left that way; this cap applies exclusively to
+# the new admin bulk-import flow's own endpoints.
+MAX_BULK_IMPORT_ROWS = 500
 
 
 async def _validate_image_upload(file: UploadFile) -> None:
@@ -7165,35 +7170,73 @@ async def _maybe_autopublish_store(merchant_id: str) -> bool:
     return True
 
 
-async def _create_product_for_merchant(payload: ProductCreate, merchant_id: str) -> dict:
+async def _create_product_for_merchant(
+    payload: ProductCreate, merchant_id: str, *,
+    creation_source: str = "merchant_manual",
+    created_by: Optional[str] = None,
+    bulk_import_id: Optional[str] = None,
+    paused_override: Optional[bool] = None,
+    admin_override: bool = False,
+    bypass_plan_limit: bool = False,
+) -> dict:
     """Canonical product-insert path — the ONLY place a new Product
     document gets created. Every side effect (KYC gate, storefront-exists
     check, plan product-limit check, product_count/brand-count recompute,
-    autopublish check) lives here exactly once. Both the merchant product
-    modal (create_merchant_product below) and the VasyERP publish flow
-    (_publish_staged_import) call this — neither duplicates it."""
+    autopublish check) lives here exactly once. The merchant product modal
+    (create_merchant_product below), the VasyERP publish flow
+    (_publish_staged_import), WhatsApp product creation
+    (routes/whatsapp.py's _finalize_product), and Admin manual/bulk product
+    creation ALL call this — none of them duplicates it.
+
+    Admin Product Creation feature — every new parameter here is additive
+    and keyword-only, defaulting to EXACTLY today's behavior for every
+    existing caller (none of them pass any of these):
+      - creation_source/created_by/bulk_import_id: pure provenance metadata,
+        never gate anything, always safe to record.
+      - paused_override: None preserves the existing hardcoded `paused:
+        False` default; only an explicit True/False overrides it (used by
+        bulk creation, which has always started products paused).
+      - admin_override: bypasses ONLY the KYC-approved and storefront-exists
+        gates below — never taxonomy/price/stock validation, which stays
+        unconditional. Only the new admin endpoints ever set this, and only
+        when the admin explicitly requests it; merchant/WhatsApp creation
+        never pass it.
+      - bypass_plan_limit: bypasses ONLY the plan product-count check,
+        independently of admin_override — an admin preparing a merchant's
+        catalogue pre-onboarding may need admin_override without wanting
+        unlimited products, or vice versa, so these are deliberately two
+        separate flags, not one combined "admin mode" switch.
+    """
     m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0})
-    if not m or m.get("kyc_status") != "approved": raise HTTPException(403, "KYC not approved")
+    if not m:
+        raise HTTPException(404, "Merchant not found")
+    if not admin_override and m.get("kyc_status") != "approved":
+        raise HTTPException(403, "KYC not approved")
     _validate_l1_l2(payload.l1_id, payload.l2_id or "", payload.gender or "")
     store_id = f"store-m-{merchant_id}"
     store = await db.stores.find_one({"id": store_id}, {"_id": 0})
-    if not store: raise HTTPException(400, "Set up storefront first")
-    merchant_plan = _merchant_effective_plan(m)
-    plan_config = PLAN_LIMITS.get(merchant_plan, PLAN_LIMITS["free"])
-    product_limit = plan_config.get("products", 10)
-    existing_count = await db.products.count_documents({"merchant_id": merchant_id, "is_deleted": {"$ne": True}})
-    if existing_count >= product_limit:
-        raise HTTPException(400, f"You have reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to add more products.")
+    if not store and not admin_override:
+        raise HTTPException(400, "Set up storefront first")
+    if not bypass_plan_limit:
+        merchant_plan = _merchant_effective_plan(m)
+        plan_config = PLAN_LIMITS.get(merchant_plan, PLAN_LIMITS["free"])
+        product_limit = plan_config.get("products", 10)
+        existing_count = await db.products.count_documents({"merchant_id": merchant_id, "is_deleted": {"$ne": True}})
+        if existing_count >= product_limit:
+            raise HTTPException(400, f"You have reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to add more products.")
     pid = f"prod-{uuid.uuid4().hex[:10]}"
     doc = {"id": pid, "merchant_id": merchant_id, "store_id": store_id,
         "store_name": m["store_name"], "store_city": m.get("city", ""),
-        "rating": 4.5, "paused": False, **payload.model_dump(),
+        "rating": 4.5, "paused": paused_override if paused_override is not None else False,
+        "creation_source": creation_source, "created_by": created_by, "bulk_import_id": bulk_import_id,
+        **payload.model_dump(),
         "created_at": datetime.now(timezone.utc).isoformat()}
     if isinstance(doc.get("stock"), dict):
         doc["total_stock"] = sum(int(v) for v in doc["stock"].values() if isinstance(v, (int, float)))
     await db.products.insert_one(doc)
-    cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
-    await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
+    if store:
+        cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
+        await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
     await _recompute_brand_product_count(doc.get("brand_id"))
     await _maybe_autopublish_store(merchant_id)
     doc.pop("_id", None)
@@ -7492,6 +7535,21 @@ async def merchant_bulk_template(user: dict = Depends(merchant_user)):
     )
 
 
+@api.get("/admin/products/template.xlsx")
+async def admin_bulk_template(admin: dict = Depends(require_admin)):
+    """Admin bulk-upload template — the EXACT SAME file the merchant
+    endpoint above returns (`build_template_xlsx()`, unchanged). There is
+    no separate Admin template: the output stays compatible with the same
+    `_parse_bulk_file`/`_row_to_product` parser both flows share."""
+    from xlsx_template import build_template_xlsx
+    data = build_template_xlsx()
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="lokl-products-template.xlsx"'},
+    )
+
+
 _L1_NORMALIZE = {
     "women": "l1-women", "women's fashion": "l1-women", "womens fashion": "l1-women",
     "men": "l1-men", "men's fashion": "l1-men", "mens fashion": "l1-men",
@@ -7514,6 +7572,7 @@ _GENDER_NORMALIZE = {
 
 
 _L1_ID_TO_NAME = {c["id"]: c["name"] for c in L1_CATEGORIES}
+_L2_ID_TO_NAME = {s["id"]: s["name"] for subs in L2_BY_L1.values() for s in subs}
 
 # G14 — bounded, curated per-L1 L2 synonym table (root cause of the real
 # "Hindustan Boot House.xlsx" 0-imported bug). NOT a fuzzy matcher: checked
@@ -7749,6 +7808,44 @@ def _parse_bulk_file(
     return rows, meta
 
 
+async def _insert_bulk_product(
+    doc_frag: dict, merchant_id: str, store: dict, m: dict, *,
+    paused: bool, creation_source: str,
+    created_by: Optional[str] = None, bulk_import_id: Optional[str] = None,
+) -> str:
+    """Shared bulk-row insert — the ONE place a product document gets built
+    from a parsed bulk-upload row fragment (see `_row_to_product`), used by
+    BOTH the existing merchant bulk endpoint and Admin bulk import. This is
+    a document-construction helper BENEATH the canonical
+    `_create_product_for_merchant`, not a competing implementation of it:
+    the KYC/storefront/plan-limit gates are pre-checked ONCE by the caller
+    before its row loop starts (the existing merchant-bulk precedent —
+    re-checking per row would be wasteful and would also change today's
+    "pre-compute remaining_slots" behavior), so this helper only builds the
+    doc, inserts it, and returns the new id — id generation, store/merchant
+    identity fields, and the `paused`/`needs_image`/`image` defaults are
+    IDENTICAL to what the merchant bulk endpoint already did inline before
+    this extraction.
+
+    Deliberately does NOT compute `total_stock` — bulk-created products
+    have never carried that field (only `_create_product_for_merchant`'s
+    single-product path does); adding it here would be an unrelated
+    behavior change to existing merchant-bulk products, not something this
+    extraction should introduce as a side effect."""
+    pid = f"prod-{uuid.uuid4().hex[:10]}"
+    doc = {
+        "id": pid, "merchant_id": merchant_id, "store_id": store["id"],
+        "store_name": m["store_name"], "store_city": m.get("city", ""),
+        "rating": 4.5, "paused": paused, "needs_image": True,
+        "image": "", "ai_enhanced": False,
+        "creation_source": creation_source, "created_by": created_by, "bulk_import_id": bulk_import_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        **doc_frag,
+    }
+    await db.products.insert_one(doc)
+    return pid
+
+
 @api.post("/merchant/products/bulk/detect")
 async def bulk_products_detect(
     file: UploadFile = File(...), sheet: Optional[str] = Form(None),
@@ -7871,17 +7968,9 @@ async def bulk_products(
             skipped.append(f"Row {row_num}: {msg}" if row_num else msg)
             continue
         doc_frag["brand_id"] = await _resolve_brand_id(row)
-        pid = f"prod-{uuid.uuid4().hex[:10]}"
         # Newly bulk-uploaded products start PAUSED so the merchant adds images first;
         # they go live one-by-one as the merchant clicks Go-live or adds an image.
-        await db.products.insert_one({
-            "id": pid, "merchant_id": user["sub"], "store_id": store_id,
-            "store_name": m["store_name"], "store_city": m.get("city", ""),
-            "rating": 4.5, "paused": True, "needs_image": True,
-            "image": "", "ai_enhanced": False,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            **doc_frag,
-        })
+        pid = await _insert_bulk_product(doc_frag, user["sub"], store, m, paused=True, creation_source="merchant_bulk")
         created_ids.append(pid)
         created_names.append(doc_frag["name"])
         slots_used += 1
@@ -7900,6 +7989,305 @@ async def bulk_products(
     if limit_hit:
         result["warning"] = f"Some rows were skipped: you reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to upload more."
     return result
+
+
+# ===== Admin Product Creation — bulk upload (detect/preview -> confirm -> track -> rollback) =====
+#
+# Reuses the SAME parsing/validation pipeline as the merchant bulk flow
+# above (_parse_bulk_file/_row_to_product/_category_name_maps/xlsx_template)
+# — no second CSV/xlsx implementation, no duplicated taxonomy table. The
+# one genuinely new piece is the `bulk_imports` tracking collection, which
+# lets detect (a preview — creates NOTHING) and import (the explicit
+# confirm step) be two separate calls without re-uploading the file: detect
+# persists the row-classified, already-parsed result with
+# status="pending_review"; import reads it back by id.
+
+@api.post("/admin/merchants/{merchant_id}/products/bulk/detect")
+async def admin_bulk_products_detect(
+    merchant_id: str,
+    file: UploadFile = File(...), sheet: Optional[str] = Form(None),
+    mapping_overrides: Optional[str] = Form(None),
+    admin: dict = Depends(require_admin),
+):
+    """Admin bulk-upload preview. Creates a `bulk_imports` doc
+    (status="pending_review") holding the parsed, row-classified result —
+    NO Product documents are created here. `/bulk/import` is the only
+    endpoint that ever creates products, and only for rows the admin
+    explicitly confirms."""
+    m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0})
+    if not m:
+        raise HTTPException(404, "Merchant not found")
+
+    from xlsx_template import _cell_to_str
+    raw_bytes = await _validate_bulk_upload(file)
+    overrides = None
+    if mapping_overrides:
+        try:
+            overrides = {str(k).strip().lower(): v for k, v in json.loads(mapping_overrides).items()}
+        except (ValueError, AttributeError):
+            raise HTTPException(400, "mapping_overrides must be a JSON object of {header: field}")
+    rows, meta = _parse_bulk_file(raw_bytes, file.filename or "", sheet=sheet, overrides=overrides)
+
+    if meta["columns"] and all(c["mapped_field"] is None for c in meta["columns"]):
+        raise HTTPException(
+            400,
+            "We couldn't find any recognizable product columns in this file "
+            "(e.g. Product Name, L1 Category, Selling Price). Check the "
+            "header row, or download the Lokl template for a guided format.",
+        )
+
+    # Blank rows are silently excluded from the preview — same convention
+    # bulk_products already uses (a `_row_num`-only row is never a real
+    # product to report on).
+    non_blank_rows = [r for r in rows if any(v not in (None, "") for k, v in r.items() if k != "_row_num")]
+    if len(non_blank_rows) > MAX_BULK_IMPORT_ROWS:
+        raise HTTPException(
+            400,
+            f"This file has {len(non_blank_rows)} product rows — Admin bulk import "
+            f"is capped at {MAX_BULK_IMPORT_ROWS} rows per file. Split it into smaller files.",
+        )
+
+    l1_by_name, l2_by_name, l2_flat_by_name = _category_name_maps()
+
+    # Same closed-vocabulary brand lookup as bulk_products — a miss is
+    # always a warning, never a reason to reject the row.
+    brand_cache: dict[str, Optional[dict]] = {}
+
+    async def _resolve_brand_preview(raw_name: str) -> tuple[Optional[str], bool]:
+        key = raw_name.lower()
+        if key in brand_cache:
+            cached = brand_cache[key]
+            return (cached["id"] if cached else None), bool(cached)
+        existing = await db.brands.find_one(
+            {"name": {"$regex": f"^{_re.escape(raw_name)}$", "$options": "i"}}, {"_id": 0},
+        )
+        brand_cache[key] = existing
+        return (existing["id"] if existing else None), bool(existing)
+
+    existing_names = {
+        (p.get("name") or "").strip().lower()
+        async for p in db.products.find(
+            {"merchant_id": merchant_id, "is_deleted": {"$ne": True}}, {"_id": 0, "name": 1},
+        )
+    }
+
+    seen_names_in_file: dict[str, int] = {}
+    preview_rows: list[dict] = []
+    parsed_fragments: dict[str, dict] = {}  # row_num (str) -> doc_frag, for valid/warning rows only
+
+    for row in non_blank_rows:
+        row_num = row.get("_row_num")
+        doc_frag, reason = _row_to_product(row, l1_by_name, l2_by_name, l2_flat_by_name)
+        if doc_frag is None:
+            preview_rows.append({
+                "row": row_num, "name": _cell_to_str(row.get("name")).strip() or None,
+                "status": "error", "messages": [reason or "unknown error"],
+                "category": None, "price": None, "mrp": None, "stock_summary": None,
+            })
+            continue
+
+        messages: list[str] = []
+        name_lower = doc_frag["name"].strip().lower()
+        if name_lower in seen_names_in_file:
+            messages.append(f"Duplicate product name in this file (also row {seen_names_in_file[name_lower]})")
+        else:
+            seen_names_in_file[name_lower] = row_num
+        if name_lower in existing_names:
+            messages.append("A product with this name already exists for this merchant")
+
+        raw_brand = _cell_to_str(row.get("brand")).strip()
+        doc_frag["brand_id"] = None  # matches _resolve_brand_id's unconditional set in bulk_products
+        if raw_brand:
+            brand_id, matched = await _resolve_brand_preview(raw_brand)
+            doc_frag["brand_id"] = brand_id
+            if not matched:
+                messages.append(f"Brand '{raw_brand}' not recognized — product will be created without a brand tag")
+
+        status = "warning" if messages else "valid"
+        parsed_fragments[str(row_num)] = doc_frag
+        l2_display = _L2_ID_TO_NAME.get(doc_frag.get("l2_id"))
+        preview_rows.append({
+            "row": row_num, "name": doc_frag["name"], "status": status, "messages": messages,
+            "category": f"{_L1_ID_TO_NAME.get(doc_frag['l1_id'], doc_frag['l1_id'])} / {l2_display}"
+                         if l2_display else _L1_ID_TO_NAME.get(doc_frag["l1_id"], doc_frag["l1_id"]),
+            "price": doc_frag.get("price"), "mrp": doc_frag.get("mrp"),
+            "stock_summary": doc_frag.get("stock"),
+        })
+
+    valid_count = sum(1 for r in preview_rows if r["status"] == "valid")
+    warning_count = sum(1 for r in preview_rows if r["status"] == "warning")
+    error_count = sum(1 for r in preview_rows if r["status"] == "error")
+
+    import_id = f"bimp-{uuid.uuid4().hex[:10]}"
+    await db.bulk_imports.insert_one({
+        "id": import_id, "merchant_id": merchant_id, "store_id": f"store-m-{merchant_id}",
+        "uploaded_by": admin["id"], "filename": file.filename or "upload",
+        "creation_source": "admin_bulk",
+        "total_rows": len(preview_rows), "successful_rows": 0, "failed_rows": 0,
+        "status": "pending_review",
+        "row_errors": [],
+        "created_product_ids": [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None,
+        # Internal cache only (not part of the public bulk_imports contract
+        # documented for GET /admin/bulk-imports/{id}) — lets /bulk/import
+        # create products without re-uploading/re-parsing the file.
+        "_parsed_rows": parsed_fragments,
+        "_preview_rows": preview_rows,
+    })
+
+    return {
+        "import_id": import_id, "rows": preview_rows,
+        "total_rows": len(preview_rows), "valid_count": valid_count,
+        "warning_count": warning_count, "error_count": error_count,
+    }
+
+
+class AdminBulkImportConfirm(BaseModel):
+    import_id: str
+    # Rows the admin wants imported, by row number. Defaults to every row
+    # that wasn't classified "error" (all valid + warning rows) — an admin
+    # who did nothing on the preview screen gets the obvious behavior;
+    # explicitly passing a narrower list lets them deselect specific
+    # valid/warning rows without deselecting everything.
+    row_numbers: Optional[List[int]] = None
+
+
+@api.post("/admin/merchants/{merchant_id}/products/bulk/import")
+async def admin_bulk_products_import(
+    merchant_id: str, payload: AdminBulkImportConfirm,
+    admin: dict = Depends(require_admin),
+):
+    """Confirm step — the ONLY place Admin bulk actually creates products.
+    Reads the rows persisted by /bulk/detect (never re-parses the file),
+    creates one product per selected row via the SAME `_insert_bulk_product`
+    helper the existing merchant bulk endpoint uses, and finalizes the
+    `bulk_imports` tracking doc. One row failing never aborts the others —
+    each insert is isolated in its own try/except."""
+    import_id = payload.import_id
+    m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0})
+    if not m:
+        raise HTTPException(404, "Merchant not found")
+    imp = await db.bulk_imports.find_one({"id": import_id, "merchant_id": merchant_id})
+    if not imp:
+        raise HTTPException(404, "Bulk import not found")
+    if imp["status"] != "pending_review":
+        raise HTTPException(400, f"This import is already '{imp['status']}' and cannot be imported again")
+
+    store = await db.stores.find_one({"id": imp["store_id"]}, {"_id": 0})
+    if not store:
+        raise HTTPException(400, "Merchant has no storefront set up — cannot create products")
+
+    parsed_fragments: dict = imp.get("_parsed_rows") or {}
+    preview_rows: list = imp.get("_preview_rows") or []
+    errors_by_row = {r["row"]: r["messages"] for r in preview_rows if r["status"] == "error"}
+
+    if payload.row_numbers is not None:
+        selected_row_nums = [n for n in payload.row_numbers if str(n) in parsed_fragments]
+    else:
+        selected_row_nums = [int(k) for k in parsed_fragments.keys()]
+
+    await db.bulk_imports.update_one({"id": import_id}, {"$set": {"status": "processing"}})
+
+    # row_errors accounts for EVERY row from the original upload that does
+    # NOT end up as a created product this import — validation errors from
+    # detect, an admin's deliberate deselection, and any insert-time
+    # failure alike — so `total_rows == successful_rows + failed_rows`
+    # always holds, matching the tracking record's own documented shape.
+    created_ids: list[str] = []
+    row_errors: list[dict] = [{"row": row, "message": msg} for row, msgs in errors_by_row.items() for msg in msgs]
+    selected_set = set(selected_row_nums)
+    for row_num_str in parsed_fragments:
+        row_num = int(row_num_str)
+        if row_num not in selected_set:
+            row_errors.append({"row": row_num, "message": "Not selected for import"})
+            continue
+        doc_frag = dict(parsed_fragments[row_num_str])
+        try:
+            pid = await _insert_bulk_product(
+                doc_frag, merchant_id, store, m,
+                paused=True, creation_source="admin_bulk",
+                created_by=admin["id"], bulk_import_id=import_id,
+            )
+            created_ids.append(pid)
+        except Exception as e:
+            row_errors.append({"row": row_num, "message": f"Failed to create product: {e}"})
+
+    successful = len(created_ids)
+    failed = imp["total_rows"] - successful
+    status = "completed_with_errors" if failed > 0 else "completed"
+
+    if store:
+        cnt = await db.products.count_documents({"store_id": imp["store_id"], "paused": {"$ne": True}})
+        await db.stores.update_one({"id": imp["store_id"]}, {"$set": {"product_count": cnt}})
+    await _maybe_autopublish_store(merchant_id)
+
+    await db.bulk_imports.update_one(
+        {"id": import_id},
+        {"$set": {
+            "successful_rows": successful, "failed_rows": failed,
+            "status": status, "row_errors": row_errors, "created_product_ids": created_ids,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {
+        "import_id": import_id, "status": status,
+        "successful_rows": successful, "failed_rows": failed,
+        "created_product_ids": created_ids, "row_errors": row_errors,
+    }
+
+
+def _public_bulk_import(imp: dict) -> dict:
+    """Strips the internal parsing cache before returning a bulk_imports
+    doc over the API — `_parsed_rows`/`_preview_rows` are an implementation
+    detail of the detect->import handoff, not part of the documented
+    tracking-record contract."""
+    return {k: v for k, v in imp.items() if k not in ("_id", "_parsed_rows", "_preview_rows")}
+
+
+@api.get("/admin/bulk-imports/{import_id}")
+async def admin_get_bulk_import(import_id: str, admin: dict = Depends(require_admin)):
+    imp = await db.bulk_imports.find_one({"id": import_id})
+    if not imp:
+        raise HTTPException(404, "Bulk import not found")
+    return _public_bulk_import(imp)
+
+
+@api.post("/admin/bulk-imports/{import_id}/rollback")
+async def admin_rollback_bulk_import(import_id: str, admin: dict = Depends(require_admin)):
+    """Soft-deletes every product this import created — the SAME
+    is_deleted/deleted_at mechanism every other product deletion in this
+    codebase already uses (never a hard delete, never a new deletion
+    pathway). Only ever touches `created_product_ids` for THIS import —
+    no other merchant product is affected. Rejects an import that's
+    already rolled back (idempotent-safe: calling it twice never
+    double-processes)."""
+    imp = await db.bulk_imports.find_one({"id": import_id})
+    if not imp:
+        raise HTTPException(404, "Bulk import not found")
+    if imp["status"] == "rolled_back":
+        raise HTTPException(400, "This import has already been rolled back")
+    if imp["status"] in ("pending_review", "processing"):
+        raise HTTPException(400, f"Cannot roll back an import with status '{imp['status']}' — it hasn't completed")
+
+    product_ids = imp.get("created_product_ids") or []
+    now = datetime.now(timezone.utc).isoformat()
+    result = await db.products.update_many(
+        {"id": {"$in": product_ids}, "is_deleted": {"$ne": True}},
+        {"$set": {"is_deleted": True, "deleted_at": now}},
+    )
+
+    store_id = imp.get("store_id")
+    if store_id:
+        cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
+        await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
+
+    await db.bulk_imports.update_one({"id": import_id}, {"$set": {"status": "rolled_back"}})
+    return {
+        "import_id": import_id, "status": "rolled_back",
+        "products_soft_deleted": result.modified_count,
+        "total_products_in_import": len(product_ids),
+    }
 
 
 # ===== Merchant integrations — multi-provider pipeline (VasyERP, Shopify) =====
@@ -9610,6 +9998,45 @@ async def admin_products(q: Optional[str] = None, store_id: Optional[str] = None
     return items
 
 
+class AdminProductCreateRequest(BaseModel):
+    """Admin manual product creation — wraps the same `ProductCreate` every
+    other creation source uses, plus explicit, off-by-default admin-only
+    options. Nothing here is a hidden/implicit bypass: each flag maps
+    1:1 onto a keyword `_create_product_for_merchant` already exposes for
+    exactly this purpose, and every default reproduces safe, merchant-like
+    behavior (onboarding gates enforced, plan limit enforced, product goes
+    live immediately once created — same as the merchant's own product
+    modal) unless the admin explicitly opts out."""
+    product: ProductCreate
+    admin_override: bool = False
+    bypass_plan_limit: bool = False
+    publish_immediately: bool = True
+
+
+@api.post("/admin/merchants/{merchant_id}/products")
+async def admin_create_product(merchant_id: str, payload: AdminProductCreateRequest, admin: dict = Depends(require_admin)):
+    """Admin manual product creation for a selected merchant. Reuses the
+    exact same canonical `_create_product_for_merchant` path every other
+    creation source (merchant modal, WhatsApp, VasyERP publish, merchant
+    bulk via `_insert_bulk_product`) goes through — no second insert
+    implementation. Taxonomy/price/stock validation inside that function
+    is unconditional and is never weakened for admin-created products;
+    `admin_override`/`bypass_plan_limit` only ever skip the onboarding-
+    readiness gates and the plan product-count check, respectively, and
+    only when the admin explicitly asks for that in the request body."""
+    m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0, "id": 1})
+    if not m:
+        raise HTTPException(404, "Merchant not found")
+    return await _create_product_for_merchant(
+        payload.product, merchant_id,
+        creation_source="admin_manual",
+        created_by=admin["id"],
+        paused_override=(False if payload.publish_immediately else True),
+        admin_override=payload.admin_override,
+        bypass_plan_limit=payload.bypass_plan_limit,
+    )
+
+
 @api.put("/admin/products/{pid}")
 async def admin_update_product(pid: str, payload: dict, admin: dict = Depends(require_admin)):
     """Admin product-content editing (title/description/price/mrp/images/
@@ -10799,6 +11226,15 @@ async def startup_seed():
         await db.staged_imports.create_index([("merchant_id", 1), ("status", 1)], background=True)
     except Exception as _e:
         log.warning("Merchant integration indexes: %s", _e)
+
+    # Admin Product Creation feature — bulk_imports tracking collection.
+    try:
+        await db.bulk_imports.create_index("id", unique=True, background=True)
+        await db.bulk_imports.create_index("merchant_id", background=True)
+        await db.bulk_imports.create_index("status", background=True)
+        await db.bulk_imports.create_index("created_at", background=True)
+    except Exception as _e:
+        log.warning("bulk_imports indexes: %s", _e)
 
     # Idempotent upsert of L1/L2 taxonomy.
     # `image` uses $setOnInsert so admin-uploaded category images are never
