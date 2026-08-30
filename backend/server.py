@@ -6964,11 +6964,31 @@ async def get_storefront(user: dict = Depends(merchant_user)):
     return s
 
 
-@api.post("/merchant/storefront")
-async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(merchant_user)):
-    m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
-    if not m: raise HTTPException(404, "Not found")
-    if m.get("kyc_status") != "approved": raise HTTPException(403, "KYC not approved yet")
+async def _create_or_setup_storefront_for_merchant(
+    payload: StorefrontUpdate, merchant_id: str, *,
+    creation_source: str = "merchant",
+    created_by: Optional[str] = None,
+    bypass_kyc_gate: bool = False,
+) -> dict:
+    """Canonical storefront upsert path — the ONLY place a `stores` document
+    gets created or fully rewritten for a merchant. Both the merchant's own
+    POST /merchant/storefront and admin's POST /admin/merchants/{id}/
+    storefront call this; neither duplicates the validation/derivation
+    logic below.
+
+      - bypass_kyc_gate: admin explicitly needs to set up a storefront for a
+        merchant who hasn't completed KYC yet (onboarding-prep use case) —
+        this is the ONLY thing it bypasses. Area/pincode/lat-lng validation
+        below is unconditional for both callers.
+      - creation_source/created_by: pure provenance metadata (mirrors the
+        same fields already recorded on `products` — see
+        `_create_product_for_merchant`), preserved across later re-saves,
+        never gates anything.
+    """
+    m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0})
+    if not m: raise HTTPException(404, "Merchant not found")
+    if not bypass_kyc_gate and m.get("kyc_status") != "approved":
+        raise HTTPException(403, "KYC not approved yet")
     # Lat/lng are mandatory so distance + ETA can be computed accurately.
     if payload.lat is None or payload.lng is None:
         raise HTTPException(400, "Pin your store on the map (latitude & longitude are required).")
@@ -6981,13 +7001,13 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(merc
         raise HTTPException(400, "Please select your area before saving.")
     if not (payload.pincode or "").strip():
         raise HTTPException(400, "Pincode is required.")
-    store_id = f"store-m-{user['sub']}"
+    store_id = f"store-m-{merchant_id}"
     # Derive area from business_address (first comma-segment)
     biz_addr = m.get("business_address", "") or ""
     # iter-29 (Item 2): prefer the explicit area_label from the picker over the
     # legacy biz-address fallback for the `area` display string in the store doc.
     derived_area = (payload.area_label or payload.locality or biz_addr.split(",")[0]).strip() or "Bhilai"
-    store_doc = {"id": store_id, "merchant_id": user["sub"], "name": m["store_name"],
+    store_doc = {"id": store_id, "merchant_id": merchant_id, "name": m["store_name"],
         "tagline": payload.tagline, "story": payload.story,
         "banner": (payload.banners[0] if payload.banners else payload.banner),
         "banners": payload.banners or ([payload.banner] if payload.banner else []),
@@ -7009,16 +7029,31 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(merc
         "upi_qr_url": payload.upi_qr_url or "",
         "weekly_off": payload.weekly_off or [],
         "trusted": True,
-        "kyc_status": "approved", "published": False, "paused": False, "product_count": 0,
+        # Reflects the merchant's REAL kyc_status rather than hardcoding
+        # "approved" — matters when bypass_kyc_gate=True (admin setting up a
+        # storefront before KYC is done): _visible_store_filter() gates
+        # customer visibility on this exact field, so hardcoding "approved"
+        # here would misreport an unapproved merchant's store as compliant.
+        # `published` stays unconditionally False on creation regardless, so
+        # this is defense-in-depth, not the only thing preventing exposure.
+        "kyc_status": m.get("kyc_status", "draft"),
+        "published": False, "paused": False, "product_count": 0,
+        "creation_source": creation_source, "created_by": created_by,
         "created_at": datetime.now(timezone.utc).isoformat()}
     existing = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if existing:
-        for k in ("published", "paused", "product_count", "created_at"):
+        for k in ("published", "paused", "product_count", "created_at", "creation_source", "created_by"):
             if k in existing: store_doc[k] = existing[k]
     # Preserve existing slug; generate from store name on first save.
     store_doc["slug"] = (existing or {}).get("slug") or _slugify(m["store_name"]) or store_id
     await db.stores.update_one({"id": store_id}, {"$set": store_doc}, upsert=True)
-    await db.merchants.update_one({"id": user["sub"]}, {"$set": {"storefront": store_doc}})
+    await db.merchants.update_one({"id": merchant_id}, {"$set": {"storefront": store_doc}})
+    return store_doc
+
+
+@api.post("/merchant/storefront")
+async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(merchant_user)):
+    store_doc = await _create_or_setup_storefront_for_merchant(payload, user["sub"], creation_source="merchant")
     return {"ok": True, "store": store_doc}
 
 @api.post("/merchant/publish")
@@ -10035,6 +10070,35 @@ async def admin_create_product(merchant_id: str, payload: AdminProductCreateRequ
         admin_override=payload.admin_override,
         bypass_plan_limit=payload.bypass_plan_limit,
     )
+
+
+@api.post("/admin/merchants/{merchant_id}/storefront")
+async def admin_setup_storefront(merchant_id: str, payload: StorefrontUpdate, admin: dict = Depends(require_admin)):
+    """Admin storefront setup for a merchant who hasn't completed it
+    themselves — e.g. the merchant asked our team to onboard them, or admin
+    is preparing a catalogue before the merchant ever logs in.
+
+    Reuses the exact same `_create_or_setup_storefront_for_merchant` path
+    POST /merchant/storefront uses — same validation (area/pincode/lat-lng),
+    same store_doc shape, same GeoJSON derivation. The only differences from
+    the merchant flow: this targets an explicit merchant_id instead of the
+    authenticated caller, bypasses the KYC-approved gate (onboarding-prep;
+    `published` still starts False regardless — this never makes a store
+    customer-visible on its own), and is create-only — a storefront that
+    already exists must be edited via the existing PUT /admin/stores/{id},
+    not silently overwritten here, so a merchant never ends up with a second
+    stores document."""
+    m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0, "id": 1})
+    if not m:
+        raise HTTPException(404, "Merchant not found")
+    store_id = f"store-m-{merchant_id}"
+    if await db.stores.find_one({"id": store_id}, {"_id": 0, "id": 1}):
+        raise HTTPException(409, "This merchant already has a storefront — use PUT /admin/stores/{id} to edit it")
+    store_doc = await _create_or_setup_storefront_for_merchant(
+        payload, merchant_id,
+        creation_source="admin", created_by=admin["id"], bypass_kyc_gate=True,
+    )
+    return {"ok": True, "store": store_doc}
 
 
 @api.put("/admin/products/{pid}")

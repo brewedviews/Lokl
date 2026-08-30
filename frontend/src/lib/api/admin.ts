@@ -14,6 +14,7 @@ import type {
   CmsStoreSectionOverride,
   Product,
 } from "@/types";
+import type { StorefrontFormBody } from "@/components/storefront/StorefrontForm";
 
 // ── Admin Product Creation (manual + bulk) ─────────────────────────────
 // Mirrors server.py's AdminProductCreateRequest / bulk detect+import+
@@ -337,6 +338,18 @@ export const adminApi = {
     const r = await apiClient.get<TopClicksResponse>(
       `/api/admin/analytics/top-clicks?asset_type=${assetType}&days=${days}&limit=${limit}`,
     );
+    return r.data;
+  },
+
+  // ── Admin Storefront Setup ────────────────────────────────────
+  // Reuses the exact same StorefrontForm field shape/validation the
+  // merchant's own POST /merchant/storefront uses — see
+  // components/storefront/StorefrontForm.tsx and server.py's
+  // `_create_or_setup_storefront_for_merchant`. Create-only: rejects
+  // (409) if the merchant already has a storefront — editing an existing
+  // one stays on PUT /admin/stores/{id} (adminUpdateStore).
+  createStorefront: async (merchantId: string, payload: StorefrontFormBody): Promise<{ ok: boolean; store: Record<string, unknown> }> => {
+    const r = await apiClient.post<{ ok: boolean; store: Record<string, unknown> }>(`/api/admin/merchants/${merchantId}/storefront`, payload);
     return r.data;
   },
 

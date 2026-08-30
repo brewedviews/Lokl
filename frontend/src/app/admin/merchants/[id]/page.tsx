@@ -46,6 +46,7 @@ import { BHILAI_AREAS } from "@/data/bhilai-areas";
 import { apiClient } from "@/lib/api-client";
 import { adminApi } from "@/lib/api/admin";
 import { ProductForm, type ProductFormCategory, type ProductFormBody } from "@/components/products/ProductForm";
+import { StorefrontForm, type StorefrontFormBody } from "@/components/storefront/StorefrontForm";
 import { AdminBulkUploadModal } from "@/components/admin/AdminBulkUploadModal";
 
 // ---------------------------------------------------------------------
@@ -254,6 +255,7 @@ export default function MerchantDetailPage() {
   const [section, setSection] = useState<Section>("overview");
   const [editingMerchant, setEditingMerchant] = useState(false);
   const [editingStore, setEditingStore] = useState(false);
+  const [settingUpStorefront, setSettingUpStorefront] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -385,7 +387,7 @@ export default function MerchantDetailPage() {
       </div>
 
       {section === "overview" && <OverviewSection merchant={merchant} store={store} onReload={load} />}
-      {section === "storefront" && <StorefrontSection store={store} onEdit={() => setEditingStore(true)} onReload={load} />}
+      {section === "storefront" && <StorefrontSection store={store} onEdit={() => setEditingStore(true)} onSetup={() => setSettingUpStorefront(true)} onReload={load} />}
       {section === "products" && <ProductsSection store={store} merchantId={merchant.id} onReload={load} />}
       {section === "kyc" && <KycSection merchant={merchant} onReload={load} />}
       {section === "bank" && <BankPayoutSection merchant={merchant} changeRequests={changeRequests} onReload={load} />}
@@ -395,6 +397,9 @@ export default function MerchantDetailPage() {
       )}
       {editingStore && store && (
         <EditStoreModal store={store} onClose={() => setEditingStore(false)} onSaved={() => { setEditingStore(false); void load(); }} />
+      )}
+      {settingUpStorefront && !store && (
+        <SetupStorefrontModal merchant={merchant} onClose={() => setSettingUpStorefront(false)} onCreated={() => { setSettingUpStorefront(false); void load(); }} />
       )}
     </div>
   );
@@ -499,7 +504,7 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
 // ---------------------------------------------------------------------
 // Storefront section
 // ---------------------------------------------------------------------
-function StorefrontSection({ store, onEdit, onReload }: { store: AdminStore | null; onEdit: () => void; onReload: () => void }) {
+function StorefrontSection({ store, onEdit, onSetup, onReload }: { store: AdminStore | null; onEdit: () => void; onSetup: () => void; onReload: () => void }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
@@ -507,8 +512,13 @@ function StorefrontSection({ store, onEdit, onReload }: { store: AdminStore | nu
 
   if (!store) {
     return (
-      <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center text-sm text-[#595959]" data-testid="storefront-section-empty">
-        This merchant hasn&apos;t set up a storefront yet.
+      <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-10 text-center" data-testid="storefront-section-empty">
+        <div className="text-sm font-semibold text-[#0A1F5C] mb-1">Storefront not set up</div>
+        <p className="text-sm text-[#595959] mb-5">This merchant hasn&apos;t completed their storefront setup yet.</p>
+        <button onClick={onSetup} data-testid="setup-storefront-button"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#E68910] text-white text-sm font-semibold hover:opacity-90">
+          Setup Storefront
+        </button>
       </div>
     );
   }
@@ -1162,7 +1172,7 @@ function EditStoreModal({ store, onClose, onSaved }: { store: AdminStore; onClos
     if (banners.length >= 5) return toast.error("Up to 5 banners");
     setUploadingBanner(true);
     try {
-      const { image_url, public_id } = await uploadImage(file, "store_banner");
+      const { image_url, public_id } = await uploadImage(file, "store_banner", "admin");
       setBanners((b) => [...b, image_url]);
       setBannerPublicIds((p) => [...p, public_id]);
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
@@ -1178,7 +1188,7 @@ function EditStoreModal({ store, onClose, onSaved }: { store: AdminStore; onClos
     if (!file) return;
     setUploadingQr(true);
     try {
-      const { image_url } = await uploadImage(file, "store_banner");
+      const { image_url } = await uploadImage(file, "store_banner", "admin");
       setUpiQrUrl(image_url);
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
     finally { setUploadingQr(false); }
@@ -1202,7 +1212,7 @@ function EditStoreModal({ store, onClose, onSaved }: { store: AdminStore; onClos
       // banners removed during this session. Same deferred pattern as the
       // merchant's own storefront page: removing-then-discarding (closing
       // this modal without saving) never touches Cloudinary.
-      for (const pid of pendingDeletePublicIds) void deleteUploadedImage(pid);
+      for (const pid of pendingDeletePublicIds) void deleteUploadedImage(pid, "admin");
       toast.success("Store updated");
       onSaved();
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
@@ -1294,6 +1304,43 @@ function EditStoreModal({ store, onClose, onSaved }: { store: AdminStore; onClos
         <button onClick={onClose} className="px-4 py-2 rounded-full text-xs font-semibold bg-white border border-[#E5E2DC]">Cancel</button>
         <button onClick={save} disabled={busy} data-testid="edit-store-save" className="px-4 py-2 rounded-full text-xs font-semibold bg-[#0A1F5C] text-white disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
       </div>
+    </ModalShell>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Setup Storefront modal — POST /admin/merchants/{id}/storefront.
+// Admin capability gap fix: previously a merchant with no storefront had
+// no admin-side way to get one set up (only EditStoreModal above, which
+// requires a store to already exist). Reuses the exact SAME
+// <StorefrontForm> component the merchant's own onboarding page uses —
+// same fields, same validation — in "create" mode; the backend endpoint
+// reuses the same canonical `_create_or_setup_storefront_for_merchant`
+// server.py helper POST /merchant/storefront calls, so an admin-created
+// storefront behaves identically to a merchant-created one afterward
+// (including working immediately with admin product creation/bulk
+// import). Never rendered when a store already exists — that stays on
+// EditStoreModal.
+// ---------------------------------------------------------------------
+function SetupStorefrontModal({ merchant, onClose, onCreated }: { merchant: Merchant; onClose: () => void; onCreated: () => void }) {
+  const handleSubmit = async (body: StorefrontFormBody) => {
+    await adminApi.createStorefront(merchant.id, body);
+    toast.success("Storefront created");
+    onCreated();
+  };
+
+  return (
+    <ModalShell title={`Set up storefront — ${merchant.store_name}`} onClose={onClose} wide>
+      <StorefrontForm
+        mode="create"
+        storeName={merchant.store_name}
+        businessAddress={merchant.business_address || ""}
+        initialData={null}
+        onSubmit={handleSubmit}
+        onClose={onClose}
+        callerScope="admin"
+        submitLabel="Create storefront"
+      />
     </ModalShell>
   );
 }
