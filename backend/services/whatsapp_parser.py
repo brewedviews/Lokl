@@ -113,9 +113,10 @@ _LOOSE_SP_RE = re.compile(rf"\b(?:selling\s*price|sp)\b\s*[:\-]?\s*(?:rs\.?|inr|
 
 # Standard, universal apparel size abbreviations ONLY — a format
 # convention, never a taxonomy/keyword mapping. Numeric size domains
-# (waist, shoe) are deliberately NOT handled here: mixed in with other
-# numbers (price etc.) they're genuinely ambiguous to split safely without
-# semantic understanding, and are correctly left for AI to interpret.
+# (waist, shoe) are handled separately below via _NUMERIC_SIZE_STOCK_GROUP_RE
+# (an explicit "SIZE-QTY" hyphenated-pair convention), since a bare numeric
+# size mixed in with other numbers (price etc.) would otherwise be
+# genuinely ambiguous without that explicit pairing.
 _SIZE_TOKENS = ("XXXL", "XXL", "XL", "XXS", "XS", "S", "M", "L", "2XL", "3XL", "4XL")
 _SIZE_ALT = "|".join(sorted(_SIZE_TOKENS, key=len, reverse=True))
 # No trailing \b after the size token: "L4"/"S7" (no separator at all)
@@ -134,6 +135,24 @@ _LOOSE_SIZE_STOCK_RE = re.compile(rf"(?:^|(?<=\s))({_SIZE_ALT})\s*[:=\-]?\s*(\d+
 # Only consulted when no per-size breakdown was found (see below) — a real
 # per-size split always takes precedence over a stray "stock" word.
 _LOOSE_STOCK_RE = re.compile(rf"\bstock\b\s*[:\-]?\s*{_NUM_FRAGMENT}", re.IGNORECASE)
+
+# Numeric waist/size-stock pairs — "stock 30-2, 32-4, 34-5" — for jeans/
+# trousers/footwear where sizes are numeric (waist inches, shoe size)
+# rather than S/M/L. A DIFFERENT format convention from the letter-size
+# tokens above: each pair is explicitly "SIZE-QTY" (hyphen-joined), and the
+# whole group must follow the literal "stock" label. MRP/SP are never
+# written as "NUM-NUM" (they're extracted above under their own "mrp"/"sp"
+# keywords and already blanked out by this point), so a hyphenated pair
+# after "stock" is unambiguous and can't be confused with a price or a
+# random number elsewhere in the product name. Tried BEFORE the letter-size
+# regex and the bare-stock regex: a bare-stock match on "stock 30" alone
+# (stopping at the hyphen, since _NUM_FRAGMENT doesn't include "-") would
+# otherwise silently truncate this pattern and leak "-2, 32-4, 34-5" into
+# the name remainder.
+_NUMERIC_SIZE_STOCK_GROUP_RE = re.compile(
+    r"\bstock\b\s*[:\-]?\s*((?:\d{1,3}\s*-\s*\d{1,4}\s*(?:[,;/]\s*)?)+)", re.IGNORECASE,
+)
+_NUMERIC_PAIR_RE = re.compile(r"(\d{1,3})\s*-\s*(\d{1,4})")
 
 
 def parse_loose_fields_with_remainder(text: str) -> tuple[dict, str]:
@@ -159,25 +178,47 @@ def parse_loose_fields_with_remainder(text: str) -> tuple[dict, str]:
         out["price"] = m.group(1)
         working = working[:m.start()] + (" " * (m.end() - m.start())) + working[m.end():]
 
-    matches = list(_LOOSE_SIZE_STOCK_RE.finditer(working))
-    if matches:
-        sizes: dict = {}
-        for mm in matches:
-            sizes[mm.group(1).upper()] = mm.group(2)  # last occurrence wins on a repeated token
+    numeric_group_m = _NUMERIC_SIZE_STOCK_GROUP_RE.search(working)
+    numeric_pairs = _NUMERIC_PAIR_RE.findall(numeric_group_m.group(1)) if numeric_group_m else []
+    if numeric_pairs:
+        sizes = {}
+        for size, qty in numeric_pairs:
+            sizes[size] = qty  # last occurrence wins on a repeated size
         out["sizes"] = ";".join(sizes.keys())
         out["stock_per_size"] = ";".join(sizes.values())
-        for mm in reversed(matches):  # remove from the end so earlier spans' indices stay valid
-            working = working[:mm.start()] + (" " * (mm.end() - mm.start())) + working[mm.end():]
+        working = (working[:numeric_group_m.start()]
+                   + (" " * (numeric_group_m.end() - numeric_group_m.start()))
+                   + working[numeric_group_m.end():])
     else:
-        # No per-size breakdown found — check for a bare "stock 4" / "Stock:
-        # 4" total instead. Previously unhandled by any deterministic layer,
-        # forcing an AI call for something this obviously structured.
-        m = _LOOSE_STOCK_RE.search(working)
-        if m:
-            out["stock_per_size"] = m.group(1)
-            working = working[:m.start()] + (" " * (m.end() - m.start())) + working[m.end():]
+        matches = list(_LOOSE_SIZE_STOCK_RE.finditer(working))
+        if matches:
+            sizes: dict = {}
+            for mm in matches:
+                sizes[mm.group(1).upper()] = mm.group(2)  # last occurrence wins on a repeated token
+            out["sizes"] = ";".join(sizes.keys())
+            out["stock_per_size"] = ";".join(sizes.values())
+            for mm in reversed(matches):  # remove from the end so earlier spans' indices stay valid
+                working = working[:mm.start()] + (" " * (mm.end() - mm.start())) + working[mm.end():]
+        else:
+            # No per-size breakdown found — check for a bare "stock 4" /
+            # "Stock: 4" total instead. Previously unhandled by any
+            # deterministic layer, forcing an AI call for something this
+            # obviously structured.
+            m = _LOOSE_STOCK_RE.search(working)
+            if m:
+                out["stock_per_size"] = m.group(1)
+                working = working[:m.start()] + (" " * (m.end() - m.start())) + working[m.end():]
 
     remainder = re.sub(r"[\s,;:\-]+", " ", working).strip()
+    # A leading label WORD (e.g. "stock" in "stock M2 L3 XL1") isn't part
+    # of any matched span above — only the size+number pairs are consumed
+    # — so it survives as a stranded word and would otherwise leak into a
+    # name candidate as "... stock". Strip it as a final cleanup pass, only
+    # when found as a standalone word (never part of legitimate leftover
+    # text otherwise).
+    if out:
+        remainder = re.sub(r"\b(?:stock|sizes?)\b", "", remainder, flags=re.IGNORECASE)
+        remainder = re.sub(r"\s+", " ", remainder).strip()
     return out, remainder
 
 
@@ -342,6 +383,95 @@ def l2_name(l1_id: str, l2_id: str) -> str:
         if s["id"] == l2_id:
             return s["name"]
     return l2_id
+
+
+# ============================================================================
+# Deterministic taxonomy HINT resolution — a performance optimization, not
+# a keyword dictionary. Two rules, both grounded directly in the real,
+# existing taxonomy data (never a hardcoded product-type mapping table):
+#
+#   1. Gender words (men/mens/women/womens/...) map to the L1 category of
+#      the SAME NAME — this is grammatical normalization of an L1 category
+#      that already exists, not an invented association.
+#   2. A category/product-type hint is accepted ONLY when a word from the
+#      merchant's text is a literal substring of an EXISTING L2's own name
+#      or slug (e.g. "hoodie" is a real substring of the real L2 name
+#      "Sweaters & Hoodies") — never a guessed synonym.
+#
+# Returns a FULL (l1_id, l2_id) pair or None — deliberately all-or-nothing.
+# A partial hint (gender known, category not) is not applied at all; AI
+# remains the unchanged fallback for anything not this directly resolvable,
+# exactly as before. This only ever SKIPS an AI call that would have had to
+# happen anyway — it never weakens validate_taxonomy(), which still runs
+# unconditionally wherever taxonomy is assigned.
+# ============================================================================
+
+_GENDER_WORD_TO_L1_NAME = {
+    "men": "Men", "man": "Men", "mens": "Men",
+    "women": "Women", "woman": "Women", "womens": "Women", "ladies": "Women",
+    "boy": "Kids", "boys": "Kids", "girl": "Kids", "girls": "Kids",
+    "kids": "Kids", "kid": "Kids", "baby": "Kids",
+}
+
+
+def resolve_gender_l1_hint(text: str) -> Optional[str]:
+    words = re.findall(r"[a-zA-Z]+", (text or "").lower())
+    for w in words:
+        target_name = _GENDER_WORD_TO_L1_NAME.get(w)
+        if target_name:
+            for c in L1_CATEGORIES:
+                if c["name"] == target_name:
+                    return c["id"]
+    return None
+
+
+def resolve_category_l2_hint(text: str, l1_id: str) -> Optional[str]:
+    words = re.findall(r"[a-zA-Z]+", (text or "").lower())
+    for w in words:
+        if len(w) < 3:
+            continue  # avoid trivial short-word false positives ("in", "of", ...)
+        for o in l2_options_for(l1_id):
+            haystack = f"{o['name']} {o['slug']}".lower()
+            if w in haystack:
+                return o["id"]
+    return None
+
+
+def resolve_taxonomy_hint(text: str) -> Optional[tuple[str, str]]:
+    """Full local resolution only — returns None if either half can't be
+    confidently determined from the real taxonomy data, so the caller
+    falls through to the existing AI escalation unchanged."""
+    l1_id = resolve_gender_l1_hint(text)
+    if not l1_id:
+        return None
+    l2_id = resolve_category_l2_hint(text, l1_id)
+    if not l2_id:
+        return None
+    return l1_id, l2_id
+
+
+# ============================================================================
+# Bulk multi-product detection — a STRUCTURAL signal only, never an NLU
+# judgment call. Requires EVERY non-blank line of the message to
+# independently carry a full MRP + Selling Price + stock signature before
+# treating the message as multiple products at all. A normal single-product
+# multiline message (one field spread per line, e.g. "Product name: X\n
+# Selling Price: 299\nCategory: ...") never matches — no single line there
+# carries all three fields by itself — so it always falls through to the
+# unchanged single-product path untouched. This is deliberately
+# all-or-nothing/conservative per the product spec's explicit instruction
+# not to guess at multi-product intent from weaker signals.
+# ============================================================================
+
+def detect_multi_product_lines(text: str) -> Optional[list[str]]:
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if len(lines) < 2:
+        return None
+    for ln in lines:
+        loose, _ = parse_loose_fields_with_remainder(ln)
+        if not (loose.get("mrp") and loose.get("price") and loose.get("stock_per_size")):
+            return None
+    return lines
 
 
 def taxonomy_payload() -> list[dict]:

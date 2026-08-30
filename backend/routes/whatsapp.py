@@ -52,6 +52,7 @@ from services.whatsapp_parser import (
     format_missing_prompt_natural, format_taxonomy_fallback_prompt,
     format_confirmation_summary, format_policy_prompt, parse_policy_answer,
     resolve_numbered_choice, infer_name_from_single_line, infer_name_from_remainder, infer_name_from_first_line,
+    resolve_taxonomy_hint, detect_multi_product_lines,
     l1_name, l2_name, l2_options_for,
 )
 from notifications import GupshupProvider
@@ -296,6 +297,21 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
         re-attempt AI from scratch against the freshest draft on every
         version conflict, bounded retries."""
         current = draft
+        # Bulk multi-product detection: ONLY on a genuinely fresh draft (no
+        # fields, no images, not already mid-batch) so this can never fire
+        # mid-conversation and reinterpret a correction/follow-up message as
+        # a new bulk submission. When it fires, only the FIRST detected
+        # product line is processed now (through the exact same
+        # deterministic-first/AI-fallback path below, unchanged) — the rest
+        # are queued and picked up one at a time in _finalize_product, each
+        # as its own normal single-product draft. No simultaneous creation,
+        # no cross-message image-association guessing.
+        batch_lines = None
+        if not current.get("fields") and not current.get("image_hosted_urls") and not current.get("batch_queue"):
+            batch_lines = detect_multi_product_lines(text)
+            if batch_lines:
+                text = batch_lines[0]
+
         for _ in range(MERGE_RETRY_ATTEMPTS):
             loose_fields, remainder = parse_loose_fields_with_remainder(text)
             strict_fields = parse_structured_text(text)
@@ -348,6 +364,17 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             fields, errors = merge_fields(existing_fields, parsed)
             deterministic_found_anything = bool(parsed)
 
+            # Local taxonomy hint (performance optimization): a full
+            # gender+category match against the REAL taxonomy data skips
+            # an AI call entirely for the common "obvious" case. Partial or
+            # no match falls through to the unchanged AI-escalation path
+            # below — this never weakens validate_taxonomy, which still
+            # runs unconditionally wherever taxonomy is ever assigned.
+            if not taxonomy_resolved(fields) and fields.get("name"):
+                hint = resolve_taxonomy_hint(fields["name"])
+                if hint:
+                    fields["l1_id"], fields["l2_id"] = hint
+
             ai_meta_update = None
             needs_ai, reason = _needs_ai_for_collection(fields, deterministic_found_anything, text, current)
             if needs_ai:
@@ -399,11 +426,18 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             if ai_meta_update:
                 set_fields["ai_meta"] = ai_meta_update
                 set_fields["ai_call_count"] = current.get("ai_call_count", 0) + 1
+            if batch_lines:
+                set_fields["batch_queue"] = batch_lines[1:]
+                set_fields["batch_total"] = len(batch_lines)
+                set_fields["batch_index"] = 1
 
             updated = await _atomic_merge_update(current["id"], current["version"], set_fields)
             if updated is not None:
                 n_images = len(updated.get("image_hosted_urls") or [])
                 reply = _build_collection_reply(new_state, fields, core_missing, taxonomy_fallback, n_images)
+                if batch_lines:
+                    reply = (f"📦 Detected {len(batch_lines)} products in your message. "
+                             f"Let's do them one at a time — Product 1 of {len(batch_lines)}:\n\n" + reply)
                 return updated, reply
 
             fresh = await drafts.find_one({"id": current["id"]}, {"_id": 0})
@@ -700,7 +734,30 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
         except Exception:
             log.exception("[whatsapp] audit log write failed for product %s (product was still created)", doc["id"])
 
-        return f"✅ Product created: {doc['name']} at ₹{doc['price']}. It's now live on your store."
+        success_msg = f"✅ Product created: {doc['name']} at ₹{doc['price']}. It's now live on your store."
+
+        batch_queue = draft.get("batch_queue") or []
+        if not batch_queue:
+            return success_msg
+
+        # Batch continuation: start the NEXT product as its own fresh,
+        # normal single-product draft (is_active is free again now that
+        # this draft was just claimed above) and feed it that product's own
+        # detected line through the exact same single-product path used for
+        # product 1 — no simultaneous drafts, no image-association guessing,
+        # each product collects its own photos in its own turn.
+        next_line = batch_queue[0]
+        remaining = batch_queue[1:]
+        batch_total = draft.get("batch_total") or (len(batch_queue) + (draft.get("batch_index") or 1))
+        next_index = (draft.get("batch_index") or 1) + 1
+
+        next_draft = await _new_draft(draft["whatsapp_phone"], draft["merchant_id"], draft["store_id"])
+        await drafts.update_one({"id": next_draft["id"]}, {"$set": {
+            "batch_queue": remaining, "batch_total": batch_total, "batch_index": next_index,
+        }})
+        next_draft["batch_queue"] = remaining
+        _updated_next, next_reply = await _process_collection_message(next_draft, next_line)
+        return f"{success_msg}\n\n📦 Product {next_index} of {batch_total}:\n\n{next_reply}"
 
     @router.post("/inbound")
     @rate_limit("120/minute")
