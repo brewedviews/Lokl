@@ -146,10 +146,32 @@ class TestDeleteEndpointContract:
         r = session.delete(f"{API}/merchant/upload-image", params={"public_id": "lokl/products/foo"}, timeout=10)
         assert r.status_code in (401, 403)
 
-    def test_delete_returns_ok_flag(self, session, merchant_auth):
+    def test_delete_rejects_a_public_id_the_caller_does_not_own(self, session, merchant_auth):
+        """Incident fix: this endpoint used to delete ANY public_id a
+        caller supplied with no ownership check at all — a merchant could
+        delete another merchant's asset merely by knowing/guessing its
+        public_id. An arbitrary id not embedding this merchant's own id and
+        not referenced by anything they own must now be rejected outright,
+        not silently treated as "ok: false" for a not-found asset."""
         r = session.delete(
             f"{API}/merchant/upload-image",
             params={"public_id": "lokl/products/does-not-exist"},
+            headers=merchant_auth,
+            timeout=20,
+        )
+        assert r.status_code == 403, f"expected 403, got {r.status_code}: {r.text[:200]}"
+
+    def test_delete_allows_a_freshly_uploaded_owner_scoped_asset(self, session, merchant_auth):
+        """The legitimate flow this endpoint must still support: a merchant
+        uploads a photo, then discards it before ever saving it into a
+        product/store record. The only ownership signal available for an
+        asset that's never been persisted anywhere is the owner-scoped
+        public_id minted at upload time."""
+        me = session.get(f"{API}/auth/me", headers=merchant_auth, timeout=10).json()
+        mid = me.get("sub") or me.get("id")
+        r = session.delete(
+            f"{API}/merchant/upload-image",
+            params={"public_id": f"lokl/products/{mid}/{uuid.uuid4().hex}"},
             headers=merchant_auth,
             timeout=20,
         )

@@ -2466,11 +2466,51 @@ async def merchant_upload_image(
     return await cloudinary_service.upload_image(file, asset_type, user["sub"])
 
 
+async def _merchant_owns_cloudinary_asset(merchant_id: str, public_id: str) -> bool:
+    """Incident fix: this endpoint used to delete ANY Cloudinary asset by
+    public_id with no check that the caller actually owns it — a merchant
+    could delete another merchant's product/store image merely by knowing
+    or guessing its public_id. A merchant may delete an asset only if:
+
+      (a) it was uploaded under their own owner-scoped path — every new
+          upload now embeds the uploader's id as the first path segment
+          (see cloudinary_service.upload_image) specifically so a
+          freshly-uploaded photo can be safely discarded before it's ever
+          attached to a product/store record (there's nothing in the DB
+          to check ownership against yet), or
+      (b) it's currently referenced by a product or store record this
+          merchant actually owns.
+
+    Case (a) only protects assets uploaded after this fix shipped —
+    older assets have Cloudinary's own randomly-generated, unscoped
+    public_ids with no ownership signal embedded at all. Those remain
+    protected only by (b) plus the practical unguessability of a random
+    Cloudinary-generated id."""
+    if merchant_id in public_id.split("/")[:-1]:
+        return True
+    if await db.products.find_one(
+        {"merchant_id": merchant_id, "$or": [{"image_public_id": public_id}, {"image_public_ids": public_id}]},
+        {"_id": 0, "id": 1},
+    ):
+        return True
+    if await db.stores.find_one(
+        {"id": f"store-m-{merchant_id}", "$or": [{"logo_public_id": public_id}, {"banner_public_ids": public_id}]},
+        {"_id": 0, "id": 1},
+    ):
+        return True
+    return False
+
+
 @api.delete("/merchant/upload-image")
 async def merchant_delete_image(public_id: str, user: dict = Depends(merchant_user)):
     """Delete an image from Cloudinary by public_id. Best-effort; returns ok flag."""
     if user.get("role") not in ("merchant", "admin"):
         raise HTTPException(403, "Merchant access required")
+    # Admins already have unrestricted product/store edit access elsewhere
+    # in this codebase (e.g. admin_update_product edits ANY product with no
+    # ownership check) — the ownership restriction below is merchant-only.
+    if user.get("role") == "merchant" and not await _merchant_owns_cloudinary_asset(user["sub"], public_id):
+        raise HTTPException(403, "You do not have permission to delete this image")
     ok = await cloudinary_service.delete_image(public_id)
     return {"ok": ok}
 
@@ -7183,13 +7223,100 @@ ALLOWED_PRODUCT_UPDATE_FIELDS = {
 }
 
 
+async def _remove_product_images(pid: str, p: dict, remove_ids) -> tuple[dict, dict]:
+    """Explicit, per-product-validated Cloudinary deletion — the ONLY path
+    through which updating a product can ever delete an image asset (see
+    the incident write-up on `_apply_product_update` below for what this
+    replaced). Every requested public_id is checked against THIS product's
+    OWN current image fields BEFORE any deletion is attempted — a caller
+    can never delete an asset that doesn't already belong to this exact
+    product, and a batch containing even one invalid id fails atomically
+    (nothing is deleted) rather than partially applying.
+
+    Cloudinary deletion is then attempted independently for each
+    (already-validated) id, so a multi-id request can have a genuine mixed
+    outcome — some ids deleted, others failed (network/permission error on
+    Cloudinary's side). A VALID id whose Cloudinary delete fails is left in
+    place everywhere (cover, images, image_public_ids) rather than have the
+    DB claim an asset is gone when it might not be — a failed delete must
+    never corrupt/desync the record. Returns (fields_to_set, report) where
+    `report` — {"deleted": [...], "failed": [...]} — is NEVER persisted to
+    the DB; the caller attaches it to the API response only, so a partial
+    failure is visible to the client without polluting the product schema.
+
+    Positional removal from the parallel `images`/`image_public_ids`
+    arrays only happens when the two are currently the same length (the
+    healthy case). For an already-misaligned legacy record (see migration
+    004's known array-length bug), a deleted id is still dropped from
+    `image_public_ids` — so it stops being tracked as a live asset — but
+    `images` is left untouched rather than guess at a position and risk
+    removing the wrong URL."""
+    if not isinstance(remove_ids, list):
+        raise HTTPException(400, "remove_image_public_ids must be a list")
+
+    images = list(p.get("images") or [])
+    public_ids = list(p.get("image_public_ids") or [])
+    cover_image = p.get("image") or ""
+    cover_pid = p.get("image_public_id") or ""
+    owned = set(public_ids) | ({cover_pid} if cover_pid else set())
+
+    for rid in remove_ids:
+        if not isinstance(rid, str) or rid not in owned:
+            raise HTTPException(400, f"'{rid}' is not an image on this product")
+
+    aligned = len(images) == len(public_ids)
+    deleted, failed = [], []
+    for rid in remove_ids:
+        if not await cloudinary_service.delete_image(rid):
+            log.warning("[product-image-removal] Cloudinary delete failed for %s on product %s — left in place", rid, pid)
+            failed.append(rid)
+            continue
+        deleted.append(rid)
+        if rid in public_ids:
+            idx = public_ids.index(rid)
+            public_ids.pop(idx)
+            if aligned:
+                images.pop(idx)
+            else:
+                log.warning("[product-image-removal] product %s images/image_public_ids were misaligned — "
+                            "removed %s from image_public_ids only, images left untouched", pid, rid)
+        if rid == cover_pid:
+            cover_pid, cover_image = "", ""
+
+    if not cover_pid and public_ids:
+        cover_pid = public_ids[0]
+        cover_image = images[0] if aligned and images else cover_image
+
+    fields = {"images": images, "image_public_ids": public_ids, "image": cover_image, "image_public_id": cover_pid}
+    return fields, {"deleted": deleted, "failed": failed}
+
+
 async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
     """Shared product-content-update logic — the caller has already
     fetched the existing product doc `p` and confirmed the caller is
     allowed to edit it (merchant ownership check, or admin). G25 reuses
     this exact function for the new PUT /admin/products/{pid} instead of
-    building a second, parallel product-update implementation."""
+    building a second, parallel product-update implementation.
+
+    Incident fix: this used to also implicitly delete from Cloudinary
+    whenever a submitted `image_public_id`/`image_public_ids` differed from
+    (or omitted an entry present in) what was already stored — e.g. diffing
+    old vs. new ids and deleting anything missing from the new payload. The
+    merchant frontend reconstructs `images`/`image_public_ids` independently
+    on load, so the two arrays can end up different lengths for a legacy
+    record; saving ANY unrelated field (price, stock, name, category) then
+    silently deleted a still-referenced Cloudinary asset. Deletion is now
+    ONLY ever performed via the explicit, per-id-validated
+    `remove_image_public_ids` field (see `_remove_product_images` above) —
+    a plain field update can add/replace image URLs+ids in the DB (that's
+    just data, never destructive) but can never trigger a Cloudinary
+    delete on its own."""
+    remove_ids = payload.get("remove_image_public_ids")
     payload = {k: v for k, v in payload.items() if k in ALLOWED_PRODUCT_UPDATE_FIELDS}
+    image_removal_result = None
+    if remove_ids:
+        image_fields, image_removal_result = await _remove_product_images(pid, p, remove_ids)
+        payload.update(image_fields)
     if "return_window_hours" in payload and payload["return_window_hours"] is not None:
         try:
             rwh = int(payload["return_window_hours"])
@@ -7200,19 +7327,6 @@ async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
         payload["return_window_hours"] = rwh
     if isinstance(payload.get("stock"), dict):
         payload["total_stock"] = sum(int(v) for v in payload["stock"].values() if isinstance(v, (int, float)))
-    # If the cover Cloudinary asset is being replaced (different public_id),
-    # delete the previous asset to avoid orphaned Cloudinary storage.
-    new_pid = payload.get("image_public_id")
-    old_pid = p.get("image_public_id")
-    if new_pid and old_pid and new_pid != old_pid:
-        await cloudinary_service.delete_image(old_pid)
-    # Same for the carousel images array — delete any old ids that are no
-    # longer in the new array.
-    if "image_public_ids" in payload:
-        old_ids = set(p.get("image_public_ids") or [])
-        new_ids = set(payload.get("image_public_ids") or [])
-        for stale in (old_ids - new_ids):
-            await cloudinary_service.delete_image(stale)
     await db.products.update_one({"id": pid}, {"$set": payload})
     # If the product was just paused/unpaused, recompute count and maybe
     # auto-publish. Reads store_id off the product doc itself (rather than
@@ -7232,7 +7346,15 @@ async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
         if old_brand_id != new_brand_id:
             await _recompute_brand_product_count(old_brand_id)
         await _recompute_brand_product_count(new_brand_id)
-    return await db.products.find_one({"id": pid}, {"_id": 0})
+    doc = await db.products.find_one({"id": pid}, {"_id": 0})
+    if image_removal_result is not None:
+        # Transient — attached to the API response only, never persisted
+        # (this dict came straight from Mongo; mutating it after the fact
+        # never touches the DB). Surfaces a partial-success outcome (some
+        # requested ids deleted, others failed) to the caller explicitly,
+        # rather than a bare 200 that silently hides a mixed result.
+        doc["image_removal_result"] = image_removal_result
+    return doc
 
 
 @api.put("/merchant/products/{pid}")

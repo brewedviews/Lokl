@@ -21,6 +21,29 @@ PREFIXES_TO_DELETE = ["lokl/products", "lokl/stores", "lokl/banners", "lokl/cms"
 PRESERVE_PREFIXES = ["lokl/kyc"]  # safety net — never touch these
 
 
+def _refuse_if_production() -> None:
+    """Production guard (incident fix). This script deletes every resource
+    under folders that also hold LIVE merchant/customer images in
+    production — it was written as a one-shot pre-launch cleanup, but
+    nothing ever stopped it from being run against a live environment.
+    Checked using the SAME `ENVIRONMENT` convention server.py's
+    `_IS_PRODUCTION` already uses — not a new convention. This check is
+    unconditional and runs before any flag parsing, so `--force` cannot
+    bypass it; there is no override. If this check is ever wrong, the fix
+    is to correct the environment configuration, not to bypass this."""
+    env = (os.environ.get("ENVIRONMENT") or "").strip().lower()
+    if env == "production":
+        raise SystemExit(
+            "REFUSING TO RUN: ENVIRONMENT=production.\n"
+            "This script permanently deletes Cloudinary assets under "
+            f"{PREFIXES_TO_DELETE} — folders that hold LIVE product/store/banner "
+            "images in production. It exists only for pre-launch test-data cleanup "
+            "and must never run against a production environment. This is not "
+            "something to override; if this check is firing incorrectly, fix the "
+            "environment configuration instead."
+        )
+
+
 def _configure():
     load_dotenv(Path(__file__).resolve().parents[1] / ".env")
     cloudinary.config(
@@ -56,6 +79,9 @@ def _list_prefix(prefix: str) -> list[str]:
 
 
 def main():
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    _refuse_if_production()  # unconditional — checked before any flag, no bypass
+
     dry_run = "--dry-run" in sys.argv
     force = "--force" in sys.argv or "--yes" in sys.argv
     _configure()

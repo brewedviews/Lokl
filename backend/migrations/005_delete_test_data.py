@@ -13,7 +13,45 @@ from datetime import datetime, timezone
 VERSION = "005_delete_test_data"
 
 
+def _is_production() -> bool:
+    return (os.environ.get("ENVIRONMENT") or "").strip().lower() == "production"
+
+
 async def up(db) -> dict:
+    # Production guard (incident fix), implemented as a SAFE NO-OP rather
+    # than raising. This migration wipes essentially every transactional/
+    # catalogue collection AND every Cloudinary asset under lokl/products,
+    # lokl/stores, lokl/banners (Step 7 below) — a one-shot pre-launch
+    # "clean slate" operation with no environment check of its own.
+    #
+    # An earlier version of this guard raised RuntimeError here instead.
+    # migrations/run.py's runner has no per-migration exception isolation
+    # around `await mod.up(db)` — a raised exception here would leave this
+    # migration permanently unmarked as "applied" in `_migrations`, so
+    # EVERY future `migrations.run` invocation in production would hit
+    # this exact migration again (lexical ordering puts it before 007+)
+    # and abort before ever reaching them — silently blocking all
+    # production migrations forever. This is the exact same incident class
+    # already documented twice in this codebase's history (see migration
+    # 013's own writeup of the 007/008 duplicate-key crash, and
+    # migrations/run.py's _NOT_MIGRATIONS comment on 006).
+    #
+    # Returning a normal (non-raising) report instead means: the runner's
+    # ordinary `db["_migrations"].insert_one(...)` still fires exactly as
+    # it would for any successful migration, so this decision is recorded
+    # ONCE, permanently, honestly (the report says exactly what happened
+    # and why) — migration sequencing is never blocked, and this is never
+    # silently re-evaluated on a later run. `migrations/run.py`'s `_run()`
+    # also now isolates any migration's exception per-item as a second,
+    # independent layer of defense — see its own comment.
+    if _is_production():
+        return {"summary": [
+            "SKIPPED: ENVIRONMENT=production. This migration performs a destructive "
+            "pre-launch test-data + Cloudinary wipe (products/stores/merchants/orders/"
+            "customers plus lokl/products, lokl/stores, lokl/banners) and must never run "
+            "against a live environment. Recorded as applied with this no-op outcome so "
+            "migration sequencing is never blocked and this decision is never re-evaluated.",
+        ]}
     summary: dict = {}
 
     # ── STEP 1: preserve admin ─────────────────────────────────────────

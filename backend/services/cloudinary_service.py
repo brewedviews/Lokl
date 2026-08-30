@@ -67,10 +67,19 @@ async def upload_image(file: UploadFile, asset_type: str, owner_id: str) -> dict
     if len(contents) == 0:
         raise HTTPException(400, "Empty file")
 
-    public_id = None
     if asset_type == "kyc":
         safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", file.filename)
         public_id = f"{owner_id}/{uuid.uuid4().hex[:8]}_{safe_name}"
+    else:
+        # Incident fix (image-deletion ownership): embed the uploading
+        # owner's id in EVERY asset's public_id, not just KYC's, so
+        # DELETE /merchant/upload-image can verify a caller owns an asset
+        # purely from its public_id string — this is what makes it safe to
+        # delete a freshly-uploaded photo the merchant discarded before
+        # ever saving it into a product/store record (nothing to check
+        # ownership against in the DB yet). See server.py's
+        # `_merchant_owns_cloudinary_asset`.
+        public_id = f"{owner_id}/{uuid.uuid4().hex}"
     return await _do_upload(contents, asset_type, owner_id, public_id=public_id)
 
 
@@ -127,6 +136,13 @@ async def _do_upload(contents: bytes, asset_type: str, owner_id: str, public_id:
         options["public_id"] = public_id or f"{owner_id}/{uuid.uuid4().hex}"
     else:
         options["transformation"].append({"width": 1600, "height": 1600, "crop": "limit"})
+        # Incident fix (image-deletion ownership): a caller-supplied
+        # public_id used to be silently ignored for every non-kyc asset
+        # type — only kyc ever actually applied it. Honoring it here is
+        # what lets upload_image() below embed the uploading owner's id in
+        # every product/store/brand asset's public_id, not just kyc's.
+        if public_id:
+            options["public_id"] = public_id
 
     try:
         result = await asyncio.to_thread(_upload_sync_with_retry, contents, options)

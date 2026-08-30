@@ -64,7 +64,21 @@ async def _run(db):
             continue
         version = getattr(mod, "VERSION", name)
         print(f"  → applying {version} …")
-        report = await mod.up(db)
+        # Defense in depth (prior incidents: 007/008's uncaught E11000
+        # duplicate-key crash, and 006 being swept into discovery before
+        # _NOT_MIGRATIONS existed) — ANY single migration raising must
+        # never abort the whole batch and silently block every migration
+        # queued after it in sort order. A failed migration is left
+        # unapplied (never inserted into `_migrations`), so it stays
+        # visible as pending via --status and is safe to fix and retry —
+        # this is NOT the same as marking it applied-but-skipped, which is
+        # what a migration itself should do for a deliberate, permanent
+        # no-op (see 005_delete_test_data's own production guard).
+        try:
+            report = await mod.up(db)
+        except Exception as e:
+            print(f"    ✗ {version} FAILED: {e!r} — left unapplied; remaining migrations will still run")
+            continue
         await db["_migrations"].insert_one({
             "version": version,
             "applied_at": datetime.now(timezone.utc).isoformat(),
