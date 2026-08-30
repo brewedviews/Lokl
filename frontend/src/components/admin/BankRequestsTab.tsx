@@ -20,7 +20,7 @@ interface ChangeRequest {
   id: string;
   merchant_id: string;
   change_type: "bank" | "address" | string;
-  status: "pending" | "approved" | "rejected" | string;
+  status: "submitted" | "approved" | "rejected" | string;
   created_at: string;
   reason?: string;
   new_values?: Record<string, unknown>;
@@ -38,7 +38,7 @@ const LABELS: Record<string, string> = {
 export function BankRequestsTab() {
   const [items, setItems] = useState<ChangeRequest[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
-  const [filter, setFilter] = useState<string>("pending");
+  const [filter, setFilter] = useState<string>("submitted");
 
   const load = useCallback(async () => {
     try {
@@ -80,7 +80,7 @@ export function BankRequestsTab() {
         <div className="flex items-center gap-2">
           <select data-testid="cr-filter" value={filter} onChange={(e) => setFilter(e.target.value)}
             className="px-3 py-2 rounded-full border border-[#E5E2DC] text-sm">
-            <option value="pending">Pending</option>
+            <option value="submitted">Pending</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
             <option value="all">All</option>
@@ -92,7 +92,7 @@ export function BankRequestsTab() {
       </div>
       {items.length === 0 ? (
         <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center text-sm text-[#595959]">
-          {filter === "pending"
+          {filter === "submitted"
             ? "No bank or address change requests waiting on approval."
             : "Nothing in this state."}
         </div>
@@ -126,7 +126,7 @@ export function BankRequestsTab() {
                       ))}
                     </div>
                   </div>
-                  {cr.status === "pending" && (
+                  {cr.status === "submitted" && (
                     <div className="flex items-center gap-2 flex-wrap">
                       <button disabled={busy === cr.id} onClick={() => approve(cr)}
                         data-testid={`cr-approve-${cr.id}`}
