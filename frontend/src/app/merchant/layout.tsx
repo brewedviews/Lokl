@@ -185,16 +185,22 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
 
   // Step 3 — auth + approval guard. Only fires AFTER hydration so a hard
   // refresh on /merchant/products no longer bounces back to login.
+  //
+  // NOTE: this used to also force any KYC-approved merchant off
+  // /merchant/onboarding to /merchant/orders ("approved merchants should
+  // never be stuck on onboarding"). That assumed "approved" meant
+  // "onboarding is fully done," which stopped being true once /merchant/
+  // onboarding became a 3-step hub (verify business -> set up shop -> add
+  // products) — an approved merchant with no storefront/products yet was
+  // being bounced to an empty orders page instead of the checklist telling
+  // them what's left. /merchant/onboarding now renders the correct state
+  // for every step itself (including a "you're live" screen once fully
+  // done), so it no longer needs a layout-level redirect away from it.
   useEffect(() => {
     if (!hydrated || isPublic) return;
     if (!isAuthed) { router.replace("/merchant/login"); return; }
     if (userKnown && APPROVED_ONLY.includes(pathname) && !isApproved) {
       router.replace("/merchant/onboarding");
-      return;
-    }
-    // Approved merchants should never be stuck on onboarding.
-    if (userKnown && isApproved && pathname === "/merchant/onboarding") {
-      router.replace("/merchant/orders");
     }
   }, [hydrated, isAuthed, isApproved, pathname, isPublic, userKnown, router]);
 
@@ -214,6 +220,10 @@ export default function MerchantLayout({ children }: { children: React.ReactNode
 
   const links: Array<{ to: string; label: string; icon: React.ComponentType<{ size?: number }>; disabled?: boolean }> = isApproved
     ? [
+        // Kept reachable after approval too — an approved merchant with no
+        // storefront/products yet still needs their "what's left" checklist,
+        // and a fully-live merchant landing here just sees "you're live".
+        { to: "/merchant/onboarding",    label: "Onboarding",      icon: Rocket },
         { to: "/merchant/orders",       label: "Order requests",  icon: Bell },
         { to: "/merchant/products",     label: "Products",        icon: Package },
         { to: "/merchant/analytics",    label: "Sales analytics", icon: BarChart3 },

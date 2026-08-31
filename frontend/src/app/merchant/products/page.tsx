@@ -9,7 +9,8 @@
  * carousel — never base64 blobs.
  */
 import { useEffect, useRef, useState } from "react";
-import { Package, Plus, Download, Upload, Loader2, Search } from "lucide-react";
+import Link from "next/link";
+import { Package, Plus, Download, Upload, Loader2, Search, LifeBuoy, PartyPopper } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
@@ -17,6 +18,7 @@ import { getErrorMessage } from "@/lib/api-error";
 import { downloads } from "@/lib/downloads";
 import { useMerchantAuthStore } from "@/stores";
 import { ProductForm, type ProductFormBody, type ProductFormInitial } from "@/components/products/ProductForm";
+import type { OnboardingStatusResponse } from "@/lib/api/merchant";
 import type { Product } from "@/types";
 
 interface L2 { id: string; name: string }
@@ -88,11 +90,27 @@ export default function MerchantProductsPage() {
   const [bulkFile, setBulkFile] = useState<File | null>(null);
   const [bulkMappingOverrides, setBulkMappingOverrides] = useState<Record<string, string | null>>({});
   const [bulkResult, setBulkResult] = useState<BulkImportResult | null>(null);
+  // Onboarding-status polling purely to detect the exact moment autopublish
+  // fires (KYC approved + storefront + this being their first live product)
+  // so we can show the "you're live" moment right where it actually happens
+  // — no change to _maybe_autopublish_store itself, this only observes it.
+  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatusResponse | null>(null);
+  const [justLaunched, setJustLaunched] = useState(false);
+  const [requestingHelp, setRequestingHelp] = useState(false);
 
   const load = async () => {
     try { setItems(await api.merchant.listProducts()); } catch { /* ignore */ }
   };
-  useEffect(() => { void load(); void loadCats(); }, []);
+  const refreshOnboardingStatus = async () => {
+    try {
+      const next = await api.merchant.onboardingStatus();
+      setOnboardingStatus((prev) => {
+        if (prev && prev.step !== "live" && next.step === "live") setJustLaunched(true);
+        return next;
+      });
+    } catch { /* ignore */ }
+  };
+  useEffect(() => { void load(); void loadCats(); void refreshOnboardingStatus(); }, []);
   const loadCats = async () => {
     try {
       const r = await apiClient.get<Category[]>("/api/categories");
@@ -115,6 +133,19 @@ export default function MerchantProductsPage() {
       toast.success("Product created");
     }
     void load();
+    void refreshOnboardingStatus();
+  };
+
+  const requestHelp = async () => {
+    setRequestingHelp(true);
+    try {
+      await api.merchant.requestAssistance("I need help adding products to my shop.");
+      toast.success("We've let our team know — they'll reach out shortly.");
+    } catch {
+      toast.error("Couldn't send your request. Please try again.");
+    } finally {
+      setRequestingHelp(false);
+    }
   };
 
   const closeForm = () => { setOpenAdd(false); setEditingId(null); setEditingProduct(null); };
@@ -137,7 +168,7 @@ export default function MerchantProductsPage() {
     try {
       await api.merchant.bulkAction(selected, action);
       toast.success(`${action} done`);
-      setSelected([]); void load();
+      setSelected([]); void load(); void refreshOnboardingStatus();
     } catch (e) { toast.error(getErrorMessage(e)); }
     finally { setBulkBusy(false); }
   };
@@ -146,6 +177,7 @@ export default function MerchantProductsPage() {
     try {
       await api.merchant.updateProduct(p.id, { paused: target !== "live" } as Partial<Product>);
       void load();
+      void refreshOnboardingStatus();
     } catch (e) { toast.error(getErrorMessage(e)); }
   };
 
@@ -196,17 +228,13 @@ export default function MerchantProductsPage() {
         );
       }
       void load();
+      void refreshOnboardingStatus();
     } catch (e) { toast.error(getErrorMessage(e)); }
     finally {
       setBulkUploadBusy(false);
       setBulkFile(null);
       setBulkDetect(null);
     }
-  };
-
-  const publishStore = async () => {
-    try { await api.merchant.publish(); toast.success("Going live within 1 hour"); void load(); }
-    catch (e) { toast.error(getErrorMessage(e)); }
   };
 
   const savePrice = async (pid: string) => {
@@ -311,11 +339,47 @@ export default function MerchantProductsPage() {
 
       {/* Product cards */}
       {filtered.length === 0 ? (
-        <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center" data-testid="products-empty">
-          <Package size={28} className="mx-auto text-[#94A3B8] mb-2" />
-          <h3 className="font-display text-xl font-bold text-[#1A2B4C]">No products yet</h3>
-          <p className="text-sm text-[#595959] mt-1">Click <strong>Add product</strong> to upload your first item.</p>
-        </div>
+        items.length === 0 ? (
+          <div data-testid="products-empty">
+            <p className="text-sm text-[#595959] mb-4">You only need one product to get your shop ready. You can add more anytime.</p>
+            <div className="grid sm:grid-cols-3 gap-3">
+              <button
+                onClick={() => { setEditingId(null); setEditingProduct(null); setOpenAdd(true); }}
+                data-testid="entry-add-one"
+                className="text-left bg-white border border-[#E5E2DC] rounded-2xl p-5 hover:border-[#1A2B4C] transition"
+              >
+                <Plus size={20} className="text-[#E68910] mb-2" />
+                <div className="font-bold text-[#1A2B4C] text-sm">Add one product</div>
+                <div className="text-xs text-[#595959] mt-1">Best for adding products individually.</div>
+              </button>
+              <button
+                onClick={() => bulkInputRef.current?.click()}
+                data-testid="entry-add-multiple"
+                className="text-left bg-white border border-[#E5E2DC] rounded-2xl p-5 hover:border-[#1A2B4C] transition"
+              >
+                <Upload size={20} className="text-[#E68910] mb-2" />
+                <div className="font-bold text-[#1A2B4C] text-sm">Add multiple products</div>
+                <div className="text-xs text-[#595959] mt-1">Upload an Excel/CSV file.</div>
+              </button>
+              <button
+                onClick={() => void requestHelp()}
+                disabled={requestingHelp}
+                data-testid="entry-request-help"
+                className="text-left bg-[#FDFBF7] border border-[#E5E2DC] rounded-2xl p-5 hover:border-[#1A2B4C] transition disabled:opacity-60"
+              >
+                <LifeBuoy size={20} className="text-[#E68910] mb-2" />
+                <div className="font-bold text-[#1A2B4C] text-sm">Need help adding products?</div>
+                <div className="text-xs text-[#595959] mt-1">{requestingHelp ? "Sending…" : "Request Lokl assistance"}</div>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-white border border-dashed border-[#E5E2DC] rounded-2xl p-12 text-center" data-testid="products-empty">
+            <Package size={28} className="mx-auto text-[#94A3B8] mb-2" />
+            <h3 className="font-display text-xl font-bold text-[#1A2B4C]">No products match your search</h3>
+            <p className="text-sm text-[#595959] mt-1">Try a different search term.</p>
+          </div>
+        )
       ) : (
         <div className="space-y-2">
           {filtered.map((p) => {
@@ -438,6 +502,39 @@ export default function MerchantProductsPage() {
       {bulkResult && (
         <BulkResultModal result={bulkResult} onClose={() => setBulkResult(null)} />
       )}
+
+      {/* The exact moment _maybe_autopublish_store flips the store live —
+          almost always right here (adding the first product). The merchant
+          should never have to wonder whether their shop is live. */}
+      {justLaunched && onboardingStatus?.store_id && (
+        <LaunchCelebrationModal storeId={onboardingStatus.store_id} onClose={() => setJustLaunched(false)} />
+      )}
+    </div>
+  );
+}
+
+function LaunchCelebrationModal({ storeId, onClose }: { storeId: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
+      <div data-testid="launch-celebration-modal" className="relative bg-white rounded-3xl p-8 max-w-sm w-full text-center">
+        <div className="text-5xl mb-3">🎉</div>
+        <h2 className="font-display text-2xl font-bold text-[#1A2B4C]">Your shop is now live!</h2>
+        <div className="mt-5 space-y-2 text-left max-w-[220px] mx-auto text-sm text-[#1A2B4C]">
+          <div className="flex items-center gap-2"><PartyPopper size={15} className="text-[#4F7363]" /> Business verified</div>
+          <div className="flex items-center gap-2"><PartyPopper size={15} className="text-[#4F7363]" /> Shop set up</div>
+          <div className="flex items-center gap-2"><PartyPopper size={15} className="text-[#4F7363]" /> Products added</div>
+        </div>
+        <p className="text-sm text-[#595959] mt-5">Customers can now discover and shop from your store on Lokl.</p>
+        <div className="flex flex-col sm:flex-row gap-2 mt-6">
+          <Link href={`/store/${storeId}`} className="flex-1 inline-flex items-center justify-center px-4 py-3 rounded-full border-2 border-[#1A2B4C] text-[#1A2B4C] font-semibold text-sm">
+            View my shop
+          </Link>
+          <button onClick={onClose} className="flex-1 inline-flex items-center justify-center px-4 py-3 rounded-full bg-[#1A2B4C] text-white font-semibold text-sm">
+            Keep adding products
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

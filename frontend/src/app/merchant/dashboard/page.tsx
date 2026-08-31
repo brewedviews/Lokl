@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api-client";
 import Link from "next/link";
-import { ShoppingBag, TrendingUp, TrendingDown, AlertCircle, Package, Zap, Crown } from "lucide-react";
+import { ShoppingBag, TrendingUp, TrendingDown, AlertCircle, Package, Zap, Crown, ArrowRight } from "lucide-react";
+import { api } from "@/lib/api";
+import type { OnboardingStatusResponse } from "@/lib/api/merchant";
 
 interface Analytics {
   today_orders: number;
@@ -28,12 +30,17 @@ export default function MerchantDashboard() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
+  const [onboarding, setOnboarding] = useState<OnboardingStatusResponse | null>(null);
 
   useEffect(() => {
     Promise.all([
       apiClient.get<Analytics>("/api/merchant/analytics/summary").then((r) => setAnalytics(r.data)).catch(() => {}),
       apiClient.get<Subscription>("/api/merchant/subscription").then((r) => setSubscription(r.data)).catch(() => {}),
     ]).finally(() => setLoading(false));
+    // Persistent onboarding guidance — a merchant who isn't fully launched
+    // yet should never lose sight of the next step just by navigating to
+    // the analytics dashboard. Removed automatically once step === "live".
+    api.merchant.onboardingStatus().then(setOnboarding).catch(() => {});
   }, []);
 
   const planColor =
@@ -80,6 +87,25 @@ export default function MerchantDashboard() {
           </Link>
         )}
       </div>
+
+      {/* Persistent onboarding guidance — never leave an incomplete merchant
+          staring at all-zero KPI tiles with no explanation of why, and no
+          path forward. Disappears automatically once step === "live". */}
+      {onboarding && onboarding.step !== "live" && (
+        <Link
+          href={onboarding.next_action.path}
+          data-testid="dashboard-onboarding-banner"
+          className="mb-6 p-4 rounded-2xl bg-[#1A2B4C] text-white flex items-center justify-between gap-3"
+        >
+          <div>
+            <div className="font-bold text-sm">Your shop isn&apos;t live yet</div>
+            <div className="text-xs text-white/70 mt-0.5">Complete the next step to start selling on Lokl.</div>
+          </div>
+          <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#E68910] text-xs font-bold shrink-0">
+            {onboarding.next_action.label} <ArrowRight size={12} />
+          </span>
+        </Link>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

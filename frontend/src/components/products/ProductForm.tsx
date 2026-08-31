@@ -35,7 +35,7 @@
  */
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { Upload, X, Star, Loader2, Plus, Trash2 } from "lucide-react";
+import { Upload, X, Star, Loader2, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/api-error";
 import { uploadImage, deleteUploadedImage } from "@/lib/uploads";
@@ -186,6 +186,13 @@ export function ProductForm({
     return st === "custom" ? (initialProduct?.sizes || []).join(", ") : "";
   });
   const [step, setStep] = useState(1);
+  // Progressive disclosure — a first-time, non-technical merchant should
+  // only see name/category/price/MRP/sizes/photo by default. These stay
+  // collapsed unless the product already has data in them (editing an
+  // existing product with a brand/description/return-policy set should
+  // never look like that data disappeared).
+  const [showMoreBasics, setShowMoreBasics] = useState(() => !!(initialProduct?.description || initialProduct?.brand_id));
+  const [showReturnOptions, setShowReturnOptions] = useState(() => !!(initialProduct?.return_eligible || initialProduct?.try_at_doorstep));
   const [imageBusy, setImageBusy] = useState(false);
   const [submitBusy, setSubmitBusy] = useState(false);
   // Public_ids removed from the form in THIS session but not yet confirmed
@@ -204,6 +211,8 @@ export function ProductForm({
     );
     setPendingDeletePublicIds([]);
     setStep(1);
+    setShowMoreBasics(!!(initialProduct?.description || initialProduct?.brand_id));
+    setShowReturnOptions(!!(initialProduct?.return_eligible || initialProduct?.try_at_doorstep));
     const st = initialProduct?.size_type || (initialProduct?.sizes?.length ? inferSizeType(initialProduct.sizes) : "");
     setCustomSizesInput(st === "custom" ? (initialProduct?.sizes || []).join(", ") : "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -440,17 +449,6 @@ export function ProductForm({
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-1">Description</label>
-                <textarea
-                  data-testid="prod-desc"
-                  value={form.description}
-                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="Fabric, fit, occasion..."
-                  rows={2}
-                  className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-sm resize-none"
-                />
-              </div>
-              <div>
                 <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-1">Category *</label>
                 <select
                   data-testid="prod-l1"
@@ -492,10 +490,35 @@ export function ProductForm({
                   </select>
                 </div>
               ) : null}
-              <BrandCombobox
-                value={form.brand_id}
-                onChange={(brand_id) => setForm((f) => ({ ...f, brand_id }))}
-              />
+
+              <button
+                type="button"
+                onClick={() => setShowMoreBasics((v) => !v)}
+                data-testid="prod-toggle-more-basics"
+                className="w-full flex items-center justify-between px-1 py-2 text-xs font-semibold text-[#595959] hover:text-[#1A2B4C]"
+              >
+                <span>+ Description &amp; brand (optional)</span>
+                {showMoreBasics ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+              {showMoreBasics && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs font-bold text-[#595959] uppercase tracking-wide block mb-1">Description</label>
+                    <textarea
+                      data-testid="prod-desc"
+                      value={form.description}
+                      onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                      placeholder="Fabric, fit, occasion..."
+                      rows={2}
+                      className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-sm resize-none"
+                    />
+                  </div>
+                  <BrandCombobox
+                    value={form.brand_id}
+                    onChange={(brand_id) => setForm((f) => ({ ...f, brand_id }))}
+                  />
+                </div>
+              )}
             </>
           )}
 
@@ -637,31 +660,44 @@ export function ProductForm({
                 </div>
               )}
 
-              <label className="flex items-start gap-2 text-xs">
-                <input data-testid="prod-return-eligible" type="checkbox" checked={form.return_eligible} onChange={(e) => setForm({ ...form, return_eligible: e.target.checked })} className="mt-0.5 w-4 h-4 accent-[#E68910]" />
-                <span><strong>Return eligible</strong> — customers can return this within a set window after delivery</span>
-              </label>
+              <button
+                type="button"
+                onClick={() => setShowReturnOptions((v) => !v)}
+                data-testid="prod-toggle-return-options"
+                className="w-full flex items-center justify-between px-1 py-2 text-xs font-semibold text-[#595959] hover:text-[#1A2B4C]"
+              >
+                <span>+ Return policy &amp; Try at doorstep (optional)</span>
+                {showReturnOptions ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+              {showReturnOptions && (
+                <div className="space-y-3">
+                  <label className="flex items-start gap-2 text-xs">
+                    <input data-testid="prod-return-eligible" type="checkbox" checked={form.return_eligible} onChange={(e) => setForm({ ...form, return_eligible: e.target.checked })} className="mt-0.5 w-4 h-4 accent-[#E68910]" />
+                    <span><strong>Return eligible</strong> — customers can return this within a set window after delivery</span>
+                  </label>
 
-              {form.return_eligible && (
-                <label className="flex items-center gap-2 text-xs pl-6">
-                  <span className="text-[#595959]">Return window (hours, max 24)</span>
-                  <input
-                    data-testid="prod-return-window-hours"
-                    type="number"
-                    min={1}
-                    max={24}
-                    value={form.return_window_hours}
-                    onChange={(e) => setForm({ ...form, return_window_hours: e.target.value })}
-                    onBlur={() => setForm((f) => ({ ...f, return_window_hours: String(Math.min(24, Math.max(1, Number(f.return_window_hours) || 24))) }))}
-                    className="w-20 px-2 py-1 rounded-lg border border-[#E5E2DC] outline-none text-sm"
-                  />
-                </label>
+                  {form.return_eligible && (
+                    <label className="flex items-center gap-2 text-xs pl-6">
+                      <span className="text-[#595959]">Return window (hours, max 24)</span>
+                      <input
+                        data-testid="prod-return-window-hours"
+                        type="number"
+                        min={1}
+                        max={24}
+                        value={form.return_window_hours}
+                        onChange={(e) => setForm({ ...form, return_window_hours: e.target.value })}
+                        onBlur={() => setForm((f) => ({ ...f, return_window_hours: String(Math.min(24, Math.max(1, Number(f.return_window_hours) || 24))) }))}
+                        className="w-20 px-2 py-1 rounded-lg border border-[#E5E2DC] outline-none text-sm"
+                      />
+                    </label>
+                  )}
+
+                  <label className="flex items-start gap-2 text-xs">
+                    <input data-testid="prod-try-at-doorstep" type="checkbox" checked={form.try_at_doorstep} onChange={(e) => setForm({ ...form, try_at_doorstep: e.target.checked })} className="mt-0.5 w-4 h-4 accent-[#E68910]" />
+                    <span><strong>Try &amp; Buy</strong> — customer can try this on at the door and only pay for what they keep</span>
+                  </label>
+                </div>
               )}
-
-              <label className="flex items-start gap-2 text-xs">
-                <input data-testid="prod-try-at-doorstep" type="checkbox" checked={form.try_at_doorstep} onChange={(e) => setForm({ ...form, try_at_doorstep: e.target.checked })} className="mt-0.5 w-4 h-4 accent-[#E68910]" />
-                <span><strong>Try &amp; Buy</strong> — customer can try this on at the door and only pay for what they keep</span>
-              </label>
             </>
           )}
 

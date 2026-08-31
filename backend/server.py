@@ -1237,6 +1237,90 @@ async def merchant_next_route(user: dict = Depends(merchant_user)):
     return {"route": await _merchant_next_route(user["sub"])}
 
 
+async def _merchant_onboarding_status(merchant_id: str) -> Optional[dict]:
+    """Additive, read-only onboarding status for the merchant-facing UI.
+
+    Mirrors the exact gating rules `_merchant_next_route` already encodes
+    (KYC approval, storefront existence, unpaused product count) — this does
+    NOT introduce a second state machine or change any gate, it only exposes
+    richer, human-friendly state so the frontend can show real completion
+    (fixing the old checklist's hardcoded `done: false`) instead of
+    re-deriving these rules itself.
+    """
+    m = await db.merchants.find_one(
+        {"id": merchant_id},
+        {"_id": 0, "kyc_status": 1, "hold_comment": 1, "kyc_rejected_reason": 1},
+    )
+    if not m:
+        return None
+    kyc = (m.get("kyc_status") or "draft").lower()
+    if kyc == "approved":
+        verify_state = "completed"
+    elif kyc == "submitted":
+        verify_state = "in_review"
+    elif kyc in ("rejected", "on_hold"):
+        verify_state = "needs_changes"
+    else:
+        verify_state = "not_started"
+
+    store = None
+    store_id = f"store-m-{merchant_id}"
+    if verify_state == "completed":
+        store = await db.stores.find_one({"id": store_id}, {"_id": 0, "published": 1})
+    setup_shop_state = "locked" if verify_state != "completed" else ("completed" if store else "not_started")
+
+    active_count = 0
+    total_count = 0
+    published = False
+    add_products_state = "locked"
+    if store:
+        active_count = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
+        total_count = await db.products.count_documents({"store_id": store_id})
+        published = bool(store.get("published"))
+        add_products_state = "completed" if active_count >= 1 else "not_started"
+
+    if verify_state != "completed":
+        step = "verify_business"
+    elif setup_shop_state != "completed":
+        step = "setup_shop"
+    elif add_products_state != "completed":
+        step = "add_products"
+    else:
+        step = "live"
+
+    next_action_by_step = {
+        "verify_business": {"label": "Verify your business", "path": "/merchant/kyc"},
+        "setup_shop": {"label": "Set up your shop", "path": "/merchant/storefront"},
+        "add_products": {"label": "Add your products", "path": "/merchant/products"},
+        "live": {"label": "Go to dashboard", "path": "/merchant/dashboard"},
+    }
+
+    blocked_reason = None
+    if verify_state == "needs_changes":
+        blocked_reason = m.get("hold_comment") or m.get("kyc_rejected_reason")
+
+    return {
+        "step": step,
+        "verify_business": {"status": verify_state, "blocked_reason": blocked_reason},
+        "setup_shop": {"status": setup_shop_state},
+        "add_products": {"status": add_products_state, "active_count": active_count, "total_count": total_count},
+        "published": published,
+        "store_id": store_id if store else None,
+        "next_action": next_action_by_step[step],
+    }
+
+
+@api.get("/merchant/onboarding-status")
+async def merchant_onboarding_status(user: dict = Depends(merchant_user)):
+    """Richer, human-friendly onboarding state for the merchant home screen
+    and the persistent dashboard banner — additive alongside `next-route`,
+    reuses the exact same underlying gates/data, changes no behavior."""
+    status = await _merchant_onboarding_status(user["sub"])
+    if status is None:
+        raise HTTPException(404, "Not found")
+    return status
+
+
 # ===== Categories =====
 @api.get("/categories")
 async def list_categories():
@@ -7146,6 +7230,52 @@ async def kyc_status(user: dict = Depends(merchant_user)):
 async def merchant_notifications(user: dict = Depends(merchant_user)):
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0, "notifications": 1})
     return m.get("notifications", []) if m else []
+
+
+@api.post("/merchant/support/request-assistance")
+async def merchant_request_assistance(payload: dict, user: dict = Depends(merchant_user)):
+    """"Need help setting up your shop?" — bridges a merchant straight into
+    the EXISTING support-ticket queue (db.support_tickets / GET+POST
+    /admin/support/tickets*) rather than a new ticketing system. Admin
+    already has full storefront/product setup-on-behalf-of-merchant
+    capabilities (POST /admin/merchants/{id}/storefront, /products); this
+    just gets a request for that help in front of them.
+
+    merchant_id/store_name come from the authenticated token, never from the
+    client body, so a merchant can't misattribute a ticket to another store.
+    """
+    merchant_id = user["sub"]
+    m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0, "store_name": 1, "phone": 1})
+    status = await _merchant_onboarding_status(merchant_id)
+    onboarding_step = (status or {}).get("step") if status else None
+    now = datetime.now(timezone.utc).isoformat()
+    store_name = (m or {}).get("store_name") or "your shop"
+    ticket = {
+        "id": f"ticket-{uuid.uuid4().hex[:8]}",
+        "customer_phone": (m or {}).get("phone", ""),
+        "merchant_id": merchant_id,
+        "source": "merchant_onboarding",
+        "onboarding_state": onboarding_step,
+        "order_id": None,
+        "subject": f"Onboarding assistance requested — {store_name}",
+        "message": (payload.get("message") or "").strip() or "Merchant requested help completing their shop setup.",
+        "status": "open",
+        "created_at": now,
+        "messages": [
+            {"sender": "merchant", "text": (payload.get("message") or "").strip() or "Requested help completing shop setup.", "created_at": now},
+            {"sender": "bot", "text": "Thanks — our team will reach out shortly to help finish setting up your shop.", "created_at": now},
+        ],
+    }
+    await db.support_tickets.insert_one({**ticket, "_id": ticket["id"]})
+    ticket.pop("_id", None)
+    try:
+        from notifications import send_with_fallback
+        admin_phone = os.environ.get("ADMIN_PHONE", "")
+        if admin_phone:
+            send_with_fallback(admin_phone, f"Merchant onboarding help requested: {store_name} (state: {onboarding_step})", message_type="admin_support_ticket")
+    except Exception:
+        pass
+    return ticket
 
 
 # ===== Change Requests (bank/address) =====

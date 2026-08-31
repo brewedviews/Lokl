@@ -70,6 +70,7 @@ _INTEGRATION_FILES = {
     "test_iter5_flow.py",
     "test_kyc_admin_flow.py",
     "test_multi_merchant_orders.py",
+    "test_onboarding_status.py",
     "test_phase1_returns.py",
     "test_phase2_phase3.py",
     "test_phase2_returns_dashboard.py",

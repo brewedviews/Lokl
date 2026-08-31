@@ -33,7 +33,7 @@ export default function MerchantStorefrontPage() {
   };
 
   return (
-    <div className="p-4 md:p-10 max-w-3xl">
+    <div className="p-4 md:p-10 pb-24 md:pb-10 max-w-3xl">
       <h1 className="font-display text-3xl md:text-4xl font-bold text-[#1A2B4C] flex items-center gap-2"><Store size={26} /> Storefront</h1>
       <p className="text-[#595959] mt-1">Edit the public face of the store.</p>
 

@@ -80,9 +80,35 @@ export interface ReturnsAnalyticsResponse {
 // API
 // ============================================================================
 
+export interface OnboardingStepStatus { status: string; blocked_reason?: string | null }
+export interface OnboardingStatusResponse {
+  step: "verify_business" | "setup_shop" | "add_products" | "live";
+  verify_business: OnboardingStepStatus;
+  setup_shop: OnboardingStepStatus;
+  add_products: OnboardingStepStatus & { active_count: number; total_count: number };
+  published: boolean;
+  store_id: string | null;
+  next_action: { label: string; path: string };
+}
+
 export const merchantApi = {
   nextRoute: async (): Promise<NextRouteResponse> => {
     const r = await apiClient.get<NextRouteResponse>("/api/merchant/next-route");
+    return r.data;
+  },
+
+  /** Richer onboarding state for the "Getting your shop ready" home screen
+   *  and the persistent dashboard banner — additive alongside next-route,
+   *  reuses the exact same gates, changes no routing/gating behavior. */
+  onboardingStatus: async (): Promise<OnboardingStatusResponse> => {
+    const r = await apiClient.get<OnboardingStatusResponse>("/api/merchant/onboarding-status");
+    return r.data;
+  },
+
+  /** "Need help setting up your shop?" — bridges into the existing
+   *  support-ticket queue admin already monitors. */
+  requestAssistance: async (message?: string): Promise<{ id: string }> => {
+    const r = await apiClient.post<{ id: string }>("/api/merchant/support/request-assistance", { message });
     return r.data;
   },
 

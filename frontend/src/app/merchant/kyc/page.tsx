@@ -115,25 +115,25 @@ export default function MerchantKycPage() {
     setSubmitting(true);
     try {
       await apiClient.post("/api/merchant/kyc/submit", form);
-      toast.success("KYC submitted! Our team will review within 24 hours.");
+      toast.success("Submitted! Our team will verify within 24 hours.");
       router.replace("/merchant/onboarding");
     } catch (e) { toast.error(getErrorMessage(e)); }
     finally { setSubmitting(false); }
   };
 
   return (
-    <div className="p-4 md:p-10 max-w-3xl">
+    <div className="p-4 md:p-10 pb-24 md:pb-10 max-w-3xl">
       <div className="flex items-center gap-2 text-xs text-[#595959] mb-3">
         <Link href="/merchant/onboarding" className="hover:text-[#1A2B4C]"><ChevronLeft size={14} className="inline -mt-0.5" /> back</Link>
       </div>
-      <h1 className="font-display text-3xl md:text-4xl font-bold text-[#1A2B4C]">Complete KYC</h1>
-      <p className="text-[#595959] mt-1">Three quick steps — we&apos;ll verify and approve within 24 hours.</p>
+      <h1 className="font-display text-3xl md:text-4xl font-bold text-[#1A2B4C]">Verify your business</h1>
+      <p className="text-[#595959] mt-1">We need a few details to verify your shop before you can start selling on Lokl. Three quick steps — we&apos;ll review within 24 hours.</p>
 
       {kycMeta.kyc_status === "on_hold" && kycMeta.hold_comment && (
         <div data-testid="kyc-hold-banner" className="mt-5 p-4 rounded-2xl bg-[#E68910]/10 border border-[#E68910]/40 flex items-start gap-3">
           <PauseCircle size={20} className="text-[#E68910] shrink-0 mt-0.5" />
           <div>
-            <div className="text-[10px] uppercase tracking-widest text-[#E68910] font-bold mb-0.5">KYC on hold — fix the items below</div>
+            <div className="text-[10px] uppercase tracking-widest text-[#E68910] font-bold mb-0.5">A few things need fixing</div>
             <div className="text-sm text-[#1C1C1C] whitespace-pre-wrap">{kycMeta.hold_comment}</div>
             <div className="text-[11px] text-[#595959] mt-2">All previously-submitted info is pre-filled. Update what needs fixing and hit Submit.</div>
           </div>
@@ -141,7 +141,7 @@ export default function MerchantKycPage() {
       )}
       {kycMeta.kyc_status === "submitted" && (
         <div data-testid="kyc-submitted-banner" className="mt-5 p-4 rounded-2xl bg-[#1A2B4C]/5 border border-[#1A2B4C]/20 text-sm text-[#1C1C1C]">
-          Your KYC is currently under review. You can still edit the form and re-submit.
+          Your business details are currently under review. You can still edit the form and re-submit.
         </div>
       )}
 
@@ -163,8 +163,8 @@ export default function MerchantKycPage() {
         <section className="mt-8 bg-white border border-[#E5E2DC] rounded-3xl p-6 space-y-4">
           <h2 className="font-display text-xl font-bold text-[#1A2B4C] flex items-center gap-2"><FileText size={18} /> Business details</h2>
           <div className="grid md:grid-cols-2 gap-3">
-            <Field label="PAN number *"><input data-testid="kyc-pan" maxLength={10} value={form.pan_number} onChange={(e) => set("pan_number", e.target.value.toUpperCase())} placeholder="ABCDE1234F" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" /></Field>
-            <Field label="GST number (optional)"><input data-testid="kyc-gst" value={form.gst_number} onChange={(e) => set("gst_number", e.target.value.toUpperCase())} placeholder="22ABCDE1234F1Z5" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" /></Field>
+            <Field label="PAN number *" hint="Required to verify your business."><input data-testid="kyc-pan" maxLength={10} value={form.pan_number} onChange={(e) => set("pan_number", e.target.value.toUpperCase())} placeholder="ABCDE1234F" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" /></Field>
+            <Field label="GST number (optional)" hint="Only needed if your business is GST registered."><input data-testid="kyc-gst" value={form.gst_number} onChange={(e) => set("gst_number", e.target.value.toUpperCase())} placeholder="22ABCDE1234F1Z5" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" /></Field>
             <Field label="Registered business name *"><input data-testid="kyc-business-name" value={form.business_name} onChange={(e) => set("business_name", e.target.value)} placeholder="e.g. Bunto Store Pvt Ltd" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
             <Field label="Business category *"><select data-testid="kyc-category" value={form.business_category} onChange={(e) => { set("business_category", e.target.value); set("business_subcategory", ""); }} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"><option value="">Select category</option>{BUSINESS_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
             {form.business_category && (L2_BY_CATEGORY[form.business_category] ?? []).length > 0 && (
@@ -182,8 +182,8 @@ export default function MerchantKycPage() {
 
       {step === 2 && (
         <section className="mt-8 bg-white border border-[#E5E2DC] rounded-3xl p-6 space-y-4">
-          <h2 className="font-display text-xl font-bold text-[#1A2B4C] flex items-center gap-2"><Landmark size={18} /> Bank account (optional)</h2>
-          <p className="text-sm text-[#595959]">You can skip this for now and add bank details later from your dashboard.</p>
+          <h2 className="font-display text-xl font-bold text-[#1A2B4C] flex items-center gap-2"><Landmark size={18} /> Where should we send your earnings?</h2>
+          <p className="text-sm text-[#595959]">You can add your bank details now or later. We&apos;ll need them before your first payout.</p>
           <div className="grid md:grid-cols-2 gap-3">
             <Field label="Account holder name"><input data-testid="kyc-holder" value={form.account_holder_name} onChange={(e) => set("account_holder_name", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
             <Field label="Account number"><input data-testid="kyc-account" value={form.bank_account_number} onChange={(e) => set("bank_account_number", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] tracking-wider" /></Field>
@@ -230,11 +230,12 @@ export default function MerchantKycPage() {
   );
 }
 
-function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
+function Field({ label, children, full, hint }: { label: string; children: React.ReactNode; full?: boolean; hint?: string }) {
   return (
     <label className={`block ${full ? "md:col-span-2" : ""}`}>
       <div className="text-[11px] font-semibold uppercase tracking-widest text-[#595959] mb-1.5">{label}</div>
       {children}
+      {hint && <div className="text-[11px] text-[#94A3B8] mt-1">{hint}</div>}
     </label>
   );
 }
