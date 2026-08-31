@@ -84,8 +84,25 @@ export function SocialContentTab() {
         caption: `${o.product_name ?? "This one"} just dropped to ₹${o.price} (from ₹${o.mrp}) — ${o.discount_percent}% off, 45-minute delivery in Bhilai. Grab it before it's gone.`,
         image_url: o.image,
         hashtags: ["#LoklBhilai", "#BhilaiFashion", "#ShopLocal"],
+        // Consumes just this opportunity — see routes/social_content.py's
+        // create_queue_item — so it drops off the list, but nothing else does.
+        product_id: o.product_id,
+        discount_percent: o.discount_percent,
       });
       toast.success("Added to review queue");
+      void load();
+    } catch (e) {
+      toast.error(getErrorMessage(e));
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const dismissDiscount = async (o: SocialDiscountOpportunity) => {
+    setBusyKey(`d-${o.product_id}`);
+    try {
+      await api.admin.dismissDiscountOpportunity(o.product_id, o.discount_percent);
+      toast.success("Dismissed");
       void load();
     } catch (e) {
       toast.error(getErrorMessage(e));
@@ -104,8 +121,22 @@ export function SocialContentTab() {
         data_source: `${o.store_name ?? o.store_id} went live with ${o.product_count} products (${o.category ?? "fashion"})`,
         caption: `Say hello to ${o.store_name ?? "our newest store"} — now on Lokl with ${o.product_count} products, delivered to your door in Bhilai in 45 minutes.`,
         hashtags: ["#LoklBhilai", "#NewOnLokl", "#ShopLocal"],
+        store_id: o.store_id,
       });
       toast.success("Added to review queue");
+      void load();
+    } catch (e) {
+      toast.error(getErrorMessage(e));
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const dismissStore = async (o: SocialNewStoreOpportunity) => {
+    setBusyKey(`s-${o.store_id}`);
+    try {
+      await api.admin.dismissNewStoreOpportunity(o.store_id);
+      toast.success("Dismissed");
       void load();
     } catch (e) {
       toast.error(getErrorMessage(e));
@@ -154,12 +185,21 @@ export function SocialContentTab() {
                     <div className="font-semibold">{o.product_name ?? o.product_id}</div>
                     <div className="text-[#595959]">₹{o.price} · {o.discount_percent}% off (was {o.previous_discount_percent}%)</div>
                   </div>
-                  <button
-                    onClick={() => void draftFromDiscount(o)} disabled={busyKey === `d-${o.product_id}`}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#0A1F5C] px-3 py-1.5 rounded-lg hover:bg-[#0A1F5C]/90 disabled:opacity-50 shrink-0"
-                  >
-                    <ImagePlus size={12} /> Draft post
-                  </button>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => void draftFromDiscount(o)} disabled={busyKey === `d-${o.product_id}`}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#0A1F5C] px-3 py-1.5 rounded-lg hover:bg-[#0A1F5C]/90 disabled:opacity-50"
+                    >
+                      <ImagePlus size={12} /> Draft post
+                    </button>
+                    <button
+                      onClick={() => void dismissDiscount(o)} disabled={busyKey === `d-${o.product_id}`}
+                      title="Not worth a post right now"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-[#595959] bg-[#FDFBF7] border border-[#E5E2DC] px-2.5 py-1.5 rounded-lg hover:bg-[#E5E2DC]/40 disabled:opacity-50"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -180,12 +220,21 @@ export function SocialContentTab() {
                     <div className="font-semibold">{o.store_name ?? o.store_id}</div>
                     <div className="text-[#595959]">{o.product_count} products · {o.category ?? "fashion"}{o.locality ? ` · ${o.locality}` : ""}</div>
                   </div>
-                  <button
-                    onClick={() => void draftFromStore(o)} disabled={busyKey === `s-${o.store_id}`}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#0A1F5C] px-3 py-1.5 rounded-lg hover:bg-[#0A1F5C]/90 disabled:opacity-50 shrink-0"
-                  >
-                    <ImagePlus size={12} /> Draft post
-                  </button>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => void draftFromStore(o)} disabled={busyKey === `s-${o.store_id}`}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#0A1F5C] px-3 py-1.5 rounded-lg hover:bg-[#0A1F5C]/90 disabled:opacity-50"
+                    >
+                      <ImagePlus size={12} /> Draft post
+                    </button>
+                    <button
+                      onClick={() => void dismissStore(o)} disabled={busyKey === `s-${o.store_id}`}
+                      title="Not worth a post right now"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-[#595959] bg-[#FDFBF7] border border-[#E5E2DC] px-2.5 py-1.5 rounded-lg hover:bg-[#E5E2DC]/40 disabled:opacity-50"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

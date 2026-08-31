@@ -436,6 +436,17 @@ export const adminApi = {
     const r = await apiClient.post<SocialQueueItem>(`/api/admin/social/queue/${id}/request-changes`, { note });
     return r.data;
   },
+
+  // Clears an opportunity WITHOUT drafting a post from it (e.g. "not worth posting about").
+  dismissDiscountOpportunity: async (productId: string, discountPercent: number): Promise<void> => {
+    await apiClient.post(`/api/admin/social/opportunities/discounts/${productId}/dismiss`, {
+      discount_percent: discountPercent,
+    });
+  },
+
+  dismissNewStoreOpportunity: async (storeId: string): Promise<void> => {
+    await apiClient.post(`/api/admin/social/opportunities/new-stores/${storeId}/dismiss`);
+  },
 };
 
 // ── Social content agent types ────────────────────────────────────────
@@ -478,6 +489,11 @@ export interface SocialQueueItemCreate {
   hashtags?: string[];
   scheduled_time?: string;
   notify?: boolean;
+  /** Present when drafted FROM a live opportunity — consumes just that
+   *  one opportunity so it stops showing in the list. */
+  product_id?: string;
+  discount_percent?: number;
+  store_id?: string;
 }
 
 export interface SocialQueueItem {

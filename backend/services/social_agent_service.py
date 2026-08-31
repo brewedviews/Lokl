@@ -32,15 +32,24 @@ def _now_iso() -> str:
 # ── Business Intelligence: opportunity detection ───────────────────────
 
 async def get_discount_opportunities(db, min_discount_delta: int = 15) -> list[dict]:
-    """Products whose `discount_percent` just appeared or grew by at least
-    `min_discount_delta` points since the last time this ran.
+    """Products whose `discount_percent` is at least `min_discount_delta`
+    points above the last CONSUMED baseline for that product.
 
-    Snapshot-diff, not a timestamp filter: `products.discount_percent` has
-    no reliable `changed_at` field today (confirmed by reading migration
-    030's own backfill script — the field is computed on write, never
-    stamped with a change time), so this stores its own snapshot in
-    `social_agent_state` rather than requiring a schema change. Each run
-    only returns genuinely NEW movement since the previous run.
+    Pure read — no side effects. Snapshot-diff, not a timestamp filter:
+    `products.discount_percent` has no reliable `changed_at` field today
+    (confirmed by reading migration 030's own backfill script — the field
+    is computed on write, never stamped with a change time), so this
+    compares against a stored baseline in `social_agent_state` rather than
+    requiring a schema change.
+
+    Deliberately does NOT advance that baseline just from being called —
+    an earlier version did, which meant simply opening/refreshing the
+    Social tab silently marked every currently-showing opportunity as
+    "seen" even if nothing was drafted from it. The baseline now only
+    advances via `mark_discount_consumed`, called when a post is actually
+    drafted from this opportunity (or it's explicitly dismissed) — see
+    routes/social_content.py. So an opportunity stays visible across any
+    number of page loads/refreshes until you actually do something with it.
     """
     state = await db.social_agent_state.find_one({"id": STATE_DOC_ID}) or {}
     prev_snapshot: dict = state.get("discount_snapshot", {})
@@ -52,11 +61,9 @@ async def get_discount_opportunities(db, min_discount_delta: int = 15) -> list[d
     ).to_list(2000)
 
     opportunities = []
-    new_snapshot: dict = {}
     for p in products:
         pid = p["id"]
         current = p.get("discount_percent", 0)
-        new_snapshot[pid] = current
         previous = prev_snapshot.get(pid, 0)
         if current - previous >= min_discount_delta:
             opportunities.append({
@@ -70,17 +77,27 @@ async def get_discount_opportunities(db, min_discount_delta: int = 15) -> list[d
                 "previous_discount_percent": previous,
                 "image": p.get("image"),
             })
-
-    await db.social_agent_state.update_one(
-        {"id": STATE_DOC_ID},
-        {"$set": {"discount_snapshot": new_snapshot, "discount_checked_at": _now_iso()}},
-        upsert=True,
-    )
     return opportunities
 
 
-async def get_new_store_opportunities(db, since_iso: Optional[str] = None) -> list[dict]:
-    """Stores that went live (`live_since`) since the last check.
+async def mark_discount_consumed(db, product_id: str, discount_percent: float):
+    """Advance this one product's baseline — called when a post is drafted
+    from it, or it's explicitly dismissed. Everything else's baseline is
+    untouched, so other still-open opportunities keep showing."""
+    await db.social_agent_state.update_one(
+        {"id": STATE_DOC_ID},
+        {"$set": {f"discount_snapshot.{product_id}": discount_percent}},
+        upsert=True,
+    )
+
+
+async def get_new_store_opportunities(db) -> list[dict]:
+    """Stores that went live (`live_since` set) and haven't been consumed
+    yet (drafted from, or dismissed — see `mark_store_consumed`).
+
+    Pure read — no side effects, same reasoning as
+    `get_discount_opportunities` above: viewing this list must never be
+    what makes an item disappear.
 
     Deliberately reuses `stores.live_since` — stamped exactly once, on the
     real False->True online transition, by `POST /merchant/store/online`
@@ -90,16 +107,18 @@ async def get_new_store_opportunities(db, since_iso: Optional[str] = None) -> li
     signal; the self-serve go-live moment is.
     """
     state = await db.social_agent_state.find_one({"id": STATE_DOC_ID}) or {}
-    since = since_iso or state.get("stores_checked_at") or "1970-01-01T00:00:00+00:00"
+    consumed_ids = set(state.get("consumed_store_ids", []))
 
     stores = await db.stores.find(
-        {"live_since": {"$gt": since}, "published": True},
+        {"live_since": {"$exists": True, "$ne": None}, "published": True},
         {"_id": 0, "id": 1, "name": 1, "business_category": 1, "locality": 1,
          "live_since": 1, "merchant_id": 1},
     ).sort("live_since", 1).to_list(200)
 
     opportunities = []
     for s in stores:
+        if s["id"] in consumed_ids:
+            continue
         product_count = await db.products.count_documents({"store_id": s["id"]})
         opportunities.append({
             "event": "new_store",
@@ -110,18 +129,27 @@ async def get_new_store_opportunities(db, since_iso: Optional[str] = None) -> li
             "live_since": s.get("live_since"),
             "product_count": product_count,
         })
+    return opportunities
 
+
+async def mark_store_consumed(db, store_id: str):
+    """Advance just this store's consumed state — called when a post is
+    drafted from it, or it's explicitly dismissed."""
     await db.social_agent_state.update_one(
         {"id": STATE_DOC_ID},
-        {"$set": {"stores_checked_at": _now_iso()}},
+        {"$addToSet": {"consumed_store_ids": store_id}},
         upsert=True,
     )
-    return opportunities
 
 
 # ── Content queue ───────────────────────────────────────────────────────
 
 async def create_queue_item(db, payload: dict) -> dict:
+    """Creates the queue item and, if it was drafted from a live
+    opportunity (product_id + discount_percent, or store_id present in the
+    payload), consumes that opportunity in the same call — so drafting a
+    post is what removes it from the opportunities list, not merely
+    having viewed it."""
     doc = {
         "id": f"soc-{uuid.uuid4().hex[:10]}",
         # brand | entertainment | education | community | culture | product | offer | merchant_story
@@ -141,6 +169,12 @@ async def create_queue_item(db, payload: dict) -> dict:
     }
     await db.social_content_queue.insert_one(doc)
     doc.pop("_id", None)
+
+    if payload.get("product_id") is not None and payload.get("discount_percent") is not None:
+        await mark_discount_consumed(db, payload["product_id"], payload["discount_percent"])
+    if payload.get("store_id") is not None and payload.get("source_event") == "new_store":
+        await mark_store_consumed(db, payload["store_id"])
+
     return doc
 
 

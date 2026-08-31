@@ -46,6 +46,16 @@ class QueueItemIn(BaseModel):
     hashtags: list[str] = Field(default_factory=list)
     scheduled_time: Optional[str] = None
     notify: bool = True  # send the WhatsApp review ping immediately on create
+    # Present when drafted FROM a live opportunity (not a manual post) — lets
+    # create_queue_item consume that one opportunity so it stops showing in
+    # the opportunities list, without touching any other still-open one.
+    product_id: Optional[str] = None
+    discount_percent: Optional[float] = None
+    store_id: Optional[str] = None
+
+
+class DismissDiscountIn(BaseModel):
+    discount_percent: float
 
 
 class ReviewIn(BaseModel):
@@ -89,6 +99,20 @@ def init(db, require_admin):
     @router.get("/opportunities/discounts")
     async def discount_opportunities(min_delta: int = 15, admin: dict = Depends(require_admin)):
         return await svc.get_discount_opportunities(db, min_discount_delta=min_delta)
+
+    @router.post("/opportunities/discounts/{product_id}/dismiss")
+    async def dismiss_discount(product_id: str, body: DismissDiscountIn, admin: dict = Depends(require_admin)):
+        """Clears a discount opportunity WITHOUT drafting a post — e.g. you
+        looked at it and decided it's not worth a post right now. Without
+        this, the only way to make an opportunity stop showing would be to
+        draft from it, which isn't always what you want."""
+        await svc.mark_discount_consumed(db, product_id, body.discount_percent)
+        return {"ok": True}
+
+    @router.post("/opportunities/new-stores/{store_id}/dismiss")
+    async def dismiss_new_store(store_id: str, admin: dict = Depends(require_admin)):
+        await svc.mark_store_consumed(db, store_id)
+        return {"ok": True}
 
     @router.get("/opportunities/new-stores")
     async def new_store_opportunities(admin: dict = Depends(require_admin)):
