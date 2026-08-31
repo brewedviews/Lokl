@@ -53,7 +53,13 @@ class ReviewIn(BaseModel):
 
 
 def init(db, require_admin):
-    router = APIRouter(prefix="/admin/social", tags=["social-agent"])
+    # NOTE: "/api" must be baked in here explicitly — this router is mounted
+    # directly on `app` (see server.py), not nested inside the `/api`-prefixed
+    # `api` router everything else in server.py itself uses. Matches the same
+    # convention routes/addresses.py and routes/geo.py already use
+    # (APIRouter(prefix="/api/v1", ...)) — missing this was the cause of the
+    # "Not Found" 404s on the very first deploy of this feature.
+    router = APIRouter(prefix="/api/admin/social", tags=["social-agent"])
 
     async def _notify_admin(doc: dict):
         """WhatsApp ping via Lokl's existing notification layer — reuses
