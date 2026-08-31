@@ -11491,6 +11491,14 @@ _whatsapp_router, _ensure_whatsapp_indexes = _init_whatsapp(
     rate_limit=_limit,
 )
 app.include_router(_whatsapp_router)
+
+# ===== Social content agent (Claude-orchestrated social media assistant —
+# see the Lokl x Claude social-agent blueprint). Read-only "opportunity"
+# endpoints over existing product/store data, plus a human-approval
+# content queue with a WhatsApp review ping. No Instagram publish call
+# lives here yet — see routes/social_content.py's own docstring. =====
+from routes.social_content import init as _init_social_content, ensure_indexes as _ensure_social_indexes
+app.include_router(_init_social_content(db, require_admin))
 audit_service = AuditService(db)
 # Shared instance for create_order's own server-authoritative delivery-fee
 # recompute — same class routes/geo.py's own delivery_estimate handler uses,
@@ -11861,6 +11869,7 @@ async def startup_seed():
 
     # WhatsApp product-addition draft/idempotency indexes (routes/whatsapp.py).
     await _ensure_whatsapp_indexes()
+    await _ensure_social_indexes(db)
 
     # Keep demo merchant auto-approved
     demo = await db.merchants.find_one({"email": "demo@bharat-os.com"}, {"_id": 0})

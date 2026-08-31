@@ -394,7 +394,108 @@ export const adminApi = {
     const r = await apiClient.post<AdminBulkRollbackResult>(`/api/admin/bulk-imports/${importId}/rollback`);
     return r.data;
   },
+
+  // ── Social content agent (Lokl x Claude social-agent blueprint) ────────
+  // Business Intelligence opportunities (read-only) + the human-approval
+  // content queue. Backend: routes/social_content.py.
+  listDiscountOpportunities: async (minDelta = 15): Promise<SocialDiscountOpportunity[]> => {
+    const r = await apiClient.get<SocialDiscountOpportunity[]>(
+      `/api/admin/social/opportunities/discounts?min_delta=${minDelta}`,
+    );
+    return r.data;
+  },
+
+  listNewStoreOpportunities: async (): Promise<SocialNewStoreOpportunity[]> => {
+    const r = await apiClient.get<SocialNewStoreOpportunity[]>("/api/admin/social/opportunities/new-stores");
+    return r.data;
+  },
+
+  createSocialQueueItem: async (payload: SocialQueueItemCreate): Promise<SocialQueueItem> => {
+    const r = await apiClient.post<SocialQueueItem>("/api/admin/social/queue", payload);
+    return r.data;
+  },
+
+  listSocialQueue: async (status?: SocialQueueStatus): Promise<SocialQueueItem[]> => {
+    const r = await apiClient.get<SocialQueueItem[]>(
+      `/api/admin/social/queue${status ? `?status=${status}` : ""}`,
+    );
+    return r.data;
+  },
+
+  approveSocialQueueItem: async (id: string, note?: string): Promise<SocialQueueItem> => {
+    const r = await apiClient.post<SocialQueueItem>(`/api/admin/social/queue/${id}/approve`, { note });
+    return r.data;
+  },
+
+  rejectSocialQueueItem: async (id: string, note?: string): Promise<SocialQueueItem> => {
+    const r = await apiClient.post<SocialQueueItem>(`/api/admin/social/queue/${id}/reject`, { note });
+    return r.data;
+  },
+
+  requestSocialQueueChanges: async (id: string, note?: string): Promise<SocialQueueItem> => {
+    const r = await apiClient.post<SocialQueueItem>(`/api/admin/social/queue/${id}/request-changes`, { note });
+    return r.data;
+  },
 };
+
+// ── Social content agent types ────────────────────────────────────────
+export type SocialContentPillar =
+  | "brand" | "entertainment" | "education" | "community" | "culture"
+  | "product" | "offer" | "merchant_story";
+export type SocialPostType = "post" | "carousel" | "reel";
+export type SocialQueueStatus = "pending_review" | "approved" | "rejected" | "changes_requested" | "published";
+
+export interface SocialDiscountOpportunity {
+  event: "discount";
+  product_id: string;
+  product_name?: string;
+  store_id?: string;
+  price?: number;
+  mrp?: number;
+  discount_percent: number;
+  previous_discount_percent: number;
+  image?: string;
+}
+
+export interface SocialNewStoreOpportunity {
+  event: "new_store";
+  store_id: string;
+  store_name?: string;
+  category?: string;
+  locality?: string;
+  live_since?: string;
+  product_count: number;
+}
+
+export interface SocialQueueItemCreate {
+  pillar?: SocialContentPillar;
+  post_type?: SocialPostType;
+  source_event?: string;
+  data_source?: string;
+  caption?: string;
+  creative_brief?: string;
+  image_url?: string;
+  hashtags?: string[];
+  scheduled_time?: string;
+  notify?: boolean;
+}
+
+export interface SocialQueueItem {
+  id: string;
+  pillar: SocialContentPillar;
+  post_type: SocialPostType;
+  source_event?: string;
+  data_source?: string;
+  caption: string;
+  creative_brief: string;
+  image_url?: string;
+  hashtags: string[];
+  scheduled_time?: string;
+  status: SocialQueueStatus;
+  review_note?: string;
+  created_at: string;
+  reviewed_at?: string;
+}
 
 // Public helper — called from consumer homepage to log a click. Fire-and-forget.
 export async function trackAssetClick(

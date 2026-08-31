@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { Shield, Users, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop, TicketPercent, MessageSquare, Bike, Search } from "lucide-react";
+import { Shield, Users, Package, ShoppingBag, BarChart3, LogOut, FileText, ExternalLink, RefreshCw, RotateCcw, Activity, Landmark, UserSquare2, LayoutPanelTop, TicketPercent, MessageSquare, Bike, Search, Sparkles } from "lucide-react";
 import { adminFetch } from "@/lib/legacy-admin";
 import { useAdminAuthStore } from "@/stores";
 import { ReturnsTab } from "@/components/admin/ReturnsTab";
@@ -30,8 +30,9 @@ import { LiveMetricsTab } from "@/components/admin/LiveMetricsTab";
 import { CmsTab } from "@/components/admin/CmsTab";
 import { SupportTab } from "@/components/admin/SupportTab";
 import { RidersTab } from "@/components/admin/RidersTab";
+import { SocialContentTab } from "@/components/admin/SocialContentTab";
 
-type Tab = "stats" | "live" | "merchants" | "bank" | "products" | "orders" | "returns" | "support" | "customers" | "cms" | "waitlist" | "coupons" | "riders";
+type Tab = "stats" | "live" | "merchants" | "bank" | "products" | "orders" | "returns" | "support" | "customers" | "cms" | "waitlist" | "coupons" | "riders" | "social";
 
 interface Stats {
   submitted_kyc: number;
@@ -77,6 +78,7 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ size?: n
   { id: "cms", label: "Homepage CMS", icon: LayoutPanelTop },
   { id: "waitlist", label: "Waitlist", icon: Users },
   { id: "coupons", label: "Coupons", icon: TicketPercent },
+  { id: "social", label: "Social", icon: Sparkles },
 ];
 
 export default function AdminDashboardPage() {
@@ -126,6 +128,7 @@ export default function AdminDashboardPage() {
         {tab === "products" && <ProductsTab />}
         {tab === "orders" && <OrdersTab />}
         {tab === "riders" && <RidersTab />}
+        {tab === "social" && <SocialContentTab />}
         {tab === "returns" && <ReturnsTab />}
         {tab === "support" && <SupportTab onOpenCountChange={setOpenSupportCount} />}
         {tab === "customers" && <CustomersTab />}
