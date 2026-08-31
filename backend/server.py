@@ -1574,9 +1574,20 @@ async def feed_trending(limit: int = 12):
 @api.get("/feed/home-products")
 async def feed_home_products():
     """Single aggregated endpoint: store rails + trending + best deals.
-    Replaces 4+ separate product feed calls on the homepage."""
+    Replaces 4+ separate product feed calls on the homepage.
+
+    Was scoped to `{"is_deleted": {"$ne": True}}` only — every OTHER
+    product feed (/feed/trending, /feed/new-arrivals, /feed/best-sellers,
+    /feed/popular-in-city, /feed/selling-fast, GET /products) scopes to
+    _visible_store_filter()/_availability_map() (kyc approved + published +
+    not paused/deleted). This one didn't, so a store that was merely
+    "not deleted" — unapproved, unpublished, or admin-paused — still had
+    every one of its products eligible for Trending/Best deals/Premium
+    picks here, the exact route by which a hidden store's products could
+    surface in the Trending-now/Best-deals rails (TrendingBestDealsRails.tsx)
+    while the store itself was invisible everywhere else."""
     stores_raw = await db.stores.find(
-        {"is_deleted": {"$ne": True}},
+        _visible_store_filter(),
         {"_id": 0, "id": 1, "name": 1, "slug": 1, "storefront": 1,
          "banner": 1, "tagline": 1, "online": 1, "last_seen_at": 1,
          "opens_at": 1, "closes_at": 1, "weekly_off": 1, "kyc_status": 1, "plan": 1},
@@ -5074,10 +5085,44 @@ async def all_products(
 
 
 @api.get("/products/{pid}")
-async def get_product(pid: str):
+async def get_product(pid: str, request: Request):
     p = await db.products.find_one({"id": pid}, {"_id": 0})
     if not p: raise HTTPException(404, "Product not found")
     store_doc = await db.stores.find_one({"id": p.get("store_id"), **_visible_store_filter()}, {"_id": 0})
+    # Every listing rail (GET /products, /feed/*) requires BOTH the parent
+    # store to be customer-visible (_visible_store_filter — kyc approved +
+    # published + not paused/deleted) AND the product itself to be
+    # unpaused/undeleted (_visible_product_filter). This endpoint used to
+    # check neither for the purpose of deciding whether to return the
+    # product at all — a hidden store's product, or a merchant-paused
+    # product, was returned in full regardless (store visibility only
+    # gated whether availability-badge fields got attached). That's exactly
+    # how a direct PDP URL could expose a product no listing rail would
+    # ever surface. A public/anonymous request now gets the same 404 a
+    # nonexistent product would, for either reason.
+    #
+    # The one exception: this SAME endpoint is also how the merchant's own
+    # products page (and admin's) fetches a product to populate the edit
+    # form — that must keep working before a store is live, and for a
+    # merchant's own paused product (editing it is exactly how they'd
+    # un-pause it). Best-effort decode of an optional bearer token (never
+    # required) — the owning merchant or an admin still sees the product
+    # regardless of store/paused state; anyone else does not.
+    is_hidden = (not store_doc) or p.get("paused") or p.get("is_deleted")
+    if is_hidden:
+        is_owner_or_admin = False
+        auth_hdr = request.headers.get("authorization", "")
+        if auth_hdr.startswith("Bearer "):
+            try:
+                caller = decode_token(auth_hdr.split(" ", 1)[1])
+                if caller.get("role") == "admin":
+                    is_owner_or_admin = True
+                elif caller.get("role") == "merchant" and caller.get("sub") == p.get("merchant_id"):
+                    is_owner_or_admin = True
+            except Exception:
+                pass
+        if not is_owner_or_admin:
+            raise HTTPException(404, "Product not found")
     if store_doc:
         avail = _store_availability(store_doc)
         p["store_badge"] = avail["badge"]
@@ -7397,12 +7442,43 @@ async def _create_or_setup_storefront_for_merchant(
         "created_at": datetime.now(timezone.utc).isoformat()}
     existing = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if existing:
-        for k in ("published", "paused", "product_count", "created_at", "creation_source", "created_by"):
+        for k in ("published", "paused", "created_at", "creation_source", "created_by"):
             if k in existing: store_doc[k] = existing[k]
     # Preserve existing slug; generate from store name on first save.
     store_doc["slug"] = (existing or {}).get("slug") or _slugify(m["store_name"]) or store_id
+    # `product_count` is ALWAYS recomputed from the real products collection
+    # (never hardcoded 0, never blindly carried over from `existing`) —
+    # admin's "set up storefront for a merchant" flow can run AFTER admin
+    # has already added products for that merchant (bypass_kyc_gate exists
+    # for exactly this onboarding-prep case, and _create_product_for_merchant
+    # itself allows admin_override to create products before any storefront
+    # doc exists at all). Before this fix, a store created in that order
+    # started at product_count=0 and stayed there — nothing ever
+    # recalculated it — until some unrelated later product mutation
+    # happened to touch this same store and trigger a recount elsewhere.
+    # This is the exact "Admin Products tab: 7, Storefront tab: Products: 0"
+    # bug: the count was never wrong forever, it was simply never computed
+    # the first time a store came into existence with products already
+    # attached to it.
+    store_doc["product_count"] = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     await db.stores.update_one({"id": store_id}, {"$set": store_doc}, upsert=True)
     await db.merchants.update_one({"id": merchant_id}, {"$set": {"storefront": store_doc}})
+    # Same reasoning applies to autopublish: if KYC is already approved and
+    # products already exist (again, the admin-pre-onboarding order), the
+    # store must go live the instant its storefront doc exists — not wait
+    # for a future, unrelated product create/update/pause to happen to call
+    # this. Every other product-mutation call site already calls this after
+    # touching a product; storefront creation is the one remaining place a
+    # store's autopublish eligibility can change without a product mutation
+    # driving it.
+    just_published = await _maybe_autopublish_store(merchant_id)
+    if just_published:
+        # store_doc above is a pre-autopublish snapshot (published=False,
+        # live_at unset) — callers (POST /merchant/storefront, POST /admin/
+        # merchants/{id}/storefront) return this dict straight to the
+        # frontend, so returning the stale snapshot here would report the
+        # store as not-yet-live in the very same response that made it live.
+        store_doc = await db.stores.find_one({"id": store_id}, {"_id": 0}) or store_doc
     return store_doc
 
 
