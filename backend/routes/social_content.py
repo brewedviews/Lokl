@@ -94,7 +94,7 @@ def init(db, require_admin):
         if not phone:
             log.warning("[social-agent] SOCIAL_AGENT_ADMIN_PHONE not set — skipping WhatsApp ping for %s", doc.get("id"))
             return {"sent": False, "reason": "SOCIAL_AGENT_ADMIN_PHONE not set"}
-        from notifications import send_with_fallback
+        from notifications import send_with_fallback, get_provider
         admin_url = os.environ.get("ADMIN_APP_URL", "").rstrip("/")
         review_line = f"\nReview: {admin_url}/admin?tab=social&item={doc['id']}" if admin_url else ""
         body = (
@@ -105,8 +105,19 @@ def init(db, require_admin):
         )
         try:
             channel = send_with_fallback(phone, body, message_type="social_content_review")
+            if channel == "none":
+                # send_with_fallback() logs the real cause and stores it on
+                # the provider instance (get_provider() returns the SAME
+                # cached instance send_with_fallback just used — see its own
+                # docstring) as `last_result["error"]`; surface that instead
+                # of a bare "none" so a bad phone format / provider auth
+                # issue / DLT template problem shows up here directly
+                # rather than only in Railway's logs.
+                detail = get_provider().last_result.get("error", "provider reported failure — check Railway logs for a [NOTIFY] line")
+                log.warning("[social-agent] notify FAILED for %s: %s", doc.get("id"), detail)
+                return {"sent": False, "reason": detail}
             log.info("[social-agent] notify %s via %s to %s", doc.get("id"), channel, phone)
-            return {"sent": channel != "none", "channel": channel}
+            return {"sent": True, "channel": channel}
         except Exception as e:
             log.warning("[social-agent] notify FAILED for %s: %s", doc.get("id"), e)
             return {"sent": False, "reason": str(e)}
