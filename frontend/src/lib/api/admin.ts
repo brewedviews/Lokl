@@ -437,6 +437,14 @@ export const adminApi = {
     return r.data;
   },
 
+  // Fires the WhatsApp review ping for an existing queue item and reports
+  // exactly what happened (sent/channel, or the failure reason) — useful
+  // for testing SOCIAL_AGENT_ADMIN_PHONE without drafting a new post.
+  notifySocialQueueItem: async (id: string): Promise<SocialNotifyResult> => {
+    const r = await apiClient.post<SocialNotifyResult>(`/api/admin/social/queue/${id}/notify`);
+    return r.data;
+  },
+
   // Clears an opportunity WITHOUT drafting a post from it (e.g. "not worth posting about").
   dismissDiscountOpportunity: async (productId: string, discountPercent: number): Promise<void> => {
     await apiClient.post(`/api/admin/social/opportunities/discounts/${productId}/dismiss`, {
@@ -511,6 +519,12 @@ export interface SocialQueueItem {
   review_note?: string;
   created_at: string;
   reviewed_at?: string;
+}
+
+export interface SocialNotifyResult {
+  sent: boolean;
+  channel?: string;
+  reason?: string;
 }
 
 // Public helper — called from consumer homepage to log a click. Fire-and-forget.

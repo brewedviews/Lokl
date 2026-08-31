@@ -24,7 +24,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { RefreshCw, ImagePlus, Store, Percent, Check, X, MessageSquareWarning } from "lucide-react";
+import { RefreshCw, ImagePlus, Store, Percent, Check, X, MessageSquareWarning, Bell } from "lucide-react";
 import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/api-error";
 import type {
@@ -160,6 +160,19 @@ export function SocialContentTab() {
     }
   };
 
+  const testNotify = async (item: SocialQueueItem) => {
+    setBusyKey(`n-${item.id}`);
+    try {
+      const r = await api.admin.notifySocialQueueItem(item.id);
+      if (r.sent) toast.success(`WhatsApp sent via ${r.channel}`);
+      else toast.error(`Not sent: ${r.reason ?? "unknown reason"}`);
+    } catch (e) {
+      toast.error(getErrorMessage(e));
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   return (
     <div data-testid="social-content-panel" className="space-y-8">
       <div className="flex items-center justify-between">
@@ -276,6 +289,14 @@ export function SocialContentTab() {
                       {STATUS_LABEL[item.status]}
                     </span>
                     <span className="text-[10px] uppercase font-bold text-[#595959] tracking-wide">{item.pillar} · {item.post_type}</span>
+                    <button
+                      onClick={() => void testNotify(item)} disabled={busyKey === `n-${item.id}`}
+                      data-testid={`social-test-notify-${item.id}`}
+                      className="ml-auto inline-flex items-center gap-1 text-[10px] font-semibold text-[#595959] hover:text-[#0A1F5C] disabled:opacity-50"
+                      title="Send the WhatsApp review ping again, right now — useful for testing SOCIAL_AGENT_ADMIN_PHONE"
+                    >
+                      <Bell size={11} /> Test ping
+                    </button>
                   </div>
                   <p className="text-xs text-[#595959] mb-1">{item.data_source}</p>
                   <p className="text-sm text-[#0A1F5C]">{item.caption}</p>

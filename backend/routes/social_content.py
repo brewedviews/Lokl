@@ -27,12 +27,15 @@ Two route groups:
 No Instagram publish call lives here — see social_agent_service.py's
 module docstring for why that's deliberately out of scope for now.
 """
+import logging
 import os
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 
 from services import social_agent_service as svc
+
+log = logging.getLogger("lokl")
 
 
 class QueueItemIn(BaseModel):
@@ -71,17 +74,26 @@ def init(db, require_admin):
     # "Not Found" 404s on the very first deploy of this feature.
     router = APIRouter(prefix="/api/admin/social", tags=["social-agent"])
 
-    async def _notify_admin(doc: dict):
+    async def _notify_admin(doc: dict) -> dict:
         """WhatsApp ping via Lokl's existing notification layer — reuses
         `notifications.send_with_fallback`, the same helper every order
         update already goes through, instead of adding Slack/Notion for a
         single approver. Requires SOCIAL_AGENT_ADMIN_PHONE (a plain
         10-digit number — same normalization every other phone field in
-        this codebase expects); silently skipped otherwise so a missing
-        env var never blocks queue creation in dev/local."""
+        this codebase expects); skipped (not failed) if unset, so a missing
+        env var never blocks queue creation in dev/local.
+
+        Returns a small status dict instead of swallowing everything
+        silently — an earlier version of this used a bare `except: pass`,
+        which meant a real failure (bad phone format, provider outage)
+        would look IDENTICAL to "working fine" from the caller's side.
+        Callers can inspect the response; failures are also logged so
+        they show up in Railway's logs even if nobody's looking at the
+        API response in the moment."""
         phone = os.environ.get("SOCIAL_AGENT_ADMIN_PHONE", "").strip()
         if not phone:
-            return
+            log.warning("[social-agent] SOCIAL_AGENT_ADMIN_PHONE not set — skipping WhatsApp ping for %s", doc.get("id"))
+            return {"sent": False, "reason": "SOCIAL_AGENT_ADMIN_PHONE not set"}
         from notifications import send_with_fallback
         admin_url = os.environ.get("ADMIN_APP_URL", "").rstrip("/")
         review_line = f"\nReview: {admin_url}/admin?tab=social&item={doc['id']}" if admin_url else ""
@@ -92,9 +104,12 @@ def init(db, require_admin):
             f"{review_line}"
         )
         try:
-            send_with_fallback(phone, body, message_type="social_content_review")
-        except Exception:
-            pass  # best-effort, same policy as every other notify_* call site
+            channel = send_with_fallback(phone, body, message_type="social_content_review")
+            log.info("[social-agent] notify %s via %s to %s", doc.get("id"), channel, phone)
+            return {"sent": channel != "none", "channel": channel}
+        except Exception as e:
+            log.warning("[social-agent] notify FAILED for %s: %s", doc.get("id"), e)
+            return {"sent": False, "reason": str(e)}
 
     @router.get("/opportunities/discounts")
     async def discount_opportunities(min_delta: int = 15, admin: dict = Depends(require_admin)):
@@ -122,7 +137,7 @@ def init(db, require_admin):
     async def create_item(payload: QueueItemIn, admin: dict = Depends(require_admin)):
         doc = await svc.create_queue_item(db, payload.model_dump(exclude={"notify"}))
         if payload.notify:
-            await _notify_admin(doc)
+            doc["_notify"] = await _notify_admin(doc)
         return doc
 
     @router.get("/queue")
@@ -162,8 +177,7 @@ def init(db, require_admin):
         doc = await svc.get_queue_item(db, item_id)
         if not doc:
             raise HTTPException(404, "Not found")
-        await _notify_admin(doc)
-        return {"ok": True}
+        return await _notify_admin(doc)
 
     return router
 
