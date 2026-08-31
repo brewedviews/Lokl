@@ -121,6 +121,7 @@ export function PdpCtaRow({
   isOffline,
   productId,
   size,
+  colorVariantId,
   product,
   onNotify,
   onBuyNow,
@@ -129,6 +130,10 @@ export function PdpCtaRow({
   isOffline: boolean;
   productId: string;
   size: string;
+  /** Selected color variant id (see ColorVariant) — undefined for a plain
+   *  product, keeping the cart key/behavior identical to before this
+   *  existed. */
+  colorVariantId?: string;
   product: Product;
   onNotify: () => void;
   onBuyNow: () => void;
@@ -141,7 +146,7 @@ export function PdpCtaRow({
   const mounted = useMounted();
   const items = useCartStore((s) => s.items);
   const updateQty = useCartStore((s) => s.updateQty);
-  const key = cartKeyFor(productId, size);
+  const key = cartKeyFor(productId, size, colorVariantId);
   const qty = mounted ? items.find((i) => i.key === key)?.qty ?? 0 : 0;
 
   // Availability SOP — store availability controls ORDERABILITY, not
@@ -178,7 +183,7 @@ export function PdpCtaRow({
           <button
             type="button"
             aria-label="Decrease quantity"
-            onClick={() => updateQty(productId, size, qty - 1)}
+            onClick={() => updateQty(productId, size, qty - 1, colorVariantId)}
             data-testid="pdp-qty-dec"
             className="w-7 h-7 rounded-full bg-white/20 hover:bg-white/30 grid place-items-center active:scale-90 transition"
           >
@@ -188,7 +193,7 @@ export function PdpCtaRow({
           <button
             type="button"
             aria-label="Increase quantity"
-            onClick={() => updateQty(productId, size, qty + 1)}
+            onClick={() => updateQty(productId, size, qty + 1, colorVariantId)}
             data-testid="pdp-qty-inc"
             className="w-7 h-7 rounded-full bg-white/20 hover:bg-white/30 grid place-items-center active:scale-90 transition"
           >

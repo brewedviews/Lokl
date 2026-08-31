@@ -15,6 +15,7 @@ import type {
   Product,
 } from "@/types";
 import type { StorefrontFormBody } from "@/components/storefront/StorefrontForm";
+import type { ProductFormColorVariant } from "@/components/products/ProductForm";
 
 // ── Admin Product Creation (manual + bulk) ─────────────────────────────
 // Mirrors server.py's AdminProductCreateRequest / bulk detect+import+
@@ -27,6 +28,7 @@ export interface AdminProductCreatePayload {
     description?: string; sizes?: string[]; stock?: Record<string, number>; size_type?: string;
     image?: string; images?: string[]; image_public_id?: string; image_public_ids?: string[];
     brand_id?: string; return_eligible?: boolean; return_window_hours?: number; try_at_doorstep?: boolean;
+    color_variants?: ProductFormColorVariant[];
   };
   admin_override?: boolean;
   bypass_plan_limit?: boolean;

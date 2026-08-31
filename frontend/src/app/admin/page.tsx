@@ -60,7 +60,7 @@ interface AdminOrder {
   id: string; total: number; status: string; created_at: string;
   store_names?: string[]; customer?: { name?: string; phone?: string };
   otp?: string; merchant_ids?: string[];
-  store_breakdown?: Array<{ merchant_id: string; store_name: string; items: Array<{ name?: string; qty?: number; size?: string }>; subtotal: number; state: string; otp?: string; delivered_at?: string; cancel_reason?: string }>;
+  store_breakdown?: Array<{ merchant_id: string; store_name: string; items: Array<{ name?: string; qty?: number; size?: string; color_name?: string }>; subtotal: number; state: string; otp?: string; delivered_at?: string; cancel_reason?: string }>;
 }
 
 const TABS: Array<{ id: Tab; label: string; icon: React.ComponentType<{ size?: number }> }> = [
@@ -536,7 +536,7 @@ function OrdersTab() {
                           </div>
                           <ul className="mt-2 text-xs text-[#595959] list-disc list-inside">
                             {b.items.map((it, i) => (
-                              <li key={`${b.merchant_id}-${i}-${it.name ?? "item"}`}>{it.name || "Item"} {it.size ? `(${it.size})` : ""} × {it.qty ?? 1}</li>
+                              <li key={`${b.merchant_id}-${i}-${it.name ?? "item"}`}>{it.name || "Item"} {[it.size, it.color_name].filter(Boolean).length ? `(${[it.size, it.color_name].filter(Boolean).join(", ")})` : ""} × {it.qty ?? 1}</li>
                             ))}
                           </ul>
                         </div>

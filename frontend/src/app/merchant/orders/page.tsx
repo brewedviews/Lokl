@@ -8,6 +8,16 @@ import { api } from "@/lib/api";
 import { apiClient } from "@/lib/api-client";
 import type { Order, Return, Complaint } from "@/types";
 
+/** "(M, Black)" / "(M)" / "(Black)" / "" — the selected size/color for one
+ *  order line, formatted consistently everywhere this page shows it.
+ *  `color_name` is only ever present on a line the customer bought from a
+ *  color-variant product (see ColorVariant) — absent for every plain
+ *  product, so this degrades to exactly today's "(size)" text. */
+function sizeColorLabel(it: { size?: string; color_name?: string }): string {
+  const parts = [it.size, it.color_name].filter(Boolean);
+  return parts.length ? ` (${parts.join(", ")})` : "";
+}
+
 const RETURN_PILL: Record<string, { l: string; c: string }> = {
   requested: { l: "Return requested", c: "bg-[#E68910]/15 text-[#E68910]" },
   pickup_assigned: { l: "Pickup assigned", c: "bg-[#1A2B4C]/15 text-[#1A2B4C]" },
@@ -279,7 +289,7 @@ export default function MerchantOrdersPage() {
                 </div>
                 <div className="px-3 py-2 text-xs text-[#595959] space-y-0.5">
                   {o.items.map((it, i) => (
-                    <div key={i}>{it.name} × {it.qty}{it.size ? ` (${it.size})` : ""}</div>
+                    <div key={i}>{it.name} × {it.qty}{sizeColorLabel(it)}</div>
                   ))}
                 </div>
                 <div className="flex gap-2 px-3 pb-3">
@@ -337,7 +347,7 @@ export default function MerchantOrdersPage() {
                           <button
                             key={i}
                             onClick={() => imgSrc ? setPreviewProduct({ name: itEx.name, image: imgSrc }) : undefined}
-                            title={`${it.name}${it.size ? ` (${it.size})` : ""} ×${it.qty}`}
+                            title={`${it.name}${sizeColorLabel(it)} ×${it.qty}`}
                             className={`flex-shrink-0 w-9 h-11 rounded-lg overflow-hidden border border-[#E5E2DC] bg-[#F5F4F0] ${imgSrc ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
                           >
                             {imgSrc ? (
@@ -439,10 +449,10 @@ export default function MerchantOrdersPage() {
                       {href ? (
                         <Link href={href} target="_blank" rel="noopener noreferrer" data-testid={`order-item-link-${o.id}-${i}`}
                           className="truncate font-medium text-[#1A2B4C] hover:text-[#E68910] hover:underline">
-                          {it.name} × {it.qty}{it.size ? ` (${it.size})` : ""}
+                          {it.name} × {it.qty}{sizeColorLabel(it)}
                         </Link>
                       ) : (
-                        <span className="truncate">{it.name} × {it.qty}{it.size ? ` (${it.size})` : ""}</span>
+                        <span className="truncate">{it.name} × {it.qty}{sizeColorLabel(it)}</span>
                       )}
                       <span className="shrink-0 font-semibold text-[#1A2B4C]">₹{(it.price * it.qty).toLocaleString()}</span>
                     </div>

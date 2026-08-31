@@ -453,7 +453,7 @@ export default function OrderTrackingPage() {
                     <div className="font-semibold text-[#0A1F5C] truncate text-sm">{it.name}</div>
                   )}
                   <div className="text-[11px] text-[#64748B] mt-0.5">
-                    Qty {it.qty}{it.size ? ` · Size ${it.size}` : ""}
+                    Qty {it.qty}{it.color_name ? ` · ${it.color_name}` : ""}{it.size ? ` · Size ${it.size}` : ""}
                     {it.return_eligible && <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-semibold uppercase tracking-wider">Return eligible</span>}
                   </div>
                 </div>

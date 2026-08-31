@@ -15,6 +15,31 @@ export type Gender = "men" | "women" | "unisex" | "kids" | "" | string;
  *  — NOT a single `stock_quantity` scalar. */
 export type StockMap = Record<string, number>;
 
+export interface ColorVariantImage {
+  url: string;
+  public_id?: string;
+}
+
+export interface ColorVariantSizeStock {
+  size: string;
+  stock: number;
+}
+
+/** One color of a color-variant product — images and stock belong to the
+ *  color, not the product (server.py's ColorVariant). `id` is stable and
+ *  independent of array position; cart lines, order items, and the PDP's
+ *  selected-color state all reference a variant by this id, never by
+ *  index. Absent/empty `color_variants` on `Product` means a plain,
+ *  non-variant product using the flat `sizes`/`stock`/`images` fields
+ *  exactly as before — this is purely additive. */
+export interface ColorVariant {
+  id: string;
+  name: string;
+  hex?: string | null;
+  images: ColorVariantImage[];
+  sizes: ColorVariantSizeStock[];
+}
+
 export interface Product {
   id: Id;
   name: string;
@@ -33,11 +58,24 @@ export interface Product {
   l2_id: string;
   gender: Gender;
 
-  // Inventory
+  // Inventory — for a color-variant product (color_variants non-empty),
+  // these are DERIVED (sorted union of sizes / summed per-size stock
+  // across all variants — see server.py's
+  // _derive_flat_fields_from_variants), kept in sync server-side purely so
+  // non-variant-aware readers (search, related-products, admin lists)
+  // keep working unmodified. The PDP reads color_variants directly for
+  // the real per-color inventory once a color is selected.
   sizes: string[];
   stock: StockMap | null;
 
-  // Visual
+  /** Color variants (optional, additive) — see ColorVariant. Empty/absent
+   *  on every plain product; a color-variant product's REAL images/sizes/
+   *  stock live here, per color, not in the flat fields above. */
+  color_variants?: ColorVariant[];
+
+  // Visual — for a color-variant product, this is the FIRST variant's
+  // images (see _derive_flat_fields_from_variants) so listing grids show
+  // a representative photo without needing to know about colors at all.
   image: string;
   images: string[];
   // Cloudinary public_ids paired with `image` / `images` for lifecycle mgmt.

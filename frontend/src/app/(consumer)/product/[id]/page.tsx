@@ -1,11 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { serverFetch } from "@/lib/server-fetch";
-import { ProductGallery } from "@/components/consumer/ProductGallery";
-import { ProductDetailPanel } from "@/components/consumer/ProductDetailPanel";
+import { ProductPageClient } from "@/components/consumer/ProductPageClient";
 import { ProductCard } from "@/components/consumer/ProductCard";
-import { OffersCard } from "@/components/consumer/OffersCard";
-import { SpecsTabs, type SpecRow } from "@/components/consumer/SpecsTabs";
+import type { SpecRow } from "@/components/consumer/SpecsTabs";
 import { MerchantMicroCard } from "@/components/consumer/MerchantMicroCard";
 import type { Product, ProductCard as ProductCardType, Store } from "@/types";
 
@@ -43,10 +41,12 @@ export default async function ProductDetailPage(
   const product = data.product;
   const fromStore = relatedRaw?.from_store ?? [];
   const similar = relatedRaw?.similar ?? [];
-  const discount = product.mrp ? Math.round((1 - product.price / product.mrp) * 100) : 0;
-  const images = (product.images && product.images.length > 0)
-    ? product.images
-    : ([product.image].filter(Boolean) as string[]);
+  // Prefers the server-computed, floored discount_percent (see
+  // server.py's _calculate_discount_percent) so this page's badge/ribbon
+  // never disagrees with a min_discount campaign filter over a rounding
+  // difference; falls back to a client computation only for a response
+  // that predates the field.
+  const discount = product.discount_percent ?? (product.mrp ? Math.floor((1 - product.price / product.mrp) * 100) : 0);
 
   // Merchant micro-card data — a second, small fetch rather than blocking
   // the two above; a failed/missing store fetch just means the "More from
@@ -96,60 +96,14 @@ export default async function ProductDetailPage(
           Desktop: two columns — flexible gallery left, 440px sticky buy
           box right (unchanged side-by-side layout; the overlap treatment
           is a stacked-mobile-only effect).
+
+          ProductPageClient owns this whole grid now (gallery + detail
+          panel + offers + specs) — it's a client component purely so the
+          gallery and the detail panel's color selector can share state
+          (which color's images the gallery shows); this server component
+          just hands it the already-fetched data.
         */}
-        <div className="md:grid md:grid-cols-[minmax(0,1fr)_440px] md:gap-10 md:px-8 md:items-start">
-
-          {/* Left — gallery scrolls normally; buy box (right) is the sticky one */}
-          <div>
-            <ProductGallery
-              name={product.name}
-              images={images}
-              aiEnhanced={product.ai_enhanced}
-              discount={discount}
-              tryAndBuy={product.try_at_doorstep}
-              fit={(product as any).fit ?? null}
-              isCleanBackground={(product as any).is_clean_background ?? false}
-            />
-          </div>
-
-          {/* Right — sticky buy box on desktop; on mobile this is the
-              content sheet sliding up over the image (rounded top,
-              negative margin-top so it overlaps the image's rounded
-              bottom corners).
-
-              Sticky top offset is two values, not one, because
-              ConsumerHeader's own mobile/desktop split is at `lg:` (1024px)
-              while this grid goes two-column at `md:` (768px) — in that
-              768-1023px gap ConsumerHeader is still its taller 2-row
-              mobile layout (~109px measured), which top-24 (96px) sits
-              inside of. md:top-[124px] clears that; lg:top-24 keeps the
-              original, already-correct offset once the header drops to
-              its single-row ~68px desktop form. */}
-          <div className="-mt-5 rounded-t-[24px] bg-brand-bg relative z-10 md:mt-0 md:rounded-none md:sticky md:top-[124px] lg:top-24 md:self-start">
-            <ProductDetailPanel
-              product={product}
-              discount={discount}
-              storeBadge={product.store_badge ?? "LIVE"}
-              storeOpensAtLabel={product.store_opens_at_label ?? null}
-              storeName={product.store_name}
-              storeId={product.store_id}
-              storeAreaLabel={storeInfo?.area_label}
-            />
-
-            {/* Offers + specs/description — optional/data-driven; each
-                renders nothing if it has nothing real to show (no
-                fabricated offers, specs or claims). All four trust signals
-                (Secure payments/24h returns/Verified Seller/Made in
-                Bhilai) now render together as one consistent list inside
-                ProductDetailPanel, near delivery/store info — no separate
-                large-badge tier here anymore. */}
-            <div className="px-4 mt-4 md:px-0">
-              <OffersCard price={product.price} />
-            </div>
-
-            <SpecsTabs specs={specs} description={product.description} />
-          </div>
-        </div>
+        <ProductPageClient product={product} discount={discount} storeInfo={storeInfo} specs={specs} />
 
         {/* Below-fold rails — full width within max-w-[1200px]. The global
             ConsumerHeader (mounted once, in the route-group layout, outside

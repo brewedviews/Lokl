@@ -8,7 +8,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
 import os, logging, uuid, base64, io, csv, json, random, secrets, hmac, hashlib, asyncio
 from pathlib import Path
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator, ValidationError
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -253,6 +253,27 @@ class StorefrontUpdate(BaseModel):
     upi_qr_url: Optional[str] = ""
     weekly_off: Optional[List[str]] = []
 
+class ColorVariantImage(BaseModel):
+    url: str
+    public_id: Optional[str] = ""
+
+class ColorVariantSize(BaseModel):
+    size: str
+    stock: int = 0
+
+class ColorVariant(BaseModel):
+    """One color of a color-variant product — images and stock belong to
+    the color, not the product. `id` is client-generated (a short random
+    string is fine; only needs to be stable/unique within this product's
+    own list) so cart/order lines and PDP color-switching can reference an
+    exact variant without depending on array position, which would break
+    the moment a merchant reorders or removes a color."""
+    id: str
+    name: str
+    hex: Optional[str] = None
+    images: List[ColorVariantImage] = []
+    sizes: List[ColorVariantSize] = []
+
 class ProductCreate(BaseModel):
     name: str; price: float; mrp: Optional[float] = None
     l1_id: str; l2_id: Optional[str] = ""; gender: Optional[str] = ""
@@ -305,6 +326,18 @@ class ProductCreate(BaseModel):
     provider: Optional[str] = None
     source_item_id: Optional[str] = None
     remote_variant_ids: Optional[dict] = None
+    # Color variants (optional, additive) — see ColorVariant. Empty for
+    # every existing product and every creation path that doesn't build
+    # variant UI (bulk import, WhatsApp, VasyERP/Shopify) — those simply
+    # never set this field, so they keep producing plain, flat-model
+    # products exactly as before; nothing rejects or special-cases them.
+    # When set (non-empty), the canonical creation/update paths derive the
+    # flat image/sizes/stock fields FROM these variants (see
+    # _derive_flat_fields_from_variants) so every existing reader of those
+    # flat fields — search, discount rollup, related-products, admin
+    # lists — keeps working unmodified. Only the PDP, ProductForm, cart,
+    # and checkout are variant-aware.
+    color_variants: List[ColorVariant] = []
 
 class BrandCreate(BaseModel):
     name: str
@@ -2191,15 +2224,30 @@ async def _restock_order_items(order: dict) -> None:
     for it in (order.get("items") or []):
         pid = it.get("id"); qty = int(it.get("qty", 1) or 1)
         sz = (it.get("size") or "").strip() or "default"
+        color_variant_id = (it.get("color_variant_id") or "").strip() or None
         if pid and qty > 0:
-            updated = await db.products.find_one_and_update(
-                {"id": pid}, {"$inc": {f"stock.{sz}": qty}},
-                projection={"_id": 0, "merchant_id": 1, "provider": 1, "remote_variant_ids": 1},
-                return_document=True,
-            )
+            if color_variant_id:
+                # Mirrors create_order's own variant-aware decrement in
+                # reverse — puts stock back on the exact variant+size it
+                # came from, plus the flat cross-color mirror.
+                updated = await db.products.find_one_and_update(
+                    {"id": pid, "color_variants.id": color_variant_id},
+                    {"$inc": {"color_variants.$[v].sizes.$[s].stock": qty, f"stock.{sz}": qty}},
+                    array_filters=[{"v.id": color_variant_id}, {"s.size": sz}],
+                    projection={"_id": 0, "merchant_id": 1, "provider": 1, "remote_variant_ids": 1},
+                    return_document=True,
+                )
+            else:
+                updated = await db.products.find_one_and_update(
+                    {"id": pid}, {"$inc": {f"stock.{sz}": qty}},
+                    projection={"_id": 0, "merchant_id": 1, "provider": 1, "remote_variant_ids": 1},
+                    return_document=True,
+                )
             # A cancel/return puts stock back -> a positive delta out to
             # the source platform, mirroring create_order's negative one.
-            if updated:
+            # Variant items never have remote_variant_ids (see
+            # create_order's own comment) so this safely no-ops for them.
+            if updated and not color_variant_id:
                 asyncio.create_task(_sync_remote_inventory({**updated, "id": pid}, sz, qty))
 
 
@@ -2494,7 +2542,14 @@ async def _merchant_owns_cloudinary_asset(merchant_id: str, public_id: str) -> b
     if merchant_id in public_id.split("/")[:-1]:
         return True
     if await db.products.find_one(
-        {"merchant_id": merchant_id, "$or": [{"image_public_id": public_id}, {"image_public_ids": public_id}]},
+        {"merchant_id": merchant_id, "$or": [
+            {"image_public_id": public_id}, {"image_public_ids": public_id},
+            # Color-variant images (see ColorVariant/color_variants) live
+            # nested under color_variants[].images[].public_id — covered
+            # here so deleting an already-saved variant photo isn't
+            # rejected just because it's not in the flat image fields.
+            {"color_variants.images.public_id": public_id},
+        ]},
         {"_id": 0, "id": 1},
     ):
         return True
@@ -5515,7 +5570,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
     items_snap = []
     # Track every successful stock decrement so we can roll back if any later
     # item fails (atomicity across multiple non-transactional Mongo writes).
-    reservations: list[tuple[str, str, int]] = []  # (product_id, size, qty)
+    reservations: list[tuple[str, str, int, Optional[str]]] = []  # (product_id, size, qty, color_variant_id)
     # Set only if THIS attempt is the one that successfully claimed the
     # payment_id in processed_payments below — used to un-claim it on
     # rollback so a legitimate retry (e.g. a transient DB error after
@@ -5529,6 +5584,11 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             pid = it.get("id")
             qty = int(it.get("qty", 1) or 1)
             size = (it.get("size") or "").strip()
+            # Color-variant selection (see ColorVariant) — absent/empty for
+            # every plain product, exactly today's behavior. Never trusted
+            # blind: validated against the product's own color_variants
+            # below before any stock decrement is attempted.
+            color_variant_id = (it.get("color_variant_id") or "").strip() or None
             if qty <= 0:
                 raise HTTPException(400, f"Quantity for {pid} must be > 0")
 
@@ -5536,30 +5596,62 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             p = await db.products.find_one(
                 {"id": pid, "is_deleted": {"$ne": True}, "paused": {"$ne": True}},
                 {"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
-                 "return_eligible": 1, "return_window_hours": 1, "try_at_doorstep": 1, "name": 1, "stock": 1},
+                 "return_eligible": 1, "return_window_hours": 1, "try_at_doorstep": 1, "name": 1, "stock": 1,
+                 "color_variants": 1},
             )
             if not p:
                 raise HTTPException(400, f"Product {pid} is unavailable")
+
+            variant = None
+            if color_variant_id:
+                variant = next((v for v in (p.get("color_variants") or []) if v.get("id") == color_variant_id), None)
+                if not variant:
+                    raise HTTPException(400, f"Invalid color selection for {p.get('name', pid)}")
+                if not any(s.get("size") == size for s in (variant.get("sizes") or [])):
+                    raise HTTPException(400, f"Size {size or '(none)'} is not available for this color of {p.get('name', pid)}")
 
             # ===== Atomic stock decrement (Mongo equivalent of SELECT … FOR UPDATE) =====
             # `find_one_and_update` with a conditional filter is atomic: either the
             # row matches AND we decrement, or it doesn't match AND nothing changes.
             # Two concurrent checkouts of the last unit → only one $inc succeeds.
-            stock_field = f"stock.{size}" if size else "stock.default"
-            updated = await db.products.find_one_and_update(
-                {"id": pid, "is_deleted": {"$ne": True},
-                 stock_field: {"$gte": qty}},
-                {"$inc": {stock_field: -qty}},
-                projection={"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
-                            "return_eligible": 1, "return_window_hours": 1, "try_at_doorstep": 1, "name": 1, stock_field: 1,
-                            "provider": 1, "remote_variant_ids": 1},
-                return_document=True,
-            )
+            if color_variant_id:
+                # Real inventory lives on the variant+size; the flat
+                # `stock.{size}` mirror (a cross-color sum — see
+                # _derive_flat_fields_from_variants) is decremented in the
+                # SAME atomic op purely so non-variant-aware readers of
+                # that field don't drift stale — it is NEVER the field the
+                # $gte condition checks for a variant item.
+                updated = await db.products.find_one_and_update(
+                    {"id": pid, "is_deleted": {"$ne": True},
+                     "color_variants": {"$elemMatch": {"id": color_variant_id,
+                                                        "sizes": {"$elemMatch": {"size": size, "stock": {"$gte": qty}}}}}},
+                    {"$inc": {"color_variants.$[v].sizes.$[s].stock": -qty, f"stock.{size}": -qty}},
+                    array_filters=[{"v.id": color_variant_id}, {"s.size": size}],
+                    projection={"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
+                                "return_eligible": 1, "return_window_hours": 1, "try_at_doorstep": 1, "name": 1,
+                                "provider": 1, "remote_variant_ids": 1},
+                    return_document=True,
+                )
+            else:
+                stock_field = f"stock.{size}" if size else "stock.default"
+                updated = await db.products.find_one_and_update(
+                    {"id": pid, "is_deleted": {"$ne": True},
+                     stock_field: {"$gte": qty}},
+                    {"$inc": {stock_field: -qty}},
+                    projection={"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
+                                "return_eligible": 1, "return_window_hours": 1, "try_at_doorstep": 1, "name": 1, stock_field: 1,
+                                "provider": 1, "remote_variant_ids": 1},
+                    return_document=True,
+                )
             if not updated:
                 raise HTTPException(409, f"Insufficient stock for {p.get('name', pid)}"
                                          + (f" (size {size})" if size else ""))
-            reservations.append((pid, size or "default", qty))
-            if size:
+            reservations.append((pid, size or "default", qty, color_variant_id))
+            if size and not color_variant_id:
+                # Remote inventory sync (VasyERP/Shopify) only ever applies
+                # to plain, non-variant products — those integrations never
+                # produce color_variants (see ColorVariant's own comment),
+                # so a variant item has nothing meaningful to sync.
                 asyncio.create_task(_sync_remote_inventory({**updated, "id": pid}, size, -qty))
 
             # Auto-pause once every size is sold out. The atomic $inc above only
@@ -5814,7 +5906,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         # also undoes the outbound sync each decrement already dispatched
         # (positive delta out to the source platform, same as a real
         # cancel), since the Lokl order behind it never actually got created.
-        await _restock_order_items({"items": [{"id": pid, "size": sz, "qty": qty} for pid, sz, qty in reservations]})
+        await _restock_order_items({"items": [{"id": pid, "size": sz, "qty": qty, "color_variant_id": cvid} for pid, sz, qty, cvid in reservations]})
         if claimed_payment_id:
             # This attempt claimed the payment_id but the order was never
             # actually created (e.g. the orders.insert_one itself failed
@@ -7347,6 +7439,54 @@ def _calculate_discount_percent(mrp: Optional[float], price: Optional[float]) ->
     return int((mrp - price) / mrp * 100)
 
 
+def _derive_flat_fields_from_variants(color_variants: list) -> dict:
+    """Mirrors a color-variant product's real data (images/sizes/stock live
+    per-variant) onto the existing flat fields every non-variant-aware
+    reader already expects — search, the discount rollup, related-products
+    scoring, admin product lists, WhatsApp/bulk exports, etc. This is the
+    ONE thing that lets color variants be additive rather than a second
+    parallel product model: nothing downstream of product creation/update
+    needs to learn about color_variants unless it specifically wants to
+    (PDP, ProductForm, cart/checkout, order stock decrement).
+
+      - image/images/image_public_id/image_public_ids: the FIRST variant's
+        own images — a listing grid shows one representative photo either
+        way, so "whichever color is first" is a reasonable default (same
+        as how a plain product's own first image is its cover).
+      - sizes: the sorted union of every distinct size across all variants
+        — "does this product come in M" is true if ANY color has M.
+      - stock/total_stock: summed PER SIZE across variants — good enough
+        for "is this in stock at all" on surfaces that don't know about
+        colors; the real per-color-per-size number lives on the variant
+        itself and is what order creation actually validates/decrements
+        against.
+
+    Returns {} (no-op) when color_variants is empty — a plain product's
+    flat fields are never touched by this function."""
+    if not color_variants:
+        return {}
+    first = color_variants[0]
+    first_images = first.get("images") or []
+    sizes_union: set = set()
+    stock_sum: dict = {}
+    for v in color_variants:
+        for s in (v.get("sizes") or []):
+            sz = s.get("size")
+            if not sz:
+                continue
+            sizes_union.add(sz)
+            stock_sum[sz] = stock_sum.get(sz, 0) + int(s.get("stock") or 0)
+    return {
+        "image": (first_images[0]["url"] if first_images else ""),
+        "image_public_id": (first_images[0].get("public_id", "") if first_images else ""),
+        "images": [img["url"] for img in first_images],
+        "image_public_ids": [img.get("public_id", "") for img in first_images],
+        "sizes": sorted(sizes_union),
+        "stock": stock_sum,
+        "total_stock": sum(stock_sum.values()),
+    }
+
+
 async def _create_product_for_merchant(
     payload: ProductCreate, merchant_id: str, *,
     creation_source: str = "merchant_manual",
@@ -7408,7 +7548,9 @@ async def _create_product_for_merchant(
         "creation_source": creation_source, "created_by": created_by, "bulk_import_id": bulk_import_id,
         **payload.model_dump(),
         "created_at": datetime.now(timezone.utc).isoformat()}
-    if isinstance(doc.get("stock"), dict):
+    if doc.get("color_variants"):
+        doc.update(_derive_flat_fields_from_variants(doc["color_variants"]))
+    elif isinstance(doc.get("stock"), dict):
         doc["total_stock"] = sum(int(v) for v in doc["stock"].values() if isinstance(v, (int, float)))
     doc["discount_percent"] = _calculate_discount_percent(doc.get("mrp"), doc.get("price"))
     await db.products.insert_one(doc)
@@ -7441,6 +7583,13 @@ ALLOWED_PRODUCT_UPDATE_FIELDS = {
     "sizes", "image", "images", "image_public_id", "image_public_ids",
     "ai_enhanced", "try_at_doorstep", "return_eligible", "return_window_hours",
     "stock", "size_type", "fit_note", "brand_id", "paused",
+    # Color variants — see ColorVariant/_derive_flat_fields_from_variants.
+    # Sent WHOLESALE each save (never diffed server-side, same "no implicit
+    # destructive logic" rule _remove_product_images already documents for
+    # the flat image fields) — the client owns building the full desired
+    # array; explicit Cloudinary deletion of removed variant images is
+    # still the client's job via the existing deferred-delete pattern.
+    "color_variants",
 }
 
 
@@ -7546,7 +7695,14 @@ async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
         if rwh < 1 or rwh > 24:
             raise HTTPException(400, "return_window_hours must be between 1 and 24")
         payload["return_window_hours"] = rwh
-    if isinstance(payload.get("stock"), dict):
+    if "color_variants" in payload:
+        try:
+            validated = [ColorVariant(**v).model_dump() for v in (payload["color_variants"] or [])]
+        except (TypeError, ValidationError) as e:
+            raise HTTPException(400, f"Invalid color_variants: {e}")
+        payload["color_variants"] = validated
+        payload.update(_derive_flat_fields_from_variants(validated))
+    elif isinstance(payload.get("stock"), dict):
         payload["total_stock"] = sum(int(v) for v in payload["stock"].values() if isinstance(v, (int, float)))
     if "price" in payload or "mrp" in payload:
         # A partial update may send only one of the two — fall back to the

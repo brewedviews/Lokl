@@ -28,7 +28,7 @@ import { useState, useEffect } from "react";
 import { trackAddToCart, trackPickupStart, trackPickupComplete, trackProductView } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AlertCircle, CheckCircle2, Store, RotateCcw, ShieldCheck, Check } from "lucide-react";
+import { AlertCircle, CheckCircle2, Store, RotateCcw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useCartStore, useCustomerAuthStore } from "@/stores";
 import { apiClient } from "@/lib/api-client";
@@ -58,6 +58,8 @@ export function ProductDetailPanel({
   storeName,
   storeId,
   storeAreaLabel,
+  selectedColorId,
+  onColorChange,
 }: {
   product: Product;
   discount: number;
@@ -71,20 +73,46 @@ export function ProductDetailPanel({
    *  instead of just the bare store name. Omitted from the row entirely
    *  when absent, never a fabricated placeholder. */
   storeAreaLabel?: string | null;
+  /** Controlled by ProductPageClient (the parent both this panel and the
+   *  gallery sit under) so the gallery can switch to the selected color's
+   *  images — this panel doesn't own the selection itself. Undefined for
+   *  a plain, non-variant product. */
+  selectedColorId?: string | null;
+  onColorChange?: (id: string) => void;
 }) {
   const router = useRouter();
   const addItem = useCartStore((s) => s.addItem);
   const customerPhone = useCustomerAuthStore((s) => s.phone);
   const customerUser = useCustomerAuthStore((s) => s.user);
   const isCustomerAuth = useCustomerAuthStore((s) => s.isAuthenticated);
-  const [size, setSize] = useState<string | null>(product.sizes?.[0] || null);
 
-  // Colors — not on the product data model yet (no merchant/admin field
-  // exists to set them), so `colors` is always undefined today and this
-  // whole selector never renders. Wired ahead of that field landing,
-  // same pattern as the gallery's `fit` overlay.
-  const colors = (product as any).colors as string[] | undefined;
-  const [color, setColor] = useState<string | null>(colors?.[0] ?? null);
+  // Color variants (see ColorVariant) — empty/absent for a plain product,
+  // in which case every branch below behaves exactly as it did before
+  // this feature existed (reading product.sizes/product.stock directly).
+  const colorVariants = product.color_variants || [];
+  const hasColorVariants = colorVariants.length > 0;
+  const selectedVariant = hasColorVariants
+    ? colorVariants.find((v) => v.id === selectedColorId) ?? colorVariants[0]
+    : null;
+
+  // Sizes available depend on the selected color once variants exist —
+  // a size that's fine for Black may not exist for White.
+  const availableSizes = hasColorVariants
+    ? (selectedVariant?.sizes ?? []).map((s) => s.size)
+    : (product.sizes ?? []);
+
+  const [size, setSize] = useState<string | null>(availableSizes[0] || null);
+
+  // Changing color clears a size that isn't available for the new color
+  // (never silently keeps an invalid selection) and picks that color's
+  // first size as a sensible default otherwise — mirrors how the plain-
+  // product size selector already defaults to the first size.
+  useEffect(() => {
+    if (!hasColorVariants) return;
+    const sizesForColor = (selectedVariant?.sizes ?? []).map((s) => s.size);
+    setSize((prev) => (prev && sizesForColor.includes(prev) ? prev : sizesForColor[0] || null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedColorId]);
 
   useEffect(() => {
     try {
@@ -117,10 +145,14 @@ export function ProductDetailPanel({
   const isClosed = badge === "Closed";
   const isAway = badge === "Away";
 
-  // Stock for the selected size — real data when available (per-size stock
-  // map), a generic fallback line when it isn't, "Out of stock"/"Only N
-  // left" when it's known and low. Never a fabricated exact number.
-  const stockForSize = size && product.stock ? product.stock[size] : null;
+  // Stock for the selected size — real data when available (the selected
+  // color's own per-size stock for a variant product, the flat per-size
+  // stock map otherwise), a generic fallback line when it isn't, "Out of
+  // stock"/"Only N left" when it's known and low. Never a fabricated
+  // exact number.
+  const stockForSize = hasColorVariants
+    ? (size ? (selectedVariant?.sizes ?? []).find((s) => s.size === size)?.stock ?? null : null)
+    : (size && product.stock ? product.stock[size] : null);
   const stockLabel = stockForSize == null
     ? "Available in stock"
     : stockForSize <= 0
@@ -150,11 +182,15 @@ export function ProductDetailPanel({
   const handleAdd = (onSuccess: () => void) => {
     // Availability SOP — Add to bag/Buy now are never blocked by store
     // state (see PdpCtaRow's own comment); checkout is the sole gate.
-    if (product.sizes?.length && !size) { toast.error("Please pick a size"); return; }
-    const r = addItem(product, size ?? "");
+    if (hasColorVariants && !selectedVariant) { toast.error("Please pick a color"); return; }
+    if (availableSizes.length > 0 && !size) { toast.error("Please pick a size"); return; }
+    const colorArg = hasColorVariants && selectedVariant
+      ? { id: selectedVariant.id, name: selectedVariant.name, image: selectedVariant.images?.[0]?.url }
+      : undefined;
+    const r = addItem(product, size ?? "", 1, colorArg);
     if (!r.success && r.conflict) {
       promptConflict(r.conflict, () => {
-        addItem(product, size ?? "");
+        addItem(product, size ?? "", 1, colorArg);
         try {
           trackAddToCart({ product_id: product.id, product_name: product.name, price: product.price, size: size ?? "", source: "product_page" });
         } catch {}
@@ -188,7 +224,8 @@ export function ProductDetailPanel({
   };
 
   const handleReservePickup = async () => {
-    if (product.sizes?.length && !size) { toast.error("Please pick a size first"); return; }
+    if (hasColorVariants && !selectedVariant) { toast.error("Please pick a color first"); return; }
+    if (availableSizes.length > 0 && !size) { toast.error("Please pick a size first"); return; }
     setReserving(true);
     try { trackPickupStart(product.id, sId); } catch {}
     try {
@@ -196,7 +233,10 @@ export function ProductDetailPanel({
       const r = await apiClient.post<{ id: string; pickup_code: string; pickup_expires_at: string }>(
         "/api/orders",
         {
-          items: [{ id: product.id, qty: 1, size: size ?? "", price: product.price, name: product.name, store_id: sId, store_name: sName }],
+          items: [{
+            id: product.id, qty: 1, size: size ?? "", price: product.price, name: product.name, store_id: sId, store_name: sName,
+            ...(hasColorVariants && selectedVariant ? { color_variant_id: selectedVariant.id, color_name: selectedVariant.name } : {}),
+          }],
           address: {},
           total: product.price,
           payment_method: "COD",
@@ -335,19 +375,56 @@ export function ProductDetailPanel({
 
       <div className="h-px bg-[#F5F5F5] mx-4 my-1.5 md:mx-0" />
 
-      {/* ── Size (rounded-rectangle pills, not circles) + Color (dormant).
-          Rectangles are auto-width from their own padding, so a long label
-          like "Free Size" grows the pill instead of fighting a fixed-width
-          circle for room — the earlier circular shape needed to shrink
-          the font just to keep "Free Size" from overflowing; this fixes it
-          structurally instead. Same shape reused in the pickup-sheet's own
-          size picker below, kept in sync via SIZE_PILL_BASE. ── */}
-      <div className="flex items-start justify-between gap-4 px-4 md:px-0 mt-2.5 flex-wrap">
-        {product.sizes && product.sizes.length > 0 && (
+      {/* ── Color (before Size, per PDP spec) + Size (rounded-rectangle
+          pills, not circles). Rectangles are auto-width from their own
+          padding, so a long label like "Free Size" grows the pill instead
+          of fighting a fixed-width circle for room. Same shape reused in
+          the pickup-sheet's own size picker below, kept in sync via
+          SIZE_PILL_BASE.
+
+          Color pills carry NAME + an optional swatch dot, never a bare
+          circle — "Olive"/"Dusty Rose"/"Wine" need a label a color patch
+          alone can't convey. ── */}
+      <div className="px-4 md:px-0 mt-2.5">
+        {hasColorVariants && (
+          <div className="mb-3.5" data-testid="color-selector">
+            <div className="text-[12px] font-medium text-ink-navy mb-1.5">
+              Color{selectedVariant ? <span className="text-slate-gray font-normal">: {selectedVariant.name}</span> : null}
+            </div>
+            <div className="flex gap-2 overflow-x-auto no-scrollbar">
+              {colorVariants.map((v) => {
+                const active = selectedVariant?.id === v.id;
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => onColorChange?.(v.id)}
+                    data-testid={`color-${v.id}`}
+                    aria-pressed={active}
+                    className={`shrink-0 inline-flex items-center gap-1.5 ${SIZE_PILL_BASE} ${active ? "bg-brand-accent text-white border-brand-accent" : "bg-white text-ink-navy border-ink-navy"}`}
+                  >
+                    {v.hex && (
+                      <span
+                        className={`w-3 h-3 rounded-full border ${active ? "border-white/60" : "border-black/15"} shrink-0`}
+                        style={{ backgroundColor: v.hex }}
+                        aria-hidden="true"
+                      />
+                    )}
+                    {v.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-start justify-between gap-4 px-4 md:px-0 flex-wrap">
+        {availableSizes.length > 0 && (
           <div>
             <div className="text-[12px] font-medium text-ink-navy mb-1.5">Size</div>
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
-              {product.sizes.map((s) => (
+              {availableSizes.map((s) => (
                 <button key={s} onClick={() => setSize(s)} data-testid={`size-${s}`}
                   className={`shrink-0 ${SIZE_PILL_BASE} ${size === s ? "bg-brand-accent text-white border-brand-accent" : "bg-white text-ink-navy border-ink-navy"}`}>
                   {s}
@@ -361,30 +438,6 @@ export function ProductDetailPanel({
           <p className="text-[11px] italic text-slate-gray w-full px-4 md:px-0 mt-1.5" data-testid="fit-note">
             {product.fit_note}
           </p>
-        )}
-
-        {colors && colors.length > 0 && (
-          <div data-testid="color-selector">
-            <div className="text-[12px] font-medium text-ink-navy mb-2.5">Color</div>
-            <div className="inline-flex items-center gap-2 px-2.5 py-2 rounded-full bg-white border border-warm-gray-border">
-              {colors.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-label={c}
-                  onClick={() => setColor(c)}
-                  className="relative w-5 h-5 rounded-full border border-black/10"
-                  style={{ backgroundColor: c }}
-                >
-                  {color === c && (
-                    <span className="absolute inset-0 flex items-center justify-center">
-                      <Check size={11} className="text-white drop-shadow" />
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
         )}
 
         {/* The only CTA row on the page — directly below the size
@@ -403,6 +456,7 @@ export function ProductDetailPanel({
             isOffline={isOffline}
             productId={product.id}
             size={size ?? ""}
+            colorVariantId={selectedVariant?.id}
             product={product}
             onNotify={handleNotify}
             onBuyNow={handleBuyNow}
@@ -547,15 +601,19 @@ export function ProductDetailPanel({
                   <div className="flex gap-3 p-4 bg-[#FDFBF7] rounded-2xl border border-[#E5E2DC] mb-4">
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-[#0A1F5C] text-sm">{product.name}</div>
-                      {size && <div className="text-[#595959] text-xs mt-0.5">Size: {size}</div>}
+                      {(selectedVariant || size) && (
+                        <div className="text-[#595959] text-xs mt-0.5">
+                          {[selectedVariant?.name, size ? `Size: ${size}` : null].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
                     </div>
                     <div className="font-bold text-[#0A1F5C]">₹{product.price.toLocaleString()}</div>
                   </div>
-                  {product.sizes && product.sizes.length > 0 && (
+                  {availableSizes.length > 0 && (
                     <div className="mb-4">
                       <div className="text-xs font-semibold text-[#0A1F5C] mb-2">Size</div>
                       <div className="flex flex-wrap gap-2">
-                        {product.sizes.map((s) => (
+                        {availableSizes.map((s) => (
                           <button key={s} onClick={() => setSize(s)}
                             className={`${SIZE_PILL_BASE} ${size === s ? "bg-brand-accent text-white border-brand-accent" : "bg-white text-ink-navy border-ink-navy"}`}>
                             {s}
@@ -600,7 +658,7 @@ export function ProductDetailPanel({
                   <Button
                     variant="cta"
                     onClick={() => void handleReservePickup()}
-                    disabled={reserving || !!(product.sizes?.length && !size)}
+                    disabled={reserving || (availableSizes.length > 0 && !size) || (hasColorVariants && !selectedVariant)}
                     data-testid="confirm-reserve-btn"
                     className="w-full text-sm gap-2 mb-2"
                   >

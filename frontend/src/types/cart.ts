@@ -22,6 +22,13 @@ export interface CartItem {
   qty: number;
   size?: string;
   image?: string;
+  /** Selected color variant (see ColorVariant), absent for a plain product
+   *  — cartKeyFor() folds this into the line key so Black/M and White/M
+   *  of the same product never merge into one line. `color_name` is
+   *  snapshotted alongside the id purely for display (cart/order UI never
+   *  needs to look the variant back up by id just to show its name). */
+  color_variant_id?: string;
+  color_name?: string;
   store_id: string;
   store_name?: string;
   return_eligible?: boolean;

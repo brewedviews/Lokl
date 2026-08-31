@@ -57,6 +57,10 @@ export interface OrderItem {
   qty: number;
   size?: string;
   image?: string;
+  /** Carried through verbatim from the cart line (see CartItem) — the
+   *  color the customer actually bought, snapshotted at order time. */
+  color_variant_id?: string;
+  color_name?: string;
   store_id?: Id;
   store_name?: string;
   return_eligible?: boolean;
@@ -200,6 +204,8 @@ export interface ReturnItem {
   qty: number;
   price: RupeeAmount;
   size?: string;
+  /** Carried through from the original order line (see OrderItem). */
+  color_name?: string;
   image?: string;
 }
 

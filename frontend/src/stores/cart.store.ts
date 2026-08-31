@@ -45,9 +45,10 @@ interface CartActions {
     product: ProductCard,
     size: string,
     qty?: number,
+    colorVariant?: { id: string; name: string; image?: string },
   ) => { success: boolean; conflict?: CartConflict };
-  removeItem: (productId: string, size: string) => void;
-  updateQty: (productId: string, size: string, qty: number) => void;
+  removeItem: (productId: string, size: string, colorVariantId?: string) => void;
+  updateQty: (productId: string, size: string, qty: number, colorVariantId?: string) => void;
   /** G13 §1 — set this line's checkout fulfillment choice. Silently no-ops
    *  if the line isn't try_at_doorstep-eligible, so a caller can never
    *  accidentally flip an ineligible item to "try_and_buy". */
@@ -55,7 +56,7 @@ interface CartActions {
   clearCart: () => void;
   getTotal: () => RupeeAmount;
   getItemCount: () => number;
-  getLineTotal: (productId: string, size: string) => RupeeAmount;
+  getLineTotal: (productId: string, size: string, colorVariantId?: string) => RupeeAmount;
   getStoreIds: () => string[];
   /** Hydrate from the legacy bare-array `bf_cart` shape if present. */
   _syncFromLegacy: () => void;
@@ -71,8 +72,12 @@ const INITIAL: CartState = { items: [], _hasHydrated: false };
 // derive the exact same key this store uses internally, instead of
 // re-deriving their own "id + size" matching logic that could drift from
 // this store's actual key format.
-export const cartKeyFor = (productId: string, size: string) =>
-  `${productId}-${size || "free"}`;
+// `colorVariantId` folds into the key so two colors of the same product+
+// size never collide into one line — omitted (undefined) for every plain
+// product, which keeps the key format BYTE-IDENTICAL to before this field
+// existed for every existing call site that doesn't pass it.
+export const cartKeyFor = (productId: string, size: string, colorVariantId?: string) =>
+  `${productId}-${size || "free"}${colorVariantId ? `-${colorVariantId}` : ""}`;
 
 // Returns the [id, name] pairs of every distinct store currently in the bag.
 function distinctStores(items: CartItem[]): Array<{ id: string; name: string }> {
@@ -104,7 +109,7 @@ export const useCartStore = create<CartStore>()(
     (set, get) => ({
       ...INITIAL,
 
-      addItem: (product, size, qty = 1) => {
+      addItem: (product, size, qty = 1, colorVariant) => {
         const state = get();
         const itemStoreId = product.store_id;
         const stores = distinctStores(state.items);
@@ -130,7 +135,7 @@ export const useCartStore = create<CartStore>()(
           };
         }
 
-        const key = cartKeyFor(product.id, size);
+        const key = cartKeyFor(product.id, size, colorVariant?.id);
         const existingIdx = state.items.findIndex((i) => i.key === key);
         let nextItems: CartItem[];
 
@@ -147,7 +152,9 @@ export const useCartStore = create<CartStore>()(
             mrp: product.mrp ?? undefined,
             qty,
             size: size || undefined,
-            image: product.image,
+            image: colorVariant?.image || product.image,
+            color_variant_id: colorVariant?.id,
+            color_name: colorVariant?.name,
             store_id: itemStoreId,
             store_name: product.store_name,
             return_eligible: product.return_eligible,
@@ -162,19 +169,19 @@ export const useCartStore = create<CartStore>()(
         return { success: true };
       },
 
-      removeItem: (productId, size) => {
-        const key = cartKeyFor(productId, size);
+      removeItem: (productId, size, colorVariantId) => {
+        const key = cartKeyFor(productId, size, colorVariantId);
         const nextItems = get().items.filter((i) => i.key !== key);
         set({ items: nextItems });
         mirrorToLegacyBareArray(nextItems);
       },
 
-      updateQty: (productId, size, qty) => {
+      updateQty: (productId, size, qty, colorVariantId) => {
         if (qty <= 0) {
-          get().removeItem(productId, size);
+          get().removeItem(productId, size, colorVariantId);
           return;
         }
-        const key = cartKeyFor(productId, size);
+        const key = cartKeyFor(productId, size, colorVariantId);
         const nextItems = get().items.map((i) => (i.key === key ? { ...i, qty } : i));
         set({ items: nextItems });
         mirrorToLegacyBareArray(nextItems);
@@ -199,8 +206,8 @@ export const useCartStore = create<CartStore>()(
       getItemCount: () =>
         get().items.reduce((sum, i) => sum + i.qty, 0),
 
-      getLineTotal: (productId, size) => {
-        const key = cartKeyFor(productId, size);
+      getLineTotal: (productId, size, colorVariantId) => {
+        const key = cartKeyFor(productId, size, colorVariantId);
         const line = get().items.find((i) => i.key === key);
         return line ? line.price * line.qty : 0;
       },

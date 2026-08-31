@@ -55,6 +55,7 @@ _INTEGRATION_FILES = {
     "test_admin_product_creation.py",
     "test_admin_storefront_setup.py",
     "test_discount_percent.py",
+    "test_color_variants.py",
     "test_backend.py",
     "test_backlog_lokl_prefix.py",
     "test_db_hardening.py",

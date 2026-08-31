@@ -17,10 +17,25 @@
  * through the existing `/merchant/upload-image` endpoint via
  * `uploadImage()`/`deleteUploadedImage()` (frontend/src/lib/uploads.ts) —
  * already role-agnostic (accepts merchant AND admin) — no new upload path.
+ * `callerScope` (default "merchant") forces the admin JWT on those calls
+ * when this form is used from an admin context — see lib/uploads.ts's own
+ * doc comment for why a plain merchant-scoped call 401s for an admin-only
+ * session; this was a known-open gap fixed here since color variants touch
+ * this exact upload path extensively.
+ *
+ * Color variants (optional, additive — see ColorVariant on the backend):
+ * a "Does this product have multiple colours?" toggle at the top of the
+ * Pricing step switches Sizes/Stock + the Photos step from the plain flat
+ * flow to a repeating per-color block (name, optional hex swatch, its own
+ * images, its own size/stock toggles) built from the SAME size_type
+ * chosen once for the product — each color independently picks which of
+ * that size type's sizes it carries and how much stock. Toggling back to
+ * "No" (or never touching it) preserves the exact original flat
+ * sizes/images/stock flow, byte-for-byte.
  */
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { Upload, X, Star, Loader2 } from "lucide-react";
+import { Upload, X, Star, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/api-error";
 import { uploadImage, deleteUploadedImage } from "@/lib/uploads";
@@ -30,6 +45,14 @@ export interface ProductFormCategory {
   id: string;
   name: string;
   l2: { id: string; name: string }[];
+}
+
+export interface ProductFormColorVariant {
+  id: string;
+  name: string;
+  hex?: string;
+  images: { url: string; public_id: string }[];
+  sizes: { size: string; stock: number }[];
 }
 
 /** The exact request-body shape both `POST /merchant/products` and the
@@ -56,6 +79,11 @@ export interface ProductFormBody {
   return_eligible: boolean;
   return_window_hours?: number;
   try_at_doorstep: boolean;
+  /** Omitted entirely (not even an empty array) when the merchant/admin
+   *  never turned on the color toggle — matches the backend default of
+   *  an empty list, so a plain product's request body is unchanged from
+   *  before this feature existed. */
+  color_variants?: ProductFormColorVariant[];
 }
 
 export interface ProductFormInitial {
@@ -67,6 +95,16 @@ export interface ProductFormInitial {
   image_public_ids?: string[]; image_public_id?: string;
   return_eligible?: boolean; return_window_hours?: number | null;
   try_at_doorstep?: boolean; size_type?: string;
+  color_variants?: ProductFormColorVariant[];
+}
+
+let _cvCounter = 0;
+function newColorVariantId(): string {
+  _cvCounter += 1;
+  return `cv-${Date.now().toString(36)}-${_cvCounter}`;
+}
+function blankColorVariant(): ProductFormColorVariant {
+  return { id: newColorVariantId(), name: "", hex: "", images: [], sizes: [] };
 }
 
 const GENDERS = ["women", "men", "unisex", "kids"];
@@ -124,7 +162,7 @@ function inferSizeType(sizes: string[]): string {
 }
 
 export function ProductForm({
-  mode, cats, initialProduct, onSubmit, onClose, submitLabels,
+  mode, cats, initialProduct, onSubmit, onClose, submitLabels, callerScope = "merchant",
 }: {
   mode: "create" | "edit";
   cats: ProductFormCategory[];
@@ -132,8 +170,17 @@ export function ProductForm({
   onSubmit: (body: ProductFormBody) => Promise<void>;
   onClose: () => void;
   submitLabels?: { create: string; edit: string };
+  /** "admin" forces the admin JWT on image upload/delete — see
+   *  lib/uploads.ts. Defaults to "merchant", the original behavior. */
+  callerScope?: "merchant" | "admin";
 }) {
   const [form, setForm] = useState(() => toFormState(initialProduct));
+  const [hasColors, setHasColors] = useState(() => !!(initialProduct?.color_variants && initialProduct.color_variants.length > 0));
+  const [colorVariants, setColorVariants] = useState<ProductFormColorVariant[]>(
+    () => (initialProduct?.color_variants && initialProduct.color_variants.length > 0)
+      ? initialProduct.color_variants
+      : [blankColorVariant()],
+  );
   const [customSizesInput, setCustomSizesInput] = useState(() => {
     const st = initialProduct?.size_type || (initialProduct?.sizes?.length ? inferSizeType(initialProduct.sizes) : "");
     return st === "custom" ? (initialProduct?.sizes || []).join(", ") : "";
@@ -149,6 +196,12 @@ export function ProductForm({
 
   useEffect(() => {
     setForm(toFormState(initialProduct));
+    setHasColors(!!(initialProduct?.color_variants && initialProduct.color_variants.length > 0));
+    setColorVariants(
+      (initialProduct?.color_variants && initialProduct.color_variants.length > 0)
+        ? initialProduct.color_variants
+        : [blankColorVariant()],
+    );
     setPendingDeletePublicIds([]);
     setStep(1);
     const st = initialProduct?.size_type || (initialProduct?.sizes?.length ? inferSizeType(initialProduct.sizes) : "");
@@ -164,7 +217,7 @@ export function ProductForm({
     if (form.images.length >= MAX_IMAGES) return toast.error(`Max ${MAX_IMAGES} images`);
     setImageBusy(true);
     try {
-      const { image_url, public_id } = await uploadImage(file, "product");
+      const { image_url, public_id } = await uploadImage(file, "product", callerScope);
       setForm((f) => ({
         ...f,
         images: [...f.images, image_url],
@@ -194,15 +247,89 @@ export function ProductForm({
     };
   });
 
+  // ── Color variants — same upload/remove/toggle shapes as the plain
+  // flow above, scoped to one color's entry in `colorVariants` by index. ──
+  const updateColorVariant = (idx: number, patch: Partial<ProductFormColorVariant>) => {
+    setColorVariants((list) => list.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
+  };
+
+  const addColorVariant = () => setColorVariants((list) => [...list, blankColorVariant()]);
+
+  const removeColorVariant = (idx: number) => {
+    const removed = colorVariants[idx];
+    if (removed) setPendingDeletePublicIds((ids) => [...ids, ...removed.images.map((i) => i.public_id).filter(Boolean)]);
+    setColorVariants((list) => (list.length > 1 ? list.filter((_, i) => i !== idx) : list));
+  };
+
+  const pickColorImage = async (idx: number, file: File | undefined) => {
+    if (!file) return;
+    const current = colorVariants[idx];
+    if (!current) return;
+    if (current.images.length >= MAX_IMAGES) return toast.error(`Max ${MAX_IMAGES} images per color`);
+    setImageBusy(true);
+    try {
+      const { image_url, public_id } = await uploadImage(file, "product", callerScope);
+      updateColorVariant(idx, { images: [...current.images, { url: image_url, public_id }] });
+      toast.success("Image uploaded");
+    } catch (e) { toast.error(getErrorMessage(e)); }
+    finally { setImageBusy(false); }
+  };
+
+  const removeColorImage = (idx: number, imgIdx: number) => {
+    const variant = colorVariants[idx];
+    if (!variant) return;
+    const removed = variant.images[imgIdx];
+    updateColorVariant(idx, { images: variant.images.filter((_, i) => i !== imgIdx) });
+    if (removed?.public_id) setPendingDeletePublicIds((ids) => [...ids, removed.public_id]);
+  };
+
+  const toggleColorSize = (idx: number, sz: string) => {
+    const variant = colorVariants[idx];
+    if (!variant) return;
+    const has = variant.sizes.some((s) => s.size === sz);
+    updateColorVariant(idx, {
+      sizes: has ? variant.sizes.filter((s) => s.size !== sz) : [...variant.sizes, { size: sz, stock: 0 }],
+    });
+  };
+
+  const setColorStock = (idx: number, sz: string, stock: number) => {
+    const variant = colorVariants[idx];
+    if (!variant) return;
+    updateColorVariant(idx, { sizes: variant.sizes.map((s) => (s.size === sz ? { ...s, stock } : s)) });
+  };
+
   const submit = async () => {
     if (!form.name || !form.price || !form.l1_id) return toast.error("Name, price and category are required");
     const l1 = cats.find((c) => c.id === form.l1_id);
     const formHasL2 = l1 && l1.l2 && l1.l2.length > 0;
     if (formHasL2 && !form.l2_id) return toast.error("Sub-category is required for this category");
     if (!formHasL2 && !form.gender) return toast.error("Gender is required for this category");
-    if (form.images.length === 0) return toast.error("At least one product image is required");
+
+    if (hasColors) {
+      const named = colorVariants.filter((v) => v.name.trim());
+      if (named.length === 0) return toast.error("Add at least one color with a name");
+      if (named.some((v) => v.images.length === 0)) return toast.error(`"${named.find((v) => v.images.length === 0)?.name}" needs at least one image`);
+      if (named.some((v) => v.sizes.length === 0)) return toast.error(`"${named.find((v) => v.sizes.length === 0)?.name}" needs at least one size`);
+    } else if (form.images.length === 0) {
+      return toast.error("At least one product image is required");
+    }
+
     setSubmitBusy(true);
     try {
+      // When color_variants is set, the backend derives image/images/sizes/
+      // stock from it (see _derive_flat_fields_from_variants) — these are
+      // still computed here too for a locally-consistent body, but the
+      // server's own derivation is what's actually persisted.
+      const namedVariants = hasColors ? colorVariants.filter((v) => v.name.trim()) : [];
+      const firstVariantImages = namedVariants[0]?.images ?? [];
+      const sizesUnion = hasColors
+        ? Array.from(new Set(namedVariants.flatMap((v) => v.sizes.map((s) => s.size)))).sort()
+        : form.sizes;
+      const stockSum: Record<string, number> = {};
+      if (hasColors) {
+        for (const v of namedVariants) for (const s of v.sizes) stockSum[s.size] = (stockSum[s.size] ?? 0) + (s.stock || 0);
+      }
+
       const body: ProductFormBody = {
         name: form.name,
         price: Number(form.price),
@@ -212,23 +339,26 @@ export function ProductForm({
         l2_id: form.l2_id || "",
         gender: form.gender || "",
         brand_id: form.brand_id || undefined,
-        sizes: form.sizes,
-        stock: form.stock,
+        sizes: hasColors ? sizesUnion : form.sizes,
+        stock: hasColors ? stockSum : form.stock,
         size_type: form.size_type || "",
-        image: form.images[0] || "",
-        image_public_id: form.image_public_ids[0] || "",
-        images: form.images,
-        image_public_ids: form.image_public_ids,
+        image: hasColors ? (firstVariantImages[0]?.url || "") : (form.images[0] || ""),
+        image_public_id: hasColors ? (firstVariantImages[0]?.public_id || "") : (form.image_public_ids[0] || ""),
+        images: hasColors ? firstVariantImages.map((i) => i.url) : form.images,
+        image_public_ids: hasColors ? firstVariantImages.map((i) => i.public_id) : form.image_public_ids,
         return_eligible: form.return_eligible,
         return_window_hours: form.return_eligible
           ? Math.min(24, Math.max(1, Number(form.return_window_hours) || 24))
           : undefined,
         try_at_doorstep: form.try_at_doorstep,
+        ...(hasColors ? { color_variants: namedVariants } : {}),
       };
       await onSubmit(body);
       // Only NOW — once the caller confirms the create/update succeeded —
-      // actually delete any images removed during this session.
-      for (const pid of pendingDeletePublicIds) void deleteUploadedImage(pid);
+      // actually delete any images removed during this session (plain
+      // flow + any color-variant images removed, both feed the same
+      // deferred queue).
+      for (const pid of pendingDeletePublicIds) void deleteUploadedImage(pid, callerScope);
       setPendingDeletePublicIds([]);
       onClose();
     } catch (e) { toast.error(getErrorMessage(e)); }
@@ -398,78 +528,114 @@ export function ProductForm({
                 </div>
               </div>
 
-              <div>
-                <div className="text-xs font-bold text-[#595959] uppercase tracking-wide mb-1.5">Sizes & inventory</div>
-                <select
-                  data-testid="prod-size-type"
-                  value={form.size_type}
-                  onChange={(e) => {
-                    const st = e.target.value;
-                    if (st === "free_size") {
-                      setForm((f) => ({ ...f, size_type: st, sizes: ["Free Size"], stock: { "Free Size": 0 } }));
-                    } else if (st === "custom") {
-                      setForm((f) => ({ ...f, size_type: st, sizes: [], stock: {} }));
-                      setCustomSizesInput("");
-                    } else if (st) {
-                      setForm((f) => ({ ...f, size_type: st, sizes: [], stock: {} }));
-                    } else {
-                      setForm((f) => ({ ...f, size_type: "", sizes: [], stock: {} }));
-                    }
-                  }}
-                  className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white mb-2 text-sm"
-                >
-                  <option value="">Select size type</option>
-                  {Object.entries(SIZE_TYPE_OPTIONS).map(([key, { label }]) => (
-                    <option key={key} value={key}>{label}</option>
-                  ))}
-                </select>
+              <label className="flex items-start gap-2 text-xs p-3 rounded-xl bg-[#FDFBF7] border border-[#E5E2DC]">
+                <input
+                  data-testid="prod-has-colors"
+                  type="checkbox"
+                  checked={hasColors}
+                  onChange={(e) => setHasColors(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 accent-[#E68910]"
+                />
+                <span>
+                  <strong>Does this product have multiple colours?</strong>
+                  <span className="block text-[#595959] mt-0.5">Each colour gets its own photos and its own size/stock — e.g. Black, White, Yellow.</span>
+                </span>
+              </label>
 
-                {form.size_type && form.size_type !== "free_size" && form.size_type !== "custom" && (
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {(SIZE_TYPE_OPTIONS[form.size_type]?.sizes || []).map((sz) => {
-                      const has = form.sizes.includes(sz);
-                      return (
-                        <button key={sz} type="button" onClick={() => toggleSize(sz)} data-testid={`size-toggle-${sz}`}
-                          className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${has ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white text-[#1A2B4C] border-[#E5E2DC]"}`}>
-                          {sz}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {form.size_type === "custom" && (
-                  <input
-                    data-testid="prod-custom-sizes"
-                    value={customSizesInput}
+              {!hasColors && (
+                <div>
+                  <div className="text-xs font-bold text-[#595959] uppercase tracking-wide mb-1.5">Sizes & inventory</div>
+                  <select
+                    data-testid="prod-size-type"
+                    value={form.size_type}
                     onChange={(e) => {
-                      const raw = e.target.value;
-                      setCustomSizesInput(raw);
-                      const parsed = raw.split(",").map((s) => s.trim()).filter(Boolean);
-                      setForm((f) => ({
-                        ...f,
-                        sizes: parsed,
-                        stock: Object.fromEntries(parsed.map((sz) => [sz, f.stock[sz] ?? 0])),
-                      }));
+                      const st = e.target.value;
+                      if (st === "free_size") {
+                        setForm((f) => ({ ...f, size_type: st, sizes: ["Free Size"], stock: { "Free Size": 0 } }));
+                      } else if (st === "custom") {
+                        setForm((f) => ({ ...f, size_type: st, sizes: [], stock: {} }));
+                        setCustomSizesInput("");
+                      } else if (st) {
+                        setForm((f) => ({ ...f, size_type: st, sizes: [], stock: {} }));
+                      } else {
+                        setForm((f) => ({ ...f, size_type: "", sizes: [], stock: {} }));
+                      }
                     }}
-                    placeholder="e.g. 30×32, 32×34, 34×36"
-                    className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] mb-2 text-sm"
-                  />
-                )}
-
-                {form.sizes.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {form.sizes.map((sz) => (
-                      <label key={sz} className="text-xs">
-                        <span className="text-[#595959]">{sz} stock</span>
-                        <input data-testid={`prod-stock-${sz}`} type="number" min={0} value={form.stock[sz] ?? 0}
-                          onChange={(e) => setForm((f) => ({ ...f, stock: { ...f.stock, [sz]: Math.max(0, Number(e.target.value || 0)) } }))}
-                          className="mt-0.5 w-full px-3 py-1.5 rounded-lg border border-[#E5E2DC] outline-none text-sm" />
-                      </label>
+                    className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white mb-2 text-sm"
+                  >
+                    <option value="">Select size type</option>
+                    {Object.entries(SIZE_TYPE_OPTIONS).map(([key, { label }]) => (
+                      <option key={key} value={key}>{label}</option>
                     ))}
-                  </div>
-                )}
-              </div>
+                  </select>
+
+                  {form.size_type && form.size_type !== "free_size" && form.size_type !== "custom" && (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {(SIZE_TYPE_OPTIONS[form.size_type]?.sizes || []).map((sz) => {
+                        const has = form.sizes.includes(sz);
+                        return (
+                          <button key={sz} type="button" onClick={() => toggleSize(sz)} data-testid={`size-toggle-${sz}`}
+                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${has ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white text-[#1A2B4C] border-[#E5E2DC]"}`}>
+                            {sz}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {form.size_type === "custom" && (
+                    <input
+                      data-testid="prod-custom-sizes"
+                      value={customSizesInput}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setCustomSizesInput(raw);
+                        const parsed = raw.split(",").map((s) => s.trim()).filter(Boolean);
+                        setForm((f) => ({
+                          ...f,
+                          sizes: parsed,
+                          stock: Object.fromEntries(parsed.map((sz) => [sz, f.stock[sz] ?? 0])),
+                        }));
+                      }}
+                      placeholder="e.g. 30×32, 32×34, 34×36"
+                      className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] mb-2 text-sm"
+                    />
+                  )}
+
+                  {form.sizes.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      {form.sizes.map((sz) => (
+                        <label key={sz} className="text-xs">
+                          <span className="text-[#595959]">{sz} stock</span>
+                          <input data-testid={`prod-stock-${sz}`} type="number" min={0} value={form.stock[sz] ?? 0}
+                            onChange={(e) => setForm((f) => ({ ...f, stock: { ...f.stock, [sz]: Math.max(0, Number(e.target.value || 0)) } }))}
+                            className="mt-0.5 w-full px-3 py-1.5 rounded-lg border border-[#E5E2DC] outline-none text-sm" />
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {hasColors && (
+                <div>
+                  <div className="text-xs font-bold text-[#595959] uppercase tracking-wide mb-1.5">Size type (shared by every colour)</div>
+                  <select
+                    data-testid="prod-size-type"
+                    value={form.size_type}
+                    onChange={(e) => setForm((f) => ({ ...f, size_type: e.target.value }))}
+                    className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none bg-white text-sm"
+                  >
+                    <option value="">Select size type</option>
+                    {Object.entries(SIZE_TYPE_OPTIONS).map(([key, { label }]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-[#595959] mt-1.5">
+                    Each colour picks which of these sizes it carries, and its own stock, in the next step (Photos).
+                  </p>
+                </div>
+              )}
 
               <label className="flex items-start gap-2 text-xs">
                 <input data-testid="prod-return-eligible" type="checkbox" checked={form.return_eligible} onChange={(e) => setForm({ ...form, return_eligible: e.target.checked })} className="mt-0.5 w-4 h-4 accent-[#E68910]" />
@@ -499,8 +665,8 @@ export function ProductForm({
             </>
           )}
 
-          {/* STEP 3 — IMAGES */}
-          {step === 3 && (
+          {/* STEP 3 — IMAGES (plain) or COLOURS (images + size/stock per colour) */}
+          {step === 3 && !hasColors && (
             <>
               <p className="text-sm text-[#595959]">Add photos of your product. First image is the cover. You can skip and add later.</p>
               <div>
@@ -523,6 +689,109 @@ export function ProductForm({
                   )}
                 </div>
               </div>
+            </>
+          )}
+
+          {step === 3 && hasColors && (
+            <>
+              <p className="text-sm text-[#595959]">Add each colour with its own photos and sizes/stock. First image in a colour is that colour's cover.</p>
+              <div className="space-y-4">
+                {colorVariants.map((v, idx) => {
+                  const sizeOptions = form.size_type && form.size_type !== "custom" && form.size_type !== "free_size"
+                    ? (SIZE_TYPE_OPTIONS[form.size_type]?.sizes || [])
+                    : v.sizes.map((s) => s.size);
+                  return (
+                    <div key={v.id} className="p-3.5 rounded-xl border border-[#E5E2DC] bg-[#FDFBF7]" data-testid={`color-variant-${idx}`}>
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="flex-1">
+                          <label className="text-[10px] font-bold text-[#595959] uppercase tracking-wide block mb-1">Colour name *</label>
+                          <input
+                            data-testid={`color-name-${idx}`}
+                            value={v.name}
+                            onChange={(e) => updateColorVariant(idx, { name: e.target.value })}
+                            placeholder="e.g. Black, Olive, Dusty Rose"
+                            className="w-full px-3 py-2 rounded-lg border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] text-sm bg-white"
+                          />
+                        </div>
+                        <div className="w-16">
+                          <label className="text-[10px] font-bold text-[#595959] uppercase tracking-wide block mb-1">Swatch</label>
+                          <input
+                            data-testid={`color-hex-${idx}`}
+                            type="color"
+                            value={v.hex || "#cccccc"}
+                            onChange={(e) => updateColorVariant(idx, { hex: e.target.value })}
+                            className="w-full h-9 rounded-lg border border-[#E5E2DC] cursor-pointer bg-white"
+                          />
+                        </div>
+                        {colorVariants.length > 1 && (
+                          <button type="button" onClick={() => removeColorVariant(idx)} aria-label={`Remove ${v.name || "colour"}`}
+                            className="self-end mb-0.5 w-9 h-9 rounded-lg border border-[#E5E2DC] flex items-center justify-center text-red-500 hover:bg-red-50 shrink-0">
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="mb-3">
+                        <div className="text-[10px] font-bold text-[#595959] uppercase tracking-wide mb-1.5">Images</div>
+                        <div className="flex flex-wrap gap-2">
+                          {v.images.map((img, i) => (
+                            <div key={i} className="relative w-16 h-20 rounded-lg overflow-hidden bg-white border border-[#E5E2DC]" data-testid={`color-image-thumb-${idx}-${i}`}>
+                              <Image src={img.url} alt={`${v.name || "colour"} ${i + 1}`} fill sizes="64px" className="object-cover" unoptimized />
+                              <button type="button" onClick={() => removeColorImage(idx, i)} aria-label={`Remove image ${i + 1}`} className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-white/95 shadow flex items-center justify-center hover:bg-red-100">
+                                <X size={10} className="text-red-500" />
+                              </button>
+                            </div>
+                          ))}
+                          {v.images.length < MAX_IMAGES && (
+                            <label className="w-16 h-20 rounded-lg border-2 border-dashed border-[#E5E2DC] hover:border-[#1A2B4C] flex flex-col items-center justify-center gap-0.5 cursor-pointer text-[#595959] text-[9px] bg-white">
+                              {imageBusy ? <Loader2 size={14} className="animate-spin" /> : <><Plus size={12} /><span>Add</span></>}
+                              <input data-testid={`color-add-image-${idx}`} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                                onChange={(e) => { pickColorImage(idx, e.target.files?.[0]); e.target.value = ""; }} />
+                            </label>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[10px] font-bold text-[#595959] uppercase tracking-wide mb-1.5">Sizes and stock</div>
+                        {!form.size_type ? (
+                          <p className="text-xs text-[#595959]">Pick a size type above first.</p>
+                        ) : (
+                          <>
+                            <div className="flex flex-wrap gap-1.5 mb-2">
+                              {sizeOptions.map((sz) => {
+                                const has = v.sizes.some((s) => s.size === sz);
+                                return (
+                                  <button key={sz} type="button" onClick={() => toggleColorSize(idx, sz)} data-testid={`color-size-toggle-${idx}-${sz}`}
+                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${has ? "bg-[#1A2B4C] text-white border-[#1A2B4C]" : "bg-white text-[#1A2B4C] border-[#E5E2DC]"}`}>
+                                    {sz}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {v.sizes.length > 0 && (
+                              <div className="grid grid-cols-3 gap-2">
+                                {v.sizes.map((s) => (
+                                  <label key={s.size} className="text-xs">
+                                    <span className="text-[#595959]">{s.size} stock</span>
+                                    <input data-testid={`color-stock-${idx}-${s.size}`} type="number" min={0} value={s.stock}
+                                      onChange={(e) => setColorStock(idx, s.size, Math.max(0, Number(e.target.value || 0)))}
+                                      className="mt-0.5 w-full px-3 py-1.5 rounded-lg border border-[#E5E2DC] outline-none text-sm bg-white" />
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button type="button" onClick={addColorVariant} data-testid="add-color-variant"
+                className="w-full py-2.5 rounded-xl border-2 border-dashed border-[#E5E2DC] hover:border-[#1A2B4C] text-sm font-semibold text-[#1A2B4C] flex items-center justify-center gap-1.5">
+                <Plus size={15} /> Add another colour
+              </button>
             </>
           )}
         </div>
@@ -551,13 +820,20 @@ export function ProductForm({
             </button>
           ) : (
             <div className="flex-1 flex gap-2">
-              <button
-                onClick={() => void submit()}
-                disabled={submitBusy}
-                className="flex-1 py-3 bg-white border border-[#E5E2DC] text-[#595959] rounded-xl font-semibold text-sm disabled:opacity-50"
-              >
-                Skip photos & save
-              </button>
+              {/* "Skip photos" only makes sense for the plain flow — a
+                  colour needs at least one photo to mean anything, so
+                  that escape hatch doesn't apply here (submit() already
+                  enforces this either way; this just avoids offering a
+                  button whose label promises something colours can't do). */}
+              {!hasColors && (
+                <button
+                  onClick={() => void submit()}
+                  disabled={submitBusy}
+                  className="flex-1 py-3 bg-white border border-[#E5E2DC] text-[#595959] rounded-xl font-semibold text-sm disabled:opacity-50"
+                >
+                  Skip photos & save
+                </button>
+              )}
               <button
                 onClick={() => void submit()}
                 disabled={submitBusy}

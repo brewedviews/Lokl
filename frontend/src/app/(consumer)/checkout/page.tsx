@@ -415,7 +415,7 @@ export default function CheckoutPage() {
   const removeUnavailableItems = () => {
     items.forEach((it) => {
       const s = it.store_id ? itemStoreStatuses[it.store_id] : undefined;
-      if (!isOrderableNow(s)) removeItem(it.id, it.size ?? "");
+      if (!isOrderableNow(s)) removeItem(it.id, it.size ?? "", it.color_variant_id);
     });
   };
 
@@ -745,7 +745,11 @@ export default function CheckoutPage() {
                   <div className="flex-1 min-w-0">
                     {it.store_name && <div className="text-[10px] uppercase tracking-wider text-[#595959]">{it.store_name}</div>}
                     <h3 className="font-semibold text-[#0A1F5C] text-sm leading-tight truncate">{it.name}</h3>
-                    {it.size && <div className="text-xs text-[#595959] mt-1">Size: {it.size}</div>}
+                    {(it.color_name || it.size) && (
+                      <div className="text-xs text-[#595959] mt-1">
+                        {[it.color_name, it.size ? `Size: ${it.size}` : null].filter(Boolean).join(" · ")}
+                      </div>
+                    )}
                     {/* Per-line fulfillment tag — only shown in a mixed-
                         eligibility bag, so it's clear which items follow
                         the Try & Buy selection below and which don't (never
@@ -768,9 +772,9 @@ export default function CheckoutPage() {
                     )}
                     <div className="flex items-center justify-between mt-2">
                       <div className="flex items-center gap-2">
-                        <button onClick={() => updateQty(it.id, it.size ?? "", it.qty - 1)} data-testid={`cart-qty-minus-${it.id}`} className="w-6 h-6 rounded-full border border-[#E5E2DC] text-sm">−</button>
+                        <button onClick={() => updateQty(it.id, it.size ?? "", it.qty - 1, it.color_variant_id)} data-testid={`cart-qty-minus-${it.id}`} className="w-6 h-6 rounded-full border border-[#E5E2DC] text-sm">−</button>
                         <span className="font-semibold w-5 text-center text-sm">{it.qty}</span>
-                        <button onClick={() => updateQty(it.id, it.size ?? "", it.qty + 1)} data-testid={`cart-qty-plus-${it.id}`} className="w-6 h-6 rounded-full border border-[#E5E2DC] text-sm">+</button>
+                        <button onClick={() => updateQty(it.id, it.size ?? "", it.qty + 1, it.color_variant_id)} data-testid={`cart-qty-plus-${it.id}`} className="w-6 h-6 rounded-full border border-[#E5E2DC] text-sm">+</button>
                       </div>
                       <div className="flex items-baseline gap-1.5">
                         {showMrp && <span className="text-xs text-[#94A3B8] line-through">₹{(it.mrp! * it.qty).toLocaleString()}</span>}
@@ -778,7 +782,7 @@ export default function CheckoutPage() {
                       </div>
                     </div>
                   </div>
-                  <button onClick={() => removeItem(it.id, it.size ?? "")} data-testid={`cart-remove-${it.id}`} className="text-[#595959] hover:text-red-500 self-start"><Trash2 size={15} /></button>
+                  <button onClick={() => removeItem(it.id, it.size ?? "", it.color_variant_id)} data-testid={`cart-remove-${it.id}`} className="text-[#595959] hover:text-red-500 self-start"><Trash2 size={15} /></button>
                 </div>
               );
             })}

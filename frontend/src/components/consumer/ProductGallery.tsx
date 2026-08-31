@@ -167,17 +167,33 @@ export function ProductGallery({
             >
               <ChevronRight size={18} />
             </button>
-            <div className="flex justify-center gap-1.5 py-3">
-              {images.map((_, i) => (
-                <button
-                  key={i}
-                  onClick={() => goTo(i)}
-                  className={`h-2 rounded-full transition-all ${
-                    i === imgIdx ? "bg-ink-navy w-5" : "bg-white border border-ink-navy/30 w-2"
-                  }`}
-                  aria-label={`Go to image ${i + 1}`}
-                />
-              ))}
+            {/* Segmented block indicator — replaces the old thin dot row,
+                which was barely visible against a light product photo
+                (white fill + a faint border). Every segment is the SAME
+                width (a "how many images, which one" read at a glance,
+                Stories-style) rather than dots that only grow on the
+                active one; the active segment is solid navy, inactive
+                ones a flat 20%-opacity navy — both read clearly against
+                cream, white, or a busy photo alike. The "1/N" count is a
+                subtle, secondary confirmation beside it, not a
+                replacement for the visual indicator. */}
+            <div className="flex items-center justify-center gap-3 py-3" data-testid="pdp-gallery-indicator">
+              <div className="flex gap-1.5">
+                {images.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => goTo(i)}
+                    aria-label={`Go to image ${i + 1}`}
+                    aria-current={i === imgIdx}
+                    className={`h-1.5 w-7 rounded-full transition-colors ${
+                      i === imgIdx ? "bg-ink-navy" : "bg-ink-navy/20"
+                    }`}
+                  />
+                ))}
+              </div>
+              <span className="text-[11px] font-medium text-slate-gray tabular-nums" data-testid="pdp-gallery-count">
+                {imgIdx + 1}/{images.length}
+              </span>
             </div>
           </>
         )}
@@ -234,6 +250,17 @@ export function ProductGallery({
                 className="absolute top-11 left-3 text-ink-navy font-bold text-sm uppercase tracking-wide"
               >
                 {fit}
+              </span>
+            )}
+            {/* Desktop already has the thumbnail rail as its primary
+                "there are more images" signal — this is just a subtle,
+                secondary count confirmation, not a duplicate indicator. */}
+            {images.length > 1 && (
+              <span
+                data-testid="pdp-gallery-count-desktop"
+                className="absolute bottom-3 right-3 px-2 py-0.5 rounded-full bg-black/50 text-white text-[11px] font-medium tabular-nums"
+              >
+                {imgIdx + 1}/{images.length}
               </span>
             )}
           </div>

@@ -729,6 +729,7 @@ function ProductsSection({ store, merchantId, onReload }: { store: AdminStore | 
           mode="edit"
           cats={cats}
           initialProduct={editing}
+          callerScope="admin"
           onSubmit={async (body: ProductFormBody) => {
             await adminFetch(`/api/admin/products/${editing.id}`, { method: "PUT", body: JSON.stringify(body) });
             toast.success("Product updated");
@@ -742,6 +743,7 @@ function ProductsSection({ store, merchantId, onReload }: { store: AdminStore | 
         <ProductForm
           mode="create"
           cats={cats}
+          callerScope="admin"
           onSubmit={async (body: ProductFormBody) => {
             await adminApi.createProduct(merchantId, { product: body });
             toast.success("Product created");

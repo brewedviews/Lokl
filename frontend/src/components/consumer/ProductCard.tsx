@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Heart, Plus, Minus, ShoppingBag } from "lucide-react";
+import { Heart, Plus, Minus, ShoppingBag, Palette } from "lucide-react";
 import { toast } from "sonner";
 import { useCartStore, useWishlistStore } from "@/stores";
 import { useMounted } from "@/hooks/useMounted";
@@ -21,6 +22,11 @@ type AnyProduct = ProductCardType & {
   badge?: string;
   low_stock_size?: string;
   social_proof?: string;
+  /** Present (non-empty) only for a color-variant product (see
+   *  ColorVariant) — this card has no color picker of its own, so quick-
+   *  add routes to the PDP instead for these rather than adding an
+   *  ambiguous, color-less cart line. */
+  color_variants?: unknown[];
 };
 
 interface Props {
@@ -44,8 +50,18 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
   const [wished, setWished] = useState(false);
   useEffect(() => { setWished(isWishlisted); }, [isWishlisted]);
 
+  // This card has no color picker — quick-add/the qty stepper only ever
+  // make sense for a plain product. A color-variant product routes to the
+  // PDP instead of silently adding (or adjusting) an ambiguous,
+  // color-less cart line — see hasColorVariants below.
+  const hasColorVariants = (p.color_variants?.length ?? 0) > 0;
   const inCart = mounted ? items.find((i) => i.id === p.id) : undefined;
-  const qty = inCart?.qty ?? 0;
+  // Never show an ambiguous cart-quantity stepper on a color-variant
+  // card — a line matching this product id could belong to ANY color/
+  // size combination (Black/M, White/L, ...), which isn't knowable from
+  // the product id alone. Always renders the "go pick a color" action
+  // below regardless of what's already in the cart for it.
+  const qty = hasColorVariants ? 0 : (inCart?.qty ?? 0);
   // Prefer the server-computed, floored discount_percent (the same value
   // min_discount campaign filtering matches against) so this badge never
   // claims a discount tier the product doesn't actually qualify for.
@@ -66,6 +82,7 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
   const sizes = (p.sizes ?? []).slice(0, 4);
   const [pickingSize, setPickingSize] = useState(false);
   const { conflict, promptConflict, confirmClearAndAdd, dismiss } = useStoreConflict();
+  const router = useRouter();
 
   const storeBadge = (p as any).store_badge as string | undefined;
   const storeOpensAt = (p as any).store_opens_at_label as string | undefined;
@@ -94,6 +111,11 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
   const handleAdd = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (hasColorVariants) {
+      toast.message("Pick a colour first");
+      router.push(`/product/${p.id}`);
+      return;
+    }
     const sizesArr = p.sizes ?? [];
     if (sizesArr.length > 1) { setPickingSize(true); return; }
     doAdd(sizesArr[0] ?? "");
@@ -109,7 +131,7 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
     e.preventDefault();
     e.stopPropagation();
     if (!inCart) return;
-    updateQty(inCart.id, inCart.size ?? "", qty + delta);
+    updateQty(inCart.id, inCart.size ?? "", qty + delta, inCart.color_variant_id);
   };
 
   const handleHeart = (e: React.MouseEvent) => {
@@ -274,13 +296,25 @@ export function ProductCard({ p, size = "default", showWishlist = true }: Props)
           // product-card size consistency).
           <button
             onClick={handleAdd}
-            data-testid={`p-card-add-${p.id}`}
+            data-testid={hasColorVariants ? `p-card-select-options-${p.id}` : `p-card-add-${p.id}`}
             className={`w-full inline-flex items-center justify-center gap-1 rounded-lg bg-brand-accent text-white font-bold active:scale-95 transition ${
               isCompact ? "h-7 text-[10px]" : "h-8 gap-1.5 text-[11px]"
             }`}
           >
-            <ShoppingBag size={isCompact ? 11 : 12} />
-            {isCompact ? "Add" : "Add to Bag"}
+            {/* Color-variant products never actually add-to-bag from this
+                card (see handleAdd) — the label/icon say so honestly
+                instead of claiming an action that didn't happen. */}
+            {hasColorVariants ? (
+              <>
+                <Palette size={isCompact ? 11 : 12} />
+                {isCompact ? "Options" : "Select Options"}
+              </>
+            ) : (
+              <>
+                <ShoppingBag size={isCompact ? 11 : 12} />
+                {isCompact ? "Add" : "Add to Bag"}
+              </>
+            )}
           </button>
         ) : (
           <div

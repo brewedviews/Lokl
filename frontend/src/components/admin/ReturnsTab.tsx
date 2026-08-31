@@ -24,7 +24,7 @@ interface ReturnItem {
   customer_phone?: string;
   merchant_ids?: string[];
   otp?: string;
-  items?: Array<{ name?: string; qty?: number; size?: string }>;
+  items?: Array<{ name?: string; qty?: number; size?: string; color_name?: string }>;
 }
 interface Complaint {
   id: string;
@@ -166,7 +166,7 @@ export function ReturnsTab() {
                         <div className="mt-2 flex flex-wrap gap-2">
                           {r.items.map((it, i) => (
                             <span key={i} className="inline-flex items-center gap-1.5 bg-[#FDFBF7] border border-[#E5E2DC] rounded-lg px-2 py-1 text-xs text-[#0A1F5C]">
-                              {it.name || "Item"}{it.qty && it.qty > 1 ? ` ×${it.qty}` : ""}{it.size ? ` (${it.size})` : ""}
+                              {it.name || "Item"}{it.qty && it.qty > 1 ? ` ×${it.qty}` : ""}{[it.size, it.color_name].filter(Boolean).length ? ` (${[it.size, it.color_name].filter(Boolean).join(", ")})` : ""}
                             </span>
                           ))}
                         </div>
