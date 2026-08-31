@@ -1204,25 +1204,31 @@ async def _push_new_order_to_riders(pickup_area: str, order_id: str) -> None:
 
 
 async def _merchant_next_route(merchant_id: str) -> str:
-    """Compute the best landing route for a merchant based on onboarding state.
-    Login + onboarding pages call this so an approved merchant never sees the
-    onboarding page again.
+    """Compute the best landing route for a merchant based on onboarding
+    state. Login/signup/refresh call this for a single "where do I land"
+    decision.
+
+    Deliberately coarse: any merchant who hasn't finished KYC + shop setup
+    always lands on the onboarding hub (/merchant/onboarding) — never a raw
+    jump straight into /merchant/kyc or /merchant/storefront. The hub is the
+    ONE onboarding experience; it's the hub's own CTA (driven by
+    _merchant_onboarding_status's `next_action`) that sends the merchant into
+    the actual verification or shop-setup form. This function and
+    _merchant_onboarding_status read the exact same underlying data
+    (kyc_status, store existence, active product count) so they can never
+    disagree — this is the single authoritative interpretation of merchant
+    state; do not let any other route guard re-derive its own.
     """
     m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0, "kyc_status": 1})
     if not m:
         return "/merchant/login"
     kyc = (m.get("kyc_status") or "draft").lower()
-    if kyc in ("draft", "rejected"):
-        return "/merchant/kyc"
-    if kyc == "on_hold":
-        return "/merchant/onboarding"  # show hold notice + Update KYC button
-    if kyc == "submitted":
-        return "/merchant/onboarding"  # under review
-    # approved
+    if kyc != "approved":
+        return "/merchant/onboarding"
     store_id = f"store-m-{merchant_id}"
     store = await db.stores.find_one({"id": store_id}, {"_id": 0, "published": 1})
     if not store:
-        return "/merchant/storefront"
+        return "/merchant/onboarding"
     live_count = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     if live_count < 1:
         return "/merchant/products"
@@ -1292,7 +1298,9 @@ async def _merchant_onboarding_status(merchant_id: str) -> Optional[dict]:
         "verify_business": {"label": "Verify your business", "path": "/merchant/kyc"},
         "setup_shop": {"label": "Set up your shop", "path": "/merchant/storefront"},
         "add_products": {"label": "Add your products", "path": "/merchant/products"},
-        "live": {"label": "Go to dashboard", "path": "/merchant/dashboard"},
+        # Dashboard is out of the active merchant journey — a live merchant's
+        # "next action" is managing orders, not an analytics page.
+        "live": {"label": "Go to orders", "path": "/merchant/orders"},
     }
 
     blocked_reason = None

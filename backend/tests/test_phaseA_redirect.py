@@ -27,11 +27,14 @@ def _register_merchant():
     return r.json()["token"], r.json()["merchant"]["id"]
 
 
-def test_next_route_for_fresh_merchant_is_kyc():
+def test_next_route_for_fresh_merchant_is_onboarding_hub():
+    # A merchant who hasn't finished KYC always lands on the onboarding hub
+    # now, never a raw jump into /merchant/kyc — the hub's own CTA is what
+    # sends them into the verification form.
     tok, _ = _register_merchant()
     r = requests.get(f"{API}/merchant/next-route", headers={"Authorization": f"Bearer {tok}"}, timeout=30)
     assert r.status_code == 200
-    assert r.json()["route"] == "/merchant/kyc"
+    assert r.json()["route"] == "/merchant/onboarding"
 
 
 def test_next_route_after_approval_storefront_products_publish():
@@ -46,9 +49,10 @@ def test_next_route_after_approval_storefront_products_publish():
     atok = _admin_token()
     requests.post(f"{API}/admin/merchants/{mid}/approve",
                   headers={"Authorization": f"Bearer {atok}"}, timeout=30)
-    # next-route after approval, no storefront → /merchant/storefront
+    # next-route after approval, no storefront → still the onboarding hub
+    # (the hub's own CTA is what sends the merchant into /merchant/storefront)
     r = requests.get(f"{API}/merchant/next-route", headers={"Authorization": f"Bearer {tok}"}, timeout=30)
-    assert r.json()["route"] == "/merchant/storefront", r.text
+    assert r.json()["route"] == "/merchant/onboarding", r.text
     # set storefront
     requests.post(f"{API}/merchant/storefront", headers={"Authorization": f"Bearer {tok}"}, json={
         "tagline": "Fashion everyday", "story": "We make great stuff",

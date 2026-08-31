@@ -28,14 +28,22 @@ export default function MerchantStorefrontPage() {
 
   const handleSubmit = async (body: StorefrontFormBody) => {
     await api.merchant.saveStorefront(body as unknown as Parameters<typeof api.merchant.saveStorefront>[0]);
-    toast.success("Storefront saved");
+    toast.success("Shop details saved");
     router.replace("/merchant/products");
   };
 
+  // "Storefront" stays an internal/backend term — merchant-facing copy calls
+  // this "Set up your shop" the first time (arriving from the onboarding
+  // hub's CTA) and "Shop settings" once it already exists (matches the
+  // sidebar nav label for the same page post-launch).
+  const isFirstSetup = !initialData;
+
   return (
     <div className="p-4 md:p-10 pb-24 md:pb-10 max-w-3xl">
-      <h1 className="font-display text-3xl md:text-4xl font-bold text-[#1A2B4C] flex items-center gap-2"><Store size={26} /> Storefront</h1>
-      <p className="text-[#595959] mt-1">Edit the public face of the store.</p>
+      <h1 className="font-display text-3xl md:text-4xl font-bold text-[#1A2B4C] flex items-center gap-2">
+        <Store size={26} /> {isFirstSetup ? "Set up your shop" : "Shop settings"}
+      </h1>
+      <p className="text-[#595959] mt-1">Tell customers where you are and what you sell.</p>
 
       <div className="mt-6 bg-white border border-[#E5E2DC] rounded-3xl p-6">
         <StorefrontForm

@@ -341,7 +341,8 @@ export default function MerchantProductsPage() {
       {filtered.length === 0 ? (
         items.length === 0 ? (
           <div data-testid="products-empty">
-            <p className="text-sm text-[#595959] mb-4">You only need one product to get your shop ready. You can add more anytime.</p>
+            <h2 className="font-display text-xl font-bold text-[#1A2B4C] mb-1">Your shop is ready 🎉</h2>
+            <p className="text-sm text-[#595959] mb-4">Now add your first product so customers can start shopping. You only need one to get started — add more anytime.</p>
             <div className="grid sm:grid-cols-3 gap-3">
               <button
                 onClick={() => { setEditingId(null); setEditingProduct(null); setOpenAdd(true); }}
@@ -525,13 +526,13 @@ function LaunchCelebrationModal({ storeId, onClose }: { storeId: string; onClose
           <div className="flex items-center gap-2"><PartyPopper size={15} className="text-[#4F7363]" /> Shop set up</div>
           <div className="flex items-center gap-2"><PartyPopper size={15} className="text-[#4F7363]" /> Products added</div>
         </div>
-        <p className="text-sm text-[#595959] mt-5">Customers can now discover and shop from your store on Lokl.</p>
+        <p className="text-sm text-[#595959] mt-5">Customers can now discover and order from your shop on Lokl.</p>
         <div className="flex flex-col sm:flex-row gap-2 mt-6">
-          <Link href={`/store/${storeId}`} className="flex-1 inline-flex items-center justify-center px-4 py-3 rounded-full border-2 border-[#1A2B4C] text-[#1A2B4C] font-semibold text-sm">
+          <Link href={`/store/${storeId}`} data-testid="celebration-view-shop" className="flex-1 inline-flex items-center justify-center px-4 py-3 rounded-full bg-[#1A2B4C] text-white font-semibold text-sm">
             View my shop
           </Link>
-          <button onClick={onClose} className="flex-1 inline-flex items-center justify-center px-4 py-3 rounded-full bg-[#1A2B4C] text-white font-semibold text-sm">
-            Keep adding products
+          <button onClick={onClose} data-testid="celebration-add-more" className="flex-1 inline-flex items-center justify-center px-4 py-3 rounded-full border-2 border-[#1A2B4C] text-[#1A2B4C] font-semibold text-sm">
+            Add more products
           </button>
         </div>
       </div>

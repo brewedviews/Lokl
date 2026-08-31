@@ -136,6 +136,9 @@ class TestOnboardingStatusStates:
         assert body["add_products"]["status"] == "locked"
         assert body["published"] is False
         assert body["next_action"]["path"] == "/merchant/kyc"
+        # Alignment check: next-route must never jump straight past the hub.
+        rn = session.get(f"{API}/merchant/next-route", headers=fresh_merchant["headers"], timeout=10)
+        assert rn.json()["route"] == "/merchant/onboarding"
 
     def test_kyc_submitted_is_in_review(self, session, fresh_merchant):
         _submit_kyc(session, fresh_merchant)
@@ -144,6 +147,8 @@ class TestOnboardingStatusStates:
         assert body["step"] == "verify_business"
         assert body["verify_business"]["status"] == "in_review"
         assert body["setup_shop"]["status"] == "locked"
+        rn = session.get(f"{API}/merchant/next-route", headers=fresh_merchant["headers"], timeout=10)
+        assert rn.json()["route"] == "/merchant/onboarding"
 
     def test_kyc_on_hold_is_needs_changes_with_reason(self, session, admin_auth, fresh_merchant):
         _submit_kyc(session, fresh_merchant)
@@ -176,6 +181,13 @@ class TestOnboardingStatusStates:
         assert body["setup_shop"]["status"] == "not_started"
         assert body["add_products"]["status"] == "locked"
         assert body["next_action"]["path"] == "/merchant/storefront"
+        # Critical alignment check for the reported bug: next-route must
+        # NOT send this merchant straight into /merchant/storefront on its
+        # own — it lands on the hub, and the hub's own CTA (asserted above)
+        # is what points at /merchant/storefront. If next-route disagreed
+        # here, a login/refresh mid-onboarding could bypass the hub entirely.
+        rn = session.get(f"{API}/merchant/next-route", headers=fresh_merchant["headers"], timeout=10)
+        assert rn.json()["route"] == "/merchant/onboarding"
 
     def test_storefront_done_no_products_is_add_products_not_started(self, session, admin_auth, fresh_merchant):
         _submit_kyc(session, fresh_merchant)
@@ -191,6 +203,10 @@ class TestOnboardingStatusStates:
         assert body["add_products"]["active_count"] == 0
         assert body["published"] is False
         assert body["next_action"]["path"] == "/merchant/products"
+        # Once shop setup is done, next-route agrees exactly with next_action
+        # — this is the point the merchant leaves the onboarding shell.
+        rn = session.get(f"{API}/merchant/next-route", headers=fresh_merchant["headers"], timeout=10)
+        assert rn.json()["route"] == "/merchant/products"
 
     def test_one_product_added_is_live_and_autopublished(self, session, admin_auth, fresh_merchant):
         _submit_kyc(session, fresh_merchant)
@@ -214,7 +230,11 @@ class TestOnboardingStatusStates:
         assert body["add_products"]["active_count"] == 1
         assert body["published"] is True
         assert body["store_id"] == fresh_merchant["store_id"]
-        assert body["next_action"]["path"] == "/merchant/dashboard"
+        # Dashboard is out of the active merchant journey — a live merchant's
+        # next action is managing orders, not analytics.
+        assert body["next_action"]["path"] == "/merchant/orders"
+        rn = session.get(f"{API}/merchant/next-route", headers=fresh_merchant["headers"], timeout=10)
+        assert rn.json()["route"] == "/merchant/orders"
 
     def test_requires_merchant_auth(self, session):
         r = session.get(f"{API}/merchant/onboarding-status", timeout=10)

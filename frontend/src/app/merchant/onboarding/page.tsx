@@ -95,8 +95,8 @@ export default function MerchantOnboardingPage() {
                 View my shop
               </Link>
             )}
-            <button onClick={() => router.push("/merchant/dashboard")} className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#1A2B4C] text-white font-semibold">
-              Go to dashboard <ArrowRight size={14} />
+            <button onClick={() => router.push("/merchant/orders")} className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#1A2B4C] text-white font-semibold">
+              Go to orders <ArrowRight size={14} />
             </button>
           </div>
         </div>
