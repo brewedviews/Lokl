@@ -10,31 +10,18 @@ import { apiClient } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/api-error";
 import { uploadImage } from "@/lib/uploads";
 
-const BUSINESS_CATEGORIES = [
-  "Women's Fashion",
-  "Men's Fashion",
-  "Ethnic Wear",
-  "Footwear",
-  "Lingerie & Innerwear",
-  "Kids",
-  "Accessories",
-  "Beauty",
-  "Sports",
-  "Multi-category",
-];
-
-const L2_BY_CATEGORY: Record<string, string[]> = {
-  "Women's Fashion":      ["Dresses","Tops","Bottoms","Co-ord Sets","Jumpsuits & Playsuits","Formals","Active Wear","Sleepwear","Sweaters & Cardigans","Jackets & Coats","Sarees & Dupattas","Kurtas & Suits"],
-  "Men's Fashion":        ["T-Shirts","Shirts","Jeans","Trousers","Shorts","Polos","Formals","Active Wear","Sweaters & Hoodies","Jackets","Inner Wear","Winterwear"],
-  "Ethnic Wear":          ["Sarees","Kurtas & Kurtis","Lehengas","Sherwanis","Salwar Suits","Dupattas & Stoles","Dhoti & Mundu","Indo-Western"],
-  "Footwear":             ["Casual Shoes","Sports & Running","Formal Shoes","Sandals & Slippers","Heels & Wedges","Boots","Ethnic Footwear","Kids Footwear"],
-  "Lingerie & Innerwear": ["Bras","Briefs & Panties","Shapewear","Sleepwear & Nightwear","Thermal Wear","Men's Innerwear","Socks & Stockings","Swimwear"],
-  "Kids":                 ["Girls Clothing","Boys Clothing","Infant & Toddler","Kids Footwear","School Uniforms","Kids Ethnic Wear","Kids Accessories","Nightwear"],
-  "Accessories":          ["Bags & Handbags","Belts","Sunglasses","Watches","Jewellery","Scarves & Stoles","Caps & Hats","Wallets"],
-  "Beauty":               ["Skincare","Haircare","Makeup","Fragrances","Nail Care","Men's Grooming","Personal Hygiene"],
-  "Sports":               ["Activewear","Sports Shoes","Gym & Fitness","Yoga & Pilates","Cricket","Football","Outdoor & Trekking","Sports Accessories"],
-  "Multi-category":       [],
-};
+// Business category/subcategory used to be a second, independently
+// hardcoded taxonomy (10 categories including Ethnic/Footwear/Lingerie/
+// Beauty/Sports/Multi-category) that could silently drift from the real
+// product L1/L2 taxonomy (db.categories/db.subcategories, the same data
+// GET /api/categories serves ProductForm and the consumer category page).
+// Now fetched from that exact endpoint instead — a merchant's declared
+// "type of business" always matches the live set of active L1/L2
+// categories (currently Women/Men/Kids), and a category deactivated there
+// (e.g. the old Ethnic/Footwear/Lingerie/Accessories/Beauty/Sports L1s)
+// stops being offerable here in the same instant, with no separate list to
+// remember to update.
+interface KycCategoryNode { id: string; name: string; l2: { id: string; name: string }[] }
 
 interface KycForm {
   pan_number: string; gst_number: string; business_name: string;
@@ -65,6 +52,11 @@ export default function MerchantKycPage() {
   });
   const [files, setFiles] = useState<{ pan: string | null; gst: string | null; cheque: string | null }>({ pan: null, gst: null, cheque: null });
   const [uploading, setUploading] = useState<{ pan: boolean; gst: boolean; cheque: boolean }>({ pan: false, gst: false, cheque: false });
+  const [categories, setCategories] = useState<KycCategoryNode[]>([]);
+
+  useEffect(() => {
+    apiClient.get<KycCategoryNode[]>("/api/categories").then(({ data }) => setCategories(data || [])).catch(() => {});
+  }, []);
 
   useEffect(() => {
     apiClient.get<{ kyc_status?: string; merchant?: Partial<KycForm> & { hold_comment?: string }; docs_present?: DocsPresent }>("/api/merchant/kyc/status")
@@ -166,10 +158,15 @@ export default function MerchantKycPage() {
             <Field label="PAN number *" hint="Required to verify your business."><input data-testid="kyc-pan" maxLength={10} value={form.pan_number} onChange={(e) => set("pan_number", e.target.value.toUpperCase())} placeholder="ABCDE1234F" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" /></Field>
             <Field label="GST number (optional)" hint="Only needed if your business is GST registered."><input data-testid="kyc-gst" value={form.gst_number} onChange={(e) => set("gst_number", e.target.value.toUpperCase())} placeholder="22ABCDE1234F1Z5" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] uppercase tracking-wider" /></Field>
             <Field label="Registered business name *"><input data-testid="kyc-business-name" value={form.business_name} onChange={(e) => set("business_name", e.target.value)} placeholder="e.g. Bunto Store Pvt Ltd" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
-            <Field label="Business category *"><select data-testid="kyc-category" value={form.business_category} onChange={(e) => { set("business_category", e.target.value); set("business_subcategory", ""); }} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"><option value="">Select category</option>{BUSINESS_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
-            {form.business_category && (L2_BY_CATEGORY[form.business_category] ?? []).length > 0 && (
-              <Field label="Primary subcategory (optional)"><select data-testid="kyc-subcategory" value={form.business_subcategory} onChange={(e) => set("business_subcategory", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"><option value="">Select subcategory (optional)</option>{(L2_BY_CATEGORY[form.business_category] ?? []).map((s) => <option key={s}>{s}</option>)}</select></Field>
-            )}
+            <Field label="Business category *"><select data-testid="kyc-category" value={form.business_category} onChange={(e) => { set("business_category", e.target.value); set("business_subcategory", ""); }} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"><option value="">Select category</option>{categories.map((c) => <option key={c.id}>{c.name}</option>)}</select></Field>
+            {(() => {
+              const l1 = categories.find((c) => c.name === form.business_category);
+              const l2Options = l1?.l2 ?? [];
+              if (!form.business_category || l2Options.length === 0) return null;
+              return (
+                <Field label="Primary subcategory (optional)"><select data-testid="kyc-subcategory" value={form.business_subcategory} onChange={(e) => set("business_subcategory", e.target.value)} className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] bg-white"><option value="">Select subcategory (optional)</option>{l2Options.map((s) => <option key={s.id}>{s.name}</option>)}</select></Field>
+              );
+            })()}
             <Field label="Business address *" full><textarea data-testid="kyc-address" rows={2} value={form.business_address} onChange={(e) => set("business_address", e.target.value)} placeholder="House no, street, locality, city, pincode" className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C]" /></Field>
             <FileUpload label="PAN card (image)" testId="kyc-pan-doc" file={files.pan} busy={uploading.pan} onChange={(f) => handleFile("pan_doc_public_id", "pan", f)} />
             <FileUpload label="GST certificate (optional, image)" testId="kyc-gst-doc" file={files.gst} busy={uploading.gst} onChange={(f) => handleFile("gst_doc_public_id", "gst", f)} />

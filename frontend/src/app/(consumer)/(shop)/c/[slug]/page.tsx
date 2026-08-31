@@ -1,16 +1,16 @@
 import { Suspense } from "react";
 import { CategoryRouteClient } from "@/components/consumer/CategoryRouteClient";
 
+// Only Women/Men/Kids are active L1 slugs (Ethnic/Footwear/Lingerie/
+// Accessories/Beauty/Sports deactivated — see migration
+// 031_consolidate_l1_categories). This map is metadata-only (page <title>/
+// description before the real category lookup runs) so a stale bookmark to
+// an old slug just falls back to the slug's own title-cased text below,
+// same as any other unrecognized slug — no need to keep dead entries.
 const CATEGORY_NAMES: Record<string, string> = {
-  "women":       "Women's Fashion",
-  "men":         "Men's Fashion",
-  "ethnic":      "Ethnic Wear",
-  "footwear":    "Footwear",
-  "lingerie":    "Lingerie & Innerwear",
-  "kids":        "Kids",
-  "accessories": "Accessories",
-  "beauty":      "Beauty",
-  "sports":      "Sports",
+  "women": "Women's Fashion",
+  "men":   "Men's Fashion",
+  "kids":  "Kids",
 };
 
 export async function generateMetadata(

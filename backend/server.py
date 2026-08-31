@@ -3429,7 +3429,12 @@ async def categories_with_counts():
 
 @api.get("/categories/{l1_id}/l2")
 async def list_l2(l1_id: str):
-    return await db.subcategories.find({"l1_id": l1_id}, {"_id": 0}).to_list(50)
+    # Was missing the same `paused` filter GET /categories already applies
+    # to its own embedded `l2` field — meant this endpoint could still leak
+    # a deactivated L2 (or every L2 under a deactivated L1) to any caller
+    # that queries it directly, even though the main listing already hides
+    # it. Same filter, same field, now consistent everywhere.
+    return await db.subcategories.find({"l1_id": l1_id, "paused": {"$ne": True}}, {"_id": 0}).to_list(50)
 
 
 # Simple in-memory TTL cache for stores_in_category — see that endpoint's
@@ -7513,11 +7518,36 @@ async def merchant_products(user: dict = Depends(merchant_user)):
         {"_id": 0, "images": 0}
     ).to_list(500)
 
-def _validate_l1_l2(l1_id: str, l2_id: str, gender: str):
-    if l1_id not in [c["id"] for c in L1_CATEGORIES]:
+async def _active_l1_l2_ids() -> tuple[set, dict]:
+    """Single source of truth for "is this L1/L2 currently selectable" —
+    reads db.categories/db.subcategories (paused = deactivated), the EXACT
+    same data GET /categories serves the frontend. Every place that used to
+    validate against the static L1_CATEGORIES/L2_BY_L1 seed constants goes
+    through this instead, so an admin pausing a category (e.g. the L1
+    taxonomy consolidation down to Women/Men/Kids) takes effect everywhere
+    at once — a merchant/admin/bulk-upload/VasyERP request can never create
+    a product under a category the UI no longer offers, which the old
+    hardcoded-list check silently allowed.
+
+    L1_CATEGORIES/L2_BY_L1 themselves are NOT removed — they remain the
+    seed data (`build_seed_docs`) and the structural "does this L1 have an
+    L2 taxonomy at all" answer (`l1_id in L2_BY_L1`), which doesn't change
+    when a category is paused."""
+    l1_docs = await db.categories.find({"paused": {"$ne": True}}, {"_id": 0, "id": 1}).to_list(100)
+    active_l1_ids = {d["id"] for d in l1_docs}
+    l2_docs = await db.subcategories.find({"paused": {"$ne": True}}, {"_id": 0, "id": 1, "l1_id": 1}).to_list(500)
+    active_l2_ids_by_l1: dict = {}
+    for d in l2_docs:
+        active_l2_ids_by_l1.setdefault(d["l1_id"], set()).add(d["id"])
+    return active_l1_ids, active_l2_ids_by_l1
+
+
+async def _validate_l1_l2(l1_id: str, l2_id: str, gender: str):
+    active_l1_ids, active_l2_ids_by_l1 = await _active_l1_l2_ids()
+    if l1_id not in active_l1_ids:
         raise HTTPException(400, "Invalid l1_id")
     if l1_id in L2_BY_L1:
-        if not l2_id or l2_id not in [s["id"] for s in L2_BY_L1[l1_id]]:
+        if not l2_id or l2_id not in active_l2_ids_by_l1.get(l1_id, set()):
             raise HTTPException(400, "l2_id required for this category")
     else:
         if not gender or gender not in GENDERS:
@@ -7667,7 +7697,7 @@ async def _create_product_for_merchant(
         raise HTTPException(404, "Merchant not found")
     if not admin_override and m.get("kyc_status") != "approved":
         raise HTTPException(403, "KYC not approved")
-    _validate_l1_l2(payload.l1_id, payload.l2_id or "", payload.gender or "")
+    await _validate_l1_l2(payload.l1_id, payload.l2_id or "", payload.gender or "")
     store_id = f"store-m-{merchant_id}"
     store = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if not store and not admin_override:
@@ -7821,6 +7851,19 @@ async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
     delete on its own."""
     remove_ids = payload.get("remove_image_public_ids")
     payload = {k: v for k, v in payload.items() if k in ALLOWED_PRODUCT_UPDATE_FIELDS}
+    # Creation validates l1_id/l2_id (_validate_l1_l2) but update never did —
+    # a merchant/admin could otherwise move an existing product BACK onto a
+    # deactivated category (e.g. the old Ethnic/Footwear/Lingerie/
+    # Accessories/Beauty/Sports L1s) purely by editing it, bypassing the
+    # exact gate creation enforces. Only runs when l1_id/l2_id is actually
+    # part of this update — resolves against the product's OWN current
+    # values for whichever field isn't being changed, so a save that only
+    # touches price/stock/etc. never re-validates taxonomy it didn't touch.
+    if "l1_id" in payload or "l2_id" in payload:
+        effective_l1 = payload.get("l1_id", p.get("l1_id"))
+        effective_l2 = payload.get("l2_id", p.get("l2_id")) or ""
+        effective_gender = payload.get("gender", p.get("gender")) or ""
+        await _validate_l1_l2(effective_l1, effective_l2, effective_gender)
     image_removal_result = None
     if remove_ids:
         image_fields, image_removal_result = await _remove_product_images(pid, p, remove_ids)
@@ -7982,10 +8025,19 @@ async def merchant_products_bulk_action(payload: dict, user: dict = Depends(merc
 
 
 
-def _category_name_maps() -> tuple[dict, dict, dict]:
+async def _category_name_maps() -> tuple[dict, dict, dict]:
     """Shared by bulk_products and the VasyERP import — the exact same
     lowercased exact-match dicts, built once per call so both consumers
     can never drift out of sync with each other.
+
+    Sourced from db.categories/db.subcategories (non-paused rows only) —
+    NOT the static L1_CATEGORIES/L2_BY_L1 seed constants. A deactivated L1
+    (e.g. the old Ethnic/Footwear/Lingerie/Accessories/Beauty/Sports
+    categories) simply has no entry in `l1_by_name` here, so a bulk-upload
+    row or a VasyERP item naming it by text falls through to
+    `_row_to_product`'s "unknown L1 category" rejection — the same
+    real-taxonomy check GET /categories itself is built from, rather than a
+    second, independently-maintained "is this still valid" list.
 
     Returns (l1_by_name, l2_by_name, l2_flat_by_name):
       - l1_by_name: {l1 name lower -> l1_id}
@@ -7996,13 +8048,14 @@ def _category_name_maps() -> tuple[dict, dict, dict]:
         the way the bulk-upload sheet has), so it needs to try matching
         that text against L2 names directly, without already knowing the L1.
     """
-    l1_by_name = {c["name"].lower(): c["id"] for c in L1_CATEGORIES}
+    l1_docs = await db.categories.find({"paused": {"$ne": True}}, {"_id": 0, "id": 1, "name": 1}).to_list(100)
+    l2_docs = await db.subcategories.find({"paused": {"$ne": True}}, {"_id": 0, "id": 1, "name": 1, "l1_id": 1}).to_list(500)
+    l1_by_name = {c["name"].lower(): c["id"] for c in l1_docs}
     l2_by_name: dict = {}
     l2_flat_by_name: dict = {}
-    for lid, subs in L2_BY_L1.items():
-        for s in subs:
-            l2_by_name[(lid, s["name"].lower())] = s["id"]
-            l2_flat_by_name[s["name"].lower()] = (lid, s["id"])
+    for s in l2_docs:
+        l2_by_name[(s["l1_id"], s["name"].lower())] = s["id"]
+        l2_flat_by_name[s["name"].lower()] = (s["l1_id"], s["id"])
     return l1_by_name, l2_by_name, l2_flat_by_name
 
 
@@ -8072,7 +8125,7 @@ _L2_SYNONYMS: dict[tuple[str, str], str] = {
 }
 
 
-def _row_to_product(row: dict, l1_by_name: dict, l2_by_name: dict, l2_flat_by_name: Optional[dict] = None) -> tuple[dict | None, str | None]:
+def _row_to_product(row: dict, l1_by_name: dict, l2_by_name: dict, l2_flat_by_name: Optional[dict] = None, active_l1_ids: Optional[set] = None) -> tuple[dict | None, str | None]:
     """Parse one bulk-upload row (from xlsx or csv) into a product doc fragment.
     Returns (doc, skip_reason). doc is None when the row should be skipped.
 
@@ -8098,6 +8151,16 @@ def _row_to_product(row: dict, l1_by_name: dict, l2_by_name: dict, l2_flat_by_na
     l1_id = _L1_NORMALIZE.get(l1_raw) or l1_by_name.get(l1_raw)
     if not l1_id:
         return None, f"{name}: unknown L1 category '{l1_raw}'"
+    if active_l1_ids is not None and l1_id not in active_l1_ids:
+        # _L1_NORMALIZE still recognizes old category TEXT (e.g. "Ethnic
+        # Wear") even though it's no longer an active L1 — kept so a
+        # merchant's old spreadsheet gets this specific, actionable message
+        # instead of a generic "unknown L1 category" as if Lokl never had
+        # such a thing. l1_by_name (DB-sourced, active-only) would never
+        # produce an inactive id on its own; this only ever fires via the
+        # _L1_NORMALIZE fallback.
+        l1_name = _L1_ID_TO_NAME.get(l1_id, l1_raw)
+        return None, f"{name}: L1 category '{l1_name}' is no longer available — please categorize this product under Women, Men, or Kids instead"
     l2_raw = _cell_to_str(row.get("l2")).strip().lower()
     l2_id = l2_by_name.get((l1_id, l2_raw), "") if l2_raw else ""
     if not l2_id and l2_raw:
@@ -8400,7 +8463,8 @@ async def bulk_products(
             "header row, or download the Lokl template for a guided format.",
         )
 
-    l1_by_name, l2_by_name, l2_flat_by_name = _category_name_maps()
+    l1_by_name, l2_by_name, l2_flat_by_name = await _category_name_maps()
+    active_l1_ids = set(l1_by_name.values())
 
     # Brand column: name-matched lookup like L1/L2 — but unlike L1/L2, a
     # miss never skips or fails the row. Brand is a CLOSED, admin-curated
@@ -8446,7 +8510,7 @@ async def bulk_products(
             limit_hit = True
             skipped.append(f"Row {row_num}: plan product limit reached" if row_num else "plan product limit reached")
             continue
-        doc_frag, reason = _row_to_product(row, l1_by_name, l2_by_name, l2_flat_by_name)
+        doc_frag, reason = _row_to_product(row, l1_by_name, l2_by_name, l2_flat_by_name, active_l1_ids)
         if doc_frag is None:
             msg = reason or "unknown error"
             skipped.append(f"Row {row_num}: {msg}" if row_num else msg)
@@ -8531,7 +8595,8 @@ async def admin_bulk_products_detect(
             f"is capped at {MAX_BULK_IMPORT_ROWS} rows per file. Split it into smaller files.",
         )
 
-    l1_by_name, l2_by_name, l2_flat_by_name = _category_name_maps()
+    l1_by_name, l2_by_name, l2_flat_by_name = await _category_name_maps()
+    active_l1_ids = set(l1_by_name.values())
 
     # Same closed-vocabulary brand lookup as bulk_products — a miss is
     # always a warning, never a reason to reject the row.
@@ -8561,7 +8626,7 @@ async def admin_bulk_products_detect(
 
     for row in non_blank_rows:
         row_num = row.get("_row_num")
-        doc_frag, reason = _row_to_product(row, l1_by_name, l2_by_name, l2_flat_by_name)
+        doc_frag, reason = _row_to_product(row, l1_by_name, l2_by_name, l2_flat_by_name, active_l1_ids)
         if doc_frag is None:
             preview_rows.append({
                 "row": row_num, "name": _cell_to_str(row.get("name")).strip() or None,
@@ -9362,7 +9427,7 @@ async def vasyerp_import(user: dict = Depends(merchant_user)):
         raise HTTPException(400, "Stored VasyERP credential is unusable — please reconnect")
 
     store_id = f"store-m-{user['sub']}"
-    l1_by_name, l2_by_name, l2_flat_by_name = _category_name_maps()
+    l1_by_name, l2_by_name, l2_flat_by_name = await _category_name_maps()
 
     staged_count = 0
     review_count = 0
@@ -9436,7 +9501,7 @@ async def shopify_import(user: dict = Depends(merchant_user)):
     token = token_data["access_token"]
 
     store_id = f"store-m-{user['sub']}"
-    l1_by_name, l2_by_name, l2_flat_by_name = _category_name_maps()
+    l1_by_name, l2_by_name, l2_flat_by_name = await _category_name_maps()
 
     staged_count = 0
     review_count = 0

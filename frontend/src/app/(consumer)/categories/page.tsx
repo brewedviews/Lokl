@@ -94,51 +94,82 @@ function CategoriesInner() {
   const activeL1Cat = l1Cats.find(c => c.slug === activeL1);
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7]">
+    <div className="min-h-screen bg-[#FDFBF7] flex flex-col">
 
-      {/* L1 TOP TABS — horizontal scroll with images */}
-      <div className="sticky top-[56px] md:top-[64px] z-30 bg-white border-b border-[#E5E2DC]">
-        <div className="flex overflow-x-auto no-scrollbar px-3 gap-2 py-2">
-          {l1Cats.length === 0 ? (
-            Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#E5E2DC] animate-pulse min-w-[56px] h-14" />
-            ))
-          ) : (
-            l1Cats.map(cat => {
+      {/* L1 SELECTOR — three wide, intentional tiles now that Women/Men/Kids
+          are the only active L1s (down from 9: Ethnic/Footwear/Lingerie/
+          Accessories/Beauty/Sports are deactivated, not deleted — see
+          migration 031_consolidate_l1_categories). A horizontal-scroll
+          strip of 56px icon-tabs made sense at 9 categories; at 3 it just
+          left most of the row empty, so this is a real grid of full-width,
+          image-led tiles — the primary entry point into shopping, not a
+          nav afterthought. */}
+      <div className="sticky top-[56px] md:top-[64px] z-30 bg-white border-b border-[#E5E2DC] px-3 py-2.5">
+        {l1Cats.length === 0 ? (
+          <div className="grid grid-cols-3 gap-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="rounded-xl bg-[#E5E2DC] animate-pulse h-16 md:h-20" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-2 md:gap-3">
+            {l1Cats.map(cat => {
               const isActive = activeL1 === cat.slug;
               return (
                 <button
                   key={cat.id}
                   onClick={() => setL1(cat.slug)}
-                  className={`flex-shrink-0 flex flex-col items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all min-w-[56px] ${
-                    isActive
-                      ? "bg-[#0A1F5C]"
-                      : "bg-[#FDFBF7] border border-[#E5E2DC]"
+                  data-testid={`categories-l1-tile-${cat.slug}`}
+                  className={`relative flex items-center gap-2.5 md:gap-3 rounded-xl overflow-hidden transition-all h-16 md:h-20 px-3 md:px-4 ${
+                    isActive ? "bg-[#0A1F5C]" : "bg-[#FDFBF7] border border-[#E5E2DC] hover:border-[#0A1F5C]/40"
                   }`}
                 >
                   {cat.image && (
-                    <div className="w-8 h-8 rounded-lg overflow-hidden bg-[#E5E2DC]">
-                      <img src={cat.image} alt={cat.name}
-                        className="w-full h-full object-cover object-top" />
+                    <div className="w-11 h-11 md:w-14 md:h-14 rounded-lg overflow-hidden bg-[#E5E2DC] shrink-0">
+                      <img src={cat.image} alt={cat.name} className="w-full h-full object-cover object-top" />
                     </div>
                   )}
-                  <span className={`text-[10px] font-bold whitespace-nowrap leading-tight ${
-                    isActive ? "text-white" : "text-[#0A1F5C]"
-                  }`}>
-                    {cat.name.replace("Lingerie & Innerwear", "Lingerie").replace("Ethnic Wear", "Ethnic")}
+                  <span className={`text-sm md:text-base font-bold leading-tight text-left ${isActive ? "text-white" : "text-[#0A1F5C]"}`}>
+                    {cat.name}
                   </span>
                 </button>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
       </div>
 
-      <div className="flex relative" style={{minHeight: 'calc(100vh - 112px)'}}>
+      {/* Split-pane: L2 nav stays visible, only the product listing scrolls.
+          `position: sticky` was tried here first but this site sets
+          `overflow-x: hidden` on <html>/<body> (globals.css, deliberate —
+          clips horizontal touch-pan overflow at the document root), which
+          breaks EVERY sticky element's containing-block on every page
+          (confirmed: the global header's own `sticky top-0` scrolls away
+          identically) — not something to fix inside one page. A local
+          fixed-height split pane sidesteps it entirely: this section
+          claims exactly the remaining viewport height once, the sidebar is
+          a plain flex child (no sticky needed — it never had anywhere to
+          scroll TO), and only the products column scrolls internally. That
+          also satisfies "stop at the bottom of its own section" for free —
+          there's no site footer below this page (confirmed) for it to
+          float over.
+          Mobile keeps the exact same two-column pattern (no bottom-nav tab
+          bar competes for this space; StickyBottomNav's own reserved
+          bottom-nav-safe padding lives on the page overall, so bottom nav
+          height is subtracted here too). */}
+      {/* `flex-1`/`min-h-0` deliberately NOT used here — this div sits
+          inside a `flex-col` parent, where `flex-1` sets `flex-basis: 0%`
+          and grows to fit CONTENT, silently overriding the explicit height
+          below (confirmed: computed height came out as the full 16000px+
+          content height, not the intended ~700-800px viewport slice, which
+          is exactly why nothing had room to be "independently scrollable"
+          in the first place). A plain, non-flex-grown fixed height is what
+          actually caps this section. */}
+      <div className="flex h-[calc(100vh-112px-96px)] md:h-[calc(100vh-120px)]">
 
-        {/* LEFT — L2 sidebar with skeleton while loading */}
+        {/* LEFT — L2 nav, own independent scroll if it overflows */}
         {(loadingL2 || l2Cats.length > 0) && (
-          <div className="w-24 flex-shrink-0 bg-white border-r border-[#E5E2DC] sticky top-[112px] md:top-[120px] self-start overflow-y-auto" style={{maxHeight: 'calc(100vh - 112px)'}}>
+          <div className="w-24 flex-shrink-0 bg-white border-r border-[#E5E2DC] h-full overflow-y-auto">
             {loadingL2 ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="px-3 py-3.5 border-b border-[#F0EFED]">
@@ -183,8 +214,8 @@ function CategoriesInner() {
           </div>
         )}
 
-        {/* RIGHT — products */}
-        <div className="flex-1 p-2">
+        {/* RIGHT — products, the only scrollable column in this section */}
+        <div className="flex-1 h-full overflow-y-auto p-2">
           <div className="flex items-center gap-1 mb-2 px-1">
             <span className="text-[12px] font-semibold text-[#0A1F5C]">
               {activeL1Cat?.name}{activeL2 ? ` › ${l2Cats.find(c => c.slug === activeL2)?.name}` : ""}
