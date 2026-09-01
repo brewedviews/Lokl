@@ -22,9 +22,9 @@
  *     published/visible at all (see _visible_store_filter() in
  *     backend/server.py) — every product a shopper can see already comes
  *     from a KYC-checked merchant.
- *   - "Made in Bhilai" reuses the same real, platform-wide claim already
- *     established on the homepage (TrustStickers), for brand consistency
- *     rather than inventing a new one.
+ *   - "Made in Bhilai" is a real, platform-wide claim (every store here
+ *     genuinely is Bhilai-based) — kept consistent with how the rest of
+ *     the app talks about locality, rather than inventing a new claim.
  *   - Try & Buy is intentionally NOT in this list — it's already its own
  *     dedicated callout above (try_at_doorstep, per-product) when the
  *     product actually has it, so restating it here as a platform-wide

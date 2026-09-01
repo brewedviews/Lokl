@@ -31,7 +31,7 @@ import { HeroCarousel } from "@/components/consumer/HeroCarousel";
 import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { CategoryTile } from "@/components/consumer/CategoryTile";
-import { TrustStickers } from "@/components/consumer/TrustStickers";
+import { HomepageEnder } from "@/components/consumer/HomepageEnder";
 import { OffersSection } from "@/components/consumer/sections/OffersSection";
 import { CommunicationStrip } from "@/components/consumer/sections/CommunicationStrip";
 import { BudgetBentoSection } from "@/components/consumer/sections/BudgetBentoSection";
@@ -353,7 +353,7 @@ export function MarketplaceHomeClient() {
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <main className="flex-1">
         {orderedSections}
-        <TrustStickers />
+        <HomepageEnder />
       </main>
     </div>
   );

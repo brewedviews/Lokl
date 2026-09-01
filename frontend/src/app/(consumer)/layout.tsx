@@ -41,7 +41,7 @@ import { BottomNavSafeArea } from "@/components/consumer/BottomNavSafeArea";
  * short pages instead of leaving dead space above the sticky bottom nav.
  * Pages must pair this with their own `flex-1 flex flex-col` root — see
  * stores/page.tsx. (No page-level Footer exists anymore — the bottom nav
- * covers that role; the homepage additionally ends with TrustStickers.)
+ * covers that role; the homepage additionally ends with HomepageEnder.)
  *
  * Mobile search is entirely self-contained inside ConsumerHeader now (the
  * pinned bar + its in-place top sheet) — no separate host component to

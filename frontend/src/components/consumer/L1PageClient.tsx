@@ -88,7 +88,7 @@ import { HCarousel } from "@/components/consumer/v2/HCarousel";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { SellerCard } from "@/components/consumer/SellerCard";
 import { CustomerLove } from "@/components/consumer/v2/CustomerLove";
-import { TrustStickers } from "@/components/consumer/TrustStickers";
+import { HomepageEnder } from "@/components/consumer/HomepageEnder";
 import { CategoryTile } from "@/components/consumer/CategoryTile";
 import { OffersSection } from "@/components/consumer/sections/OffersSection";
 import { CommunicationStrip } from "@/components/consumer/sections/CommunicationStrip";
@@ -446,7 +446,7 @@ function ShopByStoreSection({ l1 }: { l1: CategoryNode | undefined }) {
 // navigation) driving a full sortable "Browse all {L1}" product grid.
 // Ported from the old CategoryClient.tsx essentially unchanged — this is
 // NOT part of the ranked CMS section list (see this file's own top
-// comment for why) and always renders last, right before TrustStickers.
+// comment for why) and always renders last, right before HomepageEnder.
 // ---------------------------------------------------------------------------
 type SortKey = "nearest" | "price_asc" | "price_desc";
 
@@ -785,7 +785,7 @@ export function L1PageClient({ l1Id }: { l1Id: string }) {
       <main className="flex-1">
         {orderedSections}
         {l1 && <BrowseGridBlock l1={l1} />}
-        <TrustStickers />
+        <HomepageEnder />
       </main>
     </div>
   );
