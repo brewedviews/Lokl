@@ -273,6 +273,15 @@ export default function CheckoutPage() {
   const allEligible = hasTryAndBuyEligible && eligibleItems.length === items.length;
   const anyTryAndBuySelected = eligibleItems.some((it) => it.fulfillment_type === "try_and_buy");
 
+  // Try & Buy is Pay-at-Delivery only (decided at the door, not upfront) —
+  // force COD the moment a Try & Buy line is active so the payment section
+  // below can never show a live "Pay online" option that create_order's own
+  // server-side guard would just reject anyway. See that guard's comment
+  // in server.py for why this isn't purely a UI nicety.
+  useEffect(() => {
+    if (anyTryAndBuySelected) setPayment("COD");
+  }, [anyTryAndBuySelected]);
+
   // Store-grouped order summary — items from the same store stay adjacent
   // even if they were added to the bag in an interleaved order.
   const sortedItems = useMemo(
@@ -471,7 +480,7 @@ export default function CheckoutPage() {
         return toast.error("Lokl is only serving Bhilai right now — please update your delivery city.");
       }
       if (!isServiceablePincode(addr.pincode.trim())) {
-        return toast.error("We only deliver to Bhilai pincodes (490xxx). Please check your pincode.");
+        return toast.error("This pincode isn't serviceable on Lokl yet. Please check your pincode.");
       }
     }
     if (items.length === 0) return toast.error("Bag is empty");
@@ -1017,8 +1026,8 @@ export default function CheckoutPage() {
           <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="payment-section">
             <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-2">Payment</h2>
             <div className="grid grid-cols-2 gap-2.5">
-              <button type="button" data-testid="pay-online" onClick={() => setPayment("RAZORPAY")}
-                className={`flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 transition ${payment === "RAZORPAY" ? "border-[#E68910] bg-[#E68910]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
+              <button type="button" data-testid="pay-online" disabled={anyTryAndBuySelected} onClick={() => setPayment("RAZORPAY")}
+                className={`flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 transition ${payment === "RAZORPAY" ? "border-[#E68910] bg-[#E68910]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"} ${anyTryAndBuySelected ? "opacity-40 cursor-not-allowed hover:border-[#E5E2DC]" : ""}`}>
                 <CreditCard size={18} className="text-[#0A1F5C]" />
                 <span className="font-semibold text-sm">Pay online</span>
               </button>
@@ -1030,6 +1039,9 @@ export default function CheckoutPage() {
             </div>
             {payment === "RAZORPAY" && (
               <p className="text-[11px] text-[#595959] mt-2">UPI, cards and netbanking via Razorpay.</p>
+            )}
+            {anyTryAndBuySelected && (
+              <p className="text-[11px] text-[#595959] mt-2">Try &amp; Buy orders are Pay at Delivery only — you decide what to keep at the door.</p>
             )}
           </div>
         ) : (

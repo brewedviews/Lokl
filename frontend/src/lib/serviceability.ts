@@ -9,7 +9,7 @@
  * Pilot is Bhilai-only; this mirrors the backend's own BHILAI_PINCODES
  * whitelist (server.py) at the app layer.
  */
-export const BHILAI_PINCODES = ["490001", "490006", "490009", "490020", "490023"];
+export const BHILAI_PINCODES = ["490001", "490006", "490009", "490020", "490023", "490025", "490026"];
 
 export function isServiceablePincode(pincode: string | null | undefined): boolean {
   const pin = (pincode ?? "").trim();

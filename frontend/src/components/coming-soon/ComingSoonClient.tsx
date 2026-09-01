@@ -40,7 +40,7 @@ function ComingSoonFooter() {
         <a href="mailto:hello@shoplokl.in" className="text-white/45 hover:text-white/70">hello@shoplokl.in</a>
         <a href="https://merchant.shoplokl.in" className="text-white/45 hover:text-white/70">Register your store</a>
       </div>
-      <p className="text-[12px] text-white/30 mt-1.5">Bhilai, Chhattisgarh &middot; Lokl Technologies</p>
+      <p className="text-[12px] text-white/30 mt-1.5">Bhilai, Chhattisgarh &middot; Lokl, by Ujjwal Deshlahare</p>
     </footer>
   );
 }

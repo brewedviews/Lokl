@@ -525,6 +525,158 @@ async def _auth_hardening_case():
 
 
 # --------------------------------------------------------------------------
+# Refund-on-cancel / refund-on-reject (audit fix, 2026-09). Both
+# customer_cancel_order and merchant_reject_order call the SAME
+# services.payment_service.refund_payment() for a paid Razorpay order —
+# monkeypatched here rather than hitting the real Razorpay sandbox, same
+# rationale as _razorpay_amount_verification_case's fetch_captured_payment
+# mock above: the vulnerability/regression risk lives entirely in how the
+# order/audit-log/notification state reacts to a refund outcome, not in
+# re-proving Razorpay's own API (that's exercised for real, separately, by
+# actually calling refund_payment() against real rzp_test_ credentials
+# in a one-off manual check — see the audit report for that verification;
+# it isn't repeatable here without live network + real captured payments).
+#
+# merchant_reject_order previously had NO refund logic at all — it assumed
+# every order was COD ("no charge was ever taken"). A customer whose
+# prepaid order got rejected was told "no amount was charged" while their
+# money sat captured with nothing refunding it. Fixed to mirror
+# customer_cancel_order's existing refund block exactly.
+# --------------------------------------------------------------------------
+
+def _fake_request():
+    """A real (if minimal) starlette.requests.Request — both endpoints
+    under test carry @_limit(...) (slowapi), which asserts its `request`
+    arg is an actual Request instance, not just anything with `.client`."""
+    from starlette.requests import Request
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+        "method": "POST", "path": "/", "raw_path": b"/", "query_string": b"",
+        "headers": [], "client": ("127.0.0.1", 0), "server": ("testserver", 80),
+        "scheme": "http",
+    }
+    return Request(scope)
+
+
+async def _seed_paid_razorpay_order(srv, product, size, phone_raw, merchant_id):
+    """A real order (via the normal COD path, so it doesn't need a real
+    signature/capture) then hand-flipped to look like it was actually
+    paid online — same trick used to verify this fix manually against the
+    live server, now codified as a fixture."""
+    user = {"sub": srv._normalize_customer_phone(phone_raw), "role": "customer"}
+    order = await srv.create_order(srv.OrderCreate(
+        items=[{"id": product["id"], "name": product["name"], "price": product["price"], "qty": 1,
+                "size": size, "image": "x", "key": f"{product['id']}-{size}"}],
+        total=product["price"],
+        customer={"name": "Refund Test", "phone": phone_raw},
+        address={"name": "Refund Test", "line1": "Test Rd", "city": "Bhilai", "pincode": "490020", "phone": phone_raw},
+        payment_method="COD",
+    ), user)
+    await srv.db.orders.update_one({"id": order["id"]}, {"$set": {
+        "payment_status": "paid", "razorpay_payment_id": "pay_test_refundfix", "payment_method": "razorpay",
+    }})
+    return order, user
+
+
+async def _refund_on_cancel_and_reject_case():
+    import server as srv
+
+    try:
+        product, size = await _find_deliverable_product(srv)
+    except Exception as e:
+        pytest.skip(f"MongoDB not reachable from this test runner: {e}")
+        return
+    if not product:
+        pytest.skip("no deliverable, in-stock product with a geolocated store in the dev DB")
+        return
+    store = await srv.db.stores.find_one({"id": product["store_id"]}, {"_id": 0, "merchant_id": 1})
+    merchant_id = (store or {}).get("merchant_id")
+    if not merchant_id:
+        pytest.skip("deliverable product's store has no merchant_id on record")
+        return
+
+    orig_refund = srv.refund_payment
+    calls = []
+
+    def fake_refund_payment(razorpay_payment_id, amount_inr, lokl_order_id):
+        calls.append((razorpay_payment_id, amount_inr, lokl_order_id))
+        return {"id": "rfnd_test_fixture", "status": "processed"}
+
+    orig_notify = srv.notify_order_rejected
+    notify_calls = []
+    srv.notify_order_rejected = lambda phone, order_id, refund_initiated=False: notify_calls.append(
+        (phone, order_id, refund_initiated)
+    )
+
+    try:
+        srv.refund_payment = fake_refund_payment
+
+        # ---- Scenario A: customer_cancel_order refunds a paid order ----
+        order, user = await _seed_paid_razorpay_order(srv, product, size, "9000000098", merchant_id)
+        try:
+            await srv.customer_cancel_order(order["id"], _fake_request(), {"reason": "test"}, user)
+            fresh = await srv.db.orders.find_one({"id": order["id"]}, {"_id": 0})
+            assert fresh["status"] == "cancelled"
+            assert fresh["payment_status"] == "refund_pending"
+            assert fresh["razorpay_refund_id"] == "rfnd_test_fixture"
+            assert any(c[0] == "pay_test_refundfix" for c in calls), "refund_payment must be called with the order's real razorpay_payment_id"
+            audit = await srv.db.payment_audit_log.find_one(
+                {"order_id": order["id"], "event_type": "refund_initiated"}, {"_id": 0}
+            )
+            assert audit is not None, "refund must be recorded in the payment audit log"
+        finally:
+            await srv.db.orders.delete_one({"id": order["id"]})
+            await srv.db.products.update_one({"id": product["id"]}, {"$set": {f"stock.{size}": product["stock"][size]}})
+
+        # ---- Scenario B: merchant_reject_order refunds a paid order (the
+        # actual bug this audit fixed — previously no refund attempt at all) ----
+        calls.clear()
+        order, _ = await _seed_paid_razorpay_order(srv, product, size, "9000000097", merchant_id)
+        try:
+            merchant_user = {"sub": merchant_id, "role": "merchant"}
+            result = await srv.merchant_reject_order(order["id"], _fake_request(), {"reason": "test"}, merchant_user)
+            assert result["ok"] is True
+            fresh = await srv.db.orders.find_one({"id": order["id"]}, {"_id": 0})
+            assert fresh["payment_status"] == "refund_pending", "merchant rejection of a paid order must trigger a refund, not silently do nothing"
+            assert fresh["razorpay_refund_id"] == "rfnd_test_fixture"
+            assert any(c[0] == "pay_test_refundfix" for c in calls)
+            audit = await srv.db.payment_audit_log.find_one(
+                {"order_id": order["id"], "event_type": "refund_initiated", "metadata.reason": "merchant_reject"}, {"_id": 0}
+            )
+            assert audit is not None
+            assert notify_calls and notify_calls[-1][2] is True, "customer must be told a refund was initiated, not the stale COD 'no amount was charged' line"
+        finally:
+            await srv.db.orders.delete_one({"id": order["id"]})
+            await srv.db.products.update_one({"id": product["id"]}, {"$set": {f"stock.{size}": product["stock"][size]}})
+
+        # ---- Scenario C: a genuine COD order rejection must NOT attempt a
+        # refund or claim one was initiated — the pre-existing behavior for
+        # the common case must be unchanged by this fix. ----
+        notify_calls.clear()
+        calls.clear()
+        user = {"sub": srv._normalize_customer_phone("9000000096"), "role": "customer"}
+        cod_order = await srv.create_order(srv.OrderCreate(
+            items=[{"id": product["id"], "name": product["name"], "price": product["price"], "qty": 1,
+                    "size": size, "image": "x", "key": f"{product['id']}-{size}"}],
+            total=product["price"],
+            customer={"name": "Refund Test", "phone": "9000000096"},
+            address={"name": "Refund Test", "line1": "Test Rd", "city": "Bhilai", "pincode": "490020", "phone": "9000000096"},
+            payment_method="COD",
+        ), user)
+        try:
+            merchant_user = {"sub": merchant_id, "role": "merchant"}
+            await srv.merchant_reject_order(cod_order["id"], _fake_request(), {"reason": "test"}, merchant_user)
+            assert not calls, "COD order rejection must never call refund_payment"
+            assert notify_calls and notify_calls[-1][2] is False
+        finally:
+            await srv.db.orders.delete_one({"id": cod_order["id"]})
+            await srv.db.products.update_one({"id": product["id"]}, {"$set": {f"stock.{size}": product["stock"][size]}})
+    finally:
+        srv.refund_payment = orig_refund
+        srv.notify_order_rejected = orig_notify
+
+
+# --------------------------------------------------------------------------
 # Single entrypoint. Motor's AsyncIOMotorClient binds to whichever event
 # loop is running when it's first constructed (on first `import server`);
 # running each scenario under its own separate `asyncio.run()` call — even
@@ -540,6 +692,7 @@ async def _run_all_security_fix_cases():
     await _razorpay_payment_reuse_case()
     await _subscription_activation_case()
     await _auth_hardening_case()
+    await _refund_on_cancel_and_reject_case()
 
 
 def test_g26_critical_security_fixes():

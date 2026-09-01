@@ -1248,11 +1248,20 @@ def notify_order_accepted(phone: str, order_id: str, store_name: str, otp: str =
     send_with_fallback(phone, body)
 
 
-def notify_order_rejected(phone: str, order_id: str) -> None:
+def notify_order_rejected(phone: str, order_id: str, refund_initiated: bool = False) -> None:
+    """`refund_initiated` MUST be true whenever the order was paid online
+    (Razorpay) and merchant_reject_order successfully kicked off a refund —
+    a COD-only "no amount was charged" line here was factually wrong for a
+    prepaid order that had actually been captured (audit fix, 2026-09)."""
     short = order_id[-6:].upper()
+    money_line = (
+        f"Your refund has been initiated and should reflect in 3-5 business days.\n\n"
+        if refund_initiated else
+        f"Since you pay at delivery, no amount was charged.\n\n"
+    )
     body = (
         f"😔 Order #{short} could not be fulfilled by the store.\n\n"
-        f"Since you pay at delivery, no amount was charged.\n\n"
+        f"{money_line}"
         f"Browse other stores: {APP_URL}\n"
         f"Need help? {SUPPORT_PHONE}"
     )

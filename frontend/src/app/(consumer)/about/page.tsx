@@ -27,9 +27,9 @@ export default function AboutPage() {
           <section>
             <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Why local matters</h2>
             <p className="text-[#595959]">
-              When you order on Lokl, the money stays in Bhilai. It goes to a shopkeeper you could actually meet, not
-              a platform in another city. We think that&apos;s worth building around — real stores, real stock, real
-              prices, and a rider who&apos;s often just a few minutes away because the store already is.
+              You&apos;re ordering from a shopkeeper you could actually meet, not a warehouse in another city. We
+              think that&apos;s worth building around — real stores, real stock, real prices, and a rider who&apos;s
+              often just a few minutes away because the store already is.
             </p>
           </section>
 
@@ -37,9 +37,9 @@ export default function AboutPage() {
             <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">What we&apos;re building</h2>
             <ul className="mt-2 space-y-1.5 text-[#595959] list-disc list-inside">
               <li>Fast delivery — 45 minutes, because the store is already in your city</li>
-              <li>Try &amp; Buy — try it on at your door, pay only for what you keep</li>
+              <li>Try &amp; Buy — try it on at your door where the store offers it, pay only for what you keep</li>
               <li>Zero commission for merchants, so local shops keep what they earn</li>
-              <li>Pay at Delivery — no advance payment, no card details needed</li>
+              <li>Pay online or Pay at Delivery — whichever&apos;s available for your order</li>
             </ul>
           </section>
 

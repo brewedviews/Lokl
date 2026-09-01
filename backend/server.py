@@ -5985,6 +5985,15 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         # payment, then calls POST /orders with verified signature. Order is created
         # directly with status=pending_merchant; merchants are notified immediately.
         pm = (payload.payment_method or "COD").lower()
+        # Try & Buy is Pay-at-Delivery only, by design: the customer decides
+        # what to keep AT THE DOOR, so prepaying online defeats the "pay only
+        # for what you keep" model and there is no refund-on-return flow for
+        # a Razorpay-captured payment here. Server-side, not just UI — same
+        # "never trust the client" posture as the rest of this block (the
+        # frontend also disables the online-payment option once a Try & Buy
+        # line is selected, but that alone is trivially bypassable).
+        if pm in ("razorpay", "online") and any(it.get("fulfillment_type") == "try_and_buy" for it in items_snap):
+            raise HTTPException(400, "Try & Buy orders are Pay at Delivery only")
         if pm in ("razorpay", "online"):
             # Payment-first flow: frontend verifies payment then calls POST /orders.
             # Signature proves the payment_id/order_id PAIRING is genuinely
@@ -6994,9 +7003,21 @@ async def merchant_handed_to_rider(oid: str, user: dict = Depends(merchant_user)
 async def merchant_reject_order(oid: str, request: Request, payload: Optional[dict] = None,
                                 user: dict = Depends(get_current_user)):
     """Merchant rejects their slice of an order they have NOT yet accepted.
-    Restocks this merchant's items and notifies the customer (COD — no charge
-    was ever taken, so no refund logic needed here). On a multi-store cart,
-    only this merchant's slice is affected; other stores' items are untouched."""
+    Restocks this merchant's items and notifies the customer. For a
+    single-store order that was paid online (Razorpay), also triggers a
+    refund — this used to assume every order was COD ("no charge was ever
+    taken, so no refund logic needed here"), which stopped being true once
+    online payment shipped; a customer whose prepaid order got rejected was
+    told "no amount was charged" while their money sat captured with
+    nothing refunding it (audit fix, 2026-09). Mirrors the customer-cancel
+    refund block (POST /orders/{oid}/customer-cancel) exactly — same
+    refund_payment() call, same payment_status/refund-field updates, same
+    failed_refunds fallback on error. Multi-store carts don't refund here:
+    the order's payment covers every store's slice, and this endpoint only
+    ever affects ONE merchant's slice of it — a partial online refund for
+    a partial-order rejection is a real feature, not something to bolt on
+    silently inside this fix. On a multi-store cart, only this merchant's
+    slice of the order is affected; other stores' items are untouched."""
     mid = user["sub"]
     if user.get("role") not in ("merchant", "admin"):
         raise HTTPException(403, "Merchant only")
@@ -7009,9 +7030,35 @@ async def merchant_reject_order(oid: str, request: Request, payload: Optional[di
         raise HTTPException(400, "Already accepted — use cancel instead of reject")
     reason = ((payload or {}).get("reason") or "Rejected by merchant").strip()[:200]
     new_global = await _merchant_cancel_own_slice(oid, mid, reason)
+
+    refund_initiated = False
+    is_single_store = len(o.get("merchant_ids") or []) <= 1
+    if is_single_store and o.get("payment_status") == "paid" and o.get("razorpay_payment_id"):
+        try:
+            refund = refund_payment(o["razorpay_payment_id"], Decimal(str(o.get("total", 0))), oid)
+            if refund:
+                refund_initiated = True
+                await db.orders.update_one({"id": oid}, {"$set": {
+                    "payment_status": "refund_pending",
+                    "razorpay_refund_id": refund.get("id"),
+                    "refund_initiated_at": datetime.now(timezone.utc).isoformat(),
+                }})
+                await audit_service.log("refund_initiated", order_id=oid,
+                                        razorpay_payment_id=o["razorpay_payment_id"],
+                                        amount=float(o.get("total", 0)),
+                                        actor=mid, ip_address=request.client.host if request.client else None,
+                                        metadata={"razorpay_refund_id": refund.get("id"), "reason": "merchant_reject"})
+        except Exception as e:
+            log.error("[Refund] merchant_reject_order failed for %s: %s", oid, e)
+            await db.failed_refunds.insert_one({
+                "order_id": oid, "error": str(e), "amount": float(o.get("total", 0)),
+                "razorpay_payment_id": o.get("razorpay_payment_id"),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     if cust_phone:
-        try: notify_order_rejected(cust_phone, oid)
+        try: notify_order_rejected(cust_phone, oid, refund_initiated=refund_initiated)
         except Exception as _ne:
             print(f"[notify_error] {_ne}", flush=True)
     return {"ok": True, "status": new_global}

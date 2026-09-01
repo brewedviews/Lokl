@@ -17,9 +17,10 @@ export default function ShippingPolicyPage() {
           <section>
             <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Where we deliver</h2>
             <p className="text-[#595959]">
-              Lokl delivers within Bhilai, Chhattisgarh only — pincodes starting with 490. We check your delivery
-              address's pincode at checkout; if it falls outside our service area, you&apos;ll see this clearly before
-              placing the order.
+              Lokl currently operates in Bhilai, Chhattisgarh — but not every address in the city is serviceable yet.
+              Delivery availability depends on whether your specific location is currently covered on Lokl. We check
+              your delivery address at checkout; if it falls outside our service area, you&apos;ll see this clearly
+              before placing the order.
             </p>
           </section>
 

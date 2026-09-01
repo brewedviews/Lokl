@@ -12,15 +12,15 @@ const FAQS: { q: string; a: string }[] = [
   },
   {
     q: "Where does Lokl deliver?",
-    a: "Bhilai only, for now — we're a hyperlocal app built for one city. You'll need a Bhilai address with a 490xxx pincode to check out.",
+    a: "Bhilai only, for now — we're a hyperlocal app built for one city. Not every address in Bhilai is covered yet, though — delivery availability depends on whether your specific location is currently serviceable on Lokl, which we check automatically when you enter your address at checkout.",
   },
   {
     q: "What is Try & Buy?",
-    a: "Order like normal, and when your rider arrives, try the item on right at your door. Keep what you love, hand back what you don't — on the spot, no separate return process. You only pay for what you keep.",
+    a: "Order like normal, and when your rider arrives, try the item on right at your door. Keep what you love, hand back what you don't — on the spot, no separate return process. You only pay for what you keep. Try & Buy isn't on every product — look for the Try & Buy option on eligible items, where the store has turned it on. Try & Buy orders are Pay at Delivery only.",
   },
   {
     q: "How do I pay?",
-    a: "Pay at Delivery — cash or UPI, straight to the rider when your order arrives. We don't collect any payment upfront or store card details.",
+    a: "You can pay online (UPI, cards or netbanking, via Razorpay) or choose Pay at Delivery (cash or UPI, straight to the rider) — whichever's available for your order. Try & Buy orders are Pay at Delivery only.",
   },
   {
     q: "Can I return or exchange an item?",

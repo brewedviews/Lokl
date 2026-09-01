@@ -13,7 +13,7 @@ export default function MerchantTermsPage() {
         <p className="text-xs uppercase tracking-widest text-[#E68910] font-bold mb-2">Merchant Legal</p>
         <h1 className="text-2xl sm:text-3xl font-display font-medium tracking-tight text-[#0A1F5C] leading-tight mb-2">Merchant Terms &amp; Agreement</h1>
         <p className="text-sm text-[#64748B] mb-1">Version {"2026-09-01"} · Last updated: September 2026</p>
-        <p className="text-sm text-[#64748B] mb-10">This is the agreement between you (the store owner) and Lokl Technologies for selling on Lokl.shop.</p>
+        <p className="text-sm text-[#64748B] mb-10">This is the agreement between you (the store owner) and Lokl — operated by Ujjwal Deshlahare, Founder &amp; Sole Proprietor — for selling on Lokl.shop.</p>
 
         <div className="space-y-8 text-[15px] leading-relaxed text-[#1C1C1C]">
           <section>

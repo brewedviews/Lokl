@@ -74,6 +74,17 @@ rich==15.0.0
 rpds-py==0.30.0
 rsa==4.9.1
 sentry-sdk==2.18.0
+# Pinned explicitly (not just a transitive/base-image default) — razorpay==1.4.2's
+# client.py does `import pkg_resources` at module load just to read its own
+# version string for the User-Agent header. pkg_resources ships bundled with
+# setuptools, but setuptools 82.0.0 removed that bundling entirely (confirmed:
+# 81.0.0 still has it, 82.0.0 does not). Nothing here pinned setuptools before —
+# it silently rode on whatever version python:3.11-slim's base image happened to
+# ship at build time, which is exactly what broke: `import razorpay` started
+# raising ModuleNotFoundError, so every payment/refund call failed at import time.
+# Pin stays <82 until razorpay is upgraded past whatever version drops the
+# pkg_resources import (check before ever bumping razorpay in this file).
+setuptools==81.0.0
 six==1.17.0
 slowapi==0.1.9
 sniffio==1.3.1

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Try & Buy",
-  description: "Order it, try it on at your door, keep what you love — pay only for what you keep. How Lokl's Try & Buy works.",
+  description: "Order it, try it on at your door, keep what you love — pay only for what you keep. How Lokl's Try & Buy works, on the products and stores that offer it.",
 };
 
 const STEPS = [
@@ -25,11 +25,12 @@ export default function TryAndBuyPage() {
     <div className="flex-1 flex flex-col bg-[#FDFBF7]">
       <div className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-8 py-10">
         <p className="text-xs uppercase tracking-widest text-[#E68910] font-bold mb-2">Try &amp; Buy</p>
-        <h1 className="text-2xl sm:text-3xl font-display font-bold text-[#0A1F5C] leading-tight mb-2">
-          try before you pay.
+        <h1 className="text-2xl sm:text-3xl font-display font-medium tracking-tight text-[#0A1F5C] leading-tight mb-2">
+          Try before you pay
         </h1>
         <p className="text-sm text-[#64748B] mb-10 max-w-lg">
-          Your neighbour&apos;s shop, not a faraway warehouse — so trying it on before you commit is just how Lokl works.
+          Your neighbour&apos;s shop, not a faraway warehouse — so trying it on before you commit is just how Lokl works,
+          on the products and stores that offer it.
         </p>
 
         <div className="space-y-6 mb-12">
@@ -39,7 +40,7 @@ export default function TryAndBuyPage() {
                 {i + 1}
               </div>
               <div>
-                <h2 className="font-display text-lg font-bold text-[#0A1F5C] mb-1">{s.title}</h2>
+                <h2 className="font-display text-lg font-medium tracking-tight text-[#0A1F5C] mb-1">{s.title}</h2>
                 <p className="text-[15px] text-[#595959] leading-relaxed">{s.body}</p>
               </div>
             </div>
@@ -48,7 +49,16 @@ export default function TryAndBuyPage() {
 
         <div className="space-y-8 text-[15px] leading-relaxed text-[#1C1C1C]">
           <section>
-            <h2 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">How the on-the-spot return works</h2>
+            <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Which products have Try &amp; Buy</h2>
+            <p className="text-[#595959]">
+              Try &amp; Buy is set per product by the store — it&apos;s not automatically available on everything.
+              Look for the <strong>Try &amp; Buy</strong> option on a product page or at checkout; if you don&apos;t
+              see it, that item ships as a standard order instead.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">How the on-the-spot return works</h2>
             <p className="text-[#595959]">
               You only pay the rider for what you&apos;re keeping. Anything you hand back goes straight
               back with them — there&apos;s no separate return process, no waiting for a refund to
@@ -57,7 +67,16 @@ export default function TryAndBuyPage() {
           </section>
 
           <section>
-            <h2 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">What to check before the rider leaves</h2>
+            <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Payment</h2>
+            <p className="text-[#595959]">
+              Try &amp; Buy orders are <strong>Pay at Delivery only</strong> — cash or UPI, paid to the rider once
+              you&apos;ve decided what you&apos;re keeping. Online prepayment isn&apos;t available for Try &amp; Buy
+              orders, since you haven&apos;t decided what you&apos;re actually buying until the rider is at your door.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">What to check before the rider leaves</h2>
             <p className="text-[#595959]">
               Try items on over your own clothes, check fit and fabric in daylight if you can, and
               confirm the item matches what you ordered (size, colour, style). Once the rider leaves
@@ -66,10 +85,10 @@ export default function TryAndBuyPage() {
           </section>
 
           <section>
-            <h2 className="font-display text-xl font-bold text-[#0A1F5C] mb-3">Where it&apos;s available</h2>
+            <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Where it&apos;s available</h2>
             <p className="text-[#595959]">
-              Try &amp; Buy works the same way as regular delivery — no separate signup, no extra fee.
-              It&apos;s available wherever Lokl delivers today, in Bhilai.
+              Try &amp; Buy uses the same delivery network as regular orders — no separate signup. It&apos;s
+              available on eligible products, at stores that have turned it on, wherever Lokl currently delivers in Bhilai.
             </p>
           </section>
         </div>

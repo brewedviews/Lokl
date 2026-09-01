@@ -32,12 +32,25 @@ export default function TermsPage() {
 
           <section>
             <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Delivery</h2>
-            <p className="text-[#595959]">We aim to deliver within 45 minutes of merchant acceptance. Actual delivery times may vary based on distance, traffic and store availability. Lokl does not guarantee exact delivery times. Delivery is currently available only within Bhilai (pincodes starting with 490).</p>
+            <p className="text-[#595959]">
+              We aim to deliver within 45 minutes of merchant acceptance. Actual delivery times may vary based on
+              distance, traffic and store availability, and Lokl does not guarantee exact delivery times. Lokl
+              currently operates in Bhilai, Chhattisgarh, and only within specific serviceable locations there —
+              delivery availability depends on whether your address is currently serviceable on Lokl, which we
+              check automatically at checkout. We arrange delivery through our own riders; the merchant lists and
+              prepares the product, Lokl handles getting it to your door.
+            </p>
           </section>
 
           <section>
             <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Payments</h2>
-            <p className="text-[#595959]">We currently only support <strong>Pay at Delivery</strong>. Payment is made directly to the delivery rider via cash or UPI at the time of delivery. Lokl does not collect payments in advance.</p>
+            <p className="text-[#595959]">
+              Lokl supports both <strong>Pay at Delivery</strong> (cash or UPI, paid directly to the rider) and
+              <strong> online prepaid payment</strong> (UPI, cards, netbanking via Razorpay), where available for
+              your order. Try &amp; Buy orders are Pay at Delivery only — see our{" "}
+              <Link href="/try-and-buy" className="text-[#0A1F5C] font-semibold hover:underline">Try &amp; Buy</Link> page. Available payment methods may vary by
+              order, product or location; we&apos;ll always show you what&apos;s available before you pay.
+            </p>
           </section>
 
           <section>
@@ -46,18 +59,18 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Products are listed and supplied by merchants, not Lokl</h2>
+            <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Who&apos;s responsible for what</h2>
             <p className="text-[#595959] mb-3">
-              Every product shown on Lokl is listed and supplied by the independent local store you&apos;re ordering from —
-              not by Lokl. Unless a listing says otherwise, Lokl does not own, stock, manufacture, or brand the products you
-              see. The merchant is responsible for the accuracy of their product descriptions, images, pricing, stock, and any
-              claims they make about a product — including brand or origin claims. If a store says a product is a genuine
-              branded item, that representation is the merchant&apos;s, not Lokl&apos;s.
+              Three separate things are easy to blur together, so here they are apart:
             </p>
+            <ul className="space-y-2 text-[#595959] list-disc pl-5 mb-3">
+              <li><strong>The product</strong> — every product on Lokl is listed by an independent local merchant, not by Lokl. Unless a listing says otherwise, Lokl does not own, stock, manufacture, or brand it. The merchant is responsible for their product&apos;s descriptions, images, pricing, stock, and any claims they make about it — including authenticity and brand or origin claims. If a store says a product is a genuine branded item, that representation is the merchant&apos;s, not Lokl&apos;s.</li>
+              <li><strong>The platform</strong> — Lokl operates the marketplace that lets you discover, browse and order from these local stores. We review listings and act on reports (see below), but we don&apos;t independently authenticate the genuineness, trademark status, or brand claims of every product every merchant lists.</li>
+              <li><strong>The delivery</strong> — once your order is placed, Lokl arranges and handles the actual delivery through our own riders. The merchant prepares the order; Lokl gets it to your door.</li>
+            </ul>
             <p className="text-[#595959]">
-              Lokl reviews listings and acts on reports, but does not independently authenticate the genuineness, trademark
-              status, or brand claims of every product every merchant lists. As a customer, it&apos;s worth knowing that Lokl
-              is not the manufacturer, brand owner, or seller of record for most products on the platform — the store is.
+              As a customer, it&apos;s worth knowing that Lokl is not the manufacturer, brand owner, or seller of record for
+              most products on the platform — the store is.
             </p>
           </section>
 
@@ -112,7 +125,7 @@ export default function TermsPage() {
 
           <section>
             <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Contact</h2>
-            <p className="text-[#595959]">For questions about these terms:</p>
+            <p className="text-[#595959]">Lokl is operated by Ujjwal Deshlahare, Founder &amp; Sole Proprietor. For questions about these terms:</p>
             <ul className="mt-2 space-y-1.5 text-[#595959]">
               <li>Email: <a href="mailto:hello@shoplokl.in" className="text-[#0A1F5C] font-semibold hover:underline">hello@shoplokl.in</a></li>
               <li>Phone: <a href="tel:+917719052107" className="text-[#0A1F5C] font-semibold hover:underline">+91 7719052107</a></li>

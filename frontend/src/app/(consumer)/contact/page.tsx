@@ -49,7 +49,7 @@ export default function ContactPage() {
 
           <section>
             <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Where we are</h2>
-            <p className="text-[#595959]">Bhilai, Chhattisgarh — Lokl Technologies.</p>
+            <p className="text-[#595959]">Bhilai, Chhattisgarh — Lokl, operated by Ujjwal Deshlahare (Founder &amp; Sole Proprietor).</p>
           </section>
         </div>
       </div>

@@ -45,19 +45,25 @@ export default function PrivacyPage() {
             <ul className="mt-2 space-y-1.5 text-[#595959] list-disc list-inside">
               <li><strong>Cloudinary</strong> — image storage for product and store photos</li>
               <li><strong>MongoDB Atlas</strong> — database for account, order and product data</li>
-              <li><strong>Twilio</strong> — WhatsApp and SMS notifications for order updates and OTPs</li>
+              <li><strong>Gupshup</strong> — WhatsApp and SMS notifications for order updates and OTPs</li>
+              <li><strong>Razorpay</strong> — processes online payments (UPI, cards, netbanking) when you choose to pay online</li>
             </ul>
             <p className="mt-3 text-[#595959]">Each of these services has its own privacy policy. We do not grant them access to your data beyond what is strictly required for the service.</p>
           </section>
 
           <section>
             <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Payments</h2>
-            <p className="text-[#595959]">Lokl currently only supports <strong>Pay at Delivery</strong>. We do not collect, process or store any card numbers, UPI IDs or payment credentials. Payment is made directly to the delivery rider in cash or via UPI.</p>
+            <p className="text-[#595959]">
+              Lokl supports both <strong>Pay at Delivery</strong> (cash or UPI, paid directly to the rider) and{" "}
+              <strong>online prepaid payment</strong> (UPI, cards, netbanking) where available. When you pay online,
+              our payment partner Razorpay processes your payment details directly — we do not collect, process or
+              store your card numbers or UPI credentials ourselves. Try &amp; Buy orders are Pay at Delivery only.
+            </p>
           </section>
 
           <section>
             <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Location data</h2>
-            <p className="text-[#595959]">GPS coordinates are only collected when you explicitly tap &ldquo;Detect my location&rdquo;. We use these coordinates solely to confirm your delivery area falls within Bhilai. We do not track your location continuously or in the background.</p>
+            <p className="text-[#595959]">GPS coordinates are only collected when you explicitly tap &ldquo;Detect my location&rdquo;. We use these coordinates solely to confirm whether your delivery area is currently serviceable on Lokl. We do not track your location continuously or in the background.</p>
           </section>
 
           <section>
@@ -78,7 +84,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Contact</h2>
-            <p className="text-[#595959]">For any privacy-related questions:</p>
+            <p className="text-[#595959]">Lokl is operated by Ujjwal Deshlahare, Founder &amp; Sole Proprietor. For any privacy-related questions:</p>
             <ul className="mt-2 space-y-1.5 text-[#595959]">
               <li>Email: <a href="mailto:hello@shoplokl.in" className="text-[#0A1F5C] font-semibold hover:underline">hello@shoplokl.in</a></li>
               <li>Phone: <a href="tel:+917719052107" className="text-[#0A1F5C] font-semibold hover:underline">+91 7719052107</a></li>
