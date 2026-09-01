@@ -7324,6 +7324,14 @@ async def kyc_submit(payload: KycSubmit, user: dict = Depends(merchant_user)):
             "archived_at": now,
         }}
     await db.merchants.update_one({"id": user["sub"]}, mutation)
+    # Audit fix (2026-09) — this endpoint has no guard against being called
+    # by an already-approved, already-published merchant (e.g. re-submitting
+    # after an unrelated edit) — it unconditionally moves kyc_status to
+    # "submitted" regardless of the prior state. Whatever the reason,
+    # _maybe_autopublish_store must re-run so a currently-live store
+    # correctly stops being customer-visible the instant KYC is no longer
+    # approved, same as an explicit admin rejection/hold.
+    await _maybe_autopublish_store(user["sub"])
     return {"ok": True, "kyc_status": "submitted"}
 
 @api.get("/merchant/kyc/status")
@@ -7551,19 +7559,24 @@ async def storefront_update(payload: StorefrontUpdate, user: dict = Depends(merc
 
 @api.post("/merchant/publish")
 async def merchant_publish(user: dict = Depends(merchant_user)):
+    """Manual "Go Live" button — kept for the merchant who wants to trigger
+    it explicitly rather than wait for autopublish to notice. The
+    eligibility checks below exist purely for specific, actionable error
+    messages (403/400) — the actual state mutation is NOT duplicated here;
+    it delegates to _maybe_autopublish_store (audit fix, 2026-09) so this
+    button and every other publish trigger can never diverge on what
+    "eligible" means or forget the store.kyc_status sync that function
+    also performs. A pre-check passing but the delegated call still
+    returning False (e.g. someone deleted the storefront a moment ago) is
+    a harmless, vanishingly rare race — the response just reports current
+    reality either way."""
     m = await db.merchants.find_one({"id": user["sub"]}, {"_id": 0})
     if m.get("kyc_status") != "approved": raise HTTPException(403, "KYC not approved")
     store_id = f"store-m-{user['sub']}"
     if not await db.stores.find_one({"id": store_id}): raise HTTPException(400, "Storefront not set up")
     count = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     if count < 1: raise HTTPException(400, "Add at least 1 product before publishing")
-    await db.stores.update_one({"id": store_id},
-        {"$set": {"published": True, "product_count": count,
-                  "live_at": datetime.now(timezone.utc).isoformat()}})
-    await db.merchants.update_one({"id": user["sub"]}, {"$push": {"notifications": {
-        "type": "go-live", "title": "Your store is going live",
-        "body": "Your storefront will be live across Lokl within 1 hour.",
-        "time": datetime.now(timezone.utc).isoformat()}}})
+    await _maybe_autopublish_store(user["sub"])
     return {"ok": True, "go_live_eta_minutes": 60}
 
 
@@ -7692,26 +7705,110 @@ async def _validate_l1_l2(l1_id: str, l2_id: str, gender: str):
             raise HTTPException(400, "gender required for this category")
 
 async def _maybe_autopublish_store(merchant_id: str) -> bool:
-    """Auto-publish the merchant's store once KYC is approved, the storefront exists,
-    and there is at least one un-paused product. Idempotent and safe to call after every
-    product mutation. Returns True if the store was just flipped to published.
+    """THE canonical store-publish-state reconciliation function — BOTH
+    directions. Call this after ANY event that can change whether a store
+    should be live: product create/update/unpause, storefront create/
+    update, bulk product actions/import, staged-WhatsApp publish, and
+    every KYC status change (approval, rejection, hold, resubmission).
+    Idempotent and cheap — always safe to call, including when nothing
+    changes.
 
-    This kills a recurring UX bug where merchants who "took products live" never noticed
-    the separate store-level Go-Live step, so their store stayed `published=False` and
-    invisible to customers.
+    Does up to three jobs, always in this order:
+
+    1. Keeps `store.kyc_status` in sync with `merchant.kyc_status`.
+       `_visible_store_filter()` (the query every customer-facing store/
+       product listing uses) checks `store.kyc_status == "approved"`
+       directly on the STORE document — a denormalized snapshot, not a
+       live join against merchants (deliberate: every listing/feed query
+       here is a plain Mongo `.find()` filter dict, not a $lookup
+       aggregation, and keeping it that way avoids a real performance
+       regression across every one of those call sites for what would
+       otherwise be a rarely-changing field). This resync runs on every
+       call, unconditionally, so the snapshot can never drift for long
+       regardless of which event last touched this merchant.
+    2. If KYC is NOT (or no longer) approved: un-publishes an already-
+       published store. Merchant KYC status is the source of truth for
+       visibility in both directions — a store must stop being customer-
+       visible the moment its merchant's approval is no longer current
+       (admin_reject, admin_hold, or a merchant resubmitting KYC after
+       edits all move kyc_status away from "approved"). This step ONLY
+       flips `published` to False — no product or storefront document is
+       touched or deleted, and `product_count`/`live_at` are left exactly
+       as they were at the moment of unpublishing. A later re-approval
+       runs this same function again and transparently re-publishes if
+       the store still qualifies, exactly like a first-time autopublish —
+       including refreshing `live_at` to that new go-live moment, same as
+       any other publish transition (it tracks "currently live since",
+       not "first ever went live").
+    3. If KYC IS approved: auto-publishes once the storefront exists and
+       there is at least one un-paused product — the same three-condition
+       invariant regardless of what order they were satisfied in. Returns
+       True if the store was just flipped to published (step 2's
+       unpublish transition is not reported through the return value —
+       nothing currently needs to react to it the way
+       `_create_or_setup_storefront_for_merchant` reacts to a fresh
+       publish).
+
+    This kills a recurring UX bug where merchants who "took products live"
+    never noticed the separate store-level Go-Live step, so their store
+    stayed `published=False` and invisible to customers — the sibling bug
+    where a merchant approved (or a product unpaused) after their
+    storefront/product setup was already done never got re-evaluated at
+    all — AND the reverse-direction bug where a merchant whose KYC moved
+    away from approved kept a previously-published store fully visible to
+    customers indefinitely, since nothing ever re-checked it either. See
+    migrations/035_reconcile_autopublish_and_kyc_sync.py for the one-time
+    backfill covering stores already stuck this way before this fix
+    shipped — this function is the ongoing prevention, not a substitute
+    for it.
     """
     m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0, "kyc_status": 1})
-    if not m or m.get("kyc_status") != "approved":
+    if not m:
         return False
     store_id = f"store-m-{merchant_id}"
-    store = await db.stores.find_one({"id": store_id}, {"_id": 0, "published": 1})
-    if not store or store.get("published"):
+    store = await db.stores.find_one(
+        {"id": store_id}, {"_id": 0, "published": 1, "kyc_status": 1, "paused": 1, "is_deleted": 1},
+    )
+    if not store:
+        return False
+    # Soft-deleted is a stronger exclusion than paused (see
+    # _visible_store_filter()'s own comment: "never surfaced") — skip this
+    # store entirely, including the kyc_status housekeeping below, rather
+    # than just the publish step. Matches migrations/035's own top-level
+    # `is_deleted: {"$ne": True}}` query scope, so the live function and
+    # the reconciliation migration can never disagree about a deleted store.
+    if store.get("is_deleted"):
+        return False
+    if store.get("kyc_status") != m.get("kyc_status"):
+        await db.stores.update_one({"id": store_id}, {"$set": {"kyc_status": m.get("kyc_status")}})
+    if m.get("kyc_status") != "approved":
+        # Reverse direction: KYC is not (or no longer) approved. A store
+        # that was never published has nothing to do here. A previously-
+        # published store must stop being customer-visible — but only
+        # that flag: products, storefront content, product_count, and the
+        # original `live_at` timestamp are left completely intact, so a
+        # later re-approval has everything it needs to come straight back.
+        if store.get("published"):
+            await db.stores.update_one({"id": store_id}, {"$set": {"published": False}})
+        return False
+    if store.get("published"):
+        return False
+    # An admin-suspended store must never be silently flipped to published
+    # — it would still be correctly hidden by _visible_store_filter()'s own
+    # `paused` check, but "published" is meant to record "has genuinely
+    # gone live", and doing that behind a suspension is confusing state to
+    # leave lying around for no operational benefit. admin_unpause_store()
+    # calls this function after lifting a suspension specifically so an
+    # otherwise-eligible store still converges to published once unpaused,
+    # rather than needing yet another unrelated mutation to notice.
+    if store.get("paused"):
         return False
     cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     if cnt < 1:
         return False
     await db.stores.update_one({"id": store_id}, {"$set": {
         "published": True,
+        "kyc_status": "approved",
         "product_count": cnt,
         "live_at": datetime.now(timezone.utc).isoformat(),
     }})
@@ -8069,7 +8166,7 @@ async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(
 @api.patch("/merchant/products/{pid}")
 async def quick_update_product(pid: str, payload: dict, user: dict = Depends(merchant_user)):
     """Quick partial update — price, mrp, total_stock, paused, status only."""
-    product = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0, "id": 1, "price": 1, "mrp": 1})
+    product = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0, "id": 1, "price": 1, "mrp": 1, "store_id": 1})
     if not product:
         raise HTTPException(404)
     allowed = {"price", "mrp", "total_stock", "paused", "status"}
@@ -8080,6 +8177,21 @@ async def quick_update_product(pid: str, payload: dict, user: dict = Depends(mer
         update["discount_percent"] = _calculate_discount_percent(effective_mrp, effective_price)
     if update:
         await db.products.update_one({"id": pid}, {"$set": update})
+        # Audit fix (2026-09) — this is the fast toggle path a "pause/
+        # unpause" UI control most plausibly calls; it used to skip both
+        # the store's product_count recompute AND the autopublish
+        # reconciliation that every other paused-touching path already
+        # does (admin_pause_product/admin_unpause_product, _apply_product_
+        # update, bulk actions). An unpause through here — including the
+        # first-ever unpaused product on an otherwise-eligible store —
+        # silently never re-evaluated whether the store should go live.
+        # Only worth the extra round-trip when `paused` was actually
+        # touched; price/mrp/stock/status changes don't affect eligibility.
+        if "paused" in update and product.get("store_id"):
+            store_id = product["store_id"]
+            cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
+            await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
+            await _maybe_autopublish_store(user["sub"])
     return {"ok": True}
 
 @api.post("/merchant/ai/enhance-image")
@@ -10356,6 +10468,15 @@ async def admin_approve(mid: str, admin: dict = Depends(require_admin)):
     },
         "$push": {"notifications": {"type": "kyc-approved", "title": "Your KYC is approved",
             "body": "Welcome aboard! Set up your storefront and start adding products.", "time": now}}})
+    # Audit fix (2026-09) — a merchant who already has a storefront and
+    # unpaused products at the moment their KYC gets approved here used to
+    # stay stuck at published=False forever: nothing else was going to
+    # touch this store unless some LATER, unrelated product mutation
+    # happened to fire the same check. _maybe_autopublish_store is the
+    # canonical reconciliation function (also syncs store.kyc_status,
+    # which _visible_store_filter reads) — safe/idempotent to call
+    # unconditionally even when no storefront exists yet.
+    await _maybe_autopublish_store(mid)
     m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1, "store_name": 1})
     if m and m.get("phone"):
         try:
@@ -10383,6 +10504,13 @@ async def admin_reject(mid: str, body: dict = None, admin: dict = Depends(requir
     },
         "$push": {"notifications": {"type": "kyc-rejected", "title": "KYC needs attention",
             "body": reason, "time": now}}})
+    # Audit fix (2026-09) — KYC moving away from "approved" must be
+    # reflected in store visibility, not just the merchant document. Before
+    # this, a merchant whose store was already live stayed fully visible
+    # to customers indefinitely after a rejection — _maybe_autopublish_store
+    # now un-publishes (never deletes) in this exact situation; a no-op if
+    # the store was never published or doesn't exist yet.
+    await _maybe_autopublish_store(mid)
     return {"ok": True}
 
 @api.post("/admin/merchants/{mid}/hold")
@@ -10398,6 +10526,10 @@ async def admin_hold(mid: str, body: dict = None, admin: dict = Depends(require_
         "kyc_status": "on_hold", "hold_comment": comment, "hold_at": now,
     }, "$push": {"notifications": {"type": "kyc-on-hold", "title": "KYC on hold — action needed",
             "body": comment, "time": now}}})
+    # Audit fix (2026-09) — same reasoning as admin_reject: a hold moves
+    # kyc_status away from "approved" too, and must un-publish an
+    # already-live store the same way a rejection does.
+    await _maybe_autopublish_store(mid)
     return {"ok": True}
 
 @api.post("/admin/merchant/{mid}/activate-plan")
@@ -10445,6 +10577,12 @@ async def merchant_kyc_resubmit(user: dict = Depends(merchant_user)):
             "archived_at": now,
         }},
     })
+    # Defensive consistency (2026-09) — this path can only ever fire from
+    # "on_hold" (guarded above), which means any store would already have
+    # been un-published by admin_hold()'s own reconciliation call. Calling
+    # this here too keeps the store's kyc_status snapshot honestly synced
+    # to "submitted" rather than relying on that guarantee holding forever.
+    await _maybe_autopublish_store(user["sub"])
     return {"ok": True}
 
 
@@ -10781,6 +10919,10 @@ async def admin_unpause_product(pid: str, admin: dict = Depends(require_admin)):
     if p:
         cnt = await db.products.count_documents({"store_id": p["store_id"], "paused": {"$ne": True}})
         await db.stores.update_one({"id": p["store_id"]}, {"$set": {"product_count": cnt}})
+        # Audit fix (2026-09) — unpausing the store's only/first eligible
+        # product must re-evaluate whether the store should go live, same
+        # as every other product-mutation call site already does.
+        await _maybe_autopublish_store(p["merchant_id"])
     return {"ok": True}
 
 @api.delete("/admin/products/{pid}")
@@ -10801,6 +10943,15 @@ async def admin_pause_store(sid: str, admin: dict = Depends(require_admin)):
 @api.post("/admin/stores/{sid}/unpause")
 async def admin_unpause_store(sid: str, admin: dict = Depends(require_admin)):
     await db.stores.update_one({"id": sid}, {"$set": {"paused": False}})
+    # _maybe_autopublish_store now deliberately refuses to publish a
+    # paused store (see its own comment) — lifting the suspension is
+    # exactly the moment that guard needs re-checking, for a store that
+    # became otherwise-eligible (KYC approved, products added) WHILE it
+    # was suspended and would otherwise stay stuck at published=False
+    # forever after unpausing, same bug class as everything else here.
+    s = await db.stores.find_one({"id": sid}, {"_id": 0, "merchant_id": 1})
+    if s and s.get("merchant_id"):
+        await _maybe_autopublish_store(s["merchant_id"])
     return {"ok": True}
 
 # G25 — customer-facing store CONTENT an admin can clean up (capitalization,
