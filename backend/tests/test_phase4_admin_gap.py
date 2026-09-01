@@ -170,6 +170,7 @@ class TestStoreDeleteOtpMocked:
         email = f"phase4_{uniq}@lokl.in"
         phone = f"+9199{str(uuid.uuid4().int)[:8]}"
         payload = {
+            "terms_accepted": True,
             "email": email, "password": "Phase4@2026",
             "store_name": f"Phase4 Store {uniq}", "owner_name": "QA Disposable",
             "phone": phone, "city": "Bhilai",

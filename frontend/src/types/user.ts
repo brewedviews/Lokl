@@ -91,6 +91,11 @@ export interface Merchant {
   paused?: boolean;
   published?: boolean;
   created_at: IsoDateTime;
+  /** Merchant Terms & Agreement consent — absent/false for merchants who
+   *  registered before this was enforced (see migration 034). */
+  terms_accepted?: boolean;
+  terms_version?: string | null;
+  terms_accepted_at?: IsoDateTime | null;
 }
 
 /** Embedded storefront record on a merchant doc (and mirrored to stores). */

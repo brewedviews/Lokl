@@ -32,7 +32,7 @@ def _admin_token():
 def _seed_merchant(label):
     email = f"mm_{label}_{uuid.uuid4().hex[:6]}@lokl.in"
     pw = "Multi@2026"
-    reg = requests.post(f"{API}/auth/register", json={
+    reg = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": email, "password": pw, "store_name": f"MM {label} {uuid.uuid4().hex[:4]}",
         "owner_name": f"MM {label}", "phone": f"+9199{str(uuid.uuid4().int)[:8]}", "city": "Bhilai",
     }, timeout=10)

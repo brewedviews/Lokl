@@ -42,7 +42,7 @@ def new_merchant():
     """Register a brand-new merchant and return (email, password, token, id)."""
     email = f"test_kyc_{int(time.time())}@bharat-test.com"
     pwd = "Pass@123"
-    payload = {
+    payload = {"terms_accepted": True, 
         "email": email,
         "password": pwd,
         "store_name": "TEST Bhilai Boutique",
@@ -311,7 +311,7 @@ def test_analytics_csv_download(new_merchant):
 # ---------- Admin reject flow (separate merchant) ----------
 def test_admin_reject_flow(admin_headers):
     email = f"test_reject_{int(time.time())}@bharat-test.com"
-    reg = requests.post(f"{API}/auth/register", json={
+    reg = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": email, "password": "Pass@123",
         "store_name": "TEST Reject Store", "owner_name": "RJ", "city": "Raipur",
     })

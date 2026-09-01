@@ -22,7 +22,7 @@ def fresh_merchant():
     """Register a fresh merchant + KYC + admin-approve + publish. Returns auth dict."""
     email = f"phase2_{uuid.uuid4().hex[:8]}@lokl.in"
     pw = "Phase2@2026"
-    reg = requests.post(f"{API}/auth/register", json={
+    reg = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": email, "password": pw, "store_name": f"Phase2 Store {uuid.uuid4().hex[:4]}",
         "owner_name": "P2 Owner", "phone": "+919999900008", "city": "Bhilai",
     }, timeout=10)

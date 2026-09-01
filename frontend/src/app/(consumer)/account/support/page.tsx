@@ -45,7 +45,7 @@ import type { Order } from "@/types";
 type View = "list" | "reason" | "general" | "chat";
 type ComplaintType = "return" | "missing_item" | "damaged_item" | "delivery_issue" | "general";
 
-const GENERAL_CATEGORIES = ["Payment", "Account", "Delivery", "Product", "Other"] as const;
+const GENERAL_CATEGORIES = ["Payment", "Account", "Delivery", "Product", "Fake / counterfeit product", "Other"] as const;
 
 /** Reused, not invented — COMPLAINT_TYPES is the backend's own real enum
  *  (server.py). Different order-status buckets surface different
@@ -120,6 +120,11 @@ function StatusPill({ status }: { status: string }) {
 export default function SupportPage() {
   const sp = useSearchParams();
   const prefillOrderId = sp.get("order_id") || "";
+  // Lets a "Report a fake/counterfeit product" link (Terms page, product
+  // page) deep-link straight into the general composer with the right
+  // category pre-selected, instead of dropping the reporter on the list
+  // screen to hunt for it themselves.
+  const prefillCategory = sp.get("category") || "";
   const phone = useCustomerAuthStore((s) => s.phone) ?? "";
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -128,10 +133,10 @@ export default function SupportPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [ordersState, setOrdersState] = useState<"loading" | "ready" | "error">("loading");
   const [selectedOrder, setSelectedOrder] = useState(prefillOrderId);
-  const [generalCategory, setGeneralCategory] = useState<string>("");
+  const [generalCategory, setGeneralCategory] = useState<string>(prefillCategory);
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<View>(prefillOrderId ? "reason" : "list");
+  const [view, setView] = useState<View>(prefillOrderId ? "reason" : prefillCategory ? "general" : "list");
   const [bypassDuplicateGuard, setBypassDuplicateGuard] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const activeTicketIdRef = useRef<string | null>(null);

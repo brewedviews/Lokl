@@ -94,7 +94,7 @@ def fresh_merchant_no_store(session):
     feature targets. /auth/register never auto-creates a stores document."""
     suffix = uuid.uuid4().hex[:8]
     phone = f"9{int(time.time() * 1000) % 10 ** 9:09d}"
-    reg = session.post(f"{API}/auth/register", json={
+    reg = session.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": f"sf_setup_{suffix}@lokl.in", "password": "SetupTest@2026",
         "store_name": f"Setup Test {suffix}", "owner_name": "Setup Owner",
         "phone": phone, "city": "Bhilai",
@@ -248,7 +248,7 @@ class TestMerchantFlowUnaffectedAndInteroperates:
         refactor: KYC-approved merchant, valid payload -> 200 + upsert."""
         suffix = uuid.uuid4().hex[:8]
         phone = f"9{int(time.time() * 1000 + 1) % 10 ** 9:09d}"
-        reg = session.post(f"{API}/auth/register", json={
+        reg = session.post(f"{API}/auth/register", json={"terms_accepted": True, 
             "email": f"sf_merchant_flow_{suffix}@lokl.in", "password": "MerchTest@2026",
             "store_name": f"Merchant Flow {suffix}", "owner_name": "Owner",
             "phone": phone, "city": "Bhilai",

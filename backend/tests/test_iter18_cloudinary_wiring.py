@@ -44,7 +44,7 @@ def merchant_creds():
 
 @pytest.fixture(scope="module")
 def merchant_token(session, merchant_creds):
-    payload = {**merchant_creds, "owner_name": "Iter18 Owner", "city": "Bhilai"}
+    payload = {**merchant_creds, "owner_name": "Iter18 Owner", "city": "Bhilai", "terms_accepted": True}
     r = session.post(f"{API}/auth/register", json=payload, timeout=15)
     if r.status_code not in (200, 201):
         # try login if it already exists

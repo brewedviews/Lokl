@@ -90,7 +90,7 @@ def admin_auth(session):
 def _register_merchant(session):
     suffix = uuid.uuid4().hex[:8]
     phone = f"9{int(time.time() * 1000) % 10 ** 9:09d}"
-    r = session.post(f"{API}/auth/register", json={
+    r = session.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "store_name": f"Onboarding Status Test {suffix}", "owner_name": "Test Owner",
         "phone": phone, "city": "Bhilai",
     }, timeout=15)

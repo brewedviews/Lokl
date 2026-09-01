@@ -10,7 +10,7 @@ API = BASE + "/api"
 
 def _new_merchant(phone="+919999900000"):
     email = f"phaseB_{uuid.uuid4().hex[:8]}@lokl.in"
-    r = requests.post(f"{API}/auth/register", json={
+    r = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": email, "password": "PhaseB@2026",
         "store_name": f"PhaseB {uuid.uuid4().hex[:4]}",
         "owner_name": "Owner", "phone": phone, "city": "Bhilai",
@@ -25,7 +25,7 @@ def _admin_token():
 
 
 def test_register_without_phone_fails():
-    r = requests.post(f"{API}/auth/register", json={
+    r = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": f"nophone_{uuid.uuid4().hex[:6]}@lokl.in",
         "password": "X@2026", "store_name": "X", "owner_name": "X",
     }, timeout=30)
@@ -33,7 +33,7 @@ def test_register_without_phone_fails():
 
 
 def test_register_short_phone_fails():
-    r = requests.post(f"{API}/auth/register", json={
+    r = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": f"shortphone_{uuid.uuid4().hex[:6]}@lokl.in",
         "password": "X@2026", "store_name": "X", "owner_name": "X",
         "phone": "12345",
@@ -45,7 +45,7 @@ def test_duplicate_phone_fails():
     phone = f"+9199{str(uuid.uuid4().int)[:8]}"
     _new_merchant(phone=phone)
     # Same phone, different email → must reject
-    r = requests.post(f"{API}/auth/register", json={
+    r = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": f"dup_{uuid.uuid4().hex[:6]}@lokl.in",
         "password": "X@2026", "store_name": "X", "owner_name": "X",
         "phone": phone,

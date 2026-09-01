@@ -144,7 +144,7 @@ def test_login_invalid(session):
 
 def test_register_and_me(session):
     email = f"test_{int(time.time())}@bharat-test.com"
-    payload = {
+    payload = {"terms_accepted": True, 
         "email": email,
         "password": "Pass@123",
         "store_name": "Test Boutique",

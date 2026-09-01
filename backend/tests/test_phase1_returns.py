@@ -24,7 +24,7 @@ def merchant():
     """Register + KYC submit + admin approve + publish store. Add 2 products: one return-eligible, one not."""
     email = f"phase1_{uuid.uuid4().hex[:8]}@lokl.in"
     pw = "Phase1@2026"
-    reg = requests.post(f"{API}/auth/register", json={
+    reg = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": email, "password": pw, "store_name": f"Phase1 Store {uuid.uuid4().hex[:4]}",
         "owner_name": "Phase1 Owner", "phone": f"+9199{str(uuid.uuid4().int)[:8]}", "city": "Bhilai",
     }, timeout=10)

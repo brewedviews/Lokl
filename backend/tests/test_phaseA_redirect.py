@@ -18,7 +18,7 @@ def _admin_token():
 def _register_merchant():
     email = f"phaseA_{uuid.uuid4().hex[:8]}@lokl.in"
     phone = f"+9199{str(uuid.uuid4().int)[:8]}"
-    r = requests.post(f"{API}/auth/register", json={
+    r = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": email, "password": "PhaseA@2026",
         "store_name": f"PhaseA {uuid.uuid4().hex[:4]}",
         "owner_name": "PhaseA Owner", "phone": phone, "city": "Bhilai",

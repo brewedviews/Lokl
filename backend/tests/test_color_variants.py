@@ -70,7 +70,7 @@ def admin_auth(session):
 def approved_merchant_with_store(session):
     suffix = uuid.uuid4().hex[:8]
     phone = f"9{int(time.time() * 1000) % 10 ** 9:09d}"
-    reg = session.post(f"{API}/auth/register", json={
+    reg = session.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": f"colorvariant_test_{suffix}@lokl.in", "password": "ColorTest@2026",
         "store_name": f"Color Variant Test {suffix}", "owner_name": "Owner",
         "phone": phone, "city": "Bhilai",
@@ -344,7 +344,7 @@ class TestVariantImageOwnershipSafety:
 
         suffix = uuid.uuid4().hex[:8]
         phone = f"9{int(time.time() * 1000 + 2) % 10 ** 9:09d}"
-        reg2 = session.post(f"{API}/auth/register", json={
+        reg2 = session.post(f"{API}/auth/register", json={"terms_accepted": True, 
             "email": f"other_merchant_{suffix}@lokl.in", "password": "Other@2026",
             "store_name": f"Other {suffix}", "owner_name": "Other", "phone": phone, "city": "Bhilai",
         }, timeout=15)

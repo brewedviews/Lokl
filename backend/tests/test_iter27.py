@@ -224,7 +224,7 @@ class TestKycFlow:
     def test_submit_then_approve(self, admin_headers):
         # register fresh
         email = f"TEST_iter27_{uuid.uuid4().hex[:6]}@lokl.in"
-        reg = requests.post(f"{BASE_URL}/api/auth/register", json={
+        reg = requests.post(f"{BASE_URL}/api/auth/register", json={"terms_accepted": True, 
             "email": email, "password": "Iter27@2026", "store_name": "Iter27 Store",
             "owner_name": "Iter27 Owner", "phone": "9" + str(int(time.time()))[-9:],
             "city": "Bhilai",

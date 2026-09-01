@@ -92,7 +92,7 @@ def approved_merchant_with_store(session):
     and predictable. Cleaned up after the test."""
     suffix = uuid.uuid4().hex[:8]
     phone = f"9{int(time.time() * 1000) % 10 ** 9:09d}"
-    reg = session.post(f"{API}/auth/register", json={
+    reg = session.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": f"discount_test_{suffix}@lokl.in", "password": "DiscTest@2026",
         "store_name": f"Discount Test {suffix}", "owner_name": "Owner",
         "phone": phone, "city": "Bhilai",

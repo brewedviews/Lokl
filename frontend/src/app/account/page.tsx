@@ -7,7 +7,7 @@ import { useSearchParams } from "next/navigation";
 import {
   Save, Package, MapPin, Plus, Trash2, Home as HomeIcon,
   TicketPercent, HelpCircle, Settings, ChevronRight, LogOut, Pencil, RotateCcw,
-  Phone, Info, FileText, Shield, Truck, Copy, Check,
+  Phone, Info, FileText, Shield, Truck, Copy, Check, ShieldAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -44,6 +44,7 @@ const VALID_TILES: TileKey[] = ["orders", "addresses", "coupons", "profile", "le
 // Footer.tsx (Terms/Privacy) or not linked anywhere at all (the other 5).
 // This list is their first reachable entry point in the app.
 const POLICY_LINKS: { href: string; label: string; sub: string; icon: typeof Phone }[] = [
+  { href: "/account/support?category=Fake+%2F+counterfeit+product", label: "Report a fake or counterfeit product", sub: "Tell us about a listing — we'll investigate", icon: ShieldAlert },
   { href: "/contact",        label: "Contact Us",                sub: "Reach our support team",        icon: Phone },
   { href: "/about",          label: "About Us",                  sub: "Our story and mission",          icon: Info },
   { href: "/faq",            label: "FAQs",                      sub: "Common questions, answered",     icon: HelpCircle },

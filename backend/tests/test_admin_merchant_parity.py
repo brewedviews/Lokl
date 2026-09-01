@@ -83,7 +83,7 @@ def fresh_merchant_with_store(session):
     any shared demo data. Cleaned up after the test."""
     suffix = uuid.uuid4().hex[:8]
     phone = f"9{int(time.time()) % 10**9:09d}"
-    reg = session.post(f"{API}/auth/register", json={
+    reg = session.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": f"parity_test_{suffix}@lokl.in", "password": "ParityTest@2026",
         "store_name": f"Parity Test {suffix}", "owner_name": "Parity Owner",
         "phone": phone, "city": "Bhilai",

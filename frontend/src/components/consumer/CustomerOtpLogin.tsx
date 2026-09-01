@@ -25,6 +25,7 @@
  * branding from code. Nothing provider-specific remains in this file.
  */
 import { useState } from "react";
+import Link from "next/link";
 import { Phone, ShieldCheck, ArrowRight, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -146,7 +147,8 @@ export function CustomerOtpLogin({ title, subtitle, onSuccess }: Props) {
             {busy ? "Sending…" : <>Send OTP <ArrowRight size={14} /></>}
           </button>
           <p className="text-[11px] text-text-muted mt-2">
-            We&apos;ll send a 6-digit code to your WhatsApp. By continuing you agree to our T&amp;Cs.
+            We&apos;ll send a 6-digit code to your WhatsApp. By continuing you agree to our{" "}
+            <Link href="/terms" className="underline underline-offset-2 hover:text-brand-primary">T&amp;Cs</Link>.
           </p>
         </form>
       ) : (

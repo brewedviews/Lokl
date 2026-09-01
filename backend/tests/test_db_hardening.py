@@ -36,7 +36,7 @@ def _seed_merchant_with_stock(stock_qty: int):
     """Seed one approved merchant + storefront + one published product with the
     given stock quantity. Returns (mid, h, pid, price)."""
     email = f"dbh_{uuid.uuid4().hex[:8]}@lokl.in"
-    reg = requests.post(f"{API}/auth/register", json={
+    reg = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": email, "password": "Dbh@2026",
         "store_name": f"DBH {uuid.uuid4().hex[:4]}", "owner_name": "DBH",
         "phone": f"+9199{str(uuid.uuid4().int)[:8]}", "city": "Bhilai",

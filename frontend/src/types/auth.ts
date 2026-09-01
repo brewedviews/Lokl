@@ -17,6 +17,9 @@ export interface MerchantRegisterPayload {
   owner_name: string;
   phone: string;
   city?: string;
+  /** Explicit click-through consent to the Merchant Terms & Agreement.
+   *  Server rejects registration with 400 when this is not `true`. */
+  terms_accepted: boolean;
 }
 
 export interface MerchantAuthResponse {

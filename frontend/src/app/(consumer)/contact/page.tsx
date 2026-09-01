@@ -40,7 +40,7 @@ export default function ContactPage() {
             <h2 className="font-display text-xl font-medium tracking-tight text-[#0A1F5C] mb-3">Want to sell on Lokl?</h2>
             <p className="text-[#595959]">
               Free to list, zero commission. WhatsApp us at the number above or head to our{" "}
-              <a href="https://lokl.up.railway.app/merchant/register" className="text-[#0A1F5C] font-semibold hover:underline">
+              <a href="https://merchant.shoplokl.in" className="text-[#0A1F5C] font-semibold hover:underline">
                 merchant sign-up page
               </a>{" "}
               to get started.

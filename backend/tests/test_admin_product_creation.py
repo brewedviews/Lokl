@@ -98,7 +98,7 @@ def fresh_unapproved_merchant(session):
     to exercise admin_override. Cleaned up after the test."""
     suffix = uuid.uuid4().hex[:8]
     phone = f"9{int(time.time()) % 10**9:09d}"
-    r = session.post(f"{API}/auth/register", json={
+    r = session.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": f"admintest_fresh_{suffix}@lokl.in", "password": "Fresh@2026",
         "store_name": f"AdminTest Fresh {suffix}", "owner_name": "Fresh Owner",
         "phone": phone, "city": "Bhilai",
@@ -546,7 +546,7 @@ class TestWhatsAppCreationUnaffected:
         phone10 = f"9{int(time.time()) % 10**9:09d}"
         phone_with_cc = f"91{phone10}"
 
-        reg = requests.post(f"{API}/auth/register", json={
+        reg = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
             "email": f"wa_regression_{suffix}@lokl.in", "password": "WaTest@2026",
             "store_name": f"WA Regression {suffix}", "owner_name": "WA Owner",
             "phone": phone10, "city": "Bhilai",

@@ -20,7 +20,7 @@ def launched_merchant():
     """Register → KYC → approve → storefront → 1 live product → returns (tok, mid)."""
     email = f"iter11_{uuid.uuid4().hex[:8]}@lokl.in"
     phone = f"+9199{str(uuid.uuid4().int)[:8]}"
-    r = requests.post(f"{API}/auth/register", json={
+    r = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": email, "password": "Iter11@2026",
         "store_name": f"Iter11 {uuid.uuid4().hex[:4]}",
         "owner_name": "Owner", "phone": phone, "city": "Bhilai",

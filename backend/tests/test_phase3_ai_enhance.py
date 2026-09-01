@@ -25,7 +25,7 @@ TINY_JPEG_B64 = (
 @pytest.fixture(scope="module")
 def merchant_token():
     email = f"phase3_{uuid.uuid4().hex[:8]}@lokl.in"
-    reg = requests.post(f"{API}/auth/register", json={
+    reg = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": email, "password": "Phase3@2026",
         "store_name": f"Phase3 Store {uuid.uuid4().hex[:4]}",
         "owner_name": "P3 Owner", "phone": f"+9199{str(uuid.uuid4().int)[:8]}", "city": "Bhilai",

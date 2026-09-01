@@ -1,79 +1,72 @@
 /**
- * End-of-homepage trust strip — die-cut "sticker" badges (tilted, white
- * inner ring + colored outline, whisper shadow) in place of the old plain
- * icon-and-text row. Brand colors only (navy/orange/cream), no emojis.
+ * End-of-page brand close — replaces the old "sticker badge" trio (Made in
+ * Bhilai / 45 mins delivery / Try & Buy as three decorative tilted chips)
+ * with an editorial closing statement: the brand tagline, a connected
+ * 3-step visual narrative (neighbourhood store → browse on Lokl → at your
+ * door), and a real CTA into the thing being described — rather than
+ * badges that said things without pointing anywhere.
  *
- * The "sticker" edge is a stacked box-shadow, not extra DOM nesting: a 3px
- * white ring sits closest to the fill, a further 3px colored ring sits
- * outside it (CSS box-shadow stacking paints earlier entries on top, so the
- * white ring occludes the inner half of the colored one) — that's the
- * peeled-sticker "white border, then colored outline" look from a single
- * element, plus the whisper drop shadow.
+ * Rendered unconditionally as the last thing in <main> on both the
+ * marketplace home (MarketplaceHomeClient) and every L1 category page
+ * (L1PageClient) — see those files. There is no page-level Footer (removed;
+ * StickyBottomNav covers that role), so this IS the page's closing moment.
  */
-const NAVY = "var(--color-brand-primary)";
-const ORANGE = "var(--color-brand-accent)";
+import Link from "next/link";
+import { Store, Smartphone, Bike, ArrowRight } from "lucide-react";
 
-function stickerRing(outlineColor: string) {
-  return `0 0 0 2px #FFFFFF, 0 0 0 4px ${outlineColor}, var(--shadow-2)`;
-}
+const STEPS = [
+  { icon: Store, label: "A real shop", sub: "just around the corner" },
+  { icon: Smartphone, label: "Now on Lokl", sub: "browse, then order" },
+  { icon: Bike, label: "At your door", sub: "in 45 minutes" },
+] as const;
 
-// Sized to fit all 3 in one row with room to spare at 360px width (section
-// has px-4 = 32px total side padding, so ~328px of content width there):
-// two ~92px rects + one 76px circle + 2×10px gaps ≈ 280px.
 export function TrustStickers() {
   return (
-    <section
-      className="max-w-7xl mx-auto px-4 pt-8 pb-8 sm:pb-6"
-      data-testid="trust-stickers"
-    >
-      <div className="text-center mb-5">
-        <p className="font-display font-medium text-xl sm:text-2xl tracking-tight text-brand-primary leading-tight">
-          Bhilai&apos;s own
-        </p>
-        <p className="text-[12px] text-text-muted mt-0.5">
-          neighbourhood shopping app
-        </p>
-      </div>
+    <section className="max-w-7xl mx-auto px-4 pt-8 pb-8 sm:pb-6" data-testid="trust-stickers">
+      <div className="relative overflow-hidden rounded-card-lg bg-brand-primary text-white px-6 py-10 sm:px-14 sm:py-14">
+        <div aria-hidden className="absolute -right-12 -top-12 w-48 h-48 rounded-full bg-brand-accent/10 pointer-events-none" />
+        <div aria-hidden className="absolute -left-16 -bottom-16 w-56 h-56 rounded-full bg-white/[0.04] pointer-events-none" />
 
-      <div className="flex items-center justify-center gap-2.5">
-        {/* Made in Bhilai — navy stamp */}
-        <div
-          data-testid="sticker-made-in-bhilai"
-          className="bg-brand-primary text-white rounded-card px-3.5 py-2 text-center shrink-0"
-          style={{ transform: "rotate(-5deg)", boxShadow: stickerRing(ORANGE) }}
-        >
-          <div className="text-[7px] uppercase tracking-[0.12em] text-white/70 font-medium">
-            Made in
-          </div>
-          <div className="font-display font-bold text-sm leading-tight -mt-0.5">
-            BHILAI
+        <div className="relative text-center max-w-lg mx-auto">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-white/50 font-semibold mb-3">Made in Bhilai</p>
+          <h2 className="font-display font-medium text-3xl sm:text-4xl tracking-tight leading-tight">
+            Your neighbourhood,<br /><span className="text-brand-accent">online.</span>
+          </h2>
+          <p className="mt-4 text-sm sm:text-base text-white/70 max-w-sm mx-auto">
+            Every store on Lokl is one you could walk into today — we just made it easier to find, browse and order from.
+          </p>
+        </div>
+
+        <div className="relative mt-10 max-w-2xl mx-auto">
+          <div aria-hidden className="absolute top-6 left-[16%] right-[16%] h-px bg-white/15" />
+          <div className="relative grid grid-cols-3 gap-2 sm:gap-6">
+            {STEPS.map(({ icon: Icon, label, sub }) => (
+              <div key={label} className="flex flex-col items-center text-center">
+                <span className="w-12 h-12 rounded-full bg-brand-primary border border-white/20 flex items-center justify-center">
+                  <Icon size={18} className="text-brand-accent" />
+                </span>
+                <span className="mt-3 text-xs sm:text-sm font-semibold text-white">{label}</span>
+                <span className="text-[10px] sm:text-xs text-white/50 mt-0.5">{sub}</span>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* 45 mins delivery — orange circle */}
-        <div
-          data-testid="sticker-delivery-time"
-          className="bg-brand-accent text-white rounded-pill w-[76px] h-[76px] flex flex-col items-center justify-center shrink-0"
-          style={{ transform: "rotate(3deg)", boxShadow: stickerRing(NAVY) }}
-        >
-          <div className="font-display font-bold text-xl leading-none">
-            45
-          </div>
-          <div className="text-[6px] uppercase tracking-[0.08em] font-semibold mt-0.5">
-            Mins delivery
-          </div>
-        </div>
-
-        {/* Try & Buy — cream, navy outline */}
-        <div
-          data-testid="sticker-try-buy"
-          className="bg-surface-tint text-brand-primary rounded-card px-3.5 py-2 text-center shrink-0"
-          style={{ transform: "rotate(-3deg)", boxShadow: stickerRing(NAVY) }}
-        >
-          <div className="font-display font-bold text-sm leading-tight">TRY</div>
-          <div className="font-display font-bold text-sm leading-tight -mt-0.5">
-            &amp; BUY
-          </div>
+        <div className="relative mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
+          <Link
+            href="/stores"
+            data-testid="trust-stickers-cta"
+            className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-brand-accent text-white text-sm font-semibold hover:bg-brand-accent/90 transition"
+          >
+            See stores near you <ArrowRight size={14} />
+          </Link>
+          <Link
+            href="/try-and-buy"
+            data-testid="trust-stickers-try-buy"
+            className="text-xs sm:text-sm text-white/60 hover:text-white/90 underline underline-offset-4 transition"
+          >
+            or try it on at your door, keep what you love
+          </Link>
         </div>
       </div>
     </section>

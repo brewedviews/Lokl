@@ -25,7 +25,7 @@ def fresh_merchant():
     """Register fresh merchant + KYC submit (status=submitted)."""
     email = f"iter5_{uuid.uuid4().hex[:8]}@lokl.in"
     pw = "Iter5@2026"
-    reg = requests.post(f"{API}/auth/register", json={
+    reg = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": email, "password": pw, "store_name": f"Iter5 Store {uuid.uuid4().hex[:4]}",
         "owner_name": "Iter5 Owner", "phone": f"+9199{str(uuid.uuid4().int)[:8]}", "city": "Bhilai"
     }, timeout=15)
@@ -163,7 +163,7 @@ def approved_merchant(admin_token):
     """Register + KYC submit + admin approve + storefront set up."""
     email = f"iter5p_{uuid.uuid4().hex[:8]}@lokl.in"
     pw = "Iter5@2026"
-    reg = requests.post(f"{API}/auth/register", json={
+    reg = requests.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "email": email, "password": pw, "store_name": f"Iter5 ImgStore {uuid.uuid4().hex[:4]}",
         "owner_name": "ImgOwner", "phone": f"+9199{str(uuid.uuid4().int)[:8]}", "city": "Bhilai"
     }, timeout=10).json()

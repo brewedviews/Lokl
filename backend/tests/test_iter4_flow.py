@@ -42,7 +42,7 @@ def fresh_merchant(s):
     suffix = uuid.uuid4().hex[:8]
     email = f"test_iter4_{suffix}@bharat-os.com"
     password = "TestPass@2026"
-    r = s.post(f"{BASE_URL}/api/auth/register", json={
+    r = s.post(f"{BASE_URL}/api/auth/register", json={"terms_accepted": True, 
         "email": email, "password": password,
         "store_name": f"TEST_Store_{suffix}", "owner_name": "Test Owner",
         "phone": "9000000001", "city": "Bhilai",

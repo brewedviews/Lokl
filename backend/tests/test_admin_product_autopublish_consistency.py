@@ -123,7 +123,7 @@ def fresh_kyc_approved_merchant(session, admin_auth):
     products yet — the exact starting point for every scenario below."""
     suffix = uuid.uuid4().hex[:8]
     phone = f"9{int(time.time() * 1000) % 10 ** 9:09d}"
-    reg = session.post(f"{API}/auth/register", json={
+    reg = session.post(f"{API}/auth/register", json={"terms_accepted": True, 
         "store_name": f"Autopublish Test {suffix}", "owner_name": "Test Owner",
         "phone": phone, "city": "Bhilai",
     }, timeout=15)
@@ -352,7 +352,7 @@ class TestCustomerVisibilityRespectsStoreState:
         pid = r.json()["id"]
 
         suffix = uuid.uuid4().hex[:8]
-        other_reg = session.post(f"{API}/auth/register", json={
+        other_reg = session.post(f"{API}/auth/register", json={"terms_accepted": True, 
             "store_name": f"Other Merchant {suffix}", "owner_name": "Other",
             "phone": f"8{int(time.time() * 1000) % 10 ** 9:09d}", "city": "Bhilai",
         }, timeout=15)

@@ -209,10 +209,21 @@ async def _track_merchant_last_seen(request: Request, call_next):
 
 
 # ===== Models =====
+# Bump whenever the Merchant Terms & Agreement content materially changes —
+# existing merchants keep whatever version they accepted (see migration 034);
+# it is NOT re-enforced retroactively. `MERCHANT_TERMS_VERSION` is the single
+# source of truth the register() handler stamps onto new signups.
+MERCHANT_TERMS_VERSION = "2026-09-01"
+
 class MerchantSignup(BaseModel):
     email: Optional[str] = None; password: Optional[str] = None; store_name: str; owner_name: str
     phone: str  # mandatory — used for cellular/WhatsApp contact and (soon) OTP login
     city: Optional[str] = "Bhilai"
+    # Required, explicit click-through consent to the Merchant Terms &
+    # Agreement (src/app/merchant/terms) — not just a passive link. See
+    # register() for the server-side `== True` enforcement; a merchant
+    # cannot create a store without it.
+    terms_accepted: bool = False
 
 class MerchantLogin(BaseModel): email: EmailStr; password: str
 class AdminLogin(BaseModel): email: EmailStr; password: str
@@ -462,6 +473,8 @@ async def register(request: Request, response: Response, payload: MerchantSignup
     digits = "".join(c for c in phone if c.isdigit())
     if len(digits) < 10:
         raise HTTPException(400, "Phone number is required (10+ digits)")
+    if not payload.terms_accepted:
+        raise HTTPException(400, "You must accept the Merchant Terms & Agreement to create a store")
     if payload.email and await db.merchants.find_one({"email": payload.email}, {"_id": 0}):
         raise HTTPException(400, "Email already registered")
     # Phone uniqueness check — last-10-digits canonical form, ignoring +91/91 prefixes.
@@ -474,6 +487,8 @@ async def register(request: Request, response: Response, payload: MerchantSignup
            "phone": phone, "phone_canonical": p10, "city": payload.city,
            "created_at": datetime.now(timezone.utc).isoformat(), "role": "merchant",
            "kyc_status": "draft", "kyc_submitted_at": None, "approved_at": None,
+           "terms_accepted": True, "terms_version": MERCHANT_TERMS_VERSION,
+           "terms_accepted_at": datetime.now(timezone.utc).isoformat(),
            "published": False, "storefront": None, "notifications": []}
     # Omit the key entirely rather than storing email: null — this is what
     # actually makes the partial index (idx_merchants_email_unique, filtered

@@ -94,6 +94,9 @@ interface Merchant {
   subscription_status?: string;
   plan_expires_at?: string;
   created_at?: string;
+  terms_accepted?: boolean;
+  terms_version?: string | null;
+  terms_accepted_at?: string | null;
 }
 
 interface AdminProduct {
@@ -447,6 +450,12 @@ function OverviewSection({ merchant, store, onReload }: { merchant: Merchant; st
           <Row label="Phone" value={merchant.phone || "—"} />
           <Row label="City" value={merchant.city || "—"} />
           <Row label="Created" value={fmtDate(merchant.created_at)} />
+          <Row
+            label="Merchant Terms"
+            value={merchant.terms_accepted
+              ? `Accepted${merchant.terms_version ? ` · v${merchant.terms_version}` : ""} · ${fmtDate(merchant.terms_accepted_at)}`
+              : "Not accepted"}
+          />
         </dl>
       </div>
 
