@@ -116,6 +116,20 @@ if not ADMIN_EMAIL or not ADMIN_PASSWORD_HASH:
 # inventing a new APP_ENV variable. FORCE_HTTPS keeps its original,
 # narrower job (HSTS/secure-cookie) unchanged below.
 _IS_PRODUCTION = os.environ.get("ENVIRONMENT", "").strip().lower() == "production"
+
+# Store Pickup / Reserve & Collect feature flag (2026-09 product decision) —
+# the feature (browse online -> reserve -> visit store -> try/buy in person,
+# no rider) stays fully implemented for future activation, but is NOT
+# offered in production right now. Defaults to DISABLED (missing/unset ==
+# false) so a forgotten env var never silently re-enables it. This sits
+# ABOVE the existing Pro-plan/availability eligibility logic (_attach_store_
+# avail, _attach_pdp_store_fields's inline duplicate, get_store's s["can_pickup"],
+# and create_order()'s own server-side pickup pre-check) — it does not
+# replace or duplicate that logic, every one of those call sites still ANDs
+# this flag into their existing condition. Completely independent of Try &
+# Buy: that feature uses order_type=="delivery" with a per-item
+# fulfillment_type flag, never this flag, never order_type=="pickup".
+STORE_PICKUP_ENABLED = (os.environ.get("STORE_PICKUP_ENABLED", "") or "").strip().lower() in ("1", "true", "yes")
 app = FastAPI(
     title="Lokl",
     docs_url=None if _IS_PRODUCTION else "/docs",
@@ -4350,8 +4364,11 @@ def _attach_store_avail(products: list, avail_map: dict) -> list:
         p["store_availability_rank"] = avail["rank"]
         # can_pickup: True for Pro-plan LIVE stores (rank 1) and Pro closed-by-hours (rank 3, can_order=True).
         # Gated behind Pro plan — free/starter/growth merchants do not get the pickup feature.
+        # Also gated behind STORE_PICKUP_ENABLED (2026-09 product decision —
+        # feature is production-disabled by default; this sits above the
+        # Pro-plan check below, doesn't replace it).
         is_pro = avail.get("plan", "free") == "pro"
-        p["store_can_pickup"] = is_pro and avail.get("rank", 4) in (1, 3) and avail.get("can_order", False)
+        p["store_can_pickup"] = STORE_PICKUP_ENABLED and is_pro and avail.get("rank", 4) in (1, 3) and avail.get("can_order", False)
     return products
 
 
@@ -4824,7 +4841,10 @@ async def get_store(store_id: str):
     # through _availability_map() — that's the only place "plan" normally
     # gets merged in (see _availability_map's own dict-merge). Read plan
     # straight off the store doc `s` instead.
-    s["can_pickup"] = (s.get("plan", "free") == "pro"
+    # Also gated behind STORE_PICKUP_ENABLED (2026-09 product decision) —
+    # sits above the Pro-plan check, doesn't replace it.
+    s["can_pickup"] = (STORE_PICKUP_ENABLED
+                        and s.get("plan", "free") == "pro"
                         and avail.get("rank", 4) in (1, 3)
                         and avail.get("can_order", False))
     # Real, computed order count — same merchant_ids/status-exclusion pattern
@@ -5163,7 +5183,9 @@ async def get_product(pid: str, request: Request):
         p["store_availability_rank"] = avail["rank"]
         plan = store_doc.get("plan", "free")
         is_pro = plan == "pro"
-        p["store_can_pickup"] = bool(is_pro and avail["rank"] in (1, 3) and avail["can_order"])
+        # Gated behind STORE_PICKUP_ENABLED (2026-09 product decision) —
+        # sits above the Pro-plan check, doesn't replace it.
+        p["store_can_pickup"] = bool(STORE_PICKUP_ENABLED and is_pro and avail["rank"] in (1, 3) and avail["can_order"])
     # Brand join — only attached when brand_id resolves to a real, still-
     # existing brand doc (a deleted brand soft-unlinks brand_id to null on
     # the product, but a stale reference should never surface a broken
@@ -5688,6 +5710,15 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             if order_type == "pickup":
                 store_rank = avail.get("rank", 4)
                 store_name = (store_doc or {}).get("name", sid)
+                # STORE_PICKUP_ENABLED (2026-09 product decision) — checked
+                # FIRST, before the Pro-plan check below, so a disabled
+                # feature rejects every pickup order regardless of a
+                # store's actual plan eligibility. Reuses the exact same
+                # "not available for this store" message the Pro-plan
+                # rejection already uses below — no new error path.
+                if not STORE_PICKUP_ENABLED:
+                    unavailable_stores.append(f"{store_name}: Store pickup is not available for this store")
+                    continue
                 if (store_doc or {}).get("plan", "free") != "pro":
                     unavailable_stores.append(f"{store_name}: Store pickup is not available for this store")
                     continue
