@@ -30,12 +30,13 @@ from seed_data import build_seed_docs, L1_CATEGORIES, L2_BY_L1, GENDERS
 from notifications import (
     notify_order_placed, notify_merchant_new_order,
     notify_order_rejected, notify_order_delivered,
-    notify_order_on_the_way, notify_order_cancelled, notify_rider_pickup,
-    notify_rider_return_pickup, notify_return_status, notify_customer_otp,
+    notify_order_on_the_way, notify_order_cancelled, notify_merchant_order_cancelled, notify_rider_pickup,
+    notify_rider_return_pickup, notify_return_status, RETURN_STATUS_NOTIFY_TYPES, notify_customer_otp,
     notify_merchant_otp, notify_rider_otp, send_with_fallback, APP_URL,
     notify_pickup_reserved, notify_merchant_pickup_reserved,
     notify_pickup_pending, notify_merchant_pickup_pending,
     notify_merchant_approved, notify_merchant_first_order,
+    notify_payment_failed, notify_merchant_kyc_rejected, notify_merchant_kyc_on_hold,
     get_provider, active_provider_name, TwilioProvider, MSG91Provider,
 )
 from ai_enhance import enhance_product_images
@@ -2466,6 +2467,14 @@ async def _handle_payment_failed(event: dict) -> None:
     if not rp_order_id: return
     o = await db.orders.find_one({"razorpay_order_id": rp_order_id}, {"_id": 0})
     if not o or o.get("payment_status") in ("paid", "refunded"): return
+    # Audit fix (2026-09, Gupshup reconciliation) — this order may already
+    # have been marked "failed" by an earlier delivery of a DIFFERENT
+    # webhook event for the same payment (the outer payment_webhook()'s
+    # own idempotency only dedupes an identical razorpay_event_id, not a
+    # second distinct event that happens to describe the same failure).
+    # Only notify on a genuine, first-time transition into "failed" —
+    # never on a re-run that finds the order already there.
+    already_failed = o.get("payment_status") == "failed"
     await db.orders.update_one({"id": o["id"]}, {"$set": {
         "status": "cancelled",
         "payment_status": "failed",
@@ -2477,6 +2486,12 @@ async def _handle_payment_failed(event: dict) -> None:
                             amount=float(o.get("total", 0)),
                             actor="razorpay_webhook",
                             metadata={"reason": pay.get("error_description", "")})
+    if not already_failed:
+        cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
+        if cust_phone:
+            try: notify_payment_failed(cust_phone, o["id"])
+            except Exception as _ne:
+                print(f"[notify_error] {_ne}", flush=True)
 
 
 async def _handle_refund_created(event: dict) -> None:
@@ -2534,7 +2549,7 @@ async def customer_cancel_order(oid: str, request: Request, payload: Optional[di
         for m in cancellable:
             merch = await db.merchants.find_one({"id": m}, {"_id": 0, "phone": 1})
             if merch and merch.get("phone"):
-                try: send_with_fallback(merch["phone"], f"Order {oid} was cancelled by the customer.", message_type="merchant_order_cancelled_by_customer")
+                try: notify_merchant_order_cancelled(merch["phone"], oid, already_accepted=True)
                 except Exception: pass
     else:
         await db.orders.update_one({"id": oid}, {"$set": {
@@ -2546,7 +2561,7 @@ async def customer_cancel_order(oid: str, request: Request, payload: Optional[di
         for m in (o.get("merchant_ids") or []):
             merch = await db.merchants.find_one({"id": m}, {"_id": 0, "phone": 1})
             if merch and merch.get("phone"):
-                try: send_with_fallback(merch["phone"], f"Order {oid} was cancelled by the customer before you accepted it.", message_type="merchant_order_cancelled_by_customer")
+                try: notify_merchant_order_cancelled(merch["phone"], oid, already_accepted=False)
                 except Exception: pass
     refund_initiated = False
     if o.get("payment_status") == "paid" and o.get("razorpay_payment_id"):
@@ -10496,12 +10511,18 @@ async def admin_reject(mid: str, body: dict = None, admin: dict = Depends(requir
     # fields now, same pattern `hold_comment`/`hold_at` already used for
     # the on-hold state — so "current rejection state" is always a direct
     # field read, never a scan through notification history.
+    m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1, "store_name": 1})
     await db.merchants.update_one({"id": mid}, {"$set": {
         "kyc_status": "rejected",
         "kyc_rejected_reason": reason,
         "kyc_rejected_at": now,
         "kyc_rejected_by": admin.get("id"),
     },
+        # In-app notification preserved exactly as before — this is the
+        # merchant's actual source for the rejection reason; the new
+        # WhatsApp send below carries only the store name (see
+        # notify_merchant_kyc_rejected's own docstring — Gupshup's
+        # approved template has only Variable 1).
         "$push": {"notifications": {"type": "kyc-rejected", "title": "KYC needs attention",
             "body": reason, "time": now}}})
     # Audit fix (2026-09) — KYC moving away from "approved" must be
@@ -10511,6 +10532,12 @@ async def admin_reject(mid: str, body: dict = None, admin: dict = Depends(requir
     # now un-publishes (never deletes) in this exact situation; a no-op if
     # the store was never published or doesn't exist yet.
     await _maybe_autopublish_store(mid)
+    # Gupshup reconciliation (2026-09) — closes the A5-adjacent WhatsApp
+    # gap for this event; in-app notification above is unchanged.
+    if m and m.get("phone"):
+        try: notify_merchant_kyc_rejected(m["phone"], m.get("store_name", "your store"))
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
     return {"ok": True}
 
 @api.post("/admin/merchants/{mid}/hold")
@@ -10522,6 +10549,7 @@ async def admin_hold(mid: str, body: dict = None, admin: dict = Depends(require_
     if not comment:
         raise HTTPException(400, "Comment required so the merchant knows what to fix")
     now = datetime.now(timezone.utc).isoformat()
+    m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1, "store_name": 1})
     await db.merchants.update_one({"id": mid}, {"$set": {
         "kyc_status": "on_hold", "hold_comment": comment, "hold_at": now,
     }, "$push": {"notifications": {"type": "kyc-on-hold", "title": "KYC on hold — action needed",
@@ -10530,6 +10558,14 @@ async def admin_hold(mid: str, body: dict = None, admin: dict = Depends(require_
     # kyc_status away from "approved" too, and must un-publish an
     # already-live store the same way a rejection does.
     await _maybe_autopublish_store(mid)
+    # Gupshup reconciliation (2026-09) — in-app notification above is
+    # unchanged; this adds the WhatsApp send using the best-effort
+    # surviving variable pair (see notify_merchant_kyc_on_hold's own
+    # docstring for the confirmation caveat).
+    if m and m.get("phone"):
+        try: notify_merchant_kyc_on_hold(m["phone"], m.get("store_name", "your store"), comment)
+        except Exception as _ne:
+            print(f"[notify_error] {_ne}", flush=True)
     return {"ok": True}
 
 @api.post("/admin/merchant/{mid}/activate-plan")
@@ -11534,16 +11570,14 @@ async def admin_return_action(rid: str, action: str, admin: dict = Depends(requi
                     reason=r.get("reason", ""),
                 )
             except Exception: pass
-    if r.get("customer_phone"):
-        label_map = {
-            "pickup_assigned": "pickup partner assigned",
-            "arriving": "pickup partner arriving",
-            "picked_up": "product picked up",
-            "completed": "return completed",
-        }
-        if status in label_map:
-            try: notify_return_status(r["customer_phone"], rid, label_map[status])
-            except Exception: pass
+    # Label/message text for each status is owned centrally by
+    # notify_return_status() (notifications.py) — RETURN_STATUS_NOTIFY_TYPES
+    # is the same set that dict's keys come from, so this gate can never
+    # drift out of sync with what notify_return_status actually knows how
+    # to say. "requested" is deliberately not in that set.
+    if r.get("customer_phone") and status in RETURN_STATUS_NOTIFY_TYPES:
+        try: notify_return_status(r["customer_phone"], rid, r["order_id"], status)
+        except Exception: pass
     return {"ok": True, "status": status}
 
 

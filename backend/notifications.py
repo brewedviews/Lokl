@@ -417,7 +417,10 @@ class MSG91Provider(NotificationProvider):
         "order_delivered": "MSG91_SMS_TEMPLATE_ORDER_DELIVERED",
         "rider_pickup": "MSG91_SMS_TEMPLATE_RIDER_PICKUP",
         "rider_return_pickup": "MSG91_SMS_TEMPLATE_RIDER_RETURN_PICKUP",
-        "return_status": "MSG91_SMS_TEMPLATE_RETURN_STATUS",
+        # Renamed from "return_status" to match the canonical message_type
+        # notify_return_status() now uses (2026-09 Gupshup reconciliation —
+        # the approved Gupshup template's own name is customer_return_status).
+        "customer_return_status": "MSG91_SMS_TEMPLATE_RETURN_STATUS",
         "pickup_reserved": "MSG91_SMS_TEMPLATE_PICKUP_RESERVED",
         "merchant_pickup_reserved": "MSG91_SMS_TEMPLATE_MERCHANT_PICKUP_RESERVED",
         "pickup_pending": "MSG91_SMS_TEMPLATE_PICKUP_PENDING",
@@ -427,9 +430,14 @@ class MSG91Provider(NotificationProvider):
         "merchant_login_otp": "MSG91_SMS_TEMPLATE_MERCHANT_LOGIN_OTP",
         "rider_login_otp": "MSG91_SMS_TEMPLATE_RIDER_LOGIN_OTP",
         "customer_otp": "MSG91_SMS_TEMPLATE_CUSTOMER_OTP",
+        # Renamed from "merchant_order_cancelled_by_customer" to match the
+        # canonical message_type notify_merchant_order_cancelled() now
+        # uses (2026-09 Gupshup reconciliation — the approved Gupshup
+        # template's own name is merchant_order_cancelled). No longer an
+        # ad-hoc inline call site — see notify_merchant_order_cancelled().
+        "merchant_order_cancelled": "MSG91_SMS_TEMPLATE_MERCHANT_ORDER_CANCELLED",
         # Ad-hoc call sites in server.py that don't go through a notify_*
         # wrapper (see grep of send_with_fallback( in server.py):
-        "merchant_order_cancelled_by_customer": "MSG91_SMS_TEMPLATE_MERCHANT_ORDER_CANCELLED_BY_CUSTOMER",
         "admin_support_ticket": "MSG91_SMS_TEMPLATE_ADMIN_SUPPORT_TICKET",
         "store_back_online": "MSG91_SMS_TEMPLATE_STORE_BACK_ONLINE",
         "pickup_reservation_expired": "MSG91_SMS_TEMPLATE_PICKUP_RESERVATION_EXPIRED",
@@ -743,16 +751,21 @@ class MSG91Provider(NotificationProvider):
 
 
 # ============================================================================
-# Gupshup provider — added narrowly to unblock login OTP delivery
-# (customer/merchant/rider) while MSG91's WhatsApp Authentication-template
-# path remains blocked on config/eligibility issues (see MSG91Provider's
-# own docstring). Gupshup is WhatsApp-TEMPLATE-ONLY in this pass —
-# send_sms/send_otp/verify_otp are all deliberately UNIMPLEMENTED (fail
-# loudly: log + safe return value, never a silent no-op) rather than
-# guessed at. Do not extend this provider to cover order-lifecycle
-# notifications, SMS, or provider-owned OTP generation without a
-# confirmed contract for that specific capability first — the same
-# discipline every other provider in this file follows.
+# Gupshup provider — started narrowly (login OTP only) while MSG91's
+# WhatsApp Authentication-template path remained blocked on config/
+# eligibility issues (see MSG91Provider's own docstring). Gupshup is
+# WhatsApp-TEMPLATE-ONLY, always — send_sms/send_otp/verify_otp are all
+# deliberately UNIMPLEMENTED (fail loudly: log + safe return value, never
+# a silent no-op) rather than guessed at.
+#
+# Extended 2026-09 (Gupshup reconciliation) to cover 8 more approved
+# Utility/Service-update templates beyond the original 3 OTP ones — see
+# _TEMPLATE_ENV below for the full current list. Adding a NEW message_type
+# here still requires a real, Meta-approved Gupshup template and a
+# confirmed variable contract first — the "no order-lifecycle
+# notifications without a confirmed contract" discipline still applies to
+# anything not already in _TEMPLATE_ENV, it's just no longer a blanket
+# ban on the whole category.
 # ============================================================================
 
 _GUPSHUP_BASE = "https://api.gupshup.io/wa/api/v1"
@@ -766,10 +779,15 @@ class GupshupProvider(NotificationProvider):
       Content-Type: application/x-www-form-urlencoded
       Form fields: channel=whatsapp, source={GUPSHUP_WHATSAPP_NUMBER},
         src.name={GUPSHUP_APP_NAME}, destination={recipient},
-        template={"id": "<template_id>", "params": ["<otp>", "<otp>"]}
-        — the OTP appears TWICE in params (body + button component), per
-        Gupshup's own explicit note. Do not deviate from this shape
-        without confirming a real reason to.
+        template={"id": "<template_id>", "params": [...]}
+        — for the 3 Authentication (OTP) message_types, the OTP appears
+        TWICE in params (body + button component), per Gupshup's own
+        explicit note. For every other (Utility/Service-update)
+        message_type (added 2026-09), `params` is one entry per
+        template_params value, in order, NOT duplicated — see
+        _OTP_MESSAGE_TYPES and send_whatsapp() below for exactly which
+        branch a given message_type takes. Do not deviate from either
+        shape without confirming a real reason to.
 
     Response contract — PARTIALLY confirmed live, PARTIALLY still wrong:
     a real live send (see git history around this class's introduction)
@@ -785,18 +803,86 @@ class GupshupProvider(NotificationProvider):
     confirming real delivery first — that was the whole point of this
     live test.
 
-    `template_params` (the interface's generic dict) carries exactly one
-    value — the OTP — via the same `{"1": otp}` convention Twilio/MSG91's
-    own send_whatsapp() already use elsewhere in this file; this provider
-    reads its first value and duplicates it into Gupshup's two-slot
-    `params` array to satisfy the request shape above.
+    `template_params` (the interface's generic dict) uses the same
+    `{"1": ..., "2": ..., ...}` positional convention Twilio/MSG91's own
+    send_whatsapp() already use elsewhere in this file. For OTP
+    message_types this carries exactly one value (the OTP), duplicated
+    into Gupshup's two-slot `params` array. For every other message_type,
+    each dict value becomes its own `params` slot, in insertion order —
+    callers must build the dict in the exact order the approved
+    template's {{1}}, {{2}}, ... expect.
     """
 
+    # message_type -> Railway env var holding that message's approved
+    # Gupshup template id. "merchant_login_otp" deliberately points at the
+    # SAME env var as "customer_otp" (2026-09 reconciliation) — no separate
+    # merchant-OTP template was ever created in Gupshup; customer_otp is
+    # the one shared Authentication template for both customer and
+    # merchant login. This is a single value read twice, not two env vars
+    # holding a duplicated id — do not reintroduce a
+    # GUPSHUP_TEMPLATE_MERCHANT_LOGIN_OTP var pointing at a copy of the
+    # same id, since the two could then drift out of sync on a rotation.
     _TEMPLATE_ENV = {
         "customer_otp": "GUPSHUP_TEMPLATE_CUSTOMER_OTP",
-        "merchant_login_otp": "GUPSHUP_TEMPLATE_MERCHANT_LOGIN_OTP",
+        "merchant_login_otp": "GUPSHUP_TEMPLATE_CUSTOMER_OTP",
         "rider_login_otp": "GUPSHUP_TEMPLATE_RIDER_LOGIN_OTP",
+        # Utility-category templates approved 2026-09 (see the Gupshup
+        # reconciliation audit).
+        #
+        # order_placed: confirmed live from the Gupshup template editor —
+        # exactly 4 variables, in order: short order id, order total,
+        # tracking URL, support phone. Unlike order_on_the_way, this
+        # template's static copy DOES include the tracking URL and
+        # support phone as real variables — send them, don't drop them.
+        "order_placed": "GUPSHUP_TEMPLATE_ORDER_PLACED",
+        #
+        # order_on_the_way: confirmed live from the Gupshup template
+        # editor — exactly ONE variable, the order's short id. The
+        # approved template does NOT carry the delivery OTP, rider phone,
+        # or a tracking URL at all (product decision, 2026-09) — the
+        # delivery OTP mechanism itself is completely unaffected by this;
+        # the OTP is still generated and verified exactly as before, it
+        # simply isn't part of this WhatsApp message anymore.
+        "order_on_the_way": "GUPSHUP_TEMPLATE_ORDER_ON_THE_WAY",
+        #
+        # order_cancelled: confirmed live from the Gupshup template editor —
+        # exactly 3 variables: short order id, the existing cancellation/
+        # refund status text, support phone. NO reason text, tracking URL,
+        # or browse/shop CTA — none of those are variables in the approved
+        # template (the "Reason: ..." line and "Browse other stores" link
+        # in the freeform body below have no Gupshup slot and are simply
+        # not shown on this channel). {{2}}'s value is the SAME fixed
+        # "pay at delivery" text the freeform body has always used — see
+        # notify_order_cancelled()'s own comment: neither of its 2 call
+        # sites (merchant_cancel_order, admin_cancel_order) computes a
+        # real refund_initiated flag today, so there is no branch to
+        # preserve beyond this one fixed string.
+        "order_cancelled": "GUPSHUP_TEMPLATE_ORDER_CANCELLED",
+        "order_rejected": "GUPSHUP_TEMPLATE_ORDER_REJECTED",
+        "order_delivered": "GUPSHUP_TEMPLATE_ORDER_DELIVERED",
+        "merchant_new_order": "GUPSHUP_TEMPLATE_MERCHANT_NEW_ORDER",
+        # merchant_order_cancelled: confirmed live from the Gupshup
+        # template editor — exactly ONE variable, the order's short id.
+        # No cancellation reason, customer name/phone, order total, or
+        # tracking URL — none of those are variables in the approved
+        # template (its static copy is a fixed "no action needed" line).
+        # message_type renamed from the pre-reconciliation
+        # "merchant_order_cancelled_by_customer" to match the Gupshup
+        # template's own name — see notify_merchant_order_cancelled().
+        "merchant_order_cancelled": "GUPSHUP_TEMPLATE_MERCHANT_ORDER_CANCELLED",
+        "merchant_approved": "GUPSHUP_TEMPLATE_MERCHANT_APPROVED",
+        "customer_return_status": "GUPSHUP_TEMPLATE_CUSTOMER_RETURN_STATUS",
+        "payment_failed": "GUPSHUP_TEMPLATE_PAYMENT_FAILED",
+        "merchant_kyc_rejected": "GUPSHUP_TEMPLATE_MERCHANT_KYC_REJECTED",
+        "merchant_kyc_on_hold": "GUPSHUP_TEMPLATE_MERCHANT_KYC_ON_HOLD",
     }
+
+    # message_type values whose approved template is Authentication-
+    # category and needs the OTP value duplicated into 2 params (body +
+    # COPY_CODE button) — see send_whatsapp() below. Every other
+    # (Utility-category) template gets one params slot per template_params
+    # value, in order, with no duplication.
+    _OTP_MESSAGE_TYPES = {"customer_otp", "merchant_login_otp", "rider_login_otp"}
 
     def _api_key(self) -> Optional[str]:
         key = (os.environ.get("GUPSHUP_API_KEY") or "").strip()
@@ -839,14 +925,28 @@ class GupshupProvider(NotificationProvider):
             log.warning("[gupshup-wa] invalid phone: %r", to)
             self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp", "error": f"invalid phone: {to!r}"}
             return None
-        values = list((template_params or {}).values())
+        values = [str(v) for v in (template_params or {}).values()]
         if not values:
             log.warning("[gupshup-wa] send_whatsapp called with template_id but no template_params "
-                        "(need the OTP value) for %s", to)
+                        "(need at least one value) for %s", to)
             self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp",
-                                 "error": "template_params must supply the OTP value"}
+                                 "error": "template_params must supply at least one value"}
             return None
-        otp_value = str(values[0])
+        if message_type in self._OTP_MESSAGE_TYPES:
+            # Authentication-category OTP templates: the code is duplicated
+            # into BOTH params slots (body component + COPY_CODE button
+            # component) per Gupshup's documented contract — see class
+            # docstring. Only the first template_params value is used even
+            # if more were passed; unchanged from the original OTP-only
+            # implementation.
+            params = [values[0], values[0]]
+        else:
+            # Utility-category templates: one params slot per
+            # template_params value, in insertion order. Callers MUST build
+            # template_params in the exact order the approved template's
+            # {{1}}, {{2}}, ... expect — this provider does not reorder or
+            # validate against the live template shape.
+            params = values
         try:
             import requests
             payload = {
@@ -854,7 +954,7 @@ class GupshupProvider(NotificationProvider):
                 "source": source,
                 "src.name": app_name,
                 "destination": mobile,
-                "template": json.dumps({"id": template_id, "params": [otp_value, otp_value]}),
+                "template": json.dumps({"id": template_id, "params": params}),
             }
             resp = requests.post(
                 f"{_GUPSHUP_BASE}/template/msg",
@@ -1043,7 +1143,8 @@ def send_otp_with_fallback(phone: str, otp: str) -> str:
 NOTIFICATION_SMS_FALLBACK_ENABLED = (os.environ.get("NOTIFICATION_SMS_FALLBACK_ENABLED", "") or "").strip().lower() in ("1", "true", "yes")
 
 
-def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = None) -> str:
+def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = None,
+                        template_params: Optional[dict] = None) -> str:
     """Best-effort delivery for ANY transactional message.
 
     WHATSAPP-ONLY as of the widget revert — see the
@@ -1060,13 +1161,34 @@ def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = N
     providers (MSG91) that need it to route to a specific DLT/WA template —
     see the module docstring. Twilio ignores it.
 
+    `template_params` — structured per-variable values (in the exact order
+    the approved WhatsApp template expects), for when the active provider
+    is Gupshup AND a template is configured for this message_type (see
+    GupshupProvider._TEMPLATE_ENV, 2026-09 reconciliation). When that's the
+    case, Gupshup sends ONLY via the approved template — `body` is never
+    sent to Gupshup in that branch, since Gupshup has no freeform WhatsApp
+    path in this pass. Twilio/MSG91 ignore template_params entirely and
+    always send `body` as a freeform message; passing it is a no-op for
+    them. If Gupshup is active but no template is configured for this
+    message_type, this falls through to the freeform call below, which
+    GupshupProvider itself refuses loudly (logged) — never a silent no-op.
+
     Returns `"whatsapp"`, `"sms"`, or `"none"`.
     """
     provider = get_provider()
     provider_name = type(provider).__name__.replace("Provider", "").lower()
     log.info("[NOTIFY] provider=%s %s <- %.80s", provider_name, phone, body.replace("\n", " "))
 
-    if provider.send_whatsapp(phone, body, message_type=message_type):
+    gupshup_template_id = None
+    if isinstance(provider, GupshupProvider) and message_type:
+        template_env = provider._TEMPLATE_ENV.get(message_type)
+        gupshup_template_id = (os.environ.get(template_env) or "").strip() if template_env else ""
+
+    if provider.send_whatsapp(
+        phone, body, message_type=message_type,
+        template_id=gupshup_template_id or None,
+        template_params=template_params if gupshup_template_id else None,
+    ):
         log.info("[NOTIFY] provider=%s whatsapp OK to=%s", provider_name, phone)
         return "whatsapp"
 
@@ -1209,14 +1331,22 @@ def notify_rider_otp(rider_phone: str, otp: str) -> None:
 
 def notify_order_placed(phone: str, order_id: str, total: float) -> None:
     short = order_id[-6:].upper()
+    tracking_url = f"{APP_URL}/account/orders/{order_id}"
     body = (
         f"Hi! 🛍️ Your Lokl order #{short} is confirmed.\n\n"
         f"Amount: ₹{total:.0f}\n"
         f"Your store is packing your order — delivery in ~30 minutes.\n\n"
-        f"Track here: {APP_URL}/account/orders/{order_id}\n\n"
+        f"Track here: {tracking_url}\n\n"
         f"Questions? {SUPPORT_PHONE}"
     )
-    send_with_fallback(phone, body, message_type="order_placed")
+    # Gupshup reconciliation (2026-09): approved order_placed template has
+    # exactly 4 variables, confirmed live — short order id, total, tracking
+    # URL, and support phone are ALL genuine variables in this template
+    # (unlike order_on_the_way, nothing was dropped here). Order matters:
+    # {{1}}, {{2}}, {{3}}, {{4}}.
+    send_with_fallback(phone, body, message_type="order_placed",
+                        template_params={"1": short, "2": f"{total:.0f}",
+                                          "3": tracking_url, "4": SUPPORT_PHONE})
 
 
 def notify_merchant_new_order(merchant_phone: str, order_id: str, total: float, items_count: int) -> None:
@@ -1227,7 +1357,11 @@ def notify_merchant_new_order(merchant_phone: str, order_id: str, total: float, 
         f"Accept quickly to keep your rating high!\n"
         f"👉 {APP_URL}/merchant/orders"
     )
-    send_with_fallback(merchant_phone, body, message_type="merchant_new_order")
+    # Gupshup reconciliation (2026-09): approved merchant_new_order
+    # template dropped the merchant-orders URL — only order id, item
+    # count, and total survive. Order matters: {{1}}, {{2}}, {{3}}.
+    send_with_fallback(merchant_phone, body, message_type="merchant_new_order",
+                        template_params={"1": short, "2": str(items_count), "3": f"{total:.0f}"})
 
 
 def notify_order_accepted(phone: str, order_id: str, store_name: str, otp: str = "") -> None:
@@ -1265,7 +1399,13 @@ def notify_order_rejected(phone: str, order_id: str, refund_initiated: bool = Fa
         f"Browse other stores: {APP_URL}\n"
         f"Need help? {SUPPORT_PHONE}"
     )
-    send_with_fallback(phone, body, message_type="order_rejected")
+    # Gupshup reconciliation (2026-09): approved order_rejected template
+    # dropped the browse-other-stores URL. The refund-status branch is
+    # preserved as its own variable (trimmed of the body's own trailing
+    # blank line, which was only formatting for the freeform message).
+    refund_status_text = money_line.strip()
+    send_with_fallback(phone, body, message_type="order_rejected",
+                        template_params={"1": short, "2": refund_status_text})
 
 
 def notify_rider_pickup(rider_phone: str, *, order_id: str, otp: str, customer_name: str,
@@ -1305,7 +1445,16 @@ Reply: {otp} Delivered"""
 def notify_order_on_the_way(phone: str, order_id: str, otp: str, rider_phone: str = "") -> None:
     """Rider-flow redesign: this is now the customer's FIRST delivery-related
     notification (merchant-accept no longer notifies) — it's where the
-    delivery OTP is revealed, plus the assigned rider's phone when known."""
+    delivery OTP is revealed, plus the assigned rider's phone when known.
+
+    `otp` and `rider_phone` are UNCHANGED inputs — the delivery OTP
+    generation/verification mechanism and rider handoff logic that
+    produce them are not touched by this function at all. They still
+    appear in the freeform `body` below (used by Twilio/MSG91, or by
+    Gupshup only if no template is configured). Gupshup's approved
+    template (confirmed live, 2026-09) carries neither: it has exactly
+    ONE variable, the order's short id — no OTP, no rider phone, no
+    tracking URL. Do not add them to template_params."""
     short = order_id[-6:].upper()
     rider_line = f"🛵 Your rider: {rider_phone}\n" if rider_phone else ""
     body = (
@@ -1315,19 +1464,83 @@ def notify_order_on_the_way(phone: str, order_id: str, otp: str, rider_phone: st
         f"Share this with your rider on arrival to confirm delivery.\n\n"
         f"Track: {APP_URL}/account/orders/{order_id}"
     )
-    send_with_fallback(phone, body, message_type="order_on_the_way")
+    send_with_fallback(phone, body, message_type="order_on_the_way",
+                        template_params={"1": short})
 
 
 def notify_order_cancelled(phone: str, order_id: str, reason: str = "") -> None:
+    """Both current call sites (merchant_cancel_order, admin_cancel_order
+    in server.py) never compute a refund_initiated flag or touch
+    payment_status at all — neither cancels a PAID order's charge, so
+    there is no paid/refund-vs-COD branch to preserve here (unlike
+    notify_order_rejected, which does have one). `refund_status_text` is
+    the one existing status line the current code already has; it stays
+    a fixed string until/unless a real refund branch is ever added to
+    one of those call sites."""
     short = order_id[-6:].upper()
+    refund_status_text = "Since you pay at delivery, no amount was charged."
     body = (
         f"❌ Order #{short} was cancelled.\n"
         f"{f'Reason: {reason}' + chr(10) if reason else ''}\n"
-        f"Since you pay at delivery, no amount was charged.\n\n"
+        f"{refund_status_text}\n\n"
         f"Browse other stores: {APP_URL}\n"
         f"Need help? {SUPPORT_PHONE}"
     )
-    send_with_fallback(phone, body, message_type="order_cancelled")
+    # Gupshup reconciliation (2026-09): approved order_cancelled template
+    # has exactly 3 variables — short order id, refund_status_text,
+    # support phone. The optional `reason` text and the browse-URL are
+    # NOT variables in the approved template and are never sent to
+    # Gupshup; they remain freeform-body-only (Twilio/MSG91).
+    send_with_fallback(phone, body, message_type="order_cancelled",
+                        template_params={"1": short, "2": refund_status_text, "3": SUPPORT_PHONE})
+
+
+def notify_merchant_order_cancelled(merchant_phone: str, order_id: str, already_accepted: bool) -> None:
+    """New dedicated function (2026-09 Gupshup reconciliation) — replaces
+    two inline ad-hoc `send_with_fallback(...)` calls in server.py's
+    customer_cancel_order() that previously used the FULL order id (not
+    the short-id convention every other notify_* function in this file
+    follows) and were tagged with the pre-reconciliation message_type
+    value merchant_order_cancelled_by_customer (old name — renamed to
+    match the Gupshup template's own name, "merchant_order_cancelled" —
+    see _SMS_TEMPLATE_ENV's rename note too).
+
+    `already_accepted` preserves the ONE real behavioral difference the
+    old inline code had: the exact wording differs depending on whether
+    this merchant had already accepted their slice when the customer
+    cancelled. This only affects the freeform (Twilio/MSG91) body — the
+    approved Gupshup template's copy is a single fixed "no action needed"
+    line regardless, so template_params carries only the short order id,
+    same in both cases."""
+    short = order_id[-6:].upper()
+    if already_accepted:
+        body = f"Order #{short} was cancelled by the customer."
+    else:
+        body = f"Order #{short} was cancelled by the customer before you accepted it."
+    # Gupshup reconciliation (2026-09): approved merchant_order_cancelled
+    # template has exactly ONE variable — the short order id. Do NOT add
+    # reason, customer name/phone, order total, or a tracking URL — none
+    # of those are variables in the approved template.
+    send_with_fallback(merchant_phone, body, message_type="merchant_order_cancelled",
+                        template_params={"1": short})
+
+
+def notify_payment_failed(phone: str, order_id: str) -> None:
+    """New (2026-09 Gupshup reconciliation) — closes the C14 gap from the
+    communication audit: the Razorpay payment.failed webhook previously
+    only logged the failure and never told the customer. Only order_id is
+    passed as a template variable — the approved Gupshup template dropped
+    the app URL and no other variable was confirmed available; do not add
+    a reason/amount variable without confirming it against the live
+    template first (see the reconciliation audit's own uncertainty note)."""
+    short = order_id[-6:].upper()
+    body = (
+        f"⚠️ Payment for order #{short} could not be completed.\n\n"
+        f"You have not been charged. Please try again or use Pay at Delivery.\n\n"
+        f"Need help? {SUPPORT_PHONE}"
+    )
+    send_with_fallback(phone, body, message_type="payment_failed",
+                        template_params={"1": short})
 
 
 def notify_order_delivered(phone: str, order_id: str) -> None:
@@ -1338,7 +1551,16 @@ def notify_order_delivered(phone: str, order_id: str) -> None:
         f"{APP_URL}/account/orders/{order_id}\n\n"
         f"Shop again: {APP_URL}"
     )
-    send_with_fallback(phone, body, message_type="order_delivered")
+    # Gupshup reconciliation (2026-09): Meta removed "the tracking/rating
+    # URL variable" from the approved order_delivered template. The
+    # freeform body above actually uses TWO URLs (a rating link and a
+    # "shop again" link) — it's unconfirmed from the reconciliation
+    # whether one or both were removed, so only the one variable that's
+    # unambiguously still available (order id) is sent. If the live
+    # template actually kept a second (URL) slot, confirm against the
+    # Gupshup dashboard and add it here — do not guess further.
+    send_with_fallback(phone, body, message_type="order_delivered",
+                        template_params={"1": short})
 
 
 def notify_rider_return_pickup(rider_phone: str, *, return_id: str, order_id: str, otp: str,
@@ -1359,12 +1581,72 @@ def notify_rider_return_pickup(rider_phone: str, *, return_id: str, order_id: st
     send_with_fallback(rider_phone, body, message_type="rider_return_pickup")
 
 
-def notify_return_status(customer_phone: str, return_id: str, status_label: str) -> None:
+# Canonical (label, status-specific message) per return status that
+# actually notifies the customer — "requested" is deliberately absent:
+# create_return() never calls notify_return_status() for it (see that
+# function), so it has no label/message pair to own here. Kept as the
+# single source of truth for BOTH the WhatsApp template's {{2}}/{{3}}
+# and (via RETURN_STATUS_NOTIFY_TYPES below) the gate server.py's
+# admin_return_action() uses to decide whether to notify at all — do not
+# duplicate this mapping at the call site.
+#
+# Text is derived strictly from what the rest of this codebase already
+# establishes about each status (the return timeline's own labels, the
+# rider-dispatch trigger at pickup_assigned, and the fact that
+# admin_return_action's "completed" branch only restocks — there is no
+# refund-on-return flow anywhere in this codebase, see create_order's
+# own Try & Buy comment — so "completed" deliberately says nothing about
+# money). Confirmed 2026-09 (Gupshup reconciliation, {{3}} added).
+_RETURN_STATUS_COPY = {
+    "pickup_assigned": (
+        "pickup partner assigned",
+        "A pickup partner has been assigned to collect your item(s).",
+    ),
+    "arriving": (
+        "pickup partner arriving",
+        "Your pickup partner is arriving to collect the item(s).",
+    ),
+    "picked_up": (
+        "product picked up",
+        "Your item(s) have been picked up.",
+    ),
+    "completed": (
+        "return completed",
+        "Your return has been completed.",
+    ),
+}
+RETURN_STATUS_NOTIFY_TYPES = frozenset(_RETURN_STATUS_COPY.keys())
+
+
+def notify_return_status(customer_phone: str, return_id: str, order_id: str, status: str) -> None:
+    """`status` is the raw return-status code (e.g. "pickup_assigned"), NOT
+    free text — see _RETURN_STATUS_COPY above, the only place the
+    label/message text for each status lives.
+
+    `return_id` (e.g. "RET-8291") and `order_id` (the underlying Lokl
+    order's own id) are deliberately DIFFERENT values, used for different
+    things — do not collapse them. `return_id` is what /returns/{id}
+    actually routes on, so the freeform body's tracking link and its own
+    "Return {return_id}" reference must keep using it. The Gupshup
+    template's {{1}} is confirmed (live, from the Gupshup editor) to be
+    "the ID displayed after 'Lokl order #'" — the ORDER's short id, same
+    [-6:].upper() convention every other notify_* function in this file
+    uses — never the return id."""
+    order_short = order_id[-6:].upper()
+    status_label, status_message = _RETURN_STATUS_COPY.get(status, (status, ""))
     body = (
         f"Lokl: Return {return_id} update — {status_label}. "
         f"Track at {APP_URL}/returns/{return_id}"
     )
-    send_with_fallback(customer_phone, body, message_type="return_status")
+    # Gupshup reconciliation (2026-09): the approved Gupshup template's own
+    # name is "customer_return_status", not "return_status" — message_type
+    # renamed to match (also renamed in MSG91Provider._SMS_TEMPLATE_ENV so
+    # MSG91 SMS routing doesn't silently break). Confirmed live: {{1}} =
+    # order short id (NOT return_id), {{2}} = current status, {{3}} =
+    # status-specific message — exactly 3, no tracking URL/CTA (the
+    # template's own static text already ends with "Thank you.").
+    send_with_fallback(customer_phone, body, message_type="customer_return_status",
+                        template_params={"1": order_short, "2": status_label, "3": status_message})
 
 
 def notify_pickup_reserved(customer_phone: str, order_id: str, store_name: str,
@@ -1454,7 +1736,46 @@ def notify_merchant_approved(merchant_phone: str, store_name: str) -> None:
         f"3. Toggle your store live when ready\n\n"
         f"Need help? Email hello@shoplokl.in"
     )
-    send_with_fallback(merchant_phone, body, message_type="merchant_approved")
+    # Gupshup reconciliation (2026-09): approved merchant_approved template
+    # dropped its second variable (one of the two hardcoded next-step
+    # URLs above) — store_name is the only genuine per-call variable this
+    # function ever had, and it's the one confirmed to survive.
+    send_with_fallback(merchant_phone, body, message_type="merchant_approved",
+                        template_params={"1": store_name})
+
+
+def notify_merchant_kyc_rejected(merchant_phone: str, store_name: str) -> None:
+    """New (2026-09 Gupshup reconciliation) — this event was previously
+    in-app-only (see admin_reject() in server.py, which still pushes its
+    own in-app notification unchanged). The approved Gupshup template has
+    ONLY Variable 1, which carries the store/business name — explicitly
+    NOT the rejection reason, a URL, or the support phone (per the
+    reconciliation instructions); the merchant sees the actual reason
+    in-app, same as before."""
+    body = (
+        f"Your Lokl KYC submission for {store_name} needs attention. "
+        f"Check the app for details and resubmit."
+    )
+    send_with_fallback(merchant_phone, body, message_type="merchant_kyc_rejected",
+                        template_params={"1": store_name})
+
+
+def notify_merchant_kyc_on_hold(merchant_phone: str, store_name: str, comment: str) -> None:
+    """New (2026-09 Gupshup reconciliation) — previously in-app-only (see
+    admin_hold() in server.py, which still pushes its own in-app
+    notification unchanged). Meta removed variables 3 and 4 from the
+    originally-submitted template; store_name and the admin's hold
+    comment are the two variables this event naturally has and are sent
+    here as the best-effort remaining pair — NOT independently confirmed
+    against the live Gupshup dashboard (the reconciliation audit did not
+    have visibility into what all 4 original variables were). Confirm the
+    exact surviving count/order before relying on this in production."""
+    body = (
+        f"Your Lokl KYC submission for {store_name} is on hold. "
+        f"{comment} Check the app for details."
+    )
+    send_with_fallback(merchant_phone, body, message_type="merchant_kyc_on_hold",
+                        template_params={"1": store_name, "2": comment})
 
 
 def notify_merchant_first_order(merchant_phone: str, store_name: str, order_id: str) -> None:
