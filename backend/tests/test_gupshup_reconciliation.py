@@ -121,6 +121,149 @@ def test_utility_template_params_are_not_duplicated():
     assert params == ["AAA", "BBB", "CCC"]
 
 
+# ============================================================================
+# PART 1b — Gupshup 202/submitted response-handling fix (2026-09).
+#
+# Production log evidence (see the urgent-fix audit) showed real Gupshup
+# template sends returning HTTP 202 {"status": "submitted", "messageId":
+# "..."} — exactly what Gupshup's own docs document as the normal,
+# successful, asynchronous-submission response — while the code's own
+# `status == "success"` check rejected it as a failure. These tests pin
+# the corrected contract directly against GupshupProvider.send_whatsapp(),
+# independent of the higher-level template-payload tests above.
+# ============================================================================
+
+def _mock_resp(status_code, json_body):
+    class _Resp:
+        def __init__(self):
+            self.status_code = status_code
+            self.content = b"1" if json_body is not None else b""
+        def json(self):
+            return json_body or {}
+    return _Resp()
+
+
+def _send_with_mock_response(status_code, json_body, *, template_params=None):
+    def _post(url, data=None, headers=None, timeout=None):
+        return _mock_resp(status_code, json_body)
+    provider = notif.GupshupProvider()
+    with patch.dict(os.environ, _gupshup_env(), clear=False), \
+         patch("requests.post", side_effect=_post):
+        result = provider.send_whatsapp(
+            "9876543210", "ignored", template_id="tpl-x",
+            template_params=template_params or {"1": "AAA"}, message_type="merchant_new_order",
+        )
+    return result, provider.last_result
+
+
+@pytest.mark.parametrize("status_code", [202, 200])
+def test_2xx_submitted_with_message_id_is_success(status_code):
+    """A. / B. — HTTP 202 or 200 + status=submitted + messageId -> SUCCESS."""
+    result, last = _send_with_mock_response(status_code, {"status": "submitted", "messageId": "abc"})
+    assert result == "abc"
+    assert last["ok"] is True
+    assert last["message_id"] == "abc"
+    assert last["delivery_status"] == "submitted", \
+        "must be recorded as SUBMITTED, never claimed as delivered"
+
+
+@pytest.mark.parametrize("status_code,body", [
+    (400, {"status": "error", "message": "bad request"}),
+    (401, {"status": "error", "message": "unauthorized"}),
+    (429, {"status": "error", "message": "rate limited"}),
+    (500, {"status": "error", "message": "internal error"}),
+    (503, {"status": "error", "message": "unavailable"}),
+])
+def test_http_error_status_codes_are_failures(status_code, body):
+    """C./D./E./F. — HTTP 400/401/429/5xx -> FAILURE regardless of body."""
+    result, last = _send_with_mock_response(status_code, body)
+    assert result is None
+    assert last["ok"] is False
+    assert last["status_code"] == status_code
+
+
+def test_2xx_with_explicit_error_status_is_failure():
+    """G. — HTTP 2xx but the body explicitly says status=error -> FAILURE.
+    Confirms the check is a positive allow-list (only "submitted"/"success"
+    pass), not merely "any 2xx passes"."""
+    result, last = _send_with_mock_response(200, {"status": "error", "message": "template not approved"})
+    assert result is None
+    assert last["ok"] is False
+
+
+def test_submitted_without_message_id_is_not_blindly_successful():
+    """H. — 202/submitted but no messageId -> FAILURE. Without a messageId
+    there is nothing to reference this send by later, and an unexpectedly-
+    shaped response is treated as suspect rather than trusted."""
+    result, last = _send_with_mock_response(202, {"status": "submitted"})
+    assert result is None, "must NOT be treated as a successful submission without a messageId"
+    assert last["ok"] is False
+
+
+def test_missing_template_id_is_still_a_local_failure():
+    """I. — unchanged pre-existing behavior: no template_id -> local
+    failure, no HTTP call attempted at all."""
+    provider = notif.GupshupProvider()
+    with patch.dict(os.environ, _gupshup_env(), clear=False), \
+         patch("requests.post") as mock_post:
+        result = provider.send_whatsapp("9876543210", "ignored", template_id=None,
+                                         template_params={"1": "AAA"}, message_type="merchant_new_order")
+    assert result is None
+    assert provider.last_result["ok"] is False
+    mock_post.assert_not_called()
+
+
+def test_submitted_success_does_not_trigger_sms_fallback():
+    """J. — a successful 202/submitted WhatsApp send must NOT fall through
+    to provider.send_sms(), even with NOTIFICATION_SMS_FALLBACK_ENABLED on.
+    That flag is a module-level constant computed once at import time
+    (see notifications.py) — patch.dict(os.environ) alone can't affect
+    it, so it's monkeypatched directly, same technique used for
+    server.STORE_PICKUP_ENABLED elsewhere in this test suite."""
+    def _post(url, data=None, headers=None, timeout=None):
+        return _mock_resp(202, {"status": "submitted", "messageId": "xyz"})
+
+    sms_calls = []
+    orig_send_sms = notif.GupshupProvider.send_sms
+    def spy_send_sms(self, *a, **kw):
+        sms_calls.append((a, kw))
+        return orig_send_sms(self, *a, **kw)
+
+    env = _gupshup_env(NOTIFICATION_PROVIDER="gupshup",
+                        GUPSHUP_TEMPLATE_MERCHANT_NEW_ORDER="tpl-x")
+    notif._provider_instances.clear()
+    orig_fallback_flag = notif.NOTIFICATION_SMS_FALLBACK_ENABLED
+    notif.NOTIFICATION_SMS_FALLBACK_ENABLED = True
+    notif.GupshupProvider.send_sms = spy_send_sms
+    try:
+        with patch.dict(os.environ, env, clear=False), patch("requests.post", side_effect=_post):
+            outcome = notif.notify_merchant_new_order("9876543210", "o-test-order123", 500.0, 2)
+    finally:
+        notif.GupshupProvider.send_sms = orig_send_sms
+        notif.NOTIFICATION_SMS_FALLBACK_ENABLED = orig_fallback_flag
+        notif._provider_instances.clear()
+    assert not sms_calls, "SMS fallback must never be attempted after a successful WhatsApp submission"
+
+
+def test_submitted_success_produces_no_whatsapp_failed_log(caplog):
+    """K. — a successful 202/submitted response must not produce a
+    '[NOTIFY] ... whatsapp failed' log line."""
+    import logging
+    def _post(url, data=None, headers=None, timeout=None):
+        return _mock_resp(202, {"status": "submitted", "messageId": "xyz"})
+
+    env = _gupshup_env(NOTIFICATION_PROVIDER="gupshup", GUPSHUP_TEMPLATE_MERCHANT_NEW_ORDER="tpl-x")
+    notif._provider_instances.clear()
+    try:
+        with patch.dict(os.environ, env, clear=False), patch("requests.post", side_effect=_post), \
+             caplog.at_level(logging.WARNING, logger="lokl.notify"):
+            notif.notify_merchant_new_order("9876543210", "o-test-order123", 500.0, 2)
+    finally:
+        notif._provider_instances.clear()
+    failed_logs = [r.message for r in caplog.records if "whatsapp failed" in r.message]
+    assert not failed_logs, f"unexpected failure log(s) after a successful submission: {failed_logs}"
+
+
 def _capture_send_with_fallback(fn, *args, **kwargs):
     """Runs a notify_* function with NOTIFICATION_PROVIDER=gupshup and a
     template configured for every message_type this test file cares

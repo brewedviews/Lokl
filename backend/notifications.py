@@ -771,6 +771,89 @@ class MSG91Provider(NotificationProvider):
 _GUPSHUP_BASE = "https://api.gupshup.io/wa/api/v1"
 
 
+# ============================================================================
+# Outbound delivery tracking (2026-09) — lightweight persistence of
+# successfully-submitted Gupshup WhatsApp sends, so the message-event
+# webhook (routes/whatsapp.py) can later correlate delivered/read/failed
+# callbacks back to a known send. Deliberately NOT a general notification
+# platform: no retries, no dashboards, no history beyond one row per send.
+#
+# This module has never had a database dependency (every notify_*/
+# send_with_fallback call is a plain synchronous function, with no `db`
+# handle threaded through from server.py, and no async context to await
+# Motor calls from). Rather than retrofit a `db` parameter through every
+# notify_* function signature — explicitly out of scope — this uses its
+# own small, lazily-connected SYNCHRONOUS pymongo client (the same
+# MONGO_URL/DB_NAME env vars server.py's own Motor client uses; a second
+# client to the same database is a normal, cheap thing to have). This is
+# consistent with GupshupProvider.send_whatsapp() already being a
+# blocking, synchronous method (it calls `requests.post`, not an async
+# HTTP client) — a blocking pymongo insert fits the same execution model
+# server.py's async Motor `db` object is never touched from here.
+# ============================================================================
+
+_GUPSHUP_NOTIFICATIONS_COLLECTION = "gupshup_notifications"
+_sync_mongo_client = None  # lazy singleton, mirrors TwilioProvider._client's pattern
+
+
+def _gupshup_notifications_collection():
+    """Returns the sync pymongo collection for outbound delivery tracking,
+    or None if MONGO_URL/DB_NAME aren't configured (never raises — a
+    persistence failure must never break an actual notification send)."""
+    global _sync_mongo_client
+    try:
+        if _sync_mongo_client is None:
+            mongo_url = os.environ.get("MONGO_URL")
+            db_name = os.environ.get("DB_NAME")
+            if not mongo_url or not db_name:
+                log.warning("[gupshup-notify] MONGO_URL/DB_NAME not configured — outbound delivery tracking disabled")
+                return None
+            import pymongo
+            _sync_mongo_client = pymongo.MongoClient(mongo_url, serverSelectionTimeoutMS=5000)
+        return _sync_mongo_client[os.environ["DB_NAME"]][_GUPSHUP_NOTIFICATIONS_COLLECTION]
+    except Exception as e:
+        log.warning("[gupshup-notify] could not reach MongoDB for outbound delivery tracking: %s", e)
+        return None
+
+
+def _record_gupshup_submission(*, gupshup_message_id: str, notification_type: Optional[str],
+                                recipient_phone: str) -> None:
+    """Persists exactly ONE row for a successfully-SUBMITTED Gupshup send —
+    called ONLY from the success branch of GupshupProvider.send_whatsapp(),
+    never for local pre-flight failures, HTTP failures, or Gupshup error
+    responses (those never reach this function at all). No message body or
+    template_params are stored — only what's needed to identify and later
+    correlate the send. Never raises: a persistence failure here must never
+    turn a real, successful WhatsApp submission into a reported failure."""
+    coll = _gupshup_notifications_collection()
+    if coll is None:
+        return
+    try:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        coll.insert_one({
+            "provider": "gupshup",
+            "gupshup_message_id": gupshup_message_id,
+            "notification_type": notification_type,
+            "recipient_phone": recipient_phone,
+            "status": "submitted",
+            "order_id": None,  # not threaded through from call sites in this pass — see module docstring
+            "failure_code": None,
+            "failure_reason": None,
+            "sent_at": None,
+            "delivered_at": None,
+            "read_at": None,
+            "failed_at": None,
+            "created_at": now,
+            "updated_at": now,
+        })
+    except Exception as e:
+        # DuplicateKeyError included — Gupshup is not expected to reuse a
+        # messageId, but if it ever does, the existing row is left alone
+        # rather than silently overwritten.
+        log.warning("[gupshup-notify] failed to persist outbound record for messageId=%s: %s", gupshup_message_id, e)
+
+
 class GupshupProvider(NotificationProvider):
     """Request contract (from Gupshup's own current docs):
 
@@ -789,19 +872,31 @@ class GupshupProvider(NotificationProvider):
         branch a given message_type takes. Do not deviate from either
         shape without confirming a real reason to.
 
-    Response contract — PARTIALLY confirmed live, PARTIALLY still wrong:
-    a real live send (see git history around this class's introduction)
-    got back HTTP 202 with `{"status": "submitted", "messageId": "..."}`,
-    NOT `{"status": "success", ...}` as originally documented — so the
-    strict `status == "success"` check below deliberately treats that
-    real response as a FAILURE, matching what actually happened: the
-    message was accepted by Gupshup's API but never arrived on the real
-    test phone. 202+messageId is NOT sufficient proof of delivery for
-    this account — root cause (template/account config on Gupshup's own
-    dashboard, most likely) is UNRESOLVED as of this comment. Do not
-    loosen this check to accept "submitted" without independently
-    confirming real delivery first — that was the whole point of this
-    live test.
+    Response contract — CONFIRMED (2026-09, corrected from this class's
+    original assumption): a successful submission returns HTTP 2xx with
+    `{"status": "submitted", "messageId": "..."}` — Gupshup's own template
+    message API docs confirm this is the normal, successful response: the
+    API is asynchronous, this response means the message was ACCEPTED and
+    enqueued, not that it was delivered/read. `{"status": "success", ...}`
+    was this class's original (wrong) assumption from a different, older
+    reading of Gupshup's docs and was never actually observed live — kept
+    as an accepted alternate below purely for forward-compatibility, not
+    because it's expected.
+
+    A prior version of this comment treated "submitted" as a failure,
+    reasoning that a real test message never arrived on the test phone
+    despite a 202+messageId response — that reasoning was wrong: it
+    conflated SUBMISSION (this method's actual job) with DELIVERY (a
+    separate, later, asynchronous outcome this method cannot observe).
+    Whatever caused that specific test message to not arrive is a
+    delivery-side question — see GUPSHUP_WEBHOOK_SECRET / routes/
+    whatsapp.py for what delivery-status visibility already exists, and
+    this class's own send_session_text() below, which has correctly
+    checked for `status == "submitted"` (confirmed live, 2026-08-29) this
+    whole time — send_whatsapp() was simply inconsistent with it. Do NOT
+    describe a submitted message as "delivered" anywhere in this method;
+    "submitted"/"accepted by Gupshup" is the only claim this response
+    shape supports.
 
     `template_params` (the interface's generic dict) uses the same
     `{"1": ..., "2": ..., ...}` positional convention Twilio/MSG91's own
@@ -980,16 +1075,43 @@ class GupshupProvider(NotificationProvider):
                 timeout=10,
             )
             data = resp.json() if resp.content else {}
-            if resp.status_code == 202 and str(data.get("status", "")).lower() == "success":
-                msg_id = data.get("messageId")
-                log.info("[gupshup-wa] %s sent (id=%s message_type=%s)", mobile, msg_id, message_type)
+            status_text = str(data.get("status", "")).lower()
+            msg_id = data.get("messageId")
+            # Success = HTTP 2xx + a recognized accepted-status text + a
+            # real messageId. "submitted" is the confirmed, documented,
+            # normal response (see class docstring above) — it means
+            # ACCEPTED for async processing, not delivered. "success" is
+            # kept as an accepted alternate for forward-compatibility only;
+            # it has never actually been observed from this endpoint.
+            # requiring a real messageId is deliberate: a 2xx response
+            # that claims "submitted" but carries no messageId is missing
+            # the one thing that makes the claim verifiable, so it is
+            # treated as a failure rather than trusted at face value (per
+            # the "do not blindly mark it successful" rule for that case).
+            # Any OTHER status text (e.g. "error", "failed", "rejected") —
+            # even under a 2xx HTTP code — falls through to the failure
+            # branch below untouched; this is a positive allow-list, not a
+            # blocklist, so no separate explicit-error check is needed.
+            if 200 <= resp.status_code < 300 and status_text in ("submitted", "success") and msg_id:
+                log.info("[gupshup-wa] submitted to=%s messageId=%s message_type=%s",
+                         mobile, msg_id, message_type)
                 self.last_result = {"ok": True, "provider": "gupshup", "channel": "whatsapp",
-                                     "status_code": resp.status_code, "message_id": msg_id, "response": data}
-                return str(msg_id) if msg_id else None
-            log.warning("[gupshup-wa] send to %s failed: status=%s response=%s", mobile, resp.status_code, data)
+                                     "status_code": resp.status_code, "message_id": msg_id,
+                                     "delivery_status": "submitted", "response": data}
+                # Outbound delivery tracking (2026-09) — persists ONLY on
+                # this confirmed-successful path, never for any failure
+                # branch below or any local pre-flight failure earlier in
+                # this method. See _record_gupshup_submission's own
+                # docstring for why this never raises.
+                _record_gupshup_submission(gupshup_message_id=str(msg_id),
+                                            notification_type=message_type, recipient_phone=mobile)
+                return str(msg_id)
+            log.warning("[gupshup-wa] send to %s NOT submitted: status_code=%s response_status=%r messageId=%r",
+                        mobile, resp.status_code, data.get("status"), msg_id)
             self.last_result = {"ok": False, "provider": "gupshup", "channel": "whatsapp",
                                  "status_code": resp.status_code,
-                                 "error": data.get("message", f"HTTP {resp.status_code}"), "response": data}
+                                 "error": data.get("message") or f"HTTP {resp.status_code}, status={data.get('status')!r}",
+                                 "response": data}
             return None
         except Exception as e:
             log.warning("[gupshup-wa] send to %s failed: %s", mobile, e)

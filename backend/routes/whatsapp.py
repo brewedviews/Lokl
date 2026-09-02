@@ -175,6 +175,14 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
 
     drafts = db.whatsapp_product_drafts
     events = db.whatsapp_webhook_events
+    # Outbound Gupshup delivery tracking (2026-09) — same collection
+    # notifications.py's own sync pymongo client writes "submitted" rows
+    # into (see that module's _record_gupshup_submission); this async
+    # Motor handle is used ONLY to read/update those rows when a
+    # message-event callback arrives. Two driver connections to the same
+    # physical collection is normal and safe — MongoDB indexes/documents
+    # are collection-level, not per-connection.
+    notifications_coll = db.gupshup_notifications
     audit_service = AuditService(db)
 
     async def ensure_indexes():
@@ -191,6 +199,10 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             )
         except Exception as e:
             log.warning("whatsapp_product_drafts indexes: %s", e)
+        try:
+            await notifications_coll.create_index("gupshup_message_id", unique=True)
+        except Exception as e:
+            log.warning("gupshup_notifications indexes: %s", e)
 
     def _touch(fields: dict) -> dict:
         now = datetime.now(timezone.utc)
@@ -759,6 +771,139 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
         _updated_next, next_reply = await _process_collection_message(next_draft, next_line)
         return f"{success_msg}\n\n📦 Product {next_index} of {batch_total}:\n\n{next_reply}"
 
+    # ------------------------------------------------------------------
+    # Outbound message-event (delivery-status) handling (2026-09).
+    #
+    # Gupshup's confirmed contract for a `type: "message-event"` webhook
+    # payload:
+    #   body = {"app": ..., "timestamp": <ms>, "version": 2,
+    #           "type": "message-event",
+    #           "payload": {"id": ..., "gsId": ..., "type": "sent|
+    #             delivered|read|failed|enqueued", "destination": ...,
+    #             "payload": {...event-specific detail, may include "ts",
+    #             and for failed events "code"/"reason"...}}}
+    #
+    # Correlation (per the authoritative contract — do not deviate):
+    #   sent/delivered/read : gupshup_message_id = evt["gsId"]  (NEVER evt["id"])
+    #   failed (async)       : gupshup_message_id = evt["gsId"]
+    #   failed (sync)         : gupshup_message_id = evt["id"]   (no gsId yet)
+    #   -> failed's rule collapses to: gsId if present, else id.
+    #
+    # Status precedence (monotonic, never downgraded):
+    #   submitted(0) < sent(1) < delivered(2) < read(3)
+    # A later-arriving event with a LOWER rank than the currently stored
+    # status is a no-op on the `status` field (but its own *_at timestamp
+    # is still recorded unconditionally — e.g. a late "sent" event after
+    # "delivered" already updates sent_at, it just never moves status
+    # backward). `failed` is handled separately: it only overwrites
+    # status when the current status is still submitted/sent (rank <
+    # delivered's rank) — a failed event arriving after delivered/read is
+    # logged and otherwise ignored, never treated as a stronger-or-equal
+    # state that could overwrite a confirmed success.
+    #
+    # Idempotency (Step 7): deliberately NOT a second dedup collection.
+    # Every write here is a `$set` of specific fields keyed by
+    # gupshup_message_id, and the status-advance check above is itself
+    # idempotent — reprocessing the exact same event twice recomputes the
+    # exact same field values (same rank comparison, same timestamp),
+    # producing no additional effect. This is the "idempotent status
+    # update" approach the task explicitly allows, chosen over a new
+    # per-event fingerprint collection as the smallest reliable option.
+    # KNOWN LIMITATION: this is a plain read-then-write (find_one, then
+    # update_one), not a single atomic Mongo operation — two events for
+    # the SAME messageId arriving in a tight concurrent race could in
+    # theory interleave. Acceptable for this lightweight feature (Gupshup
+    # delivers events for one message sequentially in practice); noted
+    # rather than hidden.
+    # "failed" is deliberately given the HIGHEST rank, not omitted: this
+    # dict is also used to rank the CURRENT stored status when a later
+    # sent/delivered/read event arrives (see the `current_rank` lookup
+    # below, shared by both branches). Leaving "failed" out of this dict
+    # meant `.get(status, 0)` silently fell back to rank 0 for an
+    # already-failed record — indistinguishable from "submitted" — so a
+    # late/out-of-order delivered or read event would flip status back
+    # from "failed" to "delivered"/"read" while leaving failure_code/
+    # failure_reason/failed_at populated underneath it: a record that
+    # simultaneously claims to be delivered and carries a failure reason.
+    # Ranking "failed" above "read" makes it terminal, symmetric with how
+    # a failed event itself is already refused once status has reached
+    # delivered/read (see the guard below).
+    _STATUS_RANK = {"submitted": 0, "sent": 1, "delivered": 2, "read": 3, "failed": 4}
+
+    def _event_timestamp(evt: dict) -> "datetime":
+        """Prefers the event-specific payload.payload.ts (Step 10) over
+        the outer envelope timestamp — never confuses the two. Gupshup
+        timestamps are milliseconds-since-epoch (matches the confirmed
+        inbound-message envelope's own `timestamp` field shape)."""
+        detail = evt.get("payload")
+        ts_ms = detail.get("ts") if isinstance(detail, dict) else None
+        if ts_ms is None:
+            ts_ms = evt.get("ts")
+        if isinstance(ts_ms, (int, float)):
+            try:
+                return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+            except (ValueError, OSError):
+                pass
+        return datetime.now(timezone.utc)
+
+    async def _handle_message_event(evt) -> None:
+        if not isinstance(evt, dict):
+            log.info("[gupshup-event] message-event payload was not an object — ignored")
+            return
+        event_type = str(evt.get("type") or "").strip().lower()
+
+        if event_type == "failed":
+            gs_id = evt.get("gsId") or evt.get("id")
+        elif event_type in ("sent", "delivered", "read"):
+            gs_id = evt.get("gsId")
+        else:
+            # Includes "enqueued" (contract-recognized but not modeled in
+            # our 5-value status ladder) and any future/unknown type —
+            # log and no-op, never raise, never guess a correlation id.
+            log.info("[gupshup-event] type=%r not tracked — ignored", event_type)
+            return
+
+        if not gs_id:
+            log.info("[gupshup-event] type=%r missing gsId/id — cannot correlate, ignored", event_type)
+            return
+
+        existing = await notifications_coll.find_one(
+            {"gupshup_message_id": gs_id}, {"_id": 0, "status": 1},
+        )
+        if not existing:
+            # Step 8 — unknown messageId: never fabricate a record, never
+            # raise (Gupshup would just retry the webhook on a non-200).
+            log.info("[gupshup-event] unknown gupshup_message_id (type=%s) — no matching outbound record, ignored", event_type)
+            return
+
+        event_time = _event_timestamp(evt)
+        now = datetime.now(timezone.utc)
+        current_rank = _STATUS_RANK.get(existing.get("status", "submitted"), 0)
+        update: dict = {"updated_at": now}
+
+        if event_type == "failed":
+            if current_rank >= _STATUS_RANK["delivered"]:
+                log.info("[gupshup-event] failed event arrived after a stronger status (%s) — not overwriting",
+                         existing.get("status"))
+                return
+            update["status"] = "failed"
+            update["failed_at"] = event_time
+            detail = evt.get("payload") if isinstance(evt.get("payload"), dict) else {}
+            if detail.get("code") is not None:
+                update["failure_code"] = detail.get("code")
+            if detail.get("reason"):
+                update["failure_reason"] = detail.get("reason")
+            await notifications_coll.update_one({"gupshup_message_id": gs_id}, {"$set": update})
+            return
+
+        # sent / delivered / read — always record this event's own
+        # timestamp; only advance `status` if this event outranks what's
+        # currently stored (never downgrade).
+        update[f"{event_type}_at"] = event_time
+        if _STATUS_RANK[event_type] > current_rank:
+            update["status"] = event_type
+        await notifications_coll.update_one({"gupshup_message_id": gs_id}, {"$set": update})
+
     @router.post("/inbound")
     @rate_limit("120/minute")
     async def gupshup_inbound(request: Request):
@@ -774,7 +919,24 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             log.warning("[whatsapp] inbound request body was not valid JSON")
             return PlainTextResponse("", status_code=200)
 
-        if not isinstance(body, dict) or body.get("type") != "message":
+        if not isinstance(body, dict):
+            return PlainTextResponse("", status_code=200)
+
+        if body.get("type") == "message-event":
+            # Outbound delivery-status callback — entirely separate from
+            # the inbound merchant product-addition flow below. Own
+            # try/except so a bug here can never affect that flow, same
+            # discipline the "message" branch already uses.
+            try:
+                await _handle_message_event(body.get("payload"))
+            except Exception:
+                log.exception("[gupshup-event] unhandled error processing message-event")
+            return PlainTextResponse("", status_code=200)
+
+        if body.get("type") != "message":
+            # Unknown/unhandled top-level type (or "enqueued" arriving at
+            # the outer level, which the real contract never does) —
+            # always 200, never process, never raise.
             return PlainTextResponse("", status_code=200)
 
         msg = body.get("payload")
