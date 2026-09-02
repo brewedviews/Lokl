@@ -11561,6 +11561,17 @@ async def admin_return_action(rid: str, action: str, admin: dict = Depends(requi
                 o = await db.orders.find_one({"id": r["order_id"]}, {"_id": 0}) or {}
                 addr = o.get("address") or {}
                 pickup_addr = ", ".join([p for p in [addr.get("line1", ""), addr.get("landmark", ""), addr.get("city", "Bhilai"), addr.get("pincode", "")] if p])
+                # Store info + coordinates — same two-query pattern (db.merchants
+                # for name/address, db.stores for lat/lng) as forward
+                # notify_rider_pickup's own call site. A return's merchant_ids
+                # is a list (a return can in principle span >1 store); the
+                # Gupshup template has only one store name/address/map slot,
+                # so the FIRST merchant on the return is used — the common
+                # (single-store) case is exact, a genuinely multi-store return
+                # only shows one of the relevant stores.
+                return_mid = (r.get("merchant_ids") or [None])[0]
+                rm = (await db.merchants.find_one({"id": return_mid}, {"_id": 0, "store_name": 1, "business_address": 1})) if return_mid else None
+                rstore_doc = (await db.stores.find_one({"id": f"store-m-{return_mid}"}, {"_id": 0, "lat": 1, "lng": 1})) if return_mid else None
                 notify_rider_return_pickup(
                     rider_phone,
                     return_id=rid, order_id=r["order_id"], otp=r.get("otp", ""),
@@ -11568,6 +11579,15 @@ async def admin_return_action(rid: str, action: str, admin: dict = Depends(requi
                     pickup_addr=pickup_addr,
                     items=r.get("items", []),
                     reason=r.get("reason", ""),
+                    store_name=(rm or {}).get("store_name", "Store"),
+                    store_address=(rm or {}).get("business_address", "Bhilai"),
+                    store_lat=(rstore_doc or {}).get("lat") or 0,
+                    store_lng=(rstore_doc or {}).get("lng") or 0,
+                    # Same known gap as forward notify_rider_pickup: addr has
+                    # no lat/lng populated in practice today — this yields an
+                    # empty (not fabricated) customer map URL, not 0,0.
+                    customer_lat=addr.get("lat") or 0,
+                    customer_lng=addr.get("lng") or 0,
                 )
             except Exception: pass
     # Label/message text for each status is owned centrally by

@@ -861,6 +861,23 @@ class GupshupProvider(NotificationProvider):
         "order_rejected": "GUPSHUP_TEMPLATE_ORDER_REJECTED",
         "order_delivered": "GUPSHUP_TEMPLATE_ORDER_DELIVERED",
         "merchant_new_order": "GUPSHUP_TEMPLATE_MERCHANT_NEW_ORDER",
+        # rider_pickup: confirmed live from the Gupshup template editor —
+        # exactly 8 variables: short order id, store name, store address,
+        # customer name, customer address, items, store map URL, customer
+        # map URL. No rider phone, delivery OTP, customer phone, order
+        # total, tracking URL, or cancellation info — none are variables
+        # in the approved template. Recipient is the shared RIDER_PHONE
+        # ops number (see notify_rider_pickup's own docstring), not an
+        # individually-assigned rider — unaffected by this wiring.
+        "rider_pickup": "GUPSHUP_TEMPLATE_RIDER_PICKUP",
+        # rider_return_pickup: confirmed live from the Gupshup template
+        # editor — exactly 8 variables: ORIGINAL order short id (NOT
+        # return_id), customer name/address, customer map URL, store
+        # name/address, store map URL, returned items. No return id, OTP,
+        # or reason — none are variables in the approved template.
+        # Recipient is the same shared RIDER_PHONE ops number as
+        # rider_pickup — unaffected by this wiring.
+        "rider_return_pickup": "GUPSHUP_TEMPLATE_RIDER_RETURN_PICKUP",
         # merchant_order_cancelled: confirmed live from the Gupshup
         # template editor — exactly ONE variable, the order's short id.
         # No cancellation reason, customer name/phone, order total, or
@@ -1413,10 +1430,34 @@ def notify_rider_pickup(rider_phone: str, *, order_id: str, otp: str, customer_n
                         items_summary: str = "", upi_qr_url: str = "",
                         store_lat: float = 0, store_lng: float = 0,
                         customer_lat: float = 0, customer_lng: float = 0) -> None:
-    """Notify the registered rider when a merchant accepts an order."""
+    """Notify the rider when a merchant accepts an order. `rider_phone` is
+    the shared RIDER_PHONE ops number (see the one call site in server.py,
+    merchant_accept_order) — NOT an individually-assigned rider's own
+    phone; this is a pre-existing, unrelated fact this wiring doesn't
+    change.
+
+    Gupshup reconciliation (2026-09): approved rider_pickup template has
+    exactly 8 variables — short order id, store name, store address,
+    customer name, customer address, items, store map URL, customer map
+    URL — reusing this function's own EXISTING pickup_map/drop_map
+    construction below (no separate helper exists anywhere in this
+    codebase; this exact `?q={{lat}},{{lng}}` pattern is the established
+    convention, also used for the pickup-reservation maps_link in
+    server.py). Deliberately excluded, per the approved template: OTP,
+    rider phone, customer phone, order total, tracking URL, cancellation
+    info.
+
+    KNOWN GAP, not fixed by this wiring: customer_lat/customer_lng come
+    from the delivery address, which — per this function's own long-
+    standing caller comment in server.py — has no lat/lng populated in
+    practice today. So {{8}} (customer map URL) will be an EMPTY STRING
+    for most/all real orders until delivery addresses are geocoded
+    somewhere upstream. Not something this change invents or can fix —
+    no new geocoding service was added, per instruction."""
     short_id = order_id[-6:].upper()
     pickup_map = f"https://maps.google.com/?q={store_lat},{store_lng}" if store_lat and store_lng else ""
     drop_map = f"https://maps.google.com/?q={customer_lat},{customer_lng}" if customer_lat and customer_lng else ""
+    items_text = items_summary or "(see app)"
     body = f"""🛵 LOKL DELIVERY — #{short_id}
 
 📦 PICKUP
@@ -1430,7 +1471,7 @@ def notify_rider_pickup(rider_phone: str, *, order_id: str, otp: str, customer_n
 {f"📍 Navigate: {drop_map}" if drop_map else ""}
 
 🛍️ ITEMS
-{items_summary or "(see app)"}
+{items_text}
 
 🔑 OTP: {otp}
 Ask customer for this OTP on delivery.
@@ -1439,7 +1480,12 @@ Ask customer for this OTP on delivery.
 
 ✅ TO CONFIRM DELIVERY:
 Reply: {otp} Delivered"""
-    send_with_fallback(rider_phone, body, message_type="rider_pickup")
+    send_with_fallback(rider_phone, body, message_type="rider_pickup",
+                        template_params={
+                            "1": short_id, "2": store_name, "3": store_address,
+                            "4": customer_name, "5": customer_address, "6": items_text,
+                            "7": pickup_map, "8": drop_map,
+                        })
 
 
 def notify_order_on_the_way(phone: str, order_id: str, otp: str, rider_phone: str = "") -> None:
@@ -1565,8 +1611,33 @@ def notify_order_delivered(phone: str, order_id: str) -> None:
 
 def notify_rider_return_pickup(rider_phone: str, *, return_id: str, order_id: str, otp: str,
                                 customer_name: str, pickup_addr: str, items: list[dict],
-                                reason: str = "") -> None:
-    """Notify the rider for a return pickup (reverse pickup flow)."""
+                                reason: str = "", store_name: str = "Store",
+                                store_address: str = "Bhilai",
+                                store_lat: float = 0, store_lng: float = 0,
+                                customer_lat: float = 0, customer_lng: float = 0) -> None:
+    """Notify the rider for a return pickup (reverse pickup flow).
+    `rider_phone` is the shared RIDER_PHONE ops number (see the one call
+    site in server.py, admin_return_action) — same architecture as
+    forward notify_rider_pickup, unaffected by this wiring.
+
+    Gupshup reconciliation (2026-09): approved rider_return_pickup
+    template has exactly 8 variables — the ORIGINAL order's short id
+    (NOT return_id — the template says "Order", and leaking a return id
+    into a customer-facing-shaped variable slot isn't something the
+    approved template asks for), customer name/address, customer map
+    URL, store name/address, store map URL, and the returned items.
+    store_name/store_address/store_lat/store_lng/customer_lat/
+    customer_lng are NEW params (the function never had store info or
+    coordinates before this) — reusing the exact same
+    `f"https://maps.google.com/?q={{lat}},{{lng}}"` construction already
+    established in the forward rider-pickup notify function above and
+    server.py's pickup-reservation maps_link; no new helper, no
+    geocoding. Deliberately
+    excluded from the Gupshup template_params: return_id, OTP, reason —
+    none are variables in the approved template. OTP/return_id stay in
+    the freeform body below (Twilio/MSG91) exactly as before — nothing
+    removed from that channel."""
+    short_order_id = order_id[-6:].upper()
     item_lines = "; ".join(
         f"{it.get('qty', 1)}x {it.get('name', 'Item')}" for it in (items or [])
     ) or "(see app)"
@@ -1578,7 +1649,18 @@ def notify_rider_return_pickup(rider_phone: str, *, return_id: str, order_id: st
         f"Items: {item_lines}. "
         f"Reply '{otp} - Picked Up' once the customer hands over the items."
     )
-    send_with_fallback(rider_phone, body, message_type="rider_return_pickup")
+    customer_map_url = f"https://maps.google.com/?q={customer_lat},{customer_lng}" if customer_lat and customer_lng else ""
+    store_map_url = f"https://maps.google.com/?q={store_lat},{store_lng}" if store_lat and store_lng else ""
+    # Do NOT add a freeform fallback here for Gupshup — GupshupProvider
+    # already has no freeform WhatsApp path in this pass (see its own
+    # docstring); this template_params dict is the ONLY thing Gupshup
+    # ever sends for this message_type.
+    send_with_fallback(rider_phone, body, message_type="rider_return_pickup",
+                        template_params={
+                            "1": short_order_id, "2": customer_name, "3": pickup_addr,
+                            "4": customer_map_url, "5": store_name, "6": store_address,
+                            "7": store_map_url, "8": item_lines,
+                        })
 
 
 # Canonical (label, status-specific message) per return status that

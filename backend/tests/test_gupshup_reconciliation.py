@@ -133,6 +133,8 @@ def _capture_send_with_fallback(fn, *args, **kwargs):
         "GUPSHUP_TEMPLATE_ORDER_ON_THE_WAY": "tpl-on-the-way",
         "GUPSHUP_TEMPLATE_ORDER_CANCELLED": "tpl-cancelled",
         "GUPSHUP_TEMPLATE_MERCHANT_ORDER_CANCELLED": "tpl-merchant-cancelled",
+        "GUPSHUP_TEMPLATE_RIDER_PICKUP": "tpl-rider-pickup",
+        "GUPSHUP_TEMPLATE_RIDER_RETURN_PICKUP": "tpl-rider-return-pickup",
         "GUPSHUP_TEMPLATE_ORDER_REJECTED": "tpl-rejected",
         "GUPSHUP_TEMPLATE_ORDER_DELIVERED": "tpl-delivered",
         "GUPSHUP_TEMPLATE_MERCHANT_NEW_ORDER": "tpl-new-order",
@@ -446,6 +448,286 @@ def test_no_legacy_merchant_order_cancelled_paths_remain():
 
     assert "merchant_order_cancelled" in notif.GupshupProvider._TEMPLATE_ENV
     assert notif.GupshupProvider._TEMPLATE_ENV["merchant_order_cancelled"] == "GUPSHUP_TEMPLATE_MERCHANT_ORDER_CANCELLED"
+
+
+_RIDER_PICKUP_KWARGS = dict(
+    order_id="o-lokltest-orderQZ81MN",
+    otp="4821",
+    customer_name="Priya Sharma",
+    store_name="Sahoo Collection",
+    store_address="Shop 12, Sector 10 Market, Bhilai",
+    customer_address="H.No. 45, Nehru Nagar, Bhilai, 490020",
+    items_summary="  • 2x Cotton Kurta (M)\n  • 1x Denim Jacket (L)",
+    upi_qr_url="https://upi.example/qr/abc",
+    store_lat=21.19, store_lng=81.33,
+    customer_lat=21.21, customer_lng=81.35,
+)
+_RIDER_PICKUP_EXPECTED = [
+    "QZ81MN", "Sahoo Collection", "Shop 12, Sector 10 Market, Bhilai",
+    "Priya Sharma", "H.No. 45, Nehru Nagar, Bhilai, 490020",
+    "  • 2x Cotton Kurta (M)\n  • 1x Denim Jacket (L)",
+    "https://maps.google.com/?q=21.19,81.33",
+    "https://maps.google.com/?q=21.21,81.35",
+]
+
+
+def test_rider_pickup_sends_exactly_8_params_in_approved_order():
+    """Confirmed live from the Gupshup template editor (2026-09): exactly
+    8 variables, in order — order id, store name/address, customer
+    name/address, items, store map URL, customer map URL."""
+    calls = []
+    orig = notif.send_with_fallback
+    def spy(*a, **kw):
+        calls.append(kw.get("message_type"))
+        return orig(*a, **kw)
+    notif.send_with_fallback = spy
+    try:
+        params = _capture_send_with_fallback(
+            notif.notify_rider_pickup, "9800000000", **_RIDER_PICKUP_KWARGS,
+        )
+    finally:
+        notif.send_with_fallback = orig
+
+    assert calls == ["rider_pickup"], "message_type must be exactly 'rider_pickup'"
+    assert len(params) == 8, "must be exactly 8 Gupshup template parameters"
+    assert params == _RIDER_PICKUP_EXPECTED, "parameters must be in the exact approved order"
+    assert params[0] == "QZ81MN", "{{1}} must be the short order id"
+    assert params[1] == "Sahoo Collection", "{{2}} must be the store name"
+    assert params[2] == "Shop 12, Sector 10 Market, Bhilai", "{{3}} must be the store address"
+    assert params[3] == "Priya Sharma", "{{4}} must be the customer name"
+    assert params[4] == "H.No. 45, Nehru Nagar, Bhilai, 490020", "{{5}} must be the customer address"
+    assert params[5] == "  • 2x Cotton Kurta (M)\n  • 1x Denim Jacket (L)", "{{6}} must be the items"
+    assert params[6] == "https://maps.google.com/?q=21.19,81.33", "{{7}} must be the store map URL"
+    assert params[7] == "https://maps.google.com/?q=21.21,81.35", "{{8}} must be the customer map URL"
+
+
+def test_rider_pickup_excludes_otp_rider_phone_and_customer_phone():
+    kwargs = dict(_RIDER_PICKUP_KWARGS)
+    params = _capture_send_with_fallback(notif.notify_rider_pickup, "9800000000", **kwargs)
+    joined = " ".join(params)
+    assert kwargs["otp"] not in joined, "delivery OTP must never reach a Gupshup parameter"
+    assert "9800000000" not in joined, "rider phone (the recipient number itself) must never appear as a parameter value"
+    assert not any(notif.APP_URL in p for p in params), "no tracking URL — not a variable in the approved template"
+
+
+def test_rider_pickup_items_fallback_when_empty():
+    """The existing '(see app)' fallback (already used in the freeform
+    body) is reused for {{6}} when no items_summary is available — not a
+    new fallback invented for Gupshup."""
+    kwargs = dict(_RIDER_PICKUP_KWARGS)
+    kwargs["items_summary"] = ""
+    params = _capture_send_with_fallback(notif.notify_rider_pickup, "9800000000", **kwargs)
+    assert params[5] == "(see app)"
+
+
+def test_rider_pickup_map_urls_empty_when_lat_lng_missing():
+    """Confirms the KNOWN GAP: when lat/lng are unavailable (0, as they
+    typically are for customer delivery addresses today — see
+    notify_rider_pickup's own docstring), the corresponding map URL
+    parameter is an empty string, exactly matching the existing
+    pickup_map/drop_map construction's own behavior — not silently
+    substituting a fake URL."""
+    kwargs = dict(_RIDER_PICKUP_KWARGS)
+    kwargs["customer_lat"] = 0
+    kwargs["customer_lng"] = 0
+    params = _capture_send_with_fallback(notif.notify_rider_pickup, "9800000000", **kwargs)
+    assert params[7] == "", "customer map URL must be empty when lat/lng are unavailable, not fabricated"
+    assert params[6] == "https://maps.google.com/?q=21.19,81.33", "store map URL is unaffected"
+
+
+def test_rider_pickup_recipient_and_trigger_preserved():
+    """Static check: the one call site still passes the shared RIDER_PHONE
+    ops number (not an individually-assigned rider), and still lives
+    inside merchant_accept_order() — no new trigger, no rider-assignment
+    logic changed."""
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    server_py = os.path.join(backend_dir, "server.py")
+    with open(server_py) as f:
+        src = f.read()
+    assert 'rider_phone = os.environ.get("RIDER_PHONE", "").strip()' in src, \
+        "recipient must still be the shared RIDER_PHONE ops number"
+    fn_start = src.index("async def merchant_accept_order")
+    fn_end = src.index("\n@api.", fn_start)
+    fn_src = src[fn_start:fn_end]
+    assert fn_src.count("notify_rider_pickup(") == 1, \
+        "notify_rider_pickup must be called exactly once, only inside merchant_accept_order()"
+
+
+def test_rider_pickup_has_exactly_one_call_site_no_duplicate_path():
+    """No second Gupshup call path for this message exists anywhere in
+    the application backend."""
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out = subprocess.run(
+        ["grep", "-rn", "notify_rider_pickup(", backend_dir,
+         "--include=*.py", "--exclude-dir=tests", "--exclude-dir=__pycache__"],
+        capture_output=True, text=True,
+    ).stdout
+    call_lines = [l for l in out.splitlines() if "def notify_rider_pickup" not in l]
+    assert len(call_lines) == 1, f"expected exactly one call site, found {len(call_lines)}: {call_lines}"
+    assert "server.py" in call_lines[0]
+
+
+def test_rider_pickup_gupshup_template_env_mapping():
+    assert notif.GupshupProvider._TEMPLATE_ENV.get("rider_pickup") == "GUPSHUP_TEMPLATE_RIDER_PICKUP"
+
+
+_RIDER_RETURN_PICKUP_KWARGS = dict(
+    return_id="RET-8291",
+    order_id="o-lokltest-orderHT62VB",
+    otp="7734",
+    customer_name="Priya Sharma",
+    pickup_addr="H.No. 45, Nehru Nagar, Bhilai, 490020",
+    items=[{"qty": 2, "name": "Cotton Kurta"}, {"qty": 1, "name": "Denim Jacket"}],
+    reason="Size didn't fit",
+    store_name="Sahoo Collection",
+    store_address="Shop 12, Sector 10 Market, Bhilai",
+    store_lat=21.19, store_lng=81.33,
+    customer_lat=21.21, customer_lng=81.35,
+)
+_RIDER_RETURN_PICKUP_EXPECTED = [
+    "HT62VB", "Priya Sharma", "H.No. 45, Nehru Nagar, Bhilai, 490020",
+    "https://maps.google.com/?q=21.21,81.35",
+    "Sahoo Collection", "Shop 12, Sector 10 Market, Bhilai",
+    "https://maps.google.com/?q=21.19,81.33",
+    "2x Cotton Kurta; 1x Denim Jacket",
+]
+
+
+def test_rider_return_pickup_sends_exactly_8_params_in_approved_order():
+    """Confirmed live from the Gupshup template editor (2026-09): exactly
+    8 variables, in order — ORIGINAL order short id, customer
+    name/address, customer map URL, store name/address, store map URL,
+    returned items."""
+    calls = []
+    orig = notif.send_with_fallback
+    def spy(*a, **kw):
+        calls.append(kw.get("message_type"))
+        return orig(*a, **kw)
+    notif.send_with_fallback = spy
+    try:
+        params = _capture_send_with_fallback(
+            notif.notify_rider_return_pickup, "9800000000", **_RIDER_RETURN_PICKUP_KWARGS,
+        )
+    finally:
+        notif.send_with_fallback = orig
+
+    assert calls == ["rider_return_pickup"], "message_type must be exactly 'rider_return_pickup'"
+    assert len(params) == 8, "must be exactly 8 Gupshup template parameters"
+    assert params == _RIDER_RETURN_PICKUP_EXPECTED, "parameters must be in the exact approved order"
+
+
+def test_rider_return_pickup_uses_original_order_id_not_return_id():
+    params = _capture_send_with_fallback(
+        notif.notify_rider_return_pickup, "9800000000", **_RIDER_RETURN_PICKUP_KWARGS,
+    )
+    assert params[0] == "HT62VB", "{{1}} must be the ORIGINAL order's short id"
+    assert "RET-8291" not in params, "the return id must never be passed as {{1}} or leak into any parameter"
+    assert not any("RET-" in p for p in params), "no return id anywhere in the Gupshup parameters"
+
+
+def test_rider_return_pickup_addresses_from_correct_records():
+    params = _capture_send_with_fallback(
+        notif.notify_rider_return_pickup, "9800000000", **_RIDER_RETURN_PICKUP_KWARGS,
+    )
+    assert params[2] == "H.No. 45, Nehru Nagar, Bhilai, 490020", "{{3}} customer address must come from the order's own address, not the store"
+    assert params[5] == "Shop 12, Sector 10 Market, Bhilai", "{{6}} store address must come from the merchant record, not the customer address"
+    assert params[4] == "Sahoo Collection", "{{5}} store name must come from db.merchants, not a return/order field"
+
+
+def test_rider_return_pickup_items_mapped_correctly():
+    kwargs = dict(_RIDER_RETURN_PICKUP_KWARGS)
+    kwargs["items"] = [{"qty": 3, "name": "Saree"}]
+    params = _capture_send_with_fallback(notif.notify_rider_return_pickup, "9800000000", **kwargs)
+    assert params[7] == "3x Saree"
+
+    kwargs["items"] = []
+    params_empty = _capture_send_with_fallback(notif.notify_rider_return_pickup, "9800000000", **kwargs)
+    assert params_empty[7] == "(see app)", "reuses the function's own existing empty-items fallback"
+
+
+def test_rider_return_pickup_map_urls_only_with_real_coordinates():
+    """Store map URL present (real coordinates); customer map URL empty
+    (no fabricated coordinates) when lat/lng are unavailable — the common
+    case today, per the audit."""
+    kwargs = dict(_RIDER_RETURN_PICKUP_KWARGS)
+    kwargs["customer_lat"] = 0
+    kwargs["customer_lng"] = 0
+    params = _capture_send_with_fallback(notif.notify_rider_return_pickup, "9800000000", **kwargs)
+    assert params[3] == "", "customer map URL must be a safe empty value, never a fabricated URL, when coordinates are missing"
+    assert params[6] == "https://maps.google.com/?q=21.19,81.33", "store map URL must still use its own real coordinates"
+
+    kwargs2 = dict(_RIDER_RETURN_PICKUP_KWARGS)
+    kwargs2["store_lat"] = 0
+    kwargs2["store_lng"] = 0
+    params2 = _capture_send_with_fallback(notif.notify_rider_return_pickup, "9800000000", **kwargs2)
+    assert params2[6] == "", "store map URL must also be empty (not fabricated) when store coordinates are missing"
+
+
+def test_rider_return_pickup_excludes_otp_return_id_and_reason():
+    params = _capture_send_with_fallback(
+        notif.notify_rider_return_pickup, "9800000000", **_RIDER_RETURN_PICKUP_KWARGS,
+    )
+    joined = " ".join(params)
+    assert _RIDER_RETURN_PICKUP_KWARGS["otp"] not in joined, "OTP must never reach a Gupshup parameter"
+    assert "RET-8291" not in joined, "return id must never reach a Gupshup parameter"
+    assert _RIDER_RETURN_PICKUP_KWARGS["reason"] not in joined, "reason must never reach a Gupshup parameter — not a variable in the approved template"
+
+
+def test_rider_return_pickup_freeform_body_still_carries_otp_and_return_id():
+    """OTP and return_id must remain in the Twilio/MSG91 freeform body
+    exactly as before — only the Gupshup template send excludes them."""
+    sent = {}
+    def fake_send_whatsapp(to, message, *, template_id=None, template_params=None, message_type=None):
+        sent["body"] = message
+        return "msg-id"
+
+    class _FakeTwilioLike(notif.NotificationProvider):
+        def send_sms(self, *a, **kw): return True
+        def send_whatsapp(self, *a, **kw): return fake_send_whatsapp(*a, **kw)
+        def send_otp(self, *a, **kw): return "whatsapp"
+        def verify_otp(self, *a, **kw): return True
+
+    fake = _FakeTwilioLike()
+    orig_get_provider = notif.get_provider
+    notif.get_provider = lambda: fake
+    try:
+        notif.notify_rider_return_pickup("9800000000", **_RIDER_RETURN_PICKUP_KWARGS)
+    finally:
+        notif.get_provider = orig_get_provider
+
+    assert _RIDER_RETURN_PICKUP_KWARGS["otp"] in sent["body"]
+    assert "RET-8291" in sent["body"]
+
+
+def test_rider_return_pickup_recipient_and_trigger_preserved():
+    """Static check: still the shared RIDER_PHONE ops number, still only
+    triggered from admin_return_action() on the 'assign' action."""
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    server_py = os.path.join(backend_dir, "server.py")
+    with open(server_py) as f:
+        src = f.read()
+    fn_start = src.index("async def admin_return_action")
+    fn_end = src.index("\n@api.", fn_start)
+    fn_src = src[fn_start:fn_end]
+    assert 'rider_phone = os.environ.get("RIDER_PHONE", "").strip()' in fn_src
+    assert 'if status == "pickup_assigned":' in fn_src
+    assert fn_src.count("notify_rider_return_pickup(") == 1
+
+
+def test_rider_return_pickup_has_exactly_one_call_site_no_duplicate_path():
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out = subprocess.run(
+        ["grep", "-rn", "notify_rider_return_pickup(", backend_dir,
+         "--include=*.py", "--exclude-dir=tests", "--exclude-dir=__pycache__"],
+        capture_output=True, text=True,
+    ).stdout
+    call_lines = [l for l in out.splitlines() if "def notify_rider_return_pickup" not in l]
+    assert len(call_lines) == 1, f"expected exactly one call site, found {len(call_lines)}: {call_lines}"
+    assert "server.py" in call_lines[0]
+
+
+def test_rider_return_pickup_gupshup_template_env_mapping():
+    assert notif.GupshupProvider._TEMPLATE_ENV.get("rider_return_pickup") == "GUPSHUP_TEMPLATE_RIDER_RETURN_PICKUP"
 
 
 def test_order_on_the_way_sends_exactly_one_param_the_short_order_id():
