@@ -210,25 +210,31 @@ class TestAdminManualCreation:
         assert r.status_code == 200, r.text
         assert r.json()["creation_source"] == "admin_manual"
 
-    def test_bypass_plan_limit_is_a_separate_explicit_flag(self, admin_auth, fresh_unapproved_merchant):
+    def test_bypass_plan_limit_flag_is_now_inert_no_product_count_limit_exists(self, admin_auth, fresh_unapproved_merchant):
+        """2026-09 business decision: merchant product count is unlimited
+        for every plan — there is no longer a product-count gate anywhere
+        for `bypass_plan_limit` to bypass. This replaces the old test that
+        asserted an 11th product failed without the flag; that behavior no
+        longer exists. The flag itself is kept (inert) on the admin
+        endpoint's payload for backward compatibility with the admin
+        frontend — passing it True or False must make zero difference."""
         h, _ = admin_auth
         mid = fresh_unapproved_merchant
-        for i in range(10):
+        for i in range(12):
             r = requests.post(f"{API}/admin/merchants/{mid}/products",
                                json={"product": {"name": f"Filler{i}", "price": 100, "l1_id": "l1-men", "l2_id": "l2-men-tshirts"},
                                      "admin_override": True},
                                headers=h, timeout=10)
             assert r.status_code == 200, r.text
-        # 11th without bypass -> plan limit.
+        # 13th, still without bypass_plan_limit -> succeeds (no limit left to hit).
         r = requests.post(f"{API}/admin/merchants/{mid}/products",
-                           json={"product": {"name": "OverLimit", "price": 100, "l1_id": "l1-men", "l2_id": "l2-men-tshirts"},
+                           json={"product": {"name": "PastOldLimit", "price": 100, "l1_id": "l1-men", "l2_id": "l2-men-tshirts"},
                                  "admin_override": True},
                            headers=h, timeout=10)
-        assert r.status_code == 400
-        assert "limit" in r.text.lower()
-        # 11th WITH bypass_plan_limit -> succeeds.
+        assert r.status_code == 200, r.text
+        # bypass_plan_limit=True still works too (inert, never rejected):
         r = requests.post(f"{API}/admin/merchants/{mid}/products",
-                           json={"product": {"name": "OverLimitBypassed", "price": 100, "l1_id": "l1-men", "l2_id": "l2-men-tshirts"},
+                           json={"product": {"name": "PastOldLimitBypassed", "price": 100, "l1_id": "l1-men", "l2_id": "l2-men-tshirts"},
                                  "admin_override": True, "bypass_plan_limit": True},
                            headers=h, timeout=10)
         assert r.status_code == 200, r.text

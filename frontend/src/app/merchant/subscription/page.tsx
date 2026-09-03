@@ -26,7 +26,7 @@ const PLANS: Plan[] = [
     color: "#9CA3AF",
     tagline: "Try Lokl for 30 days",
     features: [
-      { text: "10 products", included: true },
+      { text: "Unlimited products", included: true },
       { text: "Standard search placement", included: true },
       { text: "WhatsApp order alerts", included: true },
       { text: "Priority placement in search", included: false },
@@ -46,7 +46,7 @@ const PLANS: Plan[] = [
     color: "#1A2B4C",
     tagline: "For stores just getting started",
     features: [
-      { text: "30 products", included: true },
+      { text: "Unlimited products", included: true },
       { text: "Standard search placement", included: true },
       { text: "WhatsApp order alerts", included: true },
       { text: "Basic dashboard", included: true },
@@ -66,7 +66,7 @@ const PLANS: Plan[] = [
     color: "#E68910",
     tagline: "For stores serious about sales",
     features: [
-      { text: "100 products", included: true },
+      { text: "Unlimited products", included: true },
       { text: "Priority placement — appear above Starter stores", included: true },
       { text: "Featured in 'Stores near you' on homepage", included: true },
       { text: "Offers & coupons for your store", included: true },

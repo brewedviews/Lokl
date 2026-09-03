@@ -351,35 +351,53 @@ def parse_int(raw: str) -> Optional[int]:
 # never searched globally.
 # ============================================================================
 
-def resolve_l1(raw: str) -> Optional[str]:
+# Every function below that resolves/validates/lists categories accepts an
+# OPTIONAL l1_categories/l2_by_l1 override, defaulting to the static
+# seed_data lists (100% unchanged behavior for any caller that doesn't pass
+# one — every existing test keeps working as-is). routes/whatsapp.py fetches
+# the LIVE, paused-aware equivalent once per inbound message (mirroring
+# server.py's own _active_l1_l2_ids()) and passes it through, so a category
+# an admin has paused (e.g. the old Ethnic/Footwear/Lingerie/Accessories/
+# Beauty/Sports L1s) can never be AI-classified into, confirmed, or typed in
+# directly here — closing the gap where WhatsApp's own taxonomy checks used
+# to trust the static list even after the real /categories endpoint (and
+# _validate_l1_l2 at actual product-creation time) had already deactivated
+# it, which is what previously let a merchant get all the way to "Invalid
+# l1_id" at creation after WhatsApp had already shown a clean confirmation.
+
+def resolve_l1(raw: str, l1_categories: Optional[list] = None) -> Optional[str]:
+    l1_categories = L1_CATEGORIES if l1_categories is None else l1_categories
     raw_n = raw.strip().lower()
-    for c in L1_CATEGORIES:
+    for c in l1_categories:
         if c["name"].strip().lower() == raw_n or c["slug"].strip().lower() == raw_n:
             return c["id"]
     return None
 
 
-def l1_name(l1_id: str) -> str:
-    for c in L1_CATEGORIES:
+def l1_name(l1_id: str, l1_categories: Optional[list] = None) -> str:
+    l1_categories = L1_CATEGORIES if l1_categories is None else l1_categories
+    for c in l1_categories:
         if c["id"] == l1_id:
             return c["name"]
     return l1_id
 
 
-def l2_options_for(l1_id: str) -> list[dict]:
-    return sorted(L2_BY_L1.get(l1_id, []), key=lambda s: s.get("order", 0))
+def l2_options_for(l1_id: str, l2_by_l1: Optional[dict] = None) -> list[dict]:
+    l2_by_l1 = L2_BY_L1 if l2_by_l1 is None else l2_by_l1
+    return sorted(l2_by_l1.get(l1_id, []), key=lambda s: s.get("order", 0))
 
 
-def resolve_l2(l1_id: str, raw: str) -> Optional[str]:
+def resolve_l2(l1_id: str, raw: str, l2_by_l1: Optional[dict] = None) -> Optional[str]:
     raw_n = raw.strip().lower()
-    for s in l2_options_for(l1_id):
+    for s in l2_options_for(l1_id, l2_by_l1):
         if s["name"].strip().lower() == raw_n or s["slug"].strip().lower() == raw_n:
             return s["id"]
     return None
 
 
-def l2_name(l1_id: str, l2_id: str) -> str:
-    for s in L2_BY_L1.get(l1_id, []):
+def l2_name(l1_id: str, l2_id: str, l2_by_l1: Optional[dict] = None) -> str:
+    l2_by_l1 = L2_BY_L1 if l2_by_l1 is None else l2_by_l1
+    for s in l2_by_l1.get(l1_id, []):
         if s["id"] == l2_id:
             return s["name"]
     return l2_id
@@ -414,37 +432,39 @@ _GENDER_WORD_TO_L1_NAME = {
 }
 
 
-def resolve_gender_l1_hint(text: str) -> Optional[str]:
+def resolve_gender_l1_hint(text: str, l1_categories: Optional[list] = None) -> Optional[str]:
+    l1_categories = L1_CATEGORIES if l1_categories is None else l1_categories
     words = re.findall(r"[a-zA-Z]+", (text or "").lower())
     for w in words:
         target_name = _GENDER_WORD_TO_L1_NAME.get(w)
         if target_name:
-            for c in L1_CATEGORIES:
+            for c in l1_categories:
                 if c["name"] == target_name:
                     return c["id"]
     return None
 
 
-def resolve_category_l2_hint(text: str, l1_id: str) -> Optional[str]:
+def resolve_category_l2_hint(text: str, l1_id: str, l2_by_l1: Optional[dict] = None) -> Optional[str]:
     words = re.findall(r"[a-zA-Z]+", (text or "").lower())
     for w in words:
         if len(w) < 3:
             continue  # avoid trivial short-word false positives ("in", "of", ...)
-        for o in l2_options_for(l1_id):
+        for o in l2_options_for(l1_id, l2_by_l1):
             haystack = f"{o['name']} {o['slug']}".lower()
             if w in haystack:
                 return o["id"]
     return None
 
 
-def resolve_taxonomy_hint(text: str) -> Optional[tuple[str, str]]:
+def resolve_taxonomy_hint(text: str, l1_categories: Optional[list] = None,
+                           l2_by_l1: Optional[dict] = None) -> Optional[tuple[str, str]]:
     """Full local resolution only — returns None if either half can't be
     confidently determined from the real taxonomy data, so the caller
     falls through to the existing AI escalation unchanged."""
-    l1_id = resolve_gender_l1_hint(text)
+    l1_id = resolve_gender_l1_hint(text, l1_categories)
     if not l1_id:
         return None
-    l2_id = resolve_category_l2_hint(text, l1_id)
+    l2_id = resolve_category_l2_hint(text, l1_id, l2_by_l1)
     if not l2_id:
         return None
     return l1_id, l2_id
@@ -474,35 +494,44 @@ def detect_multi_product_lines(text: str) -> Optional[list[str]]:
     return lines
 
 
-def taxonomy_payload() -> list[dict]:
+def taxonomy_payload(l1_categories: Optional[list] = None, l2_by_l1: Optional[dict] = None) -> list[dict]:
     """The REAL, complete taxonomy in a compact shape for the AI prompt —
-    the single source AI is ever given; it must choose from exactly this."""
+    the single source AI is ever given; it must choose from exactly this.
+    Callers MUST pass the live, paused-aware taxonomy here in production —
+    an AI never even offered a deactivated category can't classify into
+    it."""
+    l1_categories = L1_CATEGORIES if l1_categories is None else l1_categories
     return [
         {
             "l1_id": c["id"], "l1_name": c["name"],
-            "l2_options": [{"l2_id": o["id"], "l2_name": o["name"]} for o in l2_options_for(c["id"])],
+            "l2_options": [{"l2_id": o["id"], "l2_name": o["name"]} for o in l2_options_for(c["id"], l2_by_l1)],
         }
-        for c in L1_CATEGORIES
+        for c in l1_categories
     ]
 
 
-def validate_taxonomy(l1_id: Optional[str], l2_id: Optional[str]) -> bool:
+def validate_taxonomy(l1_id: Optional[str], l2_id: Optional[str], l2_by_l1: Optional[dict] = None) -> bool:
     """Whitelist check — the ONLY thing standing between an AI-hallucinated
-    category and a corrupted product. Never trust AI taxonomy output
-    without this."""
-    if not l1_id or not l2_id or l1_id not in L2_BY_L1:
+    (or deactivated) category and a corrupted product. Never trust AI
+    taxonomy output without this. Pass the live, paused-aware l2_by_l1 in
+    production so a category an admin has deactivated is never accepted as
+    valid here, even though it's still structurally present in the static
+    seed_data tables."""
+    l2_by_l1 = L2_BY_L1 if l2_by_l1 is None else l2_by_l1
+    if not l1_id or not l2_id or l1_id not in l2_by_l1:
         return False
-    return any(o["id"] == l2_id for o in L2_BY_L1[l1_id])
+    return any(o["id"] == l2_id for o in l2_by_l1[l1_id])
 
 
-def format_l2_numbered_list(l1_id: str) -> str:
-    opts = l2_options_for(l1_id)
+def format_l2_numbered_list(l1_id: str, l2_by_l1: Optional[dict] = None) -> str:
+    opts = l2_options_for(l1_id, l2_by_l1)
     lines = [f"{i}. {o['name']}" for i, o in enumerate(opts, start=1)]
     return "\n".join(lines)
 
 
-def format_l1_numbered_list() -> str:
-    lines = [f"{i}. {c['name']}" for i, c in enumerate(L1_CATEGORIES, start=1)]
+def format_l1_numbered_list(l1_categories: Optional[list] = None) -> str:
+    l1_categories = L1_CATEGORIES if l1_categories is None else l1_categories
+    lines = [f"{i}. {c['name']}" for i, c in enumerate(l1_categories, start=1)]
     return "\n".join(lines)
 
 
@@ -513,7 +542,8 @@ def format_l1_numbered_list() -> str:
 # anything this message supplied but couldn't be resolved.
 # ============================================================================
 
-def merge_fields(fields: dict, parsed: dict) -> tuple[dict, dict]:
+def merge_fields(fields: dict, parsed: dict, l1_categories: Optional[list] = None,
+                  l2_by_l1: Optional[dict] = None) -> tuple[dict, dict]:
     fields = dict(fields)  # shallow copy — caller persists the return value
     errors: dict = {}
 
@@ -523,12 +553,12 @@ def merge_fields(fields: dict, parsed: dict) -> tuple[dict, dict]:
         fields["description"] = parsed["description"]
 
     if "category" in parsed:
-        l1_id = resolve_l1(parsed["category"])
+        l1_id = resolve_l1(parsed["category"], l1_categories)
         fields["category_raw"] = parsed["category"]
         if l1_id:
             fields["l1_id"] = l1_id
             if fields.get("product_type_raw"):
-                l2_id = resolve_l2(l1_id, fields["product_type_raw"])
+                l2_id = resolve_l2(l1_id, fields["product_type_raw"], l2_by_l1)
                 if l2_id:
                     fields["l2_id"] = l2_id
                 else:
@@ -538,7 +568,7 @@ def merge_fields(fields: dict, parsed: dict) -> tuple[dict, dict]:
             fields.pop("l2_id", None)
             errors["category"] = (
                 f"\"{parsed['category']}\" isn't a category we have. Valid categories:\n"
-                f"{format_l1_numbered_list()}\nReply with the correct Category."
+                f"{format_l1_numbered_list(l1_categories)}\nReply with the correct Category."
             )
 
     if "product_type" in parsed:
@@ -547,14 +577,14 @@ def merge_fields(fields: dict, parsed: dict) -> tuple[dict, dict]:
         if not l1_id:
             fields.pop("l2_id", None)
         else:
-            l2_id = resolve_l2(l1_id, parsed["product_type"])
+            l2_id = resolve_l2(l1_id, parsed["product_type"], l2_by_l1)
             if l2_id:
                 fields["l2_id"] = l2_id
             else:
                 fields.pop("l2_id", None)
                 errors["product_type"] = (
-                    f"\"{parsed['product_type']}\" isn't a {l1_name(l1_id)} product type. "
-                    f"Which {l1_name(l1_id)} product type is this?\n{format_l2_numbered_list(l1_id)}\n"
+                    f"\"{parsed['product_type']}\" isn't a {l1_name(l1_id, l1_categories)} product type. "
+                    f"Which {l1_name(l1_id, l1_categories)} product type is this?\n{format_l2_numbered_list(l1_id, l2_by_l1)}\n"
                     f"Reply with a number or the product type name."
                 )
 
@@ -645,7 +675,7 @@ def merge_fields(fields: dict, parsed: dict) -> tuple[dict, dict]:
     return fields, errors
 
 
-def merge_ai_fields(fields: dict, ai, mode: str) -> dict:
+def merge_ai_fields(fields: dict, ai, mode: str, l2_by_l1: Optional[dict] = None) -> dict:
     """Merges an AIExtraction into `fields`. Two modes:
 
     - "fill": used while COLLECTING core info. Only fills fields that are
@@ -679,7 +709,7 @@ def merge_ai_fields(fields: dict, ai, mode: str) -> dict:
             fields["sizes"] = list(ai.stock.keys())
             fields["stock"] = dict(ai.stock)
 
-    if ai.l1_id and ai.l2_id and validate_taxonomy(ai.l1_id, ai.l2_id):
+    if ai.l1_id and ai.l2_id and validate_taxonomy(ai.l1_id, ai.l2_id, l2_by_l1):
         if overwrite or not fields.get("l1_id"):
             fields["l1_id"] = ai.l1_id
             fields["l2_id"] = ai.l2_id
@@ -711,8 +741,8 @@ def compute_core_missing(fields: dict, has_image: bool) -> list[str]:
     return missing
 
 
-def taxonomy_resolved(fields: dict) -> bool:
-    return validate_taxonomy(fields.get("l1_id"), fields.get("l2_id"))
+def taxonomy_resolved(fields: dict, l2_by_l1: Optional[dict] = None) -> bool:
+    return validate_taxonomy(fields.get("l1_id"), fields.get("l2_id"), l2_by_l1)
 
 
 def format_missing_prompt_natural(missing: list[str]) -> str:
@@ -726,13 +756,14 @@ def format_missing_prompt_natural(missing: list[str]) -> str:
     return "Please send: " + ", ".join(labels) + "."
 
 
-def format_taxonomy_fallback_prompt(fields: dict) -> str:
+def format_taxonomy_fallback_prompt(fields: dict, l1_categories: Optional[list] = None,
+                                     l2_by_l1: Optional[dict] = None) -> str:
     """Shown ONLY when deterministic resolution AND AI classification have
     both failed/been low-confidence — never as the default path."""
     l1_id = fields.get("l1_id")
     if l1_id:
-        return f"Which product type is this?\n{format_l2_numbered_list(l1_id)}\nReply with a number or the product type name."
-    return f"Which category is this?\n{format_l1_numbered_list()}"
+        return f"Which product type is this?\n{format_l2_numbered_list(l1_id, l2_by_l1)}\nReply with a number or the product type name."
+    return f"Which category is this?\n{format_l1_numbered_list(l1_categories)}"
 
 
 def resolve_numbered_choice(pending: dict, raw: str) -> Optional[str]:

@@ -42,7 +42,7 @@ from fastapi.responses import PlainTextResponse
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
-from seed_data import L1_CATEGORIES, L2_BY_L1
+from seed_data import L2_BY_L1
 from services import cloudinary_service
 from services.audit_service import AuditService
 from services.whatsapp_ai import extract as ai_extract, AIExtractionError
@@ -134,7 +134,7 @@ def _ai_meta_entry(reason: str, model: str, success: bool, confidence: float | N
 
 
 def _needs_ai_for_collection(fields: dict, deterministic_found_anything: bool,
-                              text: str, draft: dict) -> tuple[bool, str]:
+                              text: str, draft: dict, active_l2_by_l1: dict) -> tuple[bool, str]:
     """The ONLY place this decision is made. AI is skipped for: empty/blank
     messages, YES/CANCEL/RESTART, very short acks, and — critically — any
     message where deterministic parsing already found what it needed and
@@ -146,7 +146,7 @@ def _needs_ai_for_collection(fields: dict, deterministic_found_anything: bool,
     if len(t) < 4:
         return False, ""
 
-    if not taxonomy_resolved(fields) and fields.get("name"):
+    if not taxonomy_resolved(fields, active_l2_by_l1) and fields.get("name"):
         # Re-attempt only when the name has actually changed since the last
         # taxonomy attempt — NOT simply because this message also resolved
         # some unrelated field (e.g. a price correction), which would
@@ -184,6 +184,25 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
     # are collection-level, not per-connection.
     notifications_coll = db.gupshup_notifications
     audit_service = AuditService(db)
+
+    async def _active_taxonomy() -> tuple[list, dict]:
+        """Live, paused-aware equivalent of seed_data.L1_CATEGORIES/L2_BY_L1
+        — same db.categories/db.subcategories paused-filter query as
+        server.py's own _active_l1_l2_ids(), just shaped to match the
+        static seed structures exactly (full docs, not just id sets) so
+        it's a drop-in override for whatsapp_parser's optional
+        l1_categories/l2_by_l1 params. Fetched fresh per inbound message —
+        the category list is tiny and rarely changes, so this is cheap,
+        and it's the only way a merchant pausing a category (e.g. the L1
+        consolidation down to Women/Men/Kids) takes effect for WhatsApp
+        immediately, same as it already does for the merchant/admin/bulk
+        creation paths via _validate_l1_l2."""
+        l1_docs = await db.categories.find({"paused": {"$ne": True}}, {"_id": 0}).sort("order", 1).to_list(100)
+        l2_docs = await db.subcategories.find({"paused": {"$ne": True}}, {"_id": 0}).sort("order", 1).to_list(500)
+        l2_by_l1: dict = {}
+        for s in l2_docs:
+            l2_by_l1.setdefault(s["l1_id"], []).append(s)
+        return l1_docs, l2_by_l1
 
     async def ensure_indexes():
         try:
@@ -257,25 +276,27 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             existing = await _get_active_draft(phone10)
             return existing or doc
 
-    def _fallback_pending_choice(fields: dict) -> dict:
+    def _fallback_pending_choice(fields: dict, active_l1: list, active_l2_by_l1: dict) -> dict:
         l1_id = fields.get("l1_id")
         if l1_id:
             return {"field": "product_type",
-                    "options": [{"id": o["id"], "name": o["name"]} for o in l2_options_for(l1_id)]}
+                    "options": [{"id": o["id"], "name": o["name"]} for o in l2_options_for(l1_id, active_l2_by_l1)]}
         return {"field": "category",
-                "options": [{"id": c["id"], "name": c["name"]} for c in L1_CATEGORIES]}
+                "options": [{"id": c["id"], "name": c["name"]} for c in active_l1]}
 
     def _build_collection_reply(state: str, fields: dict, core_missing: list[str],
-                                 taxonomy_fallback: bool, n_images: int) -> str:
+                                 taxonomy_fallback: bool, n_images: int,
+                                 active_l1: list, active_l2_by_l1: dict) -> str:
         if state == "AWAITING_POLICY_DETAILS":
             return format_policy_prompt()
         if state == "AWAITING_CONFIRMATION":
             return format_confirmation_summary(fields, n_images)
         if taxonomy_fallback:
-            return format_taxonomy_fallback_prompt(fields)
+            return format_taxonomy_fallback_prompt(fields, active_l1, active_l2_by_l1)
         return format_missing_prompt_natural(core_missing)
 
-    async def _run_ai_or_none(text: str, fields: dict, draft: dict, reason: str):
+    async def _run_ai_or_none(text: str, fields: dict, draft: dict, reason: str,
+                               active_l1: list, active_l2_by_l1: dict):
         """Returns (ai_result_or_None, ai_meta_dict). Never raises — an AI
         failure is recorded and the caller proceeds with whatever
         deterministic parsing already found, per the required safe-failure
@@ -290,7 +311,7 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
                 raw_text=_recent_text_context(draft, text),
                 current_fields={k: v for k, v in fields.items() if k in
                                  ("name", "description", "mrp", "price", "sizes", "stock", "l1_id", "l2_id", "brand_raw")},
-                taxonomy=taxonomy_payload(),
+                taxonomy=taxonomy_payload(active_l1, active_l2_by_l1),
                 merchant_context={},
                 reason=reason,
             )
@@ -308,6 +329,7 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
         Implements the exact concurrency pattern required: re-decide and
         re-attempt AI from scratch against the freshest draft on every
         version conflict, bounded retries."""
+        active_l1, active_l2_by_l1 = await _active_taxonomy()
         current = draft
         # Bulk multi-product detection: ONLY on a genuinely fresh draft (no
         # fields, no images, not already mid-batch) so this can never fire
@@ -369,11 +391,11 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
                 if resolved_id:
                     field = pending["field"]
                     if field == "category":
-                        parsed = {"category": l1_name(resolved_id)}
+                        parsed = {"category": l1_name(resolved_id, active_l1)}
                     elif field == "product_type":
-                        parsed = {"product_type": l2_name(existing_fields.get("l1_id"), resolved_id)}
+                        parsed = {"product_type": l2_name(existing_fields.get("l1_id"), resolved_id, active_l2_by_l1)}
 
-            fields, errors = merge_fields(existing_fields, parsed)
+            fields, errors = merge_fields(existing_fields, parsed, active_l1, active_l2_by_l1)
             deterministic_found_anything = bool(parsed)
 
             # Local taxonomy hint (performance optimization): a full
@@ -382,21 +404,21 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             # no match falls through to the unchanged AI-escalation path
             # below — this never weakens validate_taxonomy, which still
             # runs unconditionally wherever taxonomy is ever assigned.
-            if not taxonomy_resolved(fields) and fields.get("name"):
-                hint = resolve_taxonomy_hint(fields["name"])
+            if not taxonomy_resolved(fields, active_l2_by_l1) and fields.get("name"):
+                hint = resolve_taxonomy_hint(fields["name"], active_l1, active_l2_by_l1)
                 if hint:
                     fields["l1_id"], fields["l2_id"] = hint
 
             ai_meta_update = None
-            needs_ai, reason = _needs_ai_for_collection(fields, deterministic_found_anything, text, current)
+            needs_ai, reason = _needs_ai_for_collection(fields, deterministic_found_anything, text, current, active_l2_by_l1)
             if needs_ai:
-                ai_result, ai_meta_update = await _run_ai_or_none(text, fields, current, reason)
+                ai_result, ai_meta_update = await _run_ai_or_none(text, fields, current, reason, active_l1, active_l2_by_l1)
                 if ai_result is not None:
-                    fields = merge_ai_fields(fields, ai_result, mode="fill")
+                    fields = merge_ai_fields(fields, ai_result, mode="fill", l2_by_l1=active_l2_by_l1)
 
             has_image = bool(current.get("image_hosted_urls"))
             core_missing = compute_core_missing(fields, has_image)
-            tax_resolved = taxonomy_resolved(fields)
+            tax_resolved = taxonomy_resolved(fields, active_l2_by_l1)
 
             taxonomy_fallback = current.get("taxonomy_fallback", False)
             if tax_resolved:
@@ -416,7 +438,7 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
                 # combo routes to the same numbered-list fallback.
                 ai_attempted_invalid_combo = (
                     needs_ai and ai_result is not None and (ai_result.l1_id or ai_result.l2_id)
-                    and not validate_taxonomy(ai_result.l1_id, ai_result.l2_id)
+                    and not validate_taxonomy(ai_result.l1_id, ai_result.l2_id, active_l2_by_l1)
                 )
                 if low_conf or ai_failed or ai_attempted_invalid_combo:
                     taxonomy_fallback = True
@@ -426,7 +448,7 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             else:
                 new_state = "AWAITING_MISSING_DETAILS"
 
-            pending_choice = _fallback_pending_choice(fields) if taxonomy_fallback else None
+            pending_choice = _fallback_pending_choice(fields, active_l1, active_l2_by_l1) if taxonomy_fallback else None
 
             set_fields = _touch({
                 "fields": fields,
@@ -446,7 +468,7 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             updated = await _atomic_merge_update(current["id"], current["version"], set_fields)
             if updated is not None:
                 n_images = len(updated.get("image_hosted_urls") or [])
-                reply = _build_collection_reply(new_state, fields, core_missing, taxonomy_fallback, n_images)
+                reply = _build_collection_reply(new_state, fields, core_missing, taxonomy_fallback, n_images, active_l1, active_l2_by_l1)
                 if batch_lines:
                     reply = (f"📦 Detected {len(batch_lines)} products in your message. "
                              f"Let's do them one at a time — Product 1 of {len(batch_lines)}:\n\n" + reply)
@@ -505,6 +527,7 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
         zero AI cost, same as collection); only a genuinely natural-language
         correction ("Actually it's Girls Ethnic Wear") reaches AI, in
         "correct" merge mode (explicit intent to overwrite, not fill-only)."""
+        active_l1, active_l2_by_l1 = await _active_taxonomy()
         current = draft
         for _ in range(MERGE_RETRY_ATTEMPTS):
             fields = dict(current.get("fields", {}))
@@ -513,16 +536,16 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             ai_meta_update = None
             ai_result = None
             if parsed:
-                fields, errors = merge_fields(fields, parsed)
+                fields, errors = merge_fields(fields, parsed, active_l1, active_l2_by_l1)
             else:
-                ai_result, ai_meta_update = await _run_ai_or_none(text, fields, current, "correction")
+                ai_result, ai_meta_update = await _run_ai_or_none(text, fields, current, "correction", active_l1, active_l2_by_l1)
                 errors = {}
                 if ai_result is not None:
-                    fields = merge_ai_fields(fields, ai_result, mode="correct")
+                    fields = merge_ai_fields(fields, ai_result, mode="correct", l2_by_l1=active_l2_by_l1)
 
             has_image = bool(current.get("image_hosted_urls"))
             core_missing = compute_core_missing(fields, has_image)
-            tax_resolved = taxonomy_resolved(fields)
+            tax_resolved = taxonomy_resolved(fields, active_l2_by_l1)
             new_state = "AWAITING_CONFIRMATION" if (not core_missing and tax_resolved) else "AWAITING_MISSING_DETAILS"
 
             taxonomy_fallback = current.get("taxonomy_fallback", False)
@@ -533,12 +556,12 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             elif ai_meta_update and (ai_meta_update["last_confidence"] or 0) < 0.5:
                 taxonomy_fallback = True
             elif (ai_result is not None and (ai_result.l1_id or ai_result.l2_id)
-                  and not validate_taxonomy(ai_result.l1_id, ai_result.l2_id)):
+                  and not validate_taxonomy(ai_result.l1_id, ai_result.l2_id, active_l2_by_l1)):
                 # Same "confidently wrong" case as the collection path —
                 # AI succeeded but the l1/l2 pair it chose doesn't exist
                 # together in the real taxonomy.
                 taxonomy_fallback = True
-            pending_choice = _fallback_pending_choice(fields) if (new_state != "AWAITING_CONFIRMATION" and taxonomy_fallback) else None
+            pending_choice = _fallback_pending_choice(fields, active_l1, active_l2_by_l1) if (new_state != "AWAITING_CONFIRMATION" and taxonomy_fallback) else None
 
             set_fields = _touch({
                 "fields": fields,
@@ -557,7 +580,7 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
                 if new_state == "AWAITING_CONFIRMATION":
                     return updated, format_confirmation_summary(fields, n_images)
                 if taxonomy_fallback:
-                    return updated, format_taxonomy_fallback_prompt(fields)
+                    return updated, format_taxonomy_fallback_prompt(fields, active_l1, active_l2_by_l1)
                 return updated, format_missing_prompt_natural(core_missing)
 
             fresh = await drafts.find_one({"id": current["id"]}, {"_id": 0})
@@ -580,12 +603,13 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
                 return draft, format_confirmation_summary(draft.get("fields", {}), n_images)
             return draft, "Got it — photo added."
 
+        active_l1, active_l2_by_l1 = await _active_taxonomy()
         current = draft
         for _ in range(MERGE_RETRY_ATTEMPTS):
             fields = current.get("fields", {})
             has_image = bool(current.get("image_hosted_urls"))
             core_missing = compute_core_missing(fields, has_image)
-            tax_resolved = taxonomy_resolved(fields)
+            tax_resolved = taxonomy_resolved(fields, active_l2_by_l1)
             new_state = "AWAITING_POLICY_DETAILS" if (not core_missing and tax_resolved) else "AWAITING_MISSING_DETAILS"
 
             # This image genuinely resolved something (state changed, or the
@@ -608,7 +632,7 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
                 n_images = len(updated.get("image_hosted_urls") or [])
                 if unchanged:
                     return updated, f"📸 Photo added ({n_images}/{MAX_IMAGES})."
-                return updated, _build_collection_reply(new_state, fields, core_missing, current.get("taxonomy_fallback", False), n_images)
+                return updated, _build_collection_reply(new_state, fields, core_missing, current.get("taxonomy_fallback", False), n_images, active_l1, active_l2_by_l1)
             fresh = await drafts.find_one({"id": current["id"]}, {"_id": 0})
             if fresh is None or fresh["state"] in TERMINAL_STATES:
                 return current, "Got it — photo added."
@@ -723,6 +747,11 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
             await drafts.update_one({"id": draft["id"]}, {"$set": _touch({
                 "state": "AWAITING_CONFIRMATION", "last_error": detail,
             })})
+            # 2026-09: merchant product count is now unlimited, so the
+            # plan-product-limit failure this used to special-case can no
+            # longer occur (server.py's PLAN_LIMITS has no product-count
+            # gate left) — removed rather than left as dead code for a
+            # failure mode that's now unreachable.
             return f"Couldn't create the product: {detail}\nReply YES to try again once fixed, or CANCEL to discard."
 
         await drafts.update_one({"id": draft["id"]}, {"$set": _touch({

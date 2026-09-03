@@ -7947,12 +7947,12 @@ async def _create_product_for_merchant(
 ) -> dict:
     """Canonical product-insert path — the ONLY place a new Product
     document gets created. Every side effect (KYC gate, storefront-exists
-    check, plan product-limit check, product_count/brand-count recompute,
-    autopublish check) lives here exactly once. The merchant product modal
-    (create_merchant_product below), the VasyERP publish flow
-    (_publish_staged_import), WhatsApp product creation
-    (routes/whatsapp.py's _finalize_product), and Admin manual/bulk product
-    creation ALL call this — none of them duplicates it.
+    check, product_count/brand-count recompute, autopublish check) lives
+    here exactly once. The merchant product modal (create_merchant_product
+    below), the VasyERP publish flow (_publish_staged_import), WhatsApp
+    product creation (routes/whatsapp.py's _finalize_product), and Admin
+    manual/bulk product creation ALL call this — none of them duplicates
+    it.
 
     Admin Product Creation feature — every new parameter here is additive
     and keyword-only, defaulting to EXACTLY today's behavior for every
@@ -7967,11 +7967,14 @@ async def _create_product_for_merchant(
         unconditional. Only the new admin endpoints ever set this, and only
         when the admin explicitly requests it; merchant/WhatsApp creation
         never pass it.
-      - bypass_plan_limit: bypasses ONLY the plan product-count check,
-        independently of admin_override — an admin preparing a merchant's
-        catalogue pre-onboarding may need admin_override without wanting
-        unlimited products, or vice versa, so these are deliberately two
-        separate flags, not one combined "admin mode" switch.
+      - bypass_plan_limit: 2026-09 business decision — merchant product
+        count is now UNLIMITED for every plan, so there is no longer a
+        plan product-count check anywhere in this function for this flag
+        to bypass. Kept as an accepted, fully inert parameter (rather than
+        removed) only because the admin product-creation endpoint's
+        request payload and the admin frontend still send it — passing
+        True or False now makes zero difference. If that admin UI/payload
+        field is ever cleaned up too, this parameter can be removed then.
     """
     m = await db.merchants.find_one({"id": merchant_id}, {"_id": 0})
     if not m:
@@ -7983,13 +7986,6 @@ async def _create_product_for_merchant(
     store = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if not store and not admin_override:
         raise HTTPException(400, "Set up storefront first")
-    if not bypass_plan_limit:
-        merchant_plan = _merchant_effective_plan(m)
-        plan_config = PLAN_LIMITS.get(merchant_plan, PLAN_LIMITS["free"])
-        product_limit = plan_config.get("products", 10)
-        existing_count = await db.products.count_documents({"merchant_id": merchant_id, "is_deleted": {"$ne": True}})
-        if existing_count >= product_limit:
-            raise HTTPException(400, f"You have reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to add more products.")
     pid = f"prod-{uuid.uuid4().hex[:10]}"
     doc = {"id": pid, "merchant_id": merchant_id, "store_id": store_id,
         "store_name": m["store_name"], "store_city": m.get("city", ""),
@@ -8660,14 +8656,14 @@ async def _insert_bulk_product(
     BOTH the existing merchant bulk endpoint and Admin bulk import. This is
     a document-construction helper BENEATH the canonical
     `_create_product_for_merchant`, not a competing implementation of it:
-    the KYC/storefront/plan-limit gates are pre-checked ONCE by the caller
-    before its row loop starts (the existing merchant-bulk precedent —
-    re-checking per row would be wasteful and would also change today's
-    "pre-compute remaining_slots" behavior), so this helper only builds the
-    doc, inserts it, and returns the new id — id generation, store/merchant
-    identity fields, and the `paused`/`needs_image`/`image` defaults are
-    IDENTICAL to what the merchant bulk endpoint already did inline before
-    this extraction.
+    the KYC/storefront gates are pre-checked ONCE by the caller before its
+    row loop starts (the existing merchant-bulk precedent — re-checking
+    per row would be wasteful). There is no product-count/plan-limit gate
+    here or in the caller (2026-09 — merchant product count is unlimited),
+    so this helper only builds the doc, inserts it, and returns the new id
+    — id generation, store/merchant identity fields, and the
+    `paused`/`needs_image`/`image` defaults are IDENTICAL to what the
+    merchant bulk endpoint already did inline before this extraction.
 
     Deliberately does NOT compute `total_stock` — bulk-created products
     have never carried that field (only `_create_product_for_merchant`'s
@@ -8726,14 +8722,6 @@ async def bulk_products(
     store_id = f"store-m-{user['sub']}"
     store = await db.stores.find_one({"id": store_id}, {"_id": 0})
     if not store: raise HTTPException(400, "Set up storefront first")
-
-    merchant_plan = _merchant_effective_plan(m)
-    plan_config = PLAN_LIMITS.get(merchant_plan, PLAN_LIMITS["free"])
-    product_limit = plan_config.get("products", 10)
-    existing_count = await db.products.count_documents({"merchant_id": user["sub"], "is_deleted": {"$ne": True}})
-    remaining_slots = product_limit - existing_count
-    if remaining_slots <= 0:
-        raise HTTPException(400, f"You have reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to upload more products.")
 
     raw_bytes = await _validate_bulk_upload(file)
     overrides = None
@@ -8794,17 +8782,11 @@ async def bulk_products(
     created_ids: list[str] = []
     created_names: list[str] = []
     skipped: list[str] = []
-    slots_used = 0
-    limit_hit = False
     for row in rows:
         row_num = row.get("_row_num")
         # Skip blank rows — `_row_num` itself is always set, so it must be
         # excluded from this check or every row would look "non-blank".
         if not any(v not in (None, "") for k, v in row.items() if k != "_row_num"):
-            continue
-        if slots_used >= remaining_slots:
-            limit_hit = True
-            skipped.append(f"Row {row_num}: plan product limit reached" if row_num else "plan product limit reached")
             continue
         doc_frag, reason = _row_to_product(row, l1_by_name, l2_by_name, l2_flat_by_name, active_l1_ids)
         if doc_frag is None:
@@ -8817,7 +8799,6 @@ async def bulk_products(
         pid = await _insert_bulk_product(doc_frag, user["sub"], store, m, paused=True, creation_source="merchant_bulk")
         created_ids.append(pid)
         created_names.append(doc_frag["name"])
-        slots_used += 1
     cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
     await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
     for cached in brand_cache.values():
@@ -8830,8 +8811,6 @@ async def bulk_products(
                     "brands_unmatched": sorted(brands_unmatched)}
     if brands_unmatched:
         result["brands_unmatched_note"] = "Brand not recognized — product(s) created without a brand tag. Check spelling or ask an admin to add it."
-    if limit_hit:
-        result["warning"] = f"Some rows were skipped: you reached the {product_limit} product limit on your {merchant_plan.title()} plan. Upgrade to upload more."
     return result
 
 
@@ -9536,9 +9515,11 @@ async def _publish_staged_import(row: dict, merchant_id: str) -> dict:
     _create_product_for_merchant — the same canonical insert path the
     merchant product modal uses — rather than a second, separate
     db.products.insert_one. This is what gives a published VasyERP item
-    the KYC gate, storefront-exists check, and plan product-limit check
-    the canonical path enforces (an earlier version of this function had
-    its own duplicate insert and was missing all three)."""
+    the KYC gate and storefront-exists check the canonical path enforces
+    (an earlier version of this function had its own duplicate insert and
+    was missing both). There is no product-count/plan-limit check left to
+    inherit here either way — merchant product count is unlimited
+    (2026-09)."""
     blocker = _staged_publish_blocker(row)
     if blocker:
         raise HTTPException(400, blocker)
@@ -10116,17 +10097,24 @@ async def merchant_analytics(period: str = "30d", user: dict = Depends(merchant_
         "top_products": top, "demo_mode": False}
 
 PLAN_LIMITS = {
-    "free":    {"products": 10,   "boosts": 0,  "images": 1,  "priority": 0, "expires_days": 30},
-    "starter": {"products": 30,   "boosts": 0,  "images": 1,  "priority": 1, "expires_days": 30},
-    "growth":  {"products": 100,  "boosts": 3,  "images": 5,  "priority": 2, "expires_days": 30},
-    "pro":     {"products": 9999, "boosts": 10, "images": 10, "priority": 3, "expires_days": 30},
+    # 2026-09 business decision: merchant product count is UNLIMITED for
+    # every plan — deliberately no "products" key at all (not a large
+    # number standing in for unlimited) so nothing can accidentally read a
+    # stale numeric cap back out of this dict. The two former enforcement
+    # sites (_create_product_for_merchant, bulk_products) no longer check
+    # a product count at all. Every OTHER per-plan entitlement below is
+    # unchanged.
+    "free":    {"boosts": 0,  "images": 1,  "priority": 0, "expires_days": 30},
+    "starter": {"boosts": 0,  "images": 1,  "priority": 1, "expires_days": 30},
+    "growth":  {"boosts": 3,  "images": 5,  "priority": 2, "expires_days": 30},
+    "pro":     {"boosts": 10, "images": 10, "priority": 3, "expires_days": 30},
     # G26 — upcoming pricing tiers (model prep only; no checkout/payment UI
     # built yet, per the security-audit remediation task). Basic supports a
     # genuine self-service 30-day trial (see activate_subscription) since
     # no money changes hands; Premium is "coming soon" — admin-activation
     # only for now, not yet client-requestable via any checkout flow.
-    "basic":   {"products": 30,   "boosts": 1,  "images": 3,  "priority": 1, "expires_days": 30, "price_inr": 999},
-    "premium": {"products": 9999, "boosts": 10, "images": 10, "priority": 3, "expires_days": 30, "price_inr": 1999},
+    "basic":   {"boosts": 1,  "images": 3,  "priority": 1, "expires_days": 30, "price_inr": 999},
+    "premium": {"boosts": 10, "images": 10, "priority": 3, "expires_days": 30, "price_inr": 1999},
 }
 
 
