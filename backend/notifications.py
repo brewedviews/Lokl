@@ -1569,16 +1569,39 @@ def notify_rider_pickup(rider_phone: str, *, order_id: str, otp: str, customer_n
     rider phone, customer phone, order total, tracking URL, cancellation
     info.
 
-    KNOWN GAP, not fixed by this wiring: customer_lat/customer_lng come
-    from the delivery address, which — per this function's own long-
-    standing caller comment in server.py — has no lat/lng populated in
-    practice today. So {{8}} (customer map URL) will be an EMPTY STRING
-    for most/all real orders until delivery addresses are geocoded
-    somewhere upstream. Not something this change invents or can fix —
-    no new geocoding service was added, per instruction."""
+    FIXED (2026-09): customer_lat/customer_lng come from the delivery
+    address, which — per this function's own long-standing caller comment
+    in server.py — has no lat/lng populated in practice today. Sending an
+    EMPTY STRING for {{8}} silently killed the entire WhatsApp send:
+    Gupshup's submission endpoint doesn't validate this synchronously (it
+    still returns 202/submitted), but WhatsApp template variables must be
+    non-empty, so the message is rejected further downstream with no
+    message-event callback of any kind — the notification is left stuck
+    at "submitted" forever with no visible error anywhere in Lokl. Real,
+    production evidence for this: order LOKL-FC0F5E82 (customer address
+    lat/lng both null), where order_placed and merchant_new_order both
+    reached "delivered" and rider_pickup never advanced past "submitted".
+
+    Fixed by never sending an empty map param: fall back to a Google Maps
+    address-search link (using the real address text — no fabricated
+    coordinates, no 0,0) when lat/lng aren't available, and to APP_URL as
+    an absolute last resort if even the address text is empty. Applied to
+    BOTH pickup_map ({{7}}) and drop_map ({{8}}) — a store missing lat/lng
+    would hit the identical failure mode, not just the customer side. No
+    new geocoding service was added; this only guarantees the parameter
+    is never empty. When lat/lng ARE available, behavior is unchanged."""
     short_id = order_id[-6:].upper()
-    pickup_map = f"https://maps.google.com/?q={store_lat},{store_lng}" if store_lat and store_lng else ""
-    drop_map = f"https://maps.google.com/?q={customer_lat},{customer_lng}" if customer_lat and customer_lng else ""
+
+    def _map_link(lat: float, lng: float, address_text: str) -> str:
+        if lat and lng:
+            return f"https://maps.google.com/?q={lat},{lng}"
+        if address_text:
+            from urllib.parse import quote
+            return f"https://maps.google.com/?q={quote(address_text)}"
+        return APP_URL
+
+    pickup_map = _map_link(store_lat, store_lng, store_address)
+    drop_map = _map_link(customer_lat, customer_lng, customer_address)
     items_text = items_summary or "(see app)"
     body = f"""🛵 LOKL DELIVERY — #{short_id}
 

@@ -663,19 +663,56 @@ def test_rider_pickup_items_fallback_when_empty():
     assert params[5] == "(see app)"
 
 
-def test_rider_pickup_map_urls_empty_when_lat_lng_missing():
-    """Confirms the KNOWN GAP: when lat/lng are unavailable (0, as they
-    typically are for customer delivery addresses today — see
-    notify_rider_pickup's own docstring), the corresponding map URL
-    parameter is an empty string, exactly matching the existing
-    pickup_map/drop_map construction's own behavior — not silently
-    substituting a fake URL."""
+def test_rider_pickup_map_url_falls_back_to_address_search_when_lat_lng_missing():
+    """2026-09 fix: an empty {{8}} silently killed the whole WhatsApp send
+    (WhatsApp rejects empty template variables, with no error surfaced
+    back to Lokl — see notify_rider_pickup's own docstring, evidenced by
+    real production order LOKL-FC0F5E82). When lat/lng are unavailable
+    (0, as they typically are for customer delivery addresses today), the
+    corresponding map param must fall back to a Google Maps address-
+    search link built from the REAL address text — never an empty
+    string, never fabricated coordinates, never 0,0."""
     kwargs = dict(_RIDER_PICKUP_KWARGS)
     kwargs["customer_lat"] = 0
     kwargs["customer_lng"] = 0
     params = _capture_send_with_fallback(notif.notify_rider_pickup, "9800000000", **kwargs)
-    assert params[7] == "", "customer map URL must be empty when lat/lng are unavailable, not fabricated"
-    assert params[6] == "https://maps.google.com/?q=21.19,81.33", "store map URL is unaffected"
+    assert params[7] == "https://maps.google.com/?q=H.No.%2045%2C%20Nehru%20Nagar%2C%20Bhilai%2C%20490020"
+    assert params[7] != "", "customer map URL must never be an empty template parameter"
+    assert "21." not in params[7] and "81." not in params[7], "must not fabricate coordinates"
+    assert params[6] == "https://maps.google.com/?q=21.19,81.33", "store map URL is unaffected when store lat/lng ARE available"
+
+
+def test_rider_pickup_map_url_falls_back_to_app_url_when_address_also_missing():
+    """Absolute last resort: if lat/lng AND the address text are both
+    unavailable (a pathological case — real orders always have at least
+    a city in the address), the map param must still never be empty."""
+    kwargs = dict(_RIDER_PICKUP_KWARGS)
+    kwargs["customer_lat"] = 0
+    kwargs["customer_lng"] = 0
+    kwargs["customer_address"] = ""
+    params = _capture_send_with_fallback(notif.notify_rider_pickup, "9800000000", **kwargs)
+    assert params[7] == notif.APP_URL
+    assert params[7] != ""
+
+
+def test_rider_pickup_map_urls_unchanged_when_lat_lng_available():
+    """Existing, working behavior (real coordinates available) must be
+    completely unaffected by the fallback fix."""
+    params = _capture_send_with_fallback(notif.notify_rider_pickup, "9800000000", **_RIDER_PICKUP_KWARGS)
+    assert params[6] == "https://maps.google.com/?q=21.19,81.33"
+    assert params[7] == "https://maps.google.com/?q=21.21,81.35"
+
+
+def test_rider_pickup_store_map_also_falls_back_when_store_lat_lng_missing():
+    """The identical empty-parameter failure mode applies to {{7}}
+    (store/pickup map) just as much as {{8}} — a store missing lat/lng
+    would kill the send the same way. Same fix, same guarantee."""
+    kwargs = dict(_RIDER_PICKUP_KWARGS)
+    kwargs["store_lat"] = 0
+    kwargs["store_lng"] = 0
+    params = _capture_send_with_fallback(notif.notify_rider_pickup, "9800000000", **kwargs)
+    assert params[6] == "https://maps.google.com/?q=Shop%2012%2C%20Sector%2010%20Market%2C%20Bhilai"
+    assert params[6] != ""
 
 
 def test_rider_pickup_recipient_and_trigger_preserved():
