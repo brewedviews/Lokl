@@ -256,13 +256,44 @@ export function ProductForm({
     };
   });
 
+  // Shared by both the plain (!hasColors) custom-size input and the
+  // multi-colour one — same parsing, same target state (form.sizes/stock),
+  // so a colour's "Sizes and stock" section (which reads form.sizes for
+  // size_type === "custom") sees the same values regardless of which
+  // input the merchant used.
+  const onCustomSizesChange = (raw: string) => {
+    setCustomSizesInput(raw);
+    const parsed = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    setForm((f) => ({
+      ...f,
+      sizes: parsed,
+      stock: Object.fromEntries(parsed.map((sz) => [sz, f.stock[sz] ?? 0])),
+    }));
+  };
+
+  // The size rows a fresh colour variant should start with, given the
+  // product's current global size_type selection. Only free_size (a
+  // single fixed value) and custom (the merchant's own typed-in sizes,
+  // which they can't re-enter per colour) are auto-seeded — that's what
+  // makes those two types usable at all in a multi-colour product. Standard
+  // types (alpha/numeric_*) deliberately stay unseeded: their per-colour
+  // toggle buttons already work standalone (Step 3 lists the full catalog
+  // regardless of this), and pre-selecting every catalog size would flip
+  // the existing "click a size to add it" interaction into "click to
+  // remove it" — an unnecessary change to a flow that isn't broken.
+  const resolveGlobalSizeRows = (): { size: string; stock: number }[] => {
+    if (form.size_type === "free_size") return [{ size: "Free Size", stock: 0 }];
+    if (form.size_type === "custom") return form.sizes.map((sz) => ({ size: sz, stock: 0 }));
+    return [];
+  };
+
   // ── Color variants — same upload/remove/toggle shapes as the plain
   // flow above, scoped to one color's entry in `colorVariants` by index. ──
   const updateColorVariant = (idx: number, patch: Partial<ProductFormColorVariant>) => {
     setColorVariants((list) => list.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
   };
 
-  const addColorVariant = () => setColorVariants((list) => [...list, blankColorVariant()]);
+  const addColorVariant = () => setColorVariants((list) => [...list, { ...blankColorVariant(), sizes: resolveGlobalSizeRows() }]);
 
   const removeColorVariant = (idx: number) => {
     const removed = colorVariants[idx];
@@ -305,6 +336,25 @@ export function ProductForm({
     const variant = colorVariants[idx];
     if (!variant) return;
     updateColorVariant(idx, { sizes: variant.sizes.map((s) => (s.size === sz ? { ...s, stock } : s)) });
+  };
+
+  // Backfills the global size selection into any colour variant that is
+  // still pristine (sizes.length === 0) — covers picking a size_type (or
+  // typing custom sizes) AFTER "multiple colours" is already checked, when
+  // the initial blank colour predates the selection. `addColorVariant`
+  // seeds a variant at the moment it's added; this covers the one colour
+  // that can already exist before any size selection is made. Called
+  // explicitly at the Step 2 -> Step 3 transition (not reactively on every
+  // keystroke of the custom-sizes input, which would lock in whatever
+  // partial value existed after the first keystroke). Only ever touches
+  // variants with zero sizes — a variant that already has any size
+  // (freshly seeded, manually toggled, or loaded from a saved product) is
+  // left untouched, so existing stock is never overwritten by this.
+  const backfillPristineColourSizes = () => {
+    if (!hasColors) return;
+    const rows = resolveGlobalSizeRows();
+    if (rows.length === 0) return;
+    setColorVariants((list) => list.map((v) => (v.sizes.length > 0 ? v : { ...v, sizes: rows })));
   };
 
   const submit = async () => {
@@ -610,16 +660,7 @@ export function ProductForm({
                     <input
                       data-testid="prod-custom-sizes"
                       value={customSizesInput}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        setCustomSizesInput(raw);
-                        const parsed = raw.split(",").map((s) => s.trim()).filter(Boolean);
-                        setForm((f) => ({
-                          ...f,
-                          sizes: parsed,
-                          stock: Object.fromEntries(parsed.map((sz) => [sz, f.stock[sz] ?? 0])),
-                        }));
-                      }}
+                      onChange={(e) => onCustomSizesChange(e.target.value)}
                       placeholder="e.g. 30×32, 32×34, 34×36"
                       className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] mb-2 text-sm"
                     />
@@ -654,6 +695,15 @@ export function ProductForm({
                       <option key={key} value={key}>{label}</option>
                     ))}
                   </select>
+                  {form.size_type === "custom" && (
+                    <input
+                      data-testid="prod-custom-sizes"
+                      value={customSizesInput}
+                      onChange={(e) => onCustomSizesChange(e.target.value)}
+                      placeholder="e.g. 30×32, 32×34, 34×36"
+                      className="w-full px-4 py-3 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#1A2B4C] mt-2 text-sm"
+                    />
+                  )}
                   <p className="text-[11px] text-[#595959] mt-1.5">
                     Each colour picks which of these sizes it carries, and its own stock, in the next step (Photos).
                   </p>
@@ -733,9 +783,20 @@ export function ProductForm({
               <p className="text-sm text-[#595959]">Add each colour with its own photos and sizes/stock. First image in a colour is that colour's cover.</p>
               <div className="space-y-4">
                 {colorVariants.map((v, idx) => {
-                  const sizeOptions = form.size_type && form.size_type !== "custom" && form.size_type !== "free_size"
-                    ? (SIZE_TYPE_OPTIONS[form.size_type]?.sizes || [])
-                    : v.sizes.map((s) => s.size);
+                  // Candidate size buttons for this colour always come from
+                  // the resolved global selection (the static catalog for
+                  // standard/free_size types, the merchant's typed custom
+                  // sizes for custom) — never from this variant's own
+                  // `sizes`, which would be a self-referential empty set for
+                  // any freshly-added colour and make free_size/custom
+                  // impossible to ever toggle on. Falls back to the
+                  // variant's own sizes only when no size_type is set at
+                  // all (legacy saved products predating this field).
+                  const sizeOptions = form.size_type === "custom"
+                    ? form.sizes
+                    : form.size_type
+                      ? (SIZE_TYPE_OPTIONS[form.size_type]?.sizes || [])
+                      : v.sizes.map((s) => s.size);
                   return (
                     <div key={v.id} className="p-3.5 rounded-xl border border-[#E5E2DC] bg-[#FDFBF7]" data-testid={`color-variant-${idx}`}>
                       <div className="flex items-center gap-2 mb-3">
@@ -848,6 +909,7 @@ export function ProductForm({
                 if (step === 1 && !form.name) { toast.error("Enter product name"); return; }
                 if (step === 1 && !form.l1_id) { toast.error("Select a category"); return; }
                 if (step === 2 && !form.price) { toast.error("Enter price"); return; }
+                if (step === 2) backfillPristineColourSizes();
                 setStep(s => s + 1);
               }}
               className="flex-1 py-3 bg-[#1A2B4C] text-white rounded-xl font-bold text-sm"
