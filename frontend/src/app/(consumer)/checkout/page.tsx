@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
   Banknote, MapPin, Plus, CheckCircle2, Truck, Loader2, Store,
-  Trash2, ShoppingBag, AlertTriangle, Bike, Sparkles, ChevronRight, ChevronDown, ShieldCheck,
+  Trash2, ShoppingBag, AlertTriangle, Bike, Sparkles, ChevronRight, ChevronDown, ShieldCheck, Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -28,6 +28,7 @@ import { useLocationStore } from "@/stores/location.store";
 import { CustomerOtpLogin } from "@/components/consumer/CustomerOtpLogin";
 import { ProductCard } from "@/components/consumer/ProductCard";
 import { AddressPinPicker } from "@/components/consumer/AddressPinPicker";
+import { AddressSheet, type AddressFormValue } from "@/components/consumer/AddressSheet";
 import { ETAHeaderCard } from "@/components/consumer/ETAHeaderCard";
 import { TrendingBestDealsRails } from "@/components/consumer/TrendingBestDealsRails";
 import { Button, CTA_LINK_CLASSNAME } from "@/components/ui/Button";
@@ -157,6 +158,11 @@ export default function CheckoutPage() {
   // nothing to summarize yet (first-time guest, no saved addresses).
   const [addressExpanded, setAddressExpanded] = useState(false);
   const [billOpen, setBillOpen] = useState(true);
+  // Edit an existing saved address — reuses AddressSheet (the same form
+  // account/page.tsx uses), never a second address-form implementation.
+  // `id` is tracked alongside the form value so onSave knows to PUT
+  // (update in place) rather than POST (create new).
+  const [editingAddress, setEditingAddress] = useState<(AddressFormValue & { id: string }) | null>(null);
 
   // Serviceability is about the DELIVERY ADDRESS, not the shopper's current
   // GPS position — re-evaluates whenever the selected/entered address's
@@ -377,6 +383,41 @@ export default function CheckoutPage() {
         lat: a.lat ?? null, lng: a.lng ?? null,
       });
       setAddressExpanded(false);
+    }
+  };
+
+  const openEditAddress = (id: string) => {
+    const a = savedAddresses.find((x) => x.id === id);
+    if (!a) return;
+    setEditingAddress({
+      id: a.id,
+      name: a.name || "", phone: a.phone || phone?.slice(-10) || "",
+      line1: a.line1 || "", landmark: a.landmark || "",
+      city: a.city || "Bhilai", pincode: a.pincode || "", label: a.label || "Home",
+      lat: a.lat ?? null, lng: a.lng ?? null,
+    });
+  };
+
+  const saveEditedAddress = async (form: AddressFormValue) => {
+    if (!editingAddress || !phone) return;
+    try {
+      const updated = await api.customers.updateAddress(phone, editingAddress.id, form);
+      setSavedAddresses((list) => list.map((x) => (x.id === updated.id ? updated : x)));
+      // If the address being edited is the one currently active on this
+      // checkout, refresh the live `addr` state too so the page reflects
+      // the edit immediately without requiring a re-select.
+      if (selectedId === editingAddress.id) {
+        setAddr({
+          name: updated.name || "", phone: updated.phone || phone?.slice(-10) || "",
+          line1: updated.line1 || "", landmark: updated.landmark || "",
+          city: updated.city || "Bhilai", pincode: updated.pincode || "", label: updated.label || "Home",
+          lat: updated.lat ?? null, lng: updated.lng ?? null,
+        });
+      }
+      toast.success("Address updated");
+      setEditingAddress(null);
+    } catch (e) {
+      toast.error(getErrorMessage(e));
     }
   };
 
@@ -868,27 +909,41 @@ export default function CheckoutPage() {
         ) : (
           !addressExpanded && addr.line1 ? (
             <>
-              <button
-                type="button"
-                onClick={() => setAddressExpanded(true)}
+              <div
                 data-testid="deliver-to-summary"
-                className="w-full bg-white rounded-2xl p-4 border border-[#E5E2DC] flex items-start gap-3 text-left hover:border-[#0A1F5C]/40 transition"
+                className="w-full bg-white rounded-2xl p-4 border border-[#E5E2DC] flex items-start gap-3"
               >
-                <div className="w-9 h-9 rounded-xl bg-[#0A1F5C]/8 text-[#0A1F5C] grid place-items-center shrink-0">
-                  <MapPin size={16} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-[#64748B]">Deliver to</div>
-                  <div className="text-sm font-semibold text-[#0A1F5C] mt-0.5 truncate">
-                    {addr.label || "Home"} · {addr.name}
+                <button
+                  type="button"
+                  onClick={() => setAddressExpanded(true)}
+                  data-testid="deliver-to-summary-open"
+                  className="flex items-start gap-3 text-left flex-1 min-w-0"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-[#0A1F5C]/8 text-[#0A1F5C] grid place-items-center shrink-0">
+                    <MapPin size={16} />
                   </div>
-                  <div className="text-xs text-[#595959] truncate">{addr.line1}</div>
-                  <div className="text-[11px] text-[#595959]">{addr.city || "Bhilai"} · {addr.pincode}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-[#64748B]">Deliver to</div>
+                    <div className="text-sm font-semibold text-[#0A1F5C] mt-0.5 truncate">
+                      {addr.label || "Home"} · {addr.name}
+                    </div>
+                    <div className="text-xs text-[#595959] truncate">{addr.line1}</div>
+                    <div className="text-[11px] text-[#595959]">{addr.city || "Bhilai"} · {addr.pincode}</div>
+                  </div>
+                </button>
+                <div className="shrink-0 flex flex-col items-end gap-2 mt-0.5">
+                  {selectedId !== "__new__" && (
+                    <button type="button" onClick={() => openEditAddress(selectedId)} data-testid="deliver-to-edit"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-[#595959] hover:text-[#0A1F5C]">
+                      <Pencil size={12} /> Edit
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setAddressExpanded(true)} data-testid="deliver-to-change"
+                    className="inline-flex items-center gap-0.5 text-xs font-bold text-[#E68910]">
+                    Change <ChevronRight size={13} />
+                  </button>
                 </div>
-                <span className="shrink-0 inline-flex items-center gap-0.5 text-xs font-bold text-[#E68910] mt-1">
-                  Change <ChevronRight size={13} />
-                </span>
-              </button>
+              </div>
               {/* 2026-09 — a saved address from before pin-confirmation was
                   required has no lat/lng yet; require it here rather than
                   silently placing the order without one. Same
@@ -909,8 +964,11 @@ export default function CheckoutPage() {
                   <div className="text-[11px] uppercase tracking-widest text-[#595959] mb-2">Deliver to</div>
                   <div className="space-y-2">
                     {savedAddresses.map((a) => (
-                      <button key={a.id} type="button" data-testid={`pick-addr-${a.id}`} onClick={() => pickSaved(a.id)}
-                        className={`w-full text-left p-3 rounded-xl border-2 transition ${selectedId === a.id ? "border-[#0A1F5C] bg-[#0A1F5C]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
+                      <div key={a.id} data-testid={`pick-addr-${a.id}`}
+                        role="button" tabIndex={0}
+                        onClick={() => pickSaved(a.id)}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pickSaved(a.id); } }}
+                        className={`w-full text-left p-3 rounded-xl border-2 transition cursor-pointer ${selectedId === a.id ? "border-[#0A1F5C] bg-[#0A1F5C]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 text-sm">
                             <div className="font-semibold text-[#0A1F5C] flex items-center gap-2"><MapPin size={13} className="text-[#0A1F5C]" />{a.label || "Home"} · {a.name || phone}</div>
@@ -918,9 +976,16 @@ export default function CheckoutPage() {
                             {a.landmark && <div className="text-[11px] text-[#595959]">Landmark: {a.landmark}</div>}
                             <div className="text-[11px] text-[#595959]">{a.city || "Bhilai"} · {a.pincode}</div>
                           </div>
-                          {selectedId === a.id && <CheckCircle2 size={16} className="text-[#E68910] shrink-0" />}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button type="button" data-testid={`edit-addr-${a.id}`}
+                              onClick={(e) => { e.stopPropagation(); openEditAddress(a.id); }}
+                              className="p-1.5 text-[#595959] hover:text-[#0A1F5C]" aria-label="Edit address">
+                              <Pencil size={14} />
+                            </button>
+                            {selectedId === a.id && <CheckCircle2 size={16} className="text-[#E68910]" />}
+                          </div>
                         </div>
-                      </button>
+                      </div>
                     ))}
                     <button type="button" data-testid="pick-new-addr" onClick={() => pickSaved("__new__")}
                       className={`w-full text-left p-3 rounded-xl border-2 border-dashed flex items-center gap-2 transition ${selectedId === "__new__" ? "border-[#E68910] bg-[#E68910]/5 text-[#E68910]" : "border-[#E5E2DC] text-[#595959] hover:border-[#0A1F5C]/40"}`}>
@@ -1217,6 +1282,15 @@ export default function CheckoutPage() {
           </Button>
         </div>
       </div>
+
+      {editingAddress && (
+        <AddressSheet
+          address={editingAddress}
+          title="Edit address"
+          onCancel={() => setEditingAddress(null)}
+          onSave={saveEditedAddress}
+        />
+      )}
     </div>
   );
 }

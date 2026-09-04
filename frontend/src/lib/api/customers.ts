@@ -66,6 +66,18 @@ export const customersApi = {
     return r.data;
   },
 
+  updateAddress: async (
+    phone: CanonicalPhone,
+    addressId: string,
+    draft: CustomerAddressDraft,
+  ): Promise<CustomerAddress> => {
+    const r = await apiClient.put<CustomerAddress>(
+      `/api/customer/${phone}/addresses/${addressId}`,
+      draft,
+    );
+    return r.data;
+  },
+
   removeAddress: async (
     phone: CanonicalPhone,
     addressId: string,

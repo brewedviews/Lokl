@@ -24,12 +24,24 @@
  * Pinning is OPTIONAL. Skipping it leaves lat/lng null and the address still
  * saves fine — serviceability falls back to the pincode whitelist
  * server-side (_address_is_serviceable).
+ *
+ * 2026-09 — deliberately does NOT reverse-geocode or suggest an address
+ * from the pin. Two distinct pieces of information exist here and must
+ * never be auto-synchronized: (A) the address TEXT the customer typed,
+ * and (B) this pin's lat/lng, the exact delivery location. A GPS fix
+ * lands you a real coordinate, never a confirmed address — showing
+ * "Location detected: <area name>" implied a level of certainty about
+ * WHERE that coordinate is that a nearest-centroid guess can't back up,
+ * and it was feeding an auto-fill of city/pincode/landmark that could
+ * silently disagree with what the customer actually typed. This
+ * component only ever reports the raw coordinate back via onChange; it
+ * never infers or suggests address text from it.
  */
 import { useEffect, useMemo, useState } from "react";
 import { MapPin, LocateFixed, Check, X, Loader2, CircleCheck, CircleAlert, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { findBhilaiAreaByPincode, locateBhilaiArea, type AreaLookup } from "@/data/bhilai-areas";
+import { findBhilaiAreaByPincode } from "@/data/bhilai-areas";
 
 interface Point { lat: number; lng: number }
 type PinSource = "gps" | "area" | null;
@@ -43,23 +55,15 @@ interface AddressPinPickerProps {
    *  never presented as a confirmed precise location. */
   pincode?: string | null;
   onChange: (lat: number | null, lng: number | null) => void;
-  /** Fired only on a successful "use my current location" tap, and only
-   *  when confidence is "strong" or "weak" (never "none") — see
-   *  locateBhilaiArea's own doc comment for the confidence tiers. The
-   *  caller decides whether/how to use it to prefill empty form fields —
-   *  this component never overwrites anything itself, and a "weak" result
-   *  carries no area/pincode to prefill in the first place. */
-  onLocationDetected?: (result: AreaLookup) => void;
 }
 
-export function AddressPinPicker({ lat, lng, pincode, onChange, onLocationDetected }: AddressPinPickerProps) {
+export function AddressPinPicker({ lat, lng, pincode, onChange }: AddressPinPickerProps) {
   const hasCommittedPin = lat != null && lng != null;
 
   const [expanded, setExpanded] = useState(false);
   const [pending, setPending] = useState<Point | null>(hasCommittedPin ? { lat, lng } : null);
   const [pinSource, setPinSource] = useState<PinSource>(null);
   const [locating, setLocating] = useState(false);
-  const [locationResult, setLocationResult] = useState<AreaLookup | null>(null);
 
   const areaCentroid = useMemo(() => findBhilaiAreaByPincode(pincode), [pincode]);
 
@@ -130,22 +134,9 @@ export function AddressPinPicker({ lat, lng, pincode, onChange, onLocationDetect
         setPending({ lat: latitude, lng: longitude });
         setPinSource("gps");
         setLocating(false);
-        // Approximate reverse geocode (nearest known area) — never blocks
-        // or errors the pin flow if nothing matches; the coordinates are
-        // already committed above regardless. Confidence-gated: a distant
-        // nearest-match only ever fills the city, never a specific
-        // area/pincode it isn't actually confident about.
-        const result = locateBhilaiArea(latitude, longitude);
-        setLocationResult(result);
-        if (result.confidence === "strong" && result.area) {
-          onLocationDetected?.(result);
-          toast.success(`Location detected — ${result.area.label}`);
-        } else if (result.confidence === "weak") {
-          onLocationDetected?.(result);
-          toast.success("Location detected — Bhilai (approximate)");
-        } else {
-          toast.success("Pinned to your current location");
-        }
+        // Coordinate only — no reverse geocode, no address/city/pincode
+        // suggestion. See the file header for why the two are kept apart.
+        toast.success("Pinned to your current location");
       },
       (err) => { setLocating(false); toast.error(err?.message || "Could not access location"); },
       { timeout: 10000, enableHighAccuracy: true },
@@ -177,17 +168,9 @@ export function AddressPinPicker({ lat, lng, pincode, onChange, onLocationDetect
         <MapPin size={16} className="text-[#E68910] shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-[#0A1F5C]">
-            {pinSource === "gps" && locationResult?.confidence === "strong" && locationResult.area ? (
-              <>Location detected <span className="text-[#64748B] font-normal">— {locationResult.area.label} · Bhilai · {locationResult.area.pincode}</span></>
-            ) : pinSource === "gps" && locationResult?.confidence === "weak" ? (
-              <>Location detected <span className="text-[#64748B] font-normal">— Bhilai (approximate)</span></>
-            ) : (
-              <>
-                Pin set
-                {pinSource === "area" && <span className="text-[#64748B] font-normal"> — approximate, based on your area</span>}
-                {pinSource === "gps" && <span className="text-[#64748B] font-normal"> — your current location</span>}
-              </>
-            )}
+            Pin set
+            {pinSource === "area" && <span className="text-[#64748B] font-normal"> — approximate, based on your area</span>}
+            {pinSource === "gps" && <span className="text-[#64748B] font-normal"> — your current location</span>}
           </p>
           <ServiceabilityNote checking={checking} serviceable={serviceable} compact />
         </div>
@@ -225,17 +208,9 @@ export function AddressPinPicker({ lat, lng, pincode, onChange, onLocationDetect
 
       {pending ? (
         <div className="text-[11px] text-[#0A1F5C] bg-white border border-[#E5E2DC] rounded-xl px-3 py-2" data-testid="address-pin-readout">
-          {pinSource === "gps" && locationResult?.confidence === "strong" && locationResult.area ? (
-            <>Location detected: <strong>{locationResult.area.label} · Bhilai · {locationResult.area.pincode}</strong></>
-          ) : pinSource === "gps" && locationResult?.confidence === "weak" ? (
-            <>Location detected: <strong>Bhilai</strong> <span className="text-[#64748B]">(approximate — pin your exact spot for a precise address)</span></>
-          ) : (
-            <>
-              Pin set: <strong>{pending.lat.toFixed(5)}, {pending.lng.toFixed(5)}</strong>
-              {pinSource === "area" && <span className="text-[#64748B]"> (approximate — based on your area)</span>}
-              {pinSource === "gps" && <span className="text-[#64748B]"> (your current location)</span>}
-            </>
-          )}
+          Pin set: <strong>{pending.lat.toFixed(5)}, {pending.lng.toFixed(5)}</strong>
+          {pinSource === "area" && <span className="text-[#64748B]"> (approximate — based on your area)</span>}
+          {pinSource === "gps" && <span className="text-[#64748B]"> (your current location)</span>}
         </div>
       ) : (
         <p className="text-[11px] text-[#94A3B8]">

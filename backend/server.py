@@ -11374,6 +11374,48 @@ async def add_customer_address(phone: str, payload: dict, user: dict = Depends(c
     )
     return addr
 
+@api.put("/customer/{phone}/addresses/{aid}")
+async def update_customer_address(phone: str, aid: str, payload: dict, user: dict = Depends(customer_user)):
+    """Edit an existing saved address IN PLACE — same `id`, same
+    `created_at` (added on, not re-created). Every other field is
+    overwritten wholesale from the payload, same validation as
+    add_customer_address above. Deliberately does NOT touch lat/lng in any
+    special way: the frontend's edit form round-trips whatever the
+    existing pin was unless the customer explicitly re-confirms a new one
+    via AddressPinPicker, so "preserve unless changed" falls out of the
+    client sending back what it was given — no server-side merge logic
+    needed. Never infers/geocodes address text from lat/lng or vice versa;
+    both fields are simply whatever this payload says."""
+    phone = _ensure_customer_phone_match(user, phone)
+    if not payload.get("line1") or not payload.get("pincode"):
+        raise HTTPException(400, "line1 and pincode required")
+    if str(payload.get("pincode", "")).strip() and str(payload.get("pincode", "")).strip() not in {"490001", "490006", "490009", "490020", "490023"}:
+        raise HTTPException(400, "We only deliver to Bhilai pincodes (490xxx). Please check your pincode.")
+    existing = await db.customers.find_one({"phone": phone, "addresses.id": aid}, {"_id": 0, "addresses.$": 1})
+    if not existing or not existing.get("addresses"):
+        raise HTTPException(404, "Address not found")
+    prior = existing["addresses"][0]
+    now_iso = datetime.now(timezone.utc).isoformat()
+    addr = {
+        "id": aid,
+        "name": payload.get("name", ""),
+        "phone": payload.get("phone", phone),
+        "line1": payload.get("line1", "").strip(),
+        "landmark": payload.get("landmark", "").strip(),
+        "city": payload.get("city", "Bhilai"),
+        "pincode": str(payload.get("pincode", "")).strip(),
+        "label": payload.get("label", "Home"),
+        "lat": _to_optional_float(payload.get("lat")),
+        "lng": _to_optional_float(payload.get("lng")),
+        "created_at": prior.get("created_at", now_iso),
+        "updated_at": now_iso,
+    }
+    await db.customers.update_one(
+        {"phone": phone, "addresses.id": aid},
+        {"$set": {"addresses.$": addr, "updated_at": now_iso}},
+    )
+    return addr
+
 @api.delete("/customer/{phone}/addresses/{aid}")
 async def delete_customer_address(phone: str, aid: str, user: dict = Depends(customer_user)):
     phone = _ensure_customer_phone_match(user, phone)

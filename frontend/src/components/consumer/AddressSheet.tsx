@@ -18,14 +18,13 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { AddressPinPicker } from "./AddressPinPicker";
-import type { AreaLookup } from "@/data/bhilai-areas";
 
 export type AddressFormValue = {
   name: string; phone: string; label: string; line1: string; landmark: string;
   city: string; pincode: string; lat: number | null; lng: number | null;
 };
 
-export function AddressSheet({ address, onCancel, onSave }: { address: AddressFormValue; onCancel: () => void; onSave: (a: AddressFormValue) => void }) {
+export function AddressSheet({ address, title = "Add address", onCancel, onSave }: { address: AddressFormValue; title?: string; onCancel: () => void; onSave: (a: AddressFormValue) => void }) {
   const [a, setA] = useState(address);
   const set = (k: keyof Omit<AddressFormValue, "lat" | "lng">, v: string) => setA((p) => ({ ...p, [k]: v }));
 
@@ -36,21 +35,6 @@ export function AddressSheet({ address, onCancel, onSave }: { address: AddressFo
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, []);
-
-  // Prefill from "current location" — only into fields the user hasn't
-  // already typed something into, never overwriting a manual entry. And
-  // only as confident as the lookup itself is: a "strong" match fills
-  // city + pincode + area (as a landmark hint); a "weak" match — GPS is
-  // somewhere in the Bhilai vicinity but not confidently in any one listed
-  // area — fills city only, never a guessed pincode/area.
-  const handleLocationDetected = (result: AreaLookup) => {
-    setA((p) => ({
-      ...p,
-      city: p.city.trim() ? p.city : (result.city ?? p.city),
-      pincode: result.confidence === "strong" && result.area && !p.pincode.trim() ? result.area.pincode : p.pincode,
-      landmark: result.confidence === "strong" && result.area && !p.landmark.trim() ? result.area.label : p.landmark,
-    }));
-  };
 
   return createPortal(
     <>
@@ -69,7 +53,7 @@ export function AddressSheet({ address, onCancel, onSave }: { address: AddressFo
           <div className="w-10 h-1 bg-[#E5E2DC] rounded-full" />
         </div>
         <div className="shrink-0 flex items-center justify-between px-5 pt-1 pb-3 border-b border-[#E5E2DC]">
-          <h2 className="font-display text-lg font-bold text-[#0A1F5C]">Add address</h2>
+          <h2 className="font-display text-lg font-bold text-[#0A1F5C]">{title}</h2>
           <button
             type="button"
             onClick={onCancel}
@@ -119,7 +103,6 @@ export function AddressSheet({ address, onCancel, onSave }: { address: AddressFo
             lng={a.lng}
             pincode={a.pincode}
             onChange={(lat, lng) => setA((p) => ({ ...p, lat, lng }))}
-            onLocationDetected={handleLocationDetected}
           />
         </div>
 
