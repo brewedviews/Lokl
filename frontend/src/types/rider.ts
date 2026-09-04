@@ -128,7 +128,11 @@ export interface RiderOrderLegDetail {
   order_id: string;
   merchant_id: string;
   status: string;
-  pickup: { store_name: string; address: string; lat: number; lng: number };
+  /** `phone` — the merchant's operational contact number (2026-09 rider-
+   *  notification-workflow redesign), so the rider can call ahead and ask
+   *  them to start packing even before the merchant has accepted this leg.
+   *  Never the customer's phone — see `drop.customer_phone` for that. */
+  pickup: { store_name: string; address: string; phone: string; lat: number; lng: number };
   drop: { customer_name: string; customer_phone: string; address: string; lat: number; lng: number };
   items: RiderOrderItem[];
   /** The MERCHANT-HANDOFF code — tell this to the store at pickup. Distinct

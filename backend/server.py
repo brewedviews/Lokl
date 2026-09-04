@@ -31,6 +31,7 @@ from notifications import (
     notify_order_placed, notify_merchant_new_order,
     notify_order_rejected, notify_order_delivered,
     notify_order_on_the_way, notify_order_cancelled, notify_merchant_order_cancelled, notify_rider_pickup,
+    notify_rider_cancelled,
     notify_rider_return_pickup, notify_return_status, RETURN_STATUS_NOTIFY_TYPES, notify_customer_otp,
     notify_merchant_otp, notify_rider_otp, send_with_fallback, APP_URL,
     notify_pickup_reserved, notify_merchant_pickup_reserved,
@@ -2591,6 +2592,11 @@ async def customer_cancel_order(oid: str, request: Request, payload: Optional[di
             if merch and merch.get("phone"):
                 try: notify_merchant_order_cancelled(merch["phone"], oid, already_accepted=False)
                 except Exception: pass
+            # Order placed → rider activated → customer cancels before any
+            # merchant has accepted. Every leg the rider was actually
+            # activated for (rider_notified[m]) needs the cancellation
+            # WhatsApp; no-ops for a leg that was never activated.
+            await _notify_rider_leg_cancelled(o, m)
     refund_initiated = False
     if o.get("payment_status") == "paid" and o.get("razorpay_payment_id"):
         try:
@@ -5482,6 +5488,40 @@ async def _mark_leg_delivered(o: dict, mid: Optional[str], *, require_handed_off
                                             delivered_via=delivered_via)
 
 
+async def _notify_rider_leg_cancelled(o: dict, mid: str) -> None:
+    """Rider-notification-workflow redesign (2026-09): send the rider
+    cancellation WhatsApp for one merchant leg, but ONLY if that leg's
+    rider_pickup activation actually fired (order["rider_notified"][mid] is
+    True — set by create_order right after the activation send succeeds). A
+    leg the rider was never told about doesn't need a cancellation message —
+    sending one would just be confusing noise, not useful information (see
+    the "do NOT blindly send a cancellation for every historical
+    cancellation" requirement this implements).
+
+    Shared by every cancellation path (customer cancel before/after
+    acceptance, merchant reject, merchant cancel, admin cancel, and the
+    stale-order auto-cancel sweep) so there's exactly one place that knows
+    this rule — mirrors _merchant_cancel_own_slice's own "one shared place"
+    precedent for the state-transition side of cancellation. Uses the
+    EXISTING notify_rider_cancelled()/send_with_fallback() infrastructure,
+    not a new notification subsystem.
+
+    `o` should be the order doc as read BEFORE this leg's cancellation
+    update (rider_notified is never modified by any cancel path, so a
+    pre- or post-update read both work — the pre-update doc already in
+    hand at each call site is reused to avoid an extra DB round-trip)."""
+    if not (o.get("rider_notified") or {}).get(mid):
+        return
+    rider_phone = os.environ.get("RIDER_PHONE", "").strip()
+    if not rider_phone:
+        return
+    try:
+        m = await db.merchants.find_one({"id": mid}, {"_id": 0, "store_name": 1})
+        notify_rider_cancelled(rider_phone, order_id=o["id"], store_name=(m or {}).get("store_name", "Store"))
+    except Exception as e:
+        log.error("[rider-cancel] failed order=%s mid=%s error=%s", o.get("id"), mid, e)
+
+
 async def _merchant_cancel_own_slice(oid: str, mid: str, reason: str) -> str:
     """Cancel one merchant's slice of an order — restocks exactly that
     merchant's items, marks their per-merchant state 'cancelled', and
@@ -5514,6 +5554,7 @@ async def _merchant_cancel_own_slice(oid: str, mid: str, reason: str) -> str:
         update_doc["cancel_reason"] = reason
         update_doc["cancelled_at"] = datetime.now(timezone.utc).isoformat()
     await db.orders.update_one({"id": oid}, {"$set": update_doc})
+    await _notify_rider_leg_cancelled(o, mid)
     return new_global
 
 
@@ -6014,6 +6055,16 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                "merchant_handoff_otps": merchant_handoff_otps,
                "merchant_cancelled": {},
                "rider_assignments": {},
+               # Per-merchant marker: True once the shared RIDER_PHONE ops
+               # number has been sent the rider_pickup activation for that
+               # leg (set right after the notify call below succeeds, not
+               # here — a failed send must not leave a stale True). Every
+               # cancellation path checks this before sending the rider
+               # cancellation template, so a leg that was never activated
+               # (e.g. Gupshup was down at creation) never gets a spurious
+               # "cancelled" message for a delivery the rider never heard
+               # about.
+               "rider_notified": {},
                "is_multi_store": len(unique_mids) > 1,
                "otp": otp,
                "is_deleted": False,
@@ -6168,6 +6219,14 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             print(f"[notify_error] {_ne}", flush=True)
     # Notify merchants for COD and Razorpay (payment verified at order creation time).
     if doc.get("payment_method") in ("COD", "razorpay"):
+        # Rider-notification-workflow redesign (2026-09): the shared
+        # RIDER_PHONE ops number is now activated HERE, once per merchant
+        # leg, immediately on order creation — not at merchant-accept (see
+        # the removed call in merchant_accept_order). Checked once, outside
+        # the loop, since it's a single env var, not per-merchant.
+        rider_phone = os.environ.get("RIDER_PHONE", "").strip()
+        if not rider_phone and order_type != "pickup":
+            log.warning("[rider-pickup] RIDER_PHONE not set — skipping rider activation for order %s", order_id)
         for mid in unique_mids:
             # Group D1: push eligible riders the moment this leg becomes
             # available. Pickup orders have no rider leg (rider_available_orders
@@ -6176,17 +6235,19 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             # provider can never delay or fail order placement — see
             # _push_new_order_to_riders' docstring for why this fires once,
             # here, and not again at merchant-accept.
+            store = {}
             if order_type != "pickup":
                 try:
                     store = await db.stores.find_one(
-                        {"id": f"store-m-{mid}"}, {"_id": 0, "area_label": 1, "area": 1, "city": 1},
+                        {"id": f"store-m-{mid}"},
+                        {"_id": 0, "area_label": 1, "area": 1, "city": 1, "upi_qr_url": 1, "lat": 1, "lng": 1},
                     ) or {}
                     pickup_area = store.get("area_label") or store.get("area") or store.get("city", "Bhilai")
                     asyncio.create_task(_push_new_order_to_riders(pickup_area, order_id))
                 except Exception as e:
                     log.warning("[push] failed to schedule push for order %s mid=%s: %s", order_id, mid, e)
 
-            m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1, "store_name": 1})
+            m = await db.merchants.find_one({"id": mid}, {"_id": 0, "phone": 1, "store_name": 1, "business_address": 1})
             if m and m.get("phone"):
                 their_items = [it for it in items_snap if it.get("merchant_id") == mid]
                 try:
@@ -6206,6 +6267,40 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                                                      order_id)
                     except Exception as _ne:
                         print(f"[notify_error] first order: {_ne}", flush=True)
+
+            # Rider activation — the existing, unmodified rider_pickup
+            # Gupshup template, moved here from merchant_accept_order so the
+            # rider hears about the delivery the moment it's placed (and can
+            # call the merchant to ask them to start packing) instead of
+            # waiting for merchant acceptance. Not gated on `m`/`m["phone"]`
+            # above — activation doesn't depend on the merchant having a
+            # phone on file, only on there being a rider leg at all.
+            if order_type != "pickup" and rider_phone:
+                try:
+                    addr = payload.address or {}
+                    drop_parts = [addr.get("line1", ""), addr.get("landmark", ""), addr.get("city", "Bhilai"), addr.get("pincode", "")]
+                    customer_address = ", ".join(p for p in drop_parts if p)
+                    my_items = [it for it in items_snap if it.get("merchant_id") == mid]
+                    items_summary = "\n".join(
+                        f"  • {it.get('qty', 1)}x {it.get('name', 'Item')}" + (f" ({it['size']})" if it.get("size") else "")
+                        for it in my_items
+                    )
+                    notify_rider_pickup(
+                        rider_phone, order_id=order_id, otp=merchant_otps.get(mid, otp),
+                        customer_name=(payload.customer or {}).get("name") or addr.get("name", "Customer"),
+                        store_name=(m or {}).get("store_name", "Store"),
+                        store_address=(m or {}).get("business_address", "Bhilai"),
+                        customer_address=customer_address,
+                        items_summary=items_summary,
+                        upi_qr_url=store.get("upi_qr_url") or "",
+                        store_lat=store.get("lat") or 0,
+                        store_lng=store.get("lng") or 0,
+                        customer_lat=addr.get("lat") or 0,
+                        customer_lng=addr.get("lng") or 0,
+                    )
+                    await db.orders.update_one({"id": order_id}, {"$set": {f"rider_notified.{mid}": True}})
+                except Exception as e:
+                    log.error("[rider-pickup] activation failed order=%s mid=%s error=%s", order_id, mid, e)
     await audit_service.log("order_initiated", order_id=order_id,
                             razorpay_order_id=doc.get("razorpay_order_id"),
                             amount=float(server_total),
@@ -6763,7 +6858,7 @@ async def rider_order_detail(oid: str, user: dict = Depends(rider_user)):
     addr = o.get("address") or {}
     cust = o.get("customer") or {}
     items = [it for it in (o.get("items") or []) if it.get("merchant_id") == my_mid]
-    m = await db.merchants.find_one({"id": my_mid}, {"_id": 0, "store_name": 1, "business_address": 1})
+    m = await db.merchants.find_one({"id": my_mid}, {"_id": 0, "store_name": 1, "business_address": 1, "phone": 1})
     store = await db.stores.find_one(
         {"id": f"store-m-{my_mid}"}, {"_id": 0, "upi_qr_url": 1, "lat": 1, "lng": 1},
     ) or {}
@@ -6776,6 +6871,13 @@ async def rider_order_detail(oid: str, user: dict = Depends(rider_user)):
         "pickup": {
             "store_name": (m or {}).get("store_name", "Store"),
             "address": (m or {}).get("business_address", ""),
+            # Rider-notification-workflow redesign (2026-09): so the rider
+            # can call the merchant and ask them to start packing right
+            # after this leg is assigned, even before the merchant has
+            # accepted — the merchant's own db.merchants.phone (their
+            # operational contact number, also what every merchant WhatsApp
+            # notification already sends to). Never the customer's phone.
+            "phone": (m or {}).get("phone", ""),
             "lat": store.get("lat") or 0,
             "lng": store.get("lng") or 0,
         },
@@ -7029,62 +7131,22 @@ async def merchant_accept_order(oid: str, user: dict = Depends(merchant_user)):
         {"$set": {"status": new_global, "merchant_states": states,
                   "merchant_timelines": timelines, "timeline": tl}},
     )
-    m = await db.merchants.find_one({"id": mid}, {"_id": 0, "store_name": 1, "business_address": 1})
     # This merchant's UNIQUE 4-digit delivery OTP (each store gets its own).
     # Rider-flow redesign: NO customer notification fires here anymore — the
     # customer's first delivery-related notification is now at "out for
     # delivery" (_mark_leg_handed_off), which is also where this OTP is
-    # first revealed to them. my_otp is still needed below for the legacy
-    # WhatsApp rider_pickup notification (RIDER_PHONE fallback, unrelated to
-    # the customer-facing timing change) and the response body.
+    # first revealed to them. my_otp is still needed for the response body.
+    #
+    # Rider-notification-workflow redesign (2026-09): the rider_pickup
+    # WhatsApp activation used to fire HERE, on accept. It has moved to
+    # order creation (see create_order's post-insert loop) so the rider
+    # hears about the delivery immediately instead of waiting for the
+    # merchant — deliberately NOT re-sent here, to avoid a duplicate.
     my_otp = (o.get("merchant_otps") or {}).get(mid) or o.get("otp", "")
     if not my_otp:
         import random as _random
         my_otp = str(_random.randint(1000, 9999))
         log.warning("[rider-pickup] no OTP found for order=%s mid=%s — generated fallback %s", oid, mid, my_otp)
-    rider_phone = os.environ.get("RIDER_PHONE", "").strip()
-    if not rider_phone:
-        log.warning("[rider-pickup] RIDER_PHONE not set — skipping rider notification for order %s", oid)
-    # Per-merchant rider pickup — each store's leg is its own dispatch with its
-    # own OTP. Fires the moment THIS merchant accepts (not gated on all).
-    if rider_phone:
-        log.info("[rider-pickup] attempting notify rider=%s order=%s", rider_phone, oid)
-        try:
-            addr = o.get("address") or {}
-            my_items = [it for it in (o.get("items") or []) if it.get("merchant_id") == mid] or o.get("items", [])
-            items_summary = "\n".join(
-                f"  • {it.get('qty', 1)}x {it.get('name', 'Item')}" + (f" ({it['size']})" if it.get("size") else "")
-                for it in my_items
-            )
-            drop_parts = [addr.get("line1", ""), addr.get("landmark", ""), addr.get("city", "Bhilai"), addr.get("pincode", "")]
-            customer_address = ", ".join([p for p in drop_parts if p])
-            store_doc = await db.stores.find_one({"id": f"store-m-{mid}"}, {"_id": 0, "upi_qr_url": 1, "lat": 1, "lng": 1}) or {}
-            notify_rider_pickup(
-                rider_phone, order_id=oid, otp=my_otp,
-                customer_name=(o.get("customer") or {}).get("name") or addr.get("name", "Customer"),
-                store_name=(m or {}).get("store_name", "Store"),
-                store_address=(m or {}).get("business_address", "Bhilai"),
-                customer_address=customer_address,
-                items_summary=items_summary,
-                upi_qr_url=store_doc.get("upi_qr_url") or "",
-                store_lat=store_doc.get("lat") or 0,
-                store_lng=store_doc.get("lng") or 0,
-                # Live-testing fix (same bug as rider_order_detail's drop
-                # lat/lng, see the comment there): must NOT fall back to
-                # o["customer_lat"]/["customer_lng"] (order-time GPS, unrelated
-                # to the delivery address). 2026-09: addr.lat/lng are now
-                # required at checkout for new orders (AddressPinPicker), so
-                # this starts carrying real coordinates automatically — no
-                # change needed here. Historical orders predating that
-                # requirement still have addr.lat/lng null; notify_rider_pickup's
-                # own _map_link (commit 1958f0b) falls back to an address-text
-                # Google Maps search in that case, same as it already does for
-                # a missing store pin.
-                customer_lat=addr.get("lat") or 0,
-                customer_lng=addr.get("lng") or 0,
-            )
-        except Exception as e:
-            log.error("[rider-pickup] failed order=%s error=%s", oid, e)
     return {"ok": True, "otp": my_otp, "all_accepted": all_accepted, "my_state": "accepted"}
 
 @api.post("/merchant/orders/{oid}/handed-to-rider")
@@ -7372,9 +7434,16 @@ async def admin_cancel_order(oid: str, payload: Optional[dict] = None, admin: di
             update_doc["timeline"] = tl
             update_doc["delivered_at"] = o.get("delivered_at") or now2
         await db.orders.update_one({"id": oid}, {"$set": update_doc})
+        await _notify_rider_leg_cancelled(o, target_mid)
     else:
         _assert_status_transition(o.get("status", "pending_merchant"), "cancelled")
         await db.orders.update_one({"id": oid}, {"$set": {"status": "cancelled", "cancel_reason": reason}})
+        # Whole-order admin cancel — every still-active leg is being
+        # cancelled, so notify the rider for each one that was actually
+        # activated (already_cancelled_mids skips any leg cancelled earlier).
+        for m in mids:
+            if m not in already_cancelled_mids:
+                await _notify_rider_leg_cancelled(o, m)
     cust_phone = (o.get("customer") or {}).get("phone") or (o.get("address") or {}).get("phone")
     if cust_phone:
         try: notify_order_cancelled(cust_phone, oid, reason)

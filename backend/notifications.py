@@ -965,6 +965,13 @@ class GupshupProvider(NotificationProvider):
         # ops number (see notify_rider_pickup's own docstring), not an
         # individually-assigned rider — unaffected by this wiring.
         "rider_pickup": "GUPSHUP_TEMPLATE_RIDER_PICKUP",
+        # rider_delivery_cancelled: NEW (2026-09 rider-notification-workflow
+        # redesign) — the only new Gupshup template this redesign adds. The
+        # env var must be populated with the approved template's UUID
+        # before this notification can actually send (see
+        # notify_rider_cancelled). Exactly 2 variables: short order id,
+        # store name. No customer phone, OTP, or refund/reason info.
+        "rider_delivery_cancelled": "GUPSHUP_TEMPLATE_RIDER_DELIVERY_CANCELLED",
         # rider_return_pickup: confirmed live from the Gupshup template
         # editor — exactly 8 variables: ORIGINAL order short id (NOT
         # return_id), customer name/address, customer map URL, store
@@ -1552,11 +1559,18 @@ def notify_rider_pickup(rider_phone: str, *, order_id: str, otp: str, customer_n
                         items_summary: str = "", upi_qr_url: str = "",
                         store_lat: float = 0, store_lng: float = 0,
                         customer_lat: float = 0, customer_lng: float = 0) -> None:
-    """Notify the rider when a merchant accepts an order. `rider_phone` is
-    the shared RIDER_PHONE ops number (see the one call site in server.py,
-    merchant_accept_order) — NOT an individually-assigned rider's own
-    phone; this is a pre-existing, unrelated fact this wiring doesn't
-    change.
+    """Notify the rider that a delivery has been placed. `rider_phone` is
+    the shared RIDER_PHONE ops number — NOT an individually-assigned
+    rider's own phone; this is a pre-existing, unrelated fact this wiring
+    doesn't change.
+
+    Rider-notification-workflow redesign (2026-09): the one call site
+    moved from server.py's merchant_accept_order (on merchant acceptance)
+    to create_order (immediately on successful order creation, before any
+    merchant has acted) — see create_order's post-insert loop. This
+    function itself, its template, and its 8 variables are UNCHANGED by
+    that move; only the trigger point did. merchant_accept_order no longer
+    calls this at all, to avoid a duplicate activation.
 
     Gupshup reconciliation (2026-09): approved rider_pickup template has
     exactly 8 variables — short order id, store name, store address,
@@ -1631,6 +1645,37 @@ Reply: {otp} Delivered"""
                             "4": customer_name, "5": customer_address, "6": items_text,
                             "7": pickup_map, "8": drop_map,
                         })
+
+
+def notify_rider_cancelled(rider_phone: str, *, order_id: str, store_name: str) -> None:
+    """Rider-notification-workflow redesign (2026-09): the rider_pickup
+    activation now fires at order creation (see notify_rider_pickup's
+    updated docstring/call site), before merchant acceptance — so a leg
+    that later gets cancelled/rejected (by customer, merchant, admin, or
+    the stale-order sweep) needs a separate signal telling the rider NOT
+    to proceed, since they may already be en route or about to call the
+    merchant. Uses a NEW dedicated Gupshup template
+    (GUPSHUP_TEMPLATE_RIDER_DELIVERY_CANCELLED) — the existing rider_pickup
+    template is untouched by this.
+
+    Deliberately carries only the short order id and store name — no
+    customer phone, OTP, refund status, or merchant rejection reason. The
+    rider needs to know which delivery to stop, nothing else.
+
+    Callers MUST only call this for a leg where rider_notified[mid] was
+    already True (i.e. the activation above actually fired for it) —
+    sending a cancellation for a leg the rider was never told about would
+    be confusing noise, not useful information."""
+    short_id = order_id[-6:].upper()
+    body = f"""⚠️ DELIVERY CANCELLED
+
+Order #{short_id} has been cancelled.
+
+Store: {store_name}
+
+Please do not proceed with pickup for this order."""
+    send_with_fallback(rider_phone, body, message_type="rider_delivery_cancelled",
+                        template_params={"1": short_id, "2": store_name})
 
 
 def notify_order_on_the_way(phone: str, order_id: str, otp: str, rider_phone: str = "") -> None:

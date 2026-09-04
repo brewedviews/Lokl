@@ -269,13 +269,20 @@ export default function RiderOrderDetailPage() {
           </div>
           <p className="font-bold text-brand-primary">{detail.pickup.store_name}</p>
           <p className="text-sm text-text-secondary mt-0.5">{detail.pickup.address}</p>
-          <a
-            href={mapsUrl(detail.pickup.lat, detail.pickup.lng, detail.pickup.address)}
-            target="_blank" rel="noopener noreferrer" data-testid="rider-pickup-maps-link"
-            className="inline-flex items-center gap-1.5 mt-2 text-sm font-semibold text-brand-primary"
-          >
-            <Navigation size={14} /> Open in Maps
-          </a>
+          <div className="flex items-center gap-4 mt-2">
+            <a
+              href={mapsUrl(detail.pickup.lat, detail.pickup.lng, detail.pickup.address)}
+              target="_blank" rel="noopener noreferrer" data-testid="rider-pickup-maps-link"
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-primary"
+            >
+              <Navigation size={14} /> Open in Maps
+            </a>
+            {detail.pickup.phone && (
+              <a href={`tel:${detail.pickup.phone}`} data-testid="rider-call-merchant-link" className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-primary">
+                <Phone size={14} /> Call merchant
+              </a>
+            )}
+          </div>
           {detail.items.length > 0 && (
             <div className="mt-3 pt-3 border-t border-card-border space-y-1">
               {detail.items.map((it, i) => (

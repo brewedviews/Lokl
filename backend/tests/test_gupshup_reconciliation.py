@@ -717,20 +717,28 @@ def test_rider_pickup_store_map_also_falls_back_when_store_lat_lng_missing():
 
 def test_rider_pickup_recipient_and_trigger_preserved():
     """Static check: the one call site still passes the shared RIDER_PHONE
-    ops number (not an individually-assigned rider), and still lives
-    inside merchant_accept_order() — no new trigger, no rider-assignment
-    logic changed."""
+    ops number (not an individually-assigned rider). Rider-notification-
+    workflow redesign (2026-09): the trigger MOVED from merchant_accept_order
+    (on merchant acceptance) to create_order (on successful order creation,
+    before any merchant has acted) — merchant_accept_order must no longer
+    call it at all, to avoid a duplicate rider activation."""
     backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     server_py = os.path.join(backend_dir, "server.py")
     with open(server_py) as f:
         src = f.read()
     assert 'rider_phone = os.environ.get("RIDER_PHONE", "").strip()' in src, \
         "recipient must still be the shared RIDER_PHONE ops number"
-    fn_start = src.index("async def merchant_accept_order")
+    fn_start = src.index("async def create_order")
     fn_end = src.index("\n@api.", fn_start)
     fn_src = src[fn_start:fn_end]
     assert fn_src.count("notify_rider_pickup(") == 1, \
-        "notify_rider_pickup must be called exactly once, only inside merchant_accept_order()"
+        "notify_rider_pickup must be called exactly once, inside create_order()"
+
+    accept_start = src.index("async def merchant_accept_order")
+    accept_end = src.index("\n@api.", accept_start)
+    accept_src = src[accept_start:accept_end]
+    assert "notify_rider_pickup(" not in accept_src, \
+        "merchant_accept_order must NOT call notify_rider_pickup — that would duplicate the order-creation activation"
 
 
 def test_rider_pickup_has_exactly_one_call_site_no_duplicate_path():
