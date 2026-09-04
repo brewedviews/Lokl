@@ -3509,6 +3509,22 @@ async def list_l2(l1_id: str):
     # a deactivated L2 (or every L2 under a deactivated L1) to any caller
     # that queries it directly, even though the main listing already hides
     # it. Same filter, same field, now consistent everywhere.
+    #
+    # Admin category visibility fix (2026-09): also enforce the hierarchy
+    # rule GET /categories already encodes structurally (a paused L1's
+    # children are unreachable there, since the response only ever
+    # iterates the paused-filtered L1 list before attaching children) —
+    # this endpoint used to skip that check entirely when called directly
+    # with a paused l1_id, returning that L1's still-individually-visible
+    # L2s regardless. No current caller actually does this (every real
+    # caller resolves l1_id from the already-filtered GET /categories
+    # response first), but it's a real latent gap against the "hidden
+    # parent hides children" invariant. Reuses the same canonical
+    # active-taxonomy check _validate_l1_l2 (product creation/edit) itself
+    # uses, rather than a second parallel "is this L1 active" query.
+    active_l1_ids, _ = await _active_l1_l2_ids()
+    if l1_id not in active_l1_ids:
+        return []
     return await db.subcategories.find({"l1_id": l1_id, "paused": {"$ne": True}}, {"_id": 0}).to_list(50)
 
 

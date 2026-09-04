@@ -70,6 +70,18 @@ import { trackCategoryTileClick, trackCategoryTileImpression, observeImpression 
 // image/name from. Women/Men/Kids order is not derived from the backend's
 // own `order` field (women=1, men=2, kids=6) since that would put Kids
 // after 3 other L1s this strip no longer shows at all.
+//
+// Admin category visibility fix (2026-09): this list is a CURATION spec
+// (which slugs to feature, in what order) — it is NOT a visibility
+// override. Each entry is only ever rendered once the live /api/categories
+// response has resolved AND actually contains a matching, non-paused
+// category (see the `if (!cat && !isLoading) return null` check in the
+// render loop below) — same "resolve against live data, skip if absent"
+// pattern L1PageClient.tsx's WOMEN/MEN/KIDS_CATEGORY_TILES and
+// MarketplaceHomeClient.tsx's MIXED_CATEGORY_TILES already use correctly.
+// Before this fix, a slug missing from the live response still fell back
+// to `fallbackLabel` and rendered anyway — the one place in the app that
+// kept showing a category an admin had paused.
 const PINNED_SLUGS = [
   { slug: "women", fallbackLabel: "Women" },
   { slug: "men", fallbackLabel: "Men" },
@@ -78,7 +90,7 @@ const PINNED_SLUGS = [
 
 export function CategoryTileRow() {
   const segments = useSelectedLayoutSegments();
-  const { data: categories = [] } = useQuery({
+  const { data: categories = [], isLoading } = useQuery({
     queryKey: ["categories"],
     queryFn: () => api.catalog.categories(),
     staleTime: 5 * 60_000,
@@ -111,6 +123,17 @@ export function CategoryTileRow() {
         </Link>
         {PINNED_SLUGS.map(({ slug, fallbackLabel }, i) => {
           const cat = categories.find((c) => c.slug === slug);
+          // Admin category visibility is the single source of truth
+          // (2026-09): /api/categories already excludes anything an admin
+          // has paused. Before this fix, a missing `cat` here still fell
+          // back to `fallbackLabel` and rendered the tab anyway — the one
+          // place in the app that ignored a paused category. While the
+          // live query is still loading, `categories` is `[]` and every
+          // tab would momentarily vanish; fall back to the label (not a
+          // skip) ONLY during that initial load so first paint isn't a gap
+          // where "All" is alone, but never fall back once the query has
+          // actually resolved and confirmed this slug isn't there.
+          if (!cat && !isLoading) return null;
           const label = cat?.name ?? fallbackLabel;
           const isActive = activeSlug === slug;
           return (
