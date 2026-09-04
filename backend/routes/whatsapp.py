@@ -861,16 +861,33 @@ def init(db, *, normalize_merchant_phone, resolve_brand, create_product_for_merc
 
     def _event_timestamp(evt: dict) -> "datetime":
         """Prefers the event-specific payload.payload.ts (Step 10) over
-        the outer envelope timestamp — never confuses the two. Gupshup
-        timestamps are milliseconds-since-epoch (matches the confirmed
-        inbound-message envelope's own `timestamp` field shape)."""
+        the outer envelope timestamp — never confuses the two.
+
+        2026-09 audit fix: this used to assume `ts` is always
+        milliseconds-since-epoch (matching the inbound-message envelope's
+        own `timestamp` field) and unconditionally divided by 1000. Real
+        production message-event records proved that assumption wrong for
+        this field: stored `delivered_at` values landed around
+        1970-01-21, which is exactly (the real epoch-SECONDS value) / 1000
+        — i.e. `ts` here is already seconds, and dividing it again produced
+        a near-epoch date roughly 1000x too early.
+
+        Rather than hard-coding seconds (in case Gupshup is inconsistent
+        across event types / a future payload genuinely sends ms), this
+        auto-detects by magnitude: any real seconds-since-epoch value for a
+        21st/22nd-century date is nowhere near 10 billion (that's year
+        2286), while any real ms-since-epoch value for a 1970-onward date
+        is always far past it (1971 in ms is already ~3.15e10). A value at
+        or above the threshold is treated as ms and divided down; below it,
+        used directly as seconds."""
         detail = evt.get("payload")
-        ts_ms = detail.get("ts") if isinstance(detail, dict) else None
-        if ts_ms is None:
-            ts_ms = evt.get("ts")
-        if isinstance(ts_ms, (int, float)):
+        ts_raw = detail.get("ts") if isinstance(detail, dict) else None
+        if ts_raw is None:
+            ts_raw = evt.get("ts")
+        if isinstance(ts_raw, (int, float)):
+            ts_seconds = ts_raw / 1000 if ts_raw >= 10_000_000_000 else ts_raw
             try:
-                return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+                return datetime.fromtimestamp(ts_seconds, tz=timezone.utc)
             except (ValueError, OSError):
                 pass
         return datetime.now(timezone.utc)

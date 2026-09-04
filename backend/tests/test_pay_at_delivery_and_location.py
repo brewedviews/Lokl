@@ -153,21 +153,47 @@ _WOMEN_L1, _WOMEN_L2 = "l1-women", "l2-women-dresses"
 
 
 async def _seed_merchant_and_store(db, mid, phone):
+    """Test-infra fix (2026-09 audit pass): this used to seed ONLY the
+    merchant/store, never a matching db.products doc — every test using
+    _order_payload() referenced product id "prod-test1", which never
+    actually existed in the DB. create_order()'s very first per-item step
+    is `db.products.find_one({"id": pid, ...})`, so every DB-backed test
+    in this file would have raised "Product prod-test1 is unavailable" if
+    ever actually run against a live database — never caught because
+    local MongoDB has been unreachable all session, so _require_live_db()
+    always skipped before reaching it. Now seeds a real product too,
+    scoped to this call's own dynamic `mid` (id derived from `mid`, not a
+    shared literal, so sequential test runs never collide on one row)."""
     now_iso = srv.datetime.now(srv.timezone.utc).isoformat()
     store_id = f"store-m-{mid}"
+    pid = f"prod-test1-{mid}"
     await db.merchants.insert_one({
         "id": mid, "email": f"{mid}@test.lokl", "store_name": "Test Store",
         "owner_name": "Test Owner", "phone": phone, "city": "Bhilai",
         "kyc_status": "approved", "plan": "free", "created_at": now_iso,
     })
-    await db.stores.insert_one({"id": store_id, "merchant_id": mid, "name": "Test Store"})
-    return store_id
+    # _visible_store_filter() (server.py) requires kyc_status/published on
+    # the STORE doc itself — create_order's store-availability pre-check
+    # 404s the order otherwise (found running these tests for real for the
+    # first time this session, 2026-09).
+    await db.stores.insert_one({
+        "id": store_id, "merchant_id": mid, "name": "Test Store",
+        "kyc_status": "approved", "published": True, "paused": False, "is_deleted": False,
+        "online": True, "lat": 21.19, "lng": 81.33,
+    })
+    await db.products.insert_one({
+        "id": pid, "merchant_id": mid, "store_id": store_id, "store_name": "Test Store",
+        "name": "Test Item", "price": 299.0, "mrp": 299.0, "l1_id": "l1-men",
+        "stock": {"default": 100}, "is_deleted": False, "paused": False,
+        "try_at_doorstep": True, "created_at": now_iso,
+    })
+    return store_id, pid
 
 
-def _order_payload(customer_phone, *, payment_method="COD", lat=None, lng=None, try_and_buy=False):
+def _order_payload(customer_phone, *, pid="prod-test1", payment_method="COD", lat=None, lng=None, try_and_buy=False):
     return srv.OrderCreate(
         items=[{
-            "id": "prod-test1", "name": "Test Item", "price": 299.0, "qty": 1,
+            "id": pid, "name": "Test Item", "price": 299.0, "qty": 1,
             "merchant_id": "m-test-payflow", "store_id": "store-m-m-test-payflow",
             **({"fulfillment_type": "try_and_buy"} if try_and_buy else {}),
         }],
@@ -190,10 +216,10 @@ class TestPayAtDeliveryOnly:
         async def _run():
             db = srv.db
             mid = f"m-test-payflow-{uuid.uuid4().hex[:6]}"
-            phone = f"91900000{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid, phone)
+            phone = f"91900000{str(uuid.uuid4().int)[:4]}"
+            _, pid = await _seed_merchant_and_store(db, mid, phone)
             try:
-                payload = _order_payload(phone)
+                payload = _order_payload(phone, pid=pid)
                 payload.items[0]["merchant_id"] = mid
                 payload.items[0]["store_id"] = f"store-m-{mid}"
                 user = {"sub": srv._normalize_customer_phone(phone), "role": "customer"}
@@ -204,6 +230,7 @@ class TestPayAtDeliveryOnly:
                 await db.orders.delete_many({"customer.phone": srv._normalize_customer_phone(phone)})
                 await db.merchants.delete_one({"id": mid})
                 await db.stores.delete_one({"id": f"store-m-{mid}"})
+                await db.products.delete_one({"id": pid})
 
         asyncio.run(_run())
 
@@ -221,18 +248,33 @@ class TestPayAtDeliveryOnly:
         asyncio.run(_run())
 
     def test_9_orders_endpoint_rejects_razorpay_when_disabled(self):
+        """Needs a real, visible store (2026-09 fix — found running this
+        for real for the first time): create_order's store-availability
+        pre-check runs BEFORE the PAY_ONLINE_ENABLED gate, so an
+        unseeded/fake store_id 400s with 'Store unavailable' before ever
+        reaching the check this test actually means to exercise."""
         _require_live_db()
         import asyncio
 
         async def _run():
+            db = srv.db
             assert srv.PAY_ONLINE_ENABLED is False
-            phone = f"91900000{uuid.uuid4().hex[:4]}"
-            payload = _order_payload(phone, payment_method="razorpay")
-            user = {"sub": srv._normalize_customer_phone(phone), "role": "customer"}
-            with pytest.raises(srv.HTTPException) as exc:
-                await srv.create_order(payload, user=user)
-            assert exc.value.status_code == 400
-            assert "pay at delivery" in exc.value.detail.lower()
+            mid = f"m-test-payflow9-{uuid.uuid4().hex[:6]}"
+            phone = f"91900000{str(uuid.uuid4().int)[:4]}"
+            _, pid = await _seed_merchant_and_store(db, mid, phone)
+            try:
+                payload = _order_payload(phone, pid=pid, payment_method="razorpay")
+                payload.items[0]["merchant_id"] = mid
+                payload.items[0]["store_id"] = f"store-m-{mid}"
+                user = {"sub": srv._normalize_customer_phone(phone), "role": "customer"}
+                with pytest.raises(srv.HTTPException) as exc:
+                    await srv.create_order(payload, user=user)
+                assert exc.value.status_code == 400
+                assert "pay at delivery" in exc.value.detail.lower()
+            finally:
+                await db.merchants.delete_one({"id": mid})
+                await db.stores.delete_one({"id": f"store-m-{mid}"})
+                await db.products.delete_one({"id": pid})
 
         asyncio.run(_run())
 
@@ -241,7 +283,7 @@ class TestPayAtDeliveryOnly:
         import asyncio
 
         async def _run():
-            phone = f"91900000{uuid.uuid4().hex[:4]}"
+            phone = f"91900000{str(uuid.uuid4().int)[:4]}"
             payload = _order_payload(phone, payment_method="online")
             user = {"sub": srv._normalize_customer_phone(phone), "role": "customer"}
             with pytest.raises(srv.HTTPException) as exc:
@@ -284,18 +326,29 @@ class TestPayAtDeliveryOnly:
         """Precedence check: the pre-existing Try & Buy guard must still
         fire (and with its own specific message) even though PAY_ONLINE_
         ENABLED being False would ALSO reject this — confirms my new check
-        didn't silently swallow/reorder the existing one."""
+        didn't silently swallow/reorder the existing one. Needs a real,
+        visible store for the same reason as test_9 above."""
         _require_live_db()
         import asyncio
 
         async def _run():
-            phone = f"91900000{uuid.uuid4().hex[:4]}"
-            payload = _order_payload(phone, payment_method="razorpay", try_and_buy=True)
-            user = {"sub": srv._normalize_customer_phone(phone), "role": "customer"}
-            with pytest.raises(srv.HTTPException) as exc:
-                await srv.create_order(payload, user=user)
-            assert exc.value.status_code == 400
-            assert "try & buy" in exc.value.detail.lower()
+            db = srv.db
+            mid = f"m-test-payflow12-{uuid.uuid4().hex[:6]}"
+            phone = f"91900000{str(uuid.uuid4().int)[:4]}"
+            _, pid = await _seed_merchant_and_store(db, mid, phone)
+            try:
+                payload = _order_payload(phone, pid=pid, payment_method="razorpay", try_and_buy=True)
+                payload.items[0]["merchant_id"] = mid
+                payload.items[0]["store_id"] = f"store-m-{mid}"
+                user = {"sub": srv._normalize_customer_phone(phone), "role": "customer"}
+                with pytest.raises(srv.HTTPException) as exc:
+                    await srv.create_order(payload, user=user)
+                assert exc.value.status_code == 400
+                assert "try & buy" in exc.value.detail.lower()
+            finally:
+                await db.merchants.delete_one({"id": mid})
+                await db.stores.delete_one({"id": f"store-m-{mid}"})
+                await db.products.delete_one({"id": pid})
 
         asyncio.run(_run())
 
@@ -308,10 +361,10 @@ class TestCustomerLocationSnapshot:
         async def _run():
             db = srv.db
             mid = f"m-test-geo-{uuid.uuid4().hex[:6]}"
-            phone = f"91900000{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid, phone)
+            phone = f"91900000{str(uuid.uuid4().int)[:4]}"
+            _, pid = await _seed_merchant_and_store(db, mid, phone)
             try:
-                payload = _order_payload(phone, lat=21.190001, lng=81.330002)
+                payload = _order_payload(phone, pid=pid, lat=21.190001, lng=81.330002)
                 payload.items[0]["merchant_id"] = mid
                 payload.items[0]["store_id"] = f"store-m-{mid}"
                 user = {"sub": srv._normalize_customer_phone(phone), "role": "customer"}
@@ -322,6 +375,7 @@ class TestCustomerLocationSnapshot:
                 await db.orders.delete_many({"customer.phone": srv._normalize_customer_phone(phone)})
                 await db.merchants.delete_one({"id": mid})
                 await db.stores.delete_one({"id": f"store-m-{mid}"})
+                await db.products.delete_one({"id": pid})
 
         asyncio.run(_run())
 
@@ -335,10 +389,10 @@ class TestCustomerLocationSnapshot:
         async def _run():
             db = srv.db
             mid = f"m-test-geo2-{uuid.uuid4().hex[:6]}"
-            phone = f"91900000{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid, phone)
+            phone = f"91900000{str(uuid.uuid4().int)[:4]}"
+            _, pid = await _seed_merchant_and_store(db, mid, phone)
             try:
-                payload = _order_payload(phone, lat=None, lng=None)
+                payload = _order_payload(phone, pid=pid, lat=None, lng=None)
                 payload.items[0]["merchant_id"] = mid
                 payload.items[0]["store_id"] = f"store-m-{mid}"
                 user = {"sub": srv._normalize_customer_phone(phone), "role": "customer"}
@@ -350,6 +404,7 @@ class TestCustomerLocationSnapshot:
                 await db.orders.delete_many({"customer.phone": srv._normalize_customer_phone(phone)})
                 await db.merchants.delete_one({"id": mid})
                 await db.stores.delete_one({"id": f"store-m-{mid}"})
+                await db.products.delete_one({"id": pid})
 
         asyncio.run(_run())
 

@@ -187,6 +187,16 @@ def test_stale_auto_cancel_still_routes_through_shared_cancel_helper():
 # ============================================================================
 
 async def _seed_merchant_and_store(db, mid, phone, *, store_name="Test Store"):
+    """Test-infra fix (2026-09 audit pass): this used to seed ONLY the
+    merchant/store, never a matching db.products doc for the item id
+    _order_payload() below generates (f"prod-{mid}") — create_order()'s
+    first per-item step is a db.products.find_one() lookup, so every
+    DB-backed test in this file would have raised "Product unavailable"
+    if ever actually run against a live database. Never caught because
+    local MongoDB has been unreachable all session (_require_live_db()
+    always skipped first). Now seeds a real, correctly-priced product
+    too, using the exact same f"prod-{mid}" id _order_payload() already
+    references — no call-site changes needed anywhere else in this file."""
     now_iso = srv.datetime.now(srv.timezone.utc).isoformat()
     store_id = f"store-m-{mid}"
     await db.merchants.insert_one({
@@ -194,7 +204,19 @@ async def _seed_merchant_and_store(db, mid, phone, *, store_name="Test Store"):
         "owner_name": "Test Owner", "phone": phone, "business_address": "Shop 1, Test Market",
         "city": "Bhilai", "kyc_status": "approved", "plan": "free", "created_at": now_iso,
     })
-    await db.stores.insert_one({"id": store_id, "merchant_id": mid, "name": store_name, "lat": 21.19, "lng": 81.33})
+    # _visible_store_filter() (server.py) requires kyc_status/published on
+    # the STORE doc itself — create_order's store-availability pre-check
+    # 400s the order otherwise (found running these tests for real for the
+    # first time this session, 2026-09).
+    await db.stores.insert_one({
+        "id": store_id, "merchant_id": mid, "name": store_name, "lat": 21.19, "lng": 81.33,
+        "kyc_status": "approved", "published": True, "paused": False, "is_deleted": False, "online": True,
+    })
+    await db.products.insert_one({
+        "id": f"prod-{mid}", "merchant_id": mid, "store_id": store_id, "store_name": store_name,
+        "name": f"Item from {mid}", "price": 199.0, "mrp": 199.0, "l1_id": "l1-men",
+        "stock": {"default": 100}, "is_deleted": False, "paused": False, "created_at": now_iso,
+    })
     return store_id
 
 
@@ -241,6 +263,7 @@ async def _cleanup_order(db, oid, mids):
     for mid in mids:
         await db.merchants.delete_one({"id": mid})
         await db.stores.delete_one({"id": f"store-m-{mid}"})
+        await db.products.delete_one({"id": f"prod-{mid}"})
 
 
 class TestRiderActivationAtOrderCreation:
@@ -255,9 +278,9 @@ class TestRiderActivationAtOrderCreation:
             db = srv.db
             mid_a = f"m-ridertest-a-{uuid.uuid4().hex[:6]}"
             mid_b = f"m-ridertest-b-{uuid.uuid4().hex[:6]}"
-            phone = f"91900001{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid_a, f"9{uuid.uuid4().hex[:9]}", store_name="Store A")
-            await _seed_merchant_and_store(db, mid_b, f"9{uuid.uuid4().hex[:9]}", store_name="Store B")
+            phone = f"91900001{str(uuid.uuid4().int)[:4]}"
+            await _seed_merchant_and_store(db, mid_a, f"9{str(uuid.uuid4().int)[:9]}", store_name="Store A")
+            await _seed_merchant_and_store(db, mid_b, f"9{str(uuid.uuid4().int)[:9]}", store_name="Store B")
             with patch.dict(os.environ, {"RIDER_PHONE": "919000011111"}, clear=False), _NotifyCapture() as cap:
                 user = {"sub": srv._normalize_customer_phone(phone), "role": "customer"}
                 order = await srv.create_order(_order_payload(phone, mids=[mid_a, mid_b]), user=user)
@@ -283,8 +306,8 @@ class TestRiderActivationAtOrderCreation:
         async def _run():
             db = srv.db
             mid = f"m-ridertest-acc-{uuid.uuid4().hex[:6]}"
-            phone = f"91900002{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid, f"9{uuid.uuid4().hex[:9]}")
+            phone = f"91900002{str(uuid.uuid4().int)[:4]}"
+            await _seed_merchant_and_store(db, mid, f"9{str(uuid.uuid4().int)[:9]}")
             with patch.dict(os.environ, {"RIDER_PHONE": "919000011111"}, clear=False), _NotifyCapture() as cap:
                 user = {"sub": srv._normalize_customer_phone(phone), "role": "customer"}
                 order = await srv.create_order(_order_payload(phone, mids=[mid]), user=user)
@@ -307,8 +330,8 @@ class TestRiderActivationAtOrderCreation:
         async def _run():
             db = srv.db
             mid = f"m-ridertest-fail-{uuid.uuid4().hex[:6]}"
-            phone = f"91900003{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid, f"9{uuid.uuid4().hex[:9]}")
+            phone = f"91900003{str(uuid.uuid4().int)[:4]}"
+            await _seed_merchant_and_store(db, mid, f"9{str(uuid.uuid4().int)[:9]}")
             orig = srv.notify_rider_pickup
             srv.notify_rider_pickup = lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("simulated Gupshup outage"))
             try:
@@ -336,10 +359,10 @@ class TestMerchantPhoneInRiderApp:
         async def _run():
             db = srv.db
             mid = f"m-ridertest-phone-{uuid.uuid4().hex[:6]}"
-            merchant_phone = f"9{uuid.uuid4().hex[:9]}"
-            cust_phone = f"91900004{uuid.uuid4().hex[:4]}"
+            merchant_phone = f"9{str(uuid.uuid4().int)[:9]}"
+            cust_phone = f"91900004{str(uuid.uuid4().int)[:4]}"
             rider_id = f"rider-test-{uuid.uuid4().hex[:8]}"
-            rider_phone = f"9{uuid.uuid4().hex[:9]}"
+            rider_phone = f"9{str(uuid.uuid4().int)[:9]}"
             await _seed_merchant_and_store(db, mid, merchant_phone)
             now_iso = srv.datetime.now(srv.timezone.utc).isoformat()
             await db.riders.insert_one({
@@ -377,8 +400,8 @@ class TestRiderCancellationTriggers:
         async def _run():
             db = srv.db
             mid = f"m-ridertest-rej-{uuid.uuid4().hex[:6]}"
-            cust_phone = f"91900005{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid, f"9{uuid.uuid4().hex[:9]}", store_name="Reject Store")
+            cust_phone = f"91900005{str(uuid.uuid4().int)[:4]}"
+            await _seed_merchant_and_store(db, mid, f"9{str(uuid.uuid4().int)[:9]}", store_name="Reject Store")
             order = await self._activated_order(db, mid, cust_phone)
             try:
                 with patch.dict(os.environ, {"RIDER_PHONE": "919000011111"}, clear=False), _NotifyCapture() as cap:
@@ -404,8 +427,8 @@ class TestRiderCancellationTriggers:
         async def _run():
             db = srv.db
             mid = f"m-ridertest-mcancel-{uuid.uuid4().hex[:6]}"
-            cust_phone = f"91900006{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid, f"9{uuid.uuid4().hex[:9]}", store_name="Cancel Store")
+            cust_phone = f"91900006{str(uuid.uuid4().int)[:4]}"
+            await _seed_merchant_and_store(db, mid, f"9{str(uuid.uuid4().int)[:9]}", store_name="Cancel Store")
             order = await self._activated_order(db, mid, cust_phone)
             try:
                 merchant_user_dict = {"sub": mid, "role": "merchant"}
@@ -428,8 +451,8 @@ class TestRiderCancellationTriggers:
         async def _run():
             db = srv.db
             mid = f"m-ridertest-ccancel-{uuid.uuid4().hex[:6]}"
-            cust_phone = f"91900007{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid, f"9{uuid.uuid4().hex[:9]}")
+            cust_phone = f"91900007{str(uuid.uuid4().int)[:4]}"
+            await _seed_merchant_and_store(db, mid, f"9{str(uuid.uuid4().int)[:9]}")
             order = await self._activated_order(db, mid, cust_phone)
             try:
                 with patch.dict(os.environ, {"RIDER_PHONE": "919000011111"}, clear=False), _NotifyCapture() as cap:
@@ -448,8 +471,8 @@ class TestRiderCancellationTriggers:
         async def _run():
             db = srv.db
             mid = f"m-ridertest-ccancel2-{uuid.uuid4().hex[:6]}"
-            cust_phone = f"91900008{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid, f"9{uuid.uuid4().hex[:9]}")
+            cust_phone = f"91900008{str(uuid.uuid4().int)[:4]}"
+            await _seed_merchant_and_store(db, mid, f"9{str(uuid.uuid4().int)[:9]}")
             order = await self._activated_order(db, mid, cust_phone)
             try:
                 merchant_user_dict = {"sub": mid, "role": "merchant"}
@@ -471,8 +494,8 @@ class TestRiderCancellationTriggers:
         async def _run():
             db = srv.db
             mid = f"m-ridertest-admin1-{uuid.uuid4().hex[:6]}"
-            cust_phone = f"91900009{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid, f"9{uuid.uuid4().hex[:9]}")
+            cust_phone = f"91900009{str(uuid.uuid4().int)[:4]}"
+            await _seed_merchant_and_store(db, mid, f"9{str(uuid.uuid4().int)[:9]}")
             order = await self._activated_order(db, mid, cust_phone)
             try:
                 with patch.dict(os.environ, {"RIDER_PHONE": "919000011111"}, clear=False), _NotifyCapture() as cap:
@@ -493,9 +516,9 @@ class TestRiderCancellationTriggers:
             db = srv.db
             mid_a = f"m-ridertest-admin2a-{uuid.uuid4().hex[:6]}"
             mid_b = f"m-ridertest-admin2b-{uuid.uuid4().hex[:6]}"
-            cust_phone = f"91900010{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid_a, f"9{uuid.uuid4().hex[:9]}", store_name="Admin Store A")
-            await _seed_merchant_and_store(db, mid_b, f"9{uuid.uuid4().hex[:9]}", store_name="Admin Store B")
+            cust_phone = f"91900010{str(uuid.uuid4().int)[:4]}"
+            await _seed_merchant_and_store(db, mid_a, f"9{str(uuid.uuid4().int)[:9]}", store_name="Admin Store A")
+            await _seed_merchant_and_store(db, mid_b, f"9{str(uuid.uuid4().int)[:9]}", store_name="Admin Store B")
             with patch.dict(os.environ, {"RIDER_PHONE": "919000011111"}, clear=False), _NotifyCapture() as cap:
                 user = {"sub": srv._normalize_customer_phone(cust_phone), "role": "customer"}
                 order = await srv.create_order(_order_payload(cust_phone, mids=[mid_a, mid_b]), user=user)
@@ -522,8 +545,8 @@ class TestRiderCancellationTriggers:
         async def _run():
             db = srv.db
             mid = f"m-ridertest-noact-{uuid.uuid4().hex[:6]}"
-            cust_phone = f"91900011{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid, f"9{uuid.uuid4().hex[:9]}")
+            cust_phone = f"91900011{str(uuid.uuid4().int)[:4]}"
+            await _seed_merchant_and_store(db, mid, f"9{str(uuid.uuid4().int)[:9]}")
             with patch.dict(os.environ, {"RIDER_PHONE": ""}, clear=False), _NotifyCapture() as cap:
                 user = {"sub": srv._normalize_customer_phone(cust_phone), "role": "customer"}
                 order = await srv.create_order(_order_payload(cust_phone, mids=[mid]), user=user)
@@ -550,8 +573,8 @@ class TestRiderCancellationTriggers:
         async def _run():
             db = srv.db
             mid = f"m-ridertest-repeat-{uuid.uuid4().hex[:6]}"
-            cust_phone = f"91900012{uuid.uuid4().hex[:4]}"
-            await _seed_merchant_and_store(db, mid, f"9{uuid.uuid4().hex[:9]}")
+            cust_phone = f"91900012{str(uuid.uuid4().int)[:4]}"
+            await _seed_merchant_and_store(db, mid, f"9{str(uuid.uuid4().int)[:9]}")
             order = await self._activated_order(db, mid, cust_phone)
             try:
                 with patch.dict(os.environ, {"RIDER_PHONE": "919000011111"}, clear=False), _NotifyCapture() as cap:
@@ -567,10 +590,17 @@ class TestRiderCancellationTriggers:
         asyncio.run(_run())
 
 
-class _FakeRequest:
-    """Minimal stand-in for FastAPI's Request — these route functions only
-    ever read request.client.host for audit logging."""
-    class _Client:
-        host = "127.0.0.1"
-    client = _Client()
-    headers = {}
+def _FakeRequest():
+    """A genuine (if minimal) starlette.requests.Request — found running
+    these tests for real for the first time (2026-09): customer_cancel_
+    order's @_limit(...) rate-limit decorator (slowapi) does an isinstance
+    check against starlette.requests.Request, which a duck-typed stand-in
+    class fails ('parameter `request` must be an instance of
+    starlette.requests.Request'). A bare ASGI scope is enough for both
+    slowapi's check and every route function's own request.client.host
+    read."""
+    from starlette.requests import Request
+    return Request({
+        "type": "http", "method": "POST", "path": "/",
+        "headers": [], "client": ("127.0.0.1", 0), "query_string": b"",
+    })

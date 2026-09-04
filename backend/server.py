@@ -5887,9 +5887,14 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                                                         "sizes": {"$elemMatch": {"size": size, "stock": {"$gte": qty}}}}}},
                     {"$inc": {"color_variants.$[v].sizes.$[s].stock": -qty, f"stock.{size}": -qty}},
                     array_filters=[{"v.id": color_variant_id}, {"s.size": size}],
+                    # `price`/`mrp` projected here (2026-09 price-integrity
+                    # fix): ColorVariant/ColorVariantSize carry no price of
+                    # their own (see those Pydantic models) — a variant
+                    # item's price is always the base product's own `price`
+                    # field, same as a plain item below.
                     projection={"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
                                 "return_eligible": 1, "return_window_hours": 1, "try_at_doorstep": 1, "name": 1,
-                                "provider": 1, "remote_variant_ids": 1},
+                                "provider": 1, "remote_variant_ids": 1, "price": 1, "mrp": 1},
                     return_document=True,
                 )
             else:
@@ -5898,9 +5903,11 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                     {"id": pid, "is_deleted": {"$ne": True},
                      stock_field: {"$gte": qty}},
                     {"$inc": {stock_field: -qty}},
+                    # `price`/`mrp` projected here (2026-09 price-integrity
+                    # fix) — see new_it["price"] below for why.
                     projection={"_id": 0, "merchant_id": 1, "store_id": 1, "store_name": 1,
                                 "return_eligible": 1, "return_window_hours": 1, "try_at_doorstep": 1, "name": 1, stock_field: 1,
-                                "provider": 1, "remote_variant_ids": 1},
+                                "provider": 1, "remote_variant_ids": 1, "price": 1, "mrp": 1},
                     return_document=True,
                 )
             if not updated:
@@ -5955,6 +5962,21 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
             new_it["store_id"] = updated.get("store_id")
             if updated.get("store_name") and not new_it.get("store_name"):
                 new_it["store_name"] = updated["store_name"]
+            # PRICE INTEGRITY FIX (2026-09): `price`/`mrp` are ALWAYS the
+            # server-side product record's own values — never whatever the
+            # client sent (or omitted). Before this fix, `new_it = dict(it)`
+            # above left the client's raw `price` (or its total absence)
+            # untouched, so `_sum_items_money` — the "never trust the
+            # client-sent total" recompute just below — was silently
+            # summing client-supplied numbers after all. Confirmed in
+            # production: a normal payload with no `price` field persisted
+            # total=0; a tampered payload would have been accepted as-is.
+            # `updated` came from the SAME atomic stock-decrement read
+            # above, so this is the exact price that was live at the
+            # instant this unit was reserved — no separate lookup, no
+            # second race window.
+            new_it["price"] = float(updated.get("price") or 0)
+            new_it["mrp"] = updated.get("mrp")
             items_snap.append(new_it)
 
         # ===== Recompute total on the server using Decimal arithmetic =====
@@ -6299,6 +6321,17 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                         customer_lng=addr.get("lng") or 0,
                     )
                     await db.orders.update_one({"id": order_id}, {"$set": {f"rider_notified.{mid}": True}})
+                    # API-contract fix (2026-09): the DB write above doesn't
+                    # touch this function's own in-memory `doc` — without
+                    # this line, the value this endpoint RETURNS to the
+                    # client stays the stale {} from doc construction even
+                    # though the DB is already correct (confirmed in
+                    # production: POST /orders response showed
+                    # rider_notified={} while an immediate GET showed
+                    # {mid: true}). Nothing about the notification itself
+                    # changes here — this only keeps the response body
+                    # honest about what was just persisted.
+                    doc["rider_notified"][mid] = True
                 except Exception as e:
                     log.error("[rider-pickup] activation failed order=%s mid=%s error=%s", order_id, mid, e)
     await audit_service.log("order_initiated", order_id=order_id,
@@ -8020,6 +8053,42 @@ def _calculate_discount_percent(mrp: Optional[float], price: Optional[float]) ->
     return int((mrp - price) / mrp * 100)
 
 
+def _validate_product_price(price, mrp) -> None:
+    """Server-side price validation (2026-09 audit fix) for the 3
+    price-write paths that had none: _create_product_for_merchant,
+    _apply_product_update, quick_update_product (the 4th,
+    _insert_bulk_product, is already protected — its rows pass through
+    _row_to_product first, which enforces this exact rule).
+
+    Deliberately mirrors _row_to_product's existing rule rather than
+    inventing a new one: price is required and must be > 0; mrp is
+    optional (None/absent is fine — a product needn't have a strikethrough
+    price) but must be > 0 when provided. No "mrp must exceed price" rule
+    exists anywhere in this codebase (_calculate_discount_percent already
+    tolerates mrp <= price as a real, valid "selling at or above MRP"
+    case, just showing 0% discount) — not introduced here either.
+
+    Only checks values that are ACTUALLY being set — callers pass None for
+    a field the update payload doesn't touch, which this treats as
+    "nothing to validate" for that field (a partial update that only
+    changes, say, stock must not be rejected because of a price it never
+    touched)."""
+    if price is not None:
+        try:
+            price = float(price)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "price is not a valid number")
+        if price <= 0:
+            raise HTTPException(400, "price must be greater than 0")
+    if mrp is not None and mrp != "":
+        try:
+            mrp = float(mrp)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "mrp is not a valid number")
+        if mrp <= 0:
+            raise HTTPException(400, "mrp must be greater than 0")
+
+
 def _derive_flat_fields_from_variants(color_variants: list) -> dict:
     """Mirrors a color-variant product's real data (images/sizes/stock live
     per-variant) onto the existing flat fields every non-variant-aware
@@ -8113,6 +8182,7 @@ async def _create_product_for_merchant(
         raise HTTPException(404, "Merchant not found")
     if not admin_override and m.get("kyc_status") != "approved":
         raise HTTPException(403, "KYC not approved")
+    _validate_product_price(payload.price, payload.mrp)
     await _validate_l1_l2(payload.l1_id, payload.l2_id or "", payload.gender or "")
     store_id = f"store-m-{merchant_id}"
     store = await db.stores.find_one({"id": store_id}, {"_id": 0})
@@ -8295,6 +8365,10 @@ async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
     elif isinstance(payload.get("stock"), dict):
         payload["total_stock"] = sum(int(v) for v in payload["stock"].values() if isinstance(v, (int, float)))
     if "price" in payload or "mrp" in payload:
+        # Validate only whichever of the two this update actually touches
+        # (2026-09 audit fix) — the untouched field's existing stored value
+        # was already validated when it was set, no need to re-check it.
+        _validate_product_price(payload.get("price"), payload.get("mrp"))
         # A partial update may send only one of the two — fall back to the
         # product's currently-stored value for whichever field is absent so
         # the recomputed discount reflects the true combined state.
@@ -8346,6 +8420,7 @@ async def quick_update_product(pid: str, payload: dict, user: dict = Depends(mer
     allowed = {"price", "mrp", "total_stock", "paused", "status"}
     update = {k: v for k, v in payload.items() if k in allowed}
     if "price" in update or "mrp" in update:
+        _validate_product_price(update.get("price"), update.get("mrp"))  # 2026-09 audit fix
         effective_mrp = update["mrp"] if "mrp" in update else product.get("mrp")
         effective_price = update["price"] if "price" in update else product.get("price")
         update["discount_percent"] = _calculate_discount_percent(effective_mrp, effective_price)
@@ -8433,6 +8508,17 @@ async def merchant_products_bulk_action(payload: dict, user: dict = Depends(merc
             await _recompute_brand_product_count(bid)
         for pid in ids:
             await _revert_staged_import_on_product_delete(pid)
+        # 2026-09 audit fix: this branch never recomputed store.product_count
+        # (unlike the publish/pause branch below, which always has) — left
+        # the stored field stale after a delete. No live consumer currently
+        # trusts this stored value (/merchant/store/state and the catalog
+        # listings all recompute live), so this had no observed customer/
+        # merchant-facing impact, but keeping it in sync matches the
+        # existing invariant every other paused/count-touching path
+        # already maintains.
+        store_id = f"store-m-{user['sub']}"
+        cnt = await db.products.count_documents({"store_id": store_id, "paused": {"$ne": True}})
+        await db.stores.update_one({"id": store_id}, {"$set": {"product_count": cnt}})
         return {"deleted": r.deleted_count}
     elif action in ("publish", "pause"):
         new_paused = (action == "pause")

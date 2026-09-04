@@ -865,7 +865,7 @@ def test_rider_return_pickup_freeform_body_still_carries_otp_and_return_id():
     """OTP and return_id must remain in the Twilio/MSG91 freeform body
     exactly as before — only the Gupshup template send excludes them."""
     sent = {}
-    def fake_send_whatsapp(to, message, *, template_id=None, template_params=None, message_type=None):
+    def fake_send_whatsapp(to, message, *, template_id=None, template_params=None, message_type=None, order_id=None):
         sent["body"] = message
         return "msg-id"
 
@@ -952,7 +952,7 @@ def test_order_on_the_way_freeform_body_still_carries_otp_and_rider_phone():
     restriction is scoped to the template params, not a change to what
     the function computes or to the delivery-OTP flow itself."""
     sent = {}
-    def fake_send_whatsapp(to, message, *, template_id=None, template_params=None, message_type=None):
+    def fake_send_whatsapp(to, message, *, template_id=None, template_params=None, message_type=None, order_id=None):
         sent["body"] = message
         sent["template_params"] = template_params
         return "msg-id"

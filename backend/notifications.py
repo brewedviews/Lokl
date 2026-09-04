@@ -166,11 +166,16 @@ class NotificationProvider(ABC):
     def send_whatsapp(self, to: str, message: str, *,
                        template_id: Optional[str] = None,
                        template_params: Optional[dict] = None,
-                       message_type: Optional[str] = None) -> Optional[str]:
+                       message_type: Optional[str] = None,
+                       order_id: Optional[str] = None) -> Optional[str]:
         """WhatsApp send — either a plain `message` body, or, when
         `template_id` is given, a pre-approved template with
         `template_params` substituted in. Returns the provider's message
-        id on successful submission, or None on failure."""
+        id on successful submission, or None on failure.
+
+        `order_id` (2026-09) — outbound delivery-tracking correlation only
+        (see GupshupProvider's own use of it); every implementation must
+        accept it, but only GupshupProvider does anything with it."""
         raise NotImplementedError
 
     @abstractmethod
@@ -276,7 +281,8 @@ class TwilioProvider(NotificationProvider):
     def send_whatsapp(self, to: str, message: str, *,
                        template_id: Optional[str] = None,
                        template_params: Optional[dict] = None,
-                       message_type: Optional[str] = None) -> Optional[str]:
+                       message_type: Optional[str] = None,
+                       order_id: Optional[str] = None) -> Optional[str]:
         cli = self._get_client()
         if cli is None:
             log.info("[WA mock] %s -> %s", to, message[:80])
@@ -519,7 +525,8 @@ class MSG91Provider(NotificationProvider):
     def send_whatsapp(self, to: str, message: str, *,
                        template_id: Optional[str] = None,
                        template_params: Optional[dict] = None,
-                       message_type: Optional[str] = None) -> Optional[str]:
+                       message_type: Optional[str] = None,
+                       order_id: Optional[str] = None) -> Optional[str]:
         auth_key = self._auth_key()
         if not auth_key:
             self.last_result = {"ok": False, "provider": "msg91", "channel": "whatsapp",
@@ -817,14 +824,20 @@ def _gupshup_notifications_collection():
 
 
 def _record_gupshup_submission(*, gupshup_message_id: str, notification_type: Optional[str],
-                                recipient_phone: str) -> None:
+                                recipient_phone: str, order_id: Optional[str] = None) -> None:
     """Persists exactly ONE row for a successfully-SUBMITTED Gupshup send —
     called ONLY from the success branch of GupshupProvider.send_whatsapp(),
     never for local pre-flight failures, HTTP failures, or Gupshup error
     responses (those never reach this function at all). No message body or
     template_params are stored — only what's needed to identify and later
     correlate the send. Never raises: a persistence failure here must never
-    turn a real, successful WhatsApp submission into a reported failure."""
+    turn a real, successful WhatsApp submission into a reported failure.
+
+    `order_id` (2026-09 audit fix): now threaded through from every
+    order-related notify_* function's own order_id parameter, via
+    send_with_fallback -> GupshupProvider.send_whatsapp -> here. Stays
+    None for any non-order notification (OTP, KYC, merchant approval,
+    etc.) — never guessed or backfilled from message text/timing."""
     coll = _gupshup_notifications_collection()
     if coll is None:
         return
@@ -837,7 +850,7 @@ def _record_gupshup_submission(*, gupshup_message_id: str, notification_type: Op
             "notification_type": notification_type,
             "recipient_phone": recipient_phone,
             "status": "submitted",
-            "order_id": None,  # not threaded through from call sites in this pass — see module docstring
+            "order_id": order_id,
             "failure_code": None,
             "failure_reason": None,
             "sent_at": None,
@@ -1020,7 +1033,8 @@ class GupshupProvider(NotificationProvider):
     def send_whatsapp(self, to: str, message: str, *,
                        template_id: Optional[str] = None,
                        template_params: Optional[dict] = None,
-                       message_type: Optional[str] = None) -> Optional[str]:
+                       message_type: Optional[str] = None,
+                       order_id: Optional[str] = None) -> Optional[str]:
         if not template_id:
             log.warning("[gupshup-wa] send_whatsapp called without template_id for %s — Gupshup has no "
                         "freeform WhatsApp path in this pass, only approved-template sends", to)
@@ -1111,7 +1125,8 @@ class GupshupProvider(NotificationProvider):
                 # this method. See _record_gupshup_submission's own
                 # docstring for why this never raises.
                 _record_gupshup_submission(gupshup_message_id=str(msg_id),
-                                            notification_type=message_type, recipient_phone=mobile)
+                                            notification_type=message_type, recipient_phone=mobile,
+                                            order_id=order_id)
                 return str(msg_id)
             log.warning("[gupshup-wa] send to %s NOT submitted: status_code=%s response_status=%r messageId=%r",
                         mobile, resp.status_code, data.get("status"), msg_id)
@@ -1290,7 +1305,8 @@ NOTIFICATION_SMS_FALLBACK_ENABLED = (os.environ.get("NOTIFICATION_SMS_FALLBACK_E
 
 
 def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = None,
-                        template_params: Optional[dict] = None) -> str:
+                        template_params: Optional[dict] = None,
+                        order_id: Optional[str] = None) -> str:
     """Best-effort delivery for ANY transactional message.
 
     WHATSAPP-ONLY as of the widget revert — see the
@@ -1319,6 +1335,16 @@ def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = N
     message_type, this falls through to the freeform call below, which
     GupshupProvider itself refuses loudly (logged) — never a silent no-op.
 
+    `order_id` (2026-09 audit fix) — the Lokl order this message relates
+    to, if any. Purely for outbound delivery-tracking correlation
+    (GupshupProvider persists it on the gupshup_notifications row so a
+    row can be traced back to its order instead of only by timing +
+    recipient phone); it plays no role in sending, routing, or
+    templating. Twilio/MSG91 accept and ignore it, same as they already
+    do for template_id/template_params. Omit (default None) for any
+    notification that isn't about a specific order — OTP, KYC, merchant
+    approval, etc.
+
     Returns `"whatsapp"`, `"sms"`, or `"none"`.
     """
     provider = get_provider()
@@ -1334,6 +1360,7 @@ def send_with_fallback(phone: str, body: str, *, message_type: Optional[str] = N
         phone, body, message_type=message_type,
         template_id=gupshup_template_id or None,
         template_params=template_params if gupshup_template_id else None,
+        order_id=order_id,
     ):
         log.info("[NOTIFY] provider=%s whatsapp OK to=%s", provider_name, phone)
         return "whatsapp"
@@ -1492,7 +1519,8 @@ def notify_order_placed(phone: str, order_id: str, total: float) -> None:
     # {{1}}, {{2}}, {{3}}, {{4}}.
     send_with_fallback(phone, body, message_type="order_placed",
                         template_params={"1": short, "2": f"{total:.0f}",
-                                          "3": tracking_url, "4": SUPPORT_PHONE})
+                                          "3": tracking_url, "4": SUPPORT_PHONE},
+                        order_id=order_id)
 
 
 def notify_merchant_new_order(merchant_phone: str, order_id: str, total: float, items_count: int) -> None:
@@ -1507,7 +1535,8 @@ def notify_merchant_new_order(merchant_phone: str, order_id: str, total: float, 
     # template dropped the merchant-orders URL — only order id, item
     # count, and total survive. Order matters: {{1}}, {{2}}, {{3}}.
     send_with_fallback(merchant_phone, body, message_type="merchant_new_order",
-                        template_params={"1": short, "2": str(items_count), "3": f"{total:.0f}"})
+                        template_params={"1": short, "2": str(items_count), "3": f"{total:.0f}"},
+                        order_id=order_id)
 
 
 def notify_order_accepted(phone: str, order_id: str, store_name: str, otp: str = "") -> None:
@@ -1551,7 +1580,8 @@ def notify_order_rejected(phone: str, order_id: str, refund_initiated: bool = Fa
     # blank line, which was only formatting for the freeform message).
     refund_status_text = money_line.strip()
     send_with_fallback(phone, body, message_type="order_rejected",
-                        template_params={"1": short, "2": refund_status_text})
+                        template_params={"1": short, "2": refund_status_text},
+                        order_id=order_id)
 
 
 def notify_rider_pickup(rider_phone: str, *, order_id: str, otp: str, customer_name: str,
@@ -1644,7 +1674,8 @@ Reply: {otp} Delivered"""
                             "1": short_id, "2": store_name, "3": store_address,
                             "4": customer_name, "5": customer_address, "6": items_text,
                             "7": pickup_map, "8": drop_map,
-                        })
+                        },
+                        order_id=order_id)
 
 
 def notify_rider_cancelled(rider_phone: str, *, order_id: str, store_name: str) -> None:
@@ -1675,7 +1706,8 @@ Store: {store_name}
 
 Please do not proceed with pickup for this order."""
     send_with_fallback(rider_phone, body, message_type="rider_delivery_cancelled",
-                        template_params={"1": short_id, "2": store_name})
+                        template_params={"1": short_id, "2": store_name},
+                        order_id=order_id)
 
 
 def notify_order_on_the_way(phone: str, order_id: str, otp: str, rider_phone: str = "") -> None:
@@ -1701,7 +1733,8 @@ def notify_order_on_the_way(phone: str, order_id: str, otp: str, rider_phone: st
         f"Track: {APP_URL}/account/orders/{order_id}"
     )
     send_with_fallback(phone, body, message_type="order_on_the_way",
-                        template_params={"1": short})
+                        template_params={"1": short},
+                        order_id=order_id)
 
 
 def notify_order_cancelled(phone: str, order_id: str, reason: str = "") -> None:
@@ -1728,7 +1761,8 @@ def notify_order_cancelled(phone: str, order_id: str, reason: str = "") -> None:
     # NOT variables in the approved template and are never sent to
     # Gupshup; they remain freeform-body-only (Twilio/MSG91).
     send_with_fallback(phone, body, message_type="order_cancelled",
-                        template_params={"1": short, "2": refund_status_text, "3": SUPPORT_PHONE})
+                        template_params={"1": short, "2": refund_status_text, "3": SUPPORT_PHONE},
+                        order_id=order_id)
 
 
 def notify_merchant_order_cancelled(merchant_phone: str, order_id: str, already_accepted: bool) -> None:
@@ -1758,7 +1792,8 @@ def notify_merchant_order_cancelled(merchant_phone: str, order_id: str, already_
     # reason, customer name/phone, order total, or a tracking URL — none
     # of those are variables in the approved template.
     send_with_fallback(merchant_phone, body, message_type="merchant_order_cancelled",
-                        template_params={"1": short})
+                        template_params={"1": short},
+                        order_id=order_id)
 
 
 def notify_payment_failed(phone: str, order_id: str) -> None:
@@ -1776,7 +1811,8 @@ def notify_payment_failed(phone: str, order_id: str) -> None:
         f"Need help? {SUPPORT_PHONE}"
     )
     send_with_fallback(phone, body, message_type="payment_failed",
-                        template_params={"1": short})
+                        template_params={"1": short},
+                        order_id=order_id)
 
 
 def notify_order_delivered(phone: str, order_id: str) -> None:
@@ -1796,7 +1832,8 @@ def notify_order_delivered(phone: str, order_id: str) -> None:
     # template actually kept a second (URL) slot, confirm against the
     # Gupshup dashboard and add it here — do not guess further.
     send_with_fallback(phone, body, message_type="order_delivered",
-                        template_params={"1": short})
+                        template_params={"1": short},
+                        order_id=order_id)
 
 
 def notify_rider_return_pickup(rider_phone: str, *, return_id: str, order_id: str, otp: str,
@@ -1850,7 +1887,8 @@ def notify_rider_return_pickup(rider_phone: str, *, return_id: str, order_id: st
                             "1": short_order_id, "2": customer_name, "3": pickup_addr,
                             "4": customer_map_url, "5": store_name, "6": store_address,
                             "7": store_map_url, "8": item_lines,
-                        })
+                        },
+                        order_id=order_id)
 
 
 # Canonical (label, status-specific message) per return status that
@@ -1918,7 +1956,8 @@ def notify_return_status(customer_phone: str, return_id: str, order_id: str, sta
     # status-specific message — exactly 3, no tracking URL/CTA (the
     # template's own static text already ends with "Thank you.").
     send_with_fallback(customer_phone, body, message_type="customer_return_status",
-                        template_params={"1": order_short, "2": status_label, "3": status_message})
+                        template_params={"1": order_short, "2": status_label, "3": status_message},
+                        order_id=order_id)
 
 
 def notify_pickup_reserved(customer_phone: str, order_id: str, store_name: str,
@@ -1952,7 +1991,7 @@ def notify_pickup_reserved(customer_phone: str, order_id: str, store_name: str,
     if maps_link:
         body += f"Directions: {maps_link}\n"
     body += f"\nPay at the store after trying the product.\nTrack: {APP_URL}/account/orders/{order_id}"
-    send_with_fallback(customer_phone, body, message_type="pickup_reserved")
+    send_with_fallback(customer_phone, body, message_type="pickup_reserved", order_id=order_id)
 
 
 def notify_merchant_pickup_reserved(merchant_phone: str, order_id: str,
@@ -1972,7 +2011,7 @@ def notify_merchant_pickup_reserved(merchant_phone: str, order_id: str,
         f"Verify the 4-digit code the customer shows you.\n"
         f"See orders: {APP_URL}/merchant/orders"
     )
-    send_with_fallback(merchant_phone, body, message_type="merchant_pickup_reserved")
+    send_with_fallback(merchant_phone, body, message_type="merchant_pickup_reserved", order_id=order_id)
 
 
 def notify_pickup_pending(customer_phone: str, order_id: str, store_name: str) -> None:
@@ -1984,7 +2023,7 @@ def notify_pickup_pending(customer_phone: str, order_id: str, store_name: str) -
         f"We'll send you the pickup code as soon as the store accepts.\n\n"
         f"Track: {APP_URL}/account/orders/{order_id}"
     )
-    send_with_fallback(customer_phone, body, message_type="pickup_pending")
+    send_with_fallback(customer_phone, body, message_type="pickup_pending", order_id=order_id)
 
 
 def notify_merchant_pickup_pending(merchant_phone: str, order_id: str, items_count: int) -> None:
@@ -1995,7 +2034,7 @@ def notify_merchant_pickup_pending(merchant_phone: str, order_id: str, items_cou
         f"{items_count} item(s) requested for in-store pickup.\n"
         f"Accept or decline at {APP_URL}/merchant/orders"
     )
-    send_with_fallback(merchant_phone, body, message_type="merchant_pickup_pending")
+    send_with_fallback(merchant_phone, body, message_type="merchant_pickup_pending", order_id=order_id)
 
 
 def notify_merchant_approved(merchant_phone: str, store_name: str) -> None:
@@ -2058,4 +2097,4 @@ def notify_merchant_first_order(merchant_phone: str, store_name: str, order_id: 
         f"Accept it quickly at {APP_URL}/merchant/orders\n"
         f"First impressions matter — fast response builds your rating."
     )
-    send_with_fallback(merchant_phone, body, message_type="merchant_first_order")
+    send_with_fallback(merchant_phone, body, message_type="merchant_first_order", order_id=order_id)
