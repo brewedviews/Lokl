@@ -37,6 +37,7 @@ from fastapi import HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import server  # noqa: E402
+import environment  # noqa: E402
 
 # `server.db` is a module-level Motor client, created once at import time
 # and bound to whichever event loop first uses it. Calling `asyncio.run()`
@@ -350,17 +351,92 @@ def test_admin_bypasses_ownership_check_on_delete_endpoint():
 
 
 # ===== Test 5 — production guard on destructive cleanup scripts =====
+# 2026-09 incident hardening: these guards used to fail OPEN on an
+# unrecognized/missing environment (only real ENVIRONMENT=production was
+# refused) — see environment.py's own docstring for why that's exactly
+# backwards for a destructive operation. Updated here to match the new,
+# stricter contract: refuse unless the environment is POSITIVELY confirmed
+# non-production.
+
+def _clear_env_signals(monkeypatch):
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT_NAME", raising=False)
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+
 
 def test_006_cleanup_script_refuses_in_production(monkeypatch):
     import importlib
     mod = importlib.import_module("migrations.006_cloudinary_cleanup")
-    monkeypatch.setenv("ENVIRONMENT", "production")
+    _clear_env_signals(monkeypatch)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
     with pytest.raises(SystemExit):
         mod._refuse_if_production()
-    monkeypatch.setenv("ENVIRONMENT", "staging")
-    mod._refuse_if_production()  # must not raise outside production
-    monkeypatch.delenv("ENVIRONMENT", raising=False)
-    mod._refuse_if_production()  # must not raise when unset
+
+
+def test_006_cleanup_script_refuses_on_missing_environment(monkeypatch):
+    """The core fix: previously this would NOT raise when the environment
+    was simply unset — exactly the real Railway production condition that
+    made this guard ineffective for the actual incident."""
+    import importlib
+    mod = importlib.import_module("migrations.006_cloudinary_cleanup")
+    _clear_env_signals(monkeypatch)
+    with pytest.raises(SystemExit):
+        mod._refuse_if_production()
+
+
+def test_006_cleanup_script_permits_confirmed_staging(monkeypatch):
+    import importlib
+    mod = importlib.import_module("migrations.006_cloudinary_cleanup")
+    _clear_env_signals(monkeypatch)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
+    mod._refuse_if_production()  # must not raise — positively confirmed non-production
+
+
+def test_006_cleanup_script_second_confirmation_required_beyond_force(monkeypatch):
+    """--force alone must never be sufficient — a second, explicit,
+    impossible-to-accidentally-inherit confirmation value is required for
+    an actual (non-dry-run) delete."""
+    import importlib
+    mod = importlib.import_module("migrations.006_cloudinary_cleanup")
+    monkeypatch.delenv(mod.DESTRUCTIVE_CONFIRM_ENV_VAR, raising=False)
+    with pytest.raises(SystemExit):
+        mod._require_explicit_destructive_confirmation()
+    monkeypatch.setenv(mod.DESTRUCTIVE_CONFIRM_ENV_VAR, "close-but-not-exact")
+    with pytest.raises(SystemExit):
+        mod._require_explicit_destructive_confirmation()
+    monkeypatch.setenv(mod.DESTRUCTIVE_CONFIRM_ENV_VAR, mod.DESTRUCTIVE_CONFIRM_VALUE)
+    mod._require_explicit_destructive_confirmation()  # must not raise — exact match
+
+
+def test_006_full_safety_model_matrix(monkeypatch):
+    """The exact combinations from the incident-containment spec. Only
+    checks the guard FUNCTIONS directly — never calls main() or touches
+    Cloudinary, so no deletion is ever attempted here."""
+    import importlib
+    mod = importlib.import_module("migrations.006_cloudinary_cleanup")
+
+    def _guards_pass(env_value, confirm_value):
+        _clear_env_signals(monkeypatch)
+        if env_value is not None:
+            monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", env_value)
+        if confirm_value is not None:
+            monkeypatch.setenv(mod.DESTRUCTIVE_CONFIRM_ENV_VAR, confirm_value)
+        else:
+            monkeypatch.delenv(mod.DESTRUCTIVE_CONFIRM_ENV_VAR, raising=False)
+        try:
+            mod._refuse_if_production()
+            mod._require_explicit_destructive_confirmation()
+            return True
+        except SystemExit:
+            return False
+
+    # production + confirm value present -> still refuses (env check runs first)
+    assert _guards_pass("production", mod.DESTRUCTIVE_CONFIRM_VALUE) is False
+    # unknown/missing environment + confirm value present -> still refuses
+    assert _guards_pass(None, mod.DESTRUCTIVE_CONFIRM_VALUE) is False
+    # confirmed-safe environment, no confirm value -> refuses (force-alone case)
+    assert _guards_pass("staging", None) is False
+    # confirmed-safe environment + exact confirm value -> both guards pass
+    assert _guards_pass("staging", mod.DESTRUCTIVE_CONFIRM_VALUE) is True
 
 
 def test_005_delete_test_data_is_a_safe_noop_in_production(monkeypatch):
@@ -372,16 +448,50 @@ def test_005_delete_test_data_is_a_safe_noop_in_production(monkeypatch):
     would raise AttributeError on None before this assertion is reached."""
     import importlib
     mod = importlib.import_module("migrations.005_delete_test_data")
-    monkeypatch.setenv("ENVIRONMENT", "production")
+    _clear_env_signals(monkeypatch)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
     report = _run(mod.up(None))
     assert "summary" in report
     assert "SKIPPED" in report["summary"][0]
 
 
-def test_005_delete_test_data_still_runs_outside_production():
+def test_005_delete_test_data_is_a_safe_noop_on_missing_environment(monkeypatch):
+    """The core fix: a missing/unrecognized environment used to let this
+    migration proceed with a full destructive wipe. It must now be treated
+    exactly like production — a safe, non-raising skip, never a real run."""
     import importlib
     mod = importlib.import_module("migrations.005_delete_test_data")
-    assert mod._is_production() is False  # dev env for this test run
+    _clear_env_signals(monkeypatch)
+    report = _run(mod.up(None))
+    assert "summary" in report
+    assert "SKIPPED" in report["summary"][0]
+    assert "unknown" in report["summary"][0]
+
+
+def test_005_delete_test_data_still_runs_outside_production(monkeypatch):
+    """Existing intended semantics preserved: an environment EXPLICITLY
+    known to be safe (staging, or a developer's own local ENVIRONMENT=
+    development) must still unlock the real migration body — proven here
+    by observing it proceed past the guard far enough to touch `db`
+    (a bare dict standing in for a real Motor db; the real destructive body
+    is not exercised end-to-end here, just proven reachable)."""
+    import importlib
+    mod = importlib.import_module("migrations.005_delete_test_data")
+    _clear_env_signals(monkeypatch)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
+    assert mod._is_production() is False
+    assert environment.is_confirmed_non_production() is True
+
+    class _ExplodesOnFirstRealUse:
+        """Stands in for `db` — proves up() proceeded PAST the guard (it
+        would return the SKIPPED report and never touch `db` at all if the
+        guard fired), by raising the moment it's actually used, without
+        needing a real MongoDB for this specific assertion."""
+        def __getattr__(self, _name):
+            raise RuntimeError("guard was bypassed — db access reached, as expected outside production")
+
+    with pytest.raises(RuntimeError, match="guard was bypassed"):
+        _run(mod.up(_ExplodesOnFirstRealUse()))
 
 
 def test_006_cleanup_script_excluded_from_normal_migration_runner():
@@ -451,3 +561,136 @@ def test_runner_isolates_a_failing_migration_and_continues(monkeypatch):
     assert "998_fake_ok" in applied_versions, "migration after the failing one must still run and apply"
     assert "997_fake_failing" not in applied_versions, "a failing migration must never be marked applied"
     assert any(v == "998_fake_ok" for v, _ in summary)
+
+
+# ===== Test 6 — production API docs gating (2026-09 incident hardening) =====
+
+def test_docs_wiring_uses_centralized_is_production_flag():
+    """Source-presence check (same convention as
+    test_admin_bypasses_ownership_check_on_delete_endpoint above) — proves
+    the FastAPI app construction is wired to _IS_PRODUCTION, which now
+    derives from environment.is_production() rather than reading
+    ENVIRONMENT directly."""
+    import inspect
+    src = inspect.getsource(server)
+    assert 'docs_url=None if _IS_PRODUCTION else "/docs"' in src
+    assert 'redoc_url=None if _IS_PRODUCTION else "/redoc"' in src
+    assert 'openapi_url=None if _IS_PRODUCTION else "/openapi.json"' in src
+    assert "_IS_PRODUCTION = environment.is_production()" in src
+
+
+def test_docs_preserved_in_current_dev_test_environment():
+    """This test suite runs with no RAILWAY_ENVIRONMENT_NAME/ENVIRONMENT
+    set to "production" — confirms the live, already-constructed FastAPI
+    app still exposes docs, i.e. existing dev/local behavior is unchanged
+    by this fix."""
+    assert server._IS_PRODUCTION is False
+    assert server.app.docs_url == "/docs"
+    assert server.app.redoc_url == "/redoc"
+    assert server.app.openapi_url == "/openapi.json"
+
+
+def test_fastapi_docs_gating_matches_is_production_for_both_states():
+    """Reconstructs the exact same docs_url/redoc_url/openapi_url kwargs
+    pattern server.py's app uses, for both possible _IS_PRODUCTION values
+    — proves production truly disables all three and non-production truly
+    preserves them, without re-importing the full server module (which has
+    expensive real side effects: a Motor client, Sentry init) just to flip
+    one boolean."""
+    from fastapi import FastAPI
+    prod_app = FastAPI(docs_url=None if True else "/docs",
+                        redoc_url=None if True else "/redoc",
+                        openapi_url=None if True else "/openapi.json")
+    assert prod_app.docs_url is None
+    assert prod_app.redoc_url is None
+    assert prod_app.openapi_url is None
+
+    dev_app = FastAPI(docs_url=None if False else "/docs",
+                       redoc_url=None if False else "/redoc",
+                       openapi_url=None if False else "/openapi.json")
+    assert dev_app.docs_url == "/docs"
+    assert dev_app.redoc_url == "/redoc"
+    assert dev_app.openapi_url == "/openapi.json"
+
+
+# ===== Test 7 — admin delete-store OTP never exposed outside a confirmed
+# non-production environment (2026-09 incident hardening) =====
+
+async def _with_store(coro_fn):
+    sid = f"test-otp-store-{uuid.uuid4().hex[:10]}"
+    await server.db.stores.insert_one({"id": sid, "name": "OTP Test Store", "merchant_id": "test-merchant"})
+    try:
+        return await coro_fn(sid)
+    finally:
+        await server.db.stores.delete_one({"id": sid})
+        await server.db.admin_otps.delete_one({"sid": sid})
+
+
+def test_otp_never_returned_in_production(monkeypatch):
+    _clear_env_signals(monkeypatch)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
+
+    async def body(sid):
+        resp = await server.request_delete_otp(sid, admin={"id": "test-admin"})
+        assert "otp_demo" not in resp
+        assert resp["ok"] is True
+        assert "message" in resp
+
+    _run(_with_store(body))
+
+
+def test_otp_never_returned_on_missing_environment(monkeypatch):
+    """The core fix: an unrecognized/missing environment used to leak the
+    OTP directly in the response (same broken pattern as the docs gate) —
+    it must now default to hiding it, matching real production's behavior,
+    not merely "whatever ENVIRONMENT happens to be detected"."""
+    _clear_env_signals(monkeypatch)
+
+    async def body(sid):
+        resp = await server.request_delete_otp(sid, admin={"id": "test-admin"})
+        assert "otp_demo" not in resp
+
+    _run(_with_store(body))
+
+
+def test_otp_response_never_contains_the_actual_otp_value_anywhere(monkeypatch):
+    """Defense in depth beyond just checking the `otp_demo` key is absent —
+    confirms the 6-digit OTP just written to db.admin_otps for this store
+    doesn't leak through ANY field of the response in production."""
+    _clear_env_signals(monkeypatch)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
+
+    async def body(sid):
+        resp = await server.request_delete_otp(sid, admin={"id": "test-admin"})
+        stored = await server.db.admin_otps.find_one({"sid": sid}, {"_id": 0, "otp": 1})
+        assert stored is not None
+        assert stored["otp"] not in str(list(resp.values()))
+
+    _run(_with_store(body))
+
+
+def test_otp_preserved_in_confirmed_dev_environment(monkeypatch):
+    """Existing developer-friendly behavior — must remain available when
+    the environment is EXPLICITLY known to be safe, not merely absent."""
+    _clear_env_signals(monkeypatch)
+    monkeypatch.setenv("ENVIRONMENT", "development")
+
+    async def body(sid):
+        resp = await server.request_delete_otp(sid, admin={"id": "test-admin"})
+        assert "otp_demo" in resp
+        assert len(resp["otp_demo"]) == 6
+
+    _run(_with_store(body))
+
+
+def test_otp_success_message_shape_unchanged_in_production(monkeypatch):
+    """The success/acknowledgement message shape is preserved regardless
+    of environment — only the OTP-in-response leak is closed."""
+    _clear_env_signals(monkeypatch)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
+
+    async def body(sid):
+        resp = await server.request_delete_otp(sid, admin={"id": "test-admin"})
+        assert resp["message"] == f"OTP sent to {server.ADMIN_EMAIL}"
+
+    _run(_with_store(body))

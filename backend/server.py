@@ -43,6 +43,7 @@ from notifications import (
 from ai_enhance import enhance_product_images
 import rider_push
 from observability import init_sentry
+import environment
 from services import cloudinary_service
 from services import encryption_service
 from services import vasyerp_client
@@ -110,13 +111,17 @@ if not ADMIN_EMAIL or not ADMIN_PASSWORD_HASH:
 # upstream and never sets FORCE_HTTPS (because the app itself doesn't
 # need to enforce HTTPS redirects) would ALSO silently leave docs
 # exposed and OTP-debug logging on in real production, purely because
-# those two unrelated concerns were wired to the same flag. `ENVIRONMENT`
-# is an already-established (if only partially wired) convention in this
-# codebase — docker-compose.staging.yml already sets `ENVIRONMENT:
-# staging` for the backend service — so this reads that rather than
-# inventing a new APP_ENV variable. FORCE_HTTPS keeps its original,
-# narrower job (HSTS/secure-cookie) unchanged below.
-_IS_PRODUCTION = os.environ.get("ENVIRONMENT", "").strip().lower() == "production"
+# those two unrelated concerns were wired to the same flag.
+#
+# 2026-09 incident fix: this used to read a plain `ENVIRONMENT` variable
+# directly (docker-compose.staging.yml sets `ENVIRONMENT: staging`, but
+# nothing ever set `ENVIRONMENT: production` for the actual deployed
+# Railway service) — so this evaluated False in real production the whole
+# time, silently leaving /docs, /redoc, /openapi.json exposed and the
+# admin delete-store OTP endpoint (see request_delete_otp below) returning
+# the literal OTP in its response. Now delegates to environment.py, which
+# trusts Railway's own RAILWAY_ENVIRONMENT_NAME first.
+_IS_PRODUCTION = environment.is_production()
 
 # Store Pickup / Reserve & Collect feature flag (2026-09 product decision) —
 # the feature (browse online -> reserve -> visit store -> try/buy in person,
@@ -11308,22 +11313,27 @@ async def request_delete_otp(sid: str, admin: dict = Depends(require_admin)):
         {"$set": {"otp": otp, "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()}},
         upsert=True)
     # MOCK email — no real email-sending integration exists yet, so the OTP
-    # has nowhere else to go. Security fix (audit Medium finding): this
-    # used to unconditionally log the OTP AND return it in the API
-    # response in every environment, defeating the whole point of an
-    # out-of-band verification step for a destructive action — an admin
+    # has nowhere else to go. Security fix (audit Medium finding, hardened
+    # 2026-09): this used to unconditionally log the OTP AND return it in
+    # the API response in every environment, defeating the whole point of
+    # an out-of-band verification step for a destructive action — an admin
     # session (own or hijacked) could self-serve the code instead of
-    # needing actual email access. Gated behind `_IS_PRODUCTION` (see its
-    # own comment near the FastAPI app instantiation — ENVIRONMENT, not
-    # FORCE_HTTPS, is the "are we in production" signal; FORCE_HTTPS is
-    # unrelated and stays scoped to HSTS/secure-cookie behavior) so local
-    # dev keeps working with no real email service, while production
-    # never logs or returns the literal code.
-    if _IS_PRODUCTION:
-        log.warning("[ADMIN OTP] delete-store OTP requested for store '%s' — mock email delivery only, no real send configured", s.get("name"))
-        return {"ok": True, "message": f"OTP sent to {ADMIN_EMAIL}"}
-    log.warning("[ADMIN OTP] Email mock to %s: OTP for deleting store '%s' is %s", ADMIN_EMAIL, s.get("name"), otp)
-    return {"ok": True, "otp_demo": otp, "message": f"OTP sent to {ADMIN_EMAIL} (mocked — shown here for demo, dev-only)"}
+    # needing actual email access.
+    #
+    # 2026-09 incident fix: gating this on `_IS_PRODUCTION` alone repeats
+    # the exact mistake that left /docs exposed in real production (see
+    # that flag's own comment) — a future environment-detection regression
+    # would silently start leaking the OTP again. This checks
+    # `environment.is_confirmed_non_production()` instead: it takes a
+    # POSITIVE, explicit signal to unlock the debug OTP-in-response
+    # behavior, so any unrecognized/misconfigured environment (not just a
+    # correctly-detected production one) fails CLOSED — hiding the OTP —
+    # rather than failing open.
+    if environment.is_confirmed_non_production():
+        log.warning("[ADMIN OTP] Email mock to %s: OTP for deleting store '%s' is %s", ADMIN_EMAIL, s.get("name"), otp)
+        return {"ok": True, "otp_demo": otp, "message": f"OTP sent to {ADMIN_EMAIL} (mocked — shown here for demo, dev-only)"}
+    log.warning("[ADMIN OTP] delete-store OTP requested for store '%s' — mock email delivery only, no real send configured", s.get("name"))
+    return {"ok": True, "message": f"OTP sent to {ADMIN_EMAIL}"}
 
 @api.delete("/admin/stores/{sid}")
 async def admin_delete_store(sid: str, body: OtpVerifyDelete, admin: dict = Depends(require_admin)):

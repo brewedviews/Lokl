@@ -3,7 +3,7 @@
 Covers:
 - Admin login
 - /api/admin/change-requests (list + approve/reject contract)
-- /api/admin/stores/{sid}/request-delete-otp (MOCKED returns otp_demo)
+- /api/admin/stores/{sid}/request-delete-otp (otp_demo only when the target deployment's environment is confirmed non-production — 2026-09 security fix)
 - /api/admin/orders/{oid}/mark-delivered + /cancel (contracts only — destructive ops skipped if no live orders)
 - /api/admin/returns + /returns/analytics + /returns/{rid}/{action}
 - /api/admin/complaints + /complaints/{cid}/resolve
@@ -15,13 +15,30 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://lokl-returns-dash.preview.emergentagent.com").rstrip("/")
+# 2026-09 incident-containment cleanup: this used to default to a real,
+# external "preview.emergentagent.com" deployment whenever
+# REACT_APP_BACKEND_URL wasn't set — meaning simply running this file
+# without deliberately configuring a target could silently fire real HTTP
+# requests at a live remote server nobody running the suite locally
+# intended to touch. Matches the safer convention already used elsewhere
+# in this repo (see tests/test_color_variants.py's own BASE_URL) — default
+# to localhost, and skip cleanly (not a confusing connection-error
+# traceback) when nothing is actually listening there.
+BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or os.environ.get("NEXT_PUBLIC_API_URL") or "http://localhost:8001").rstrip("/")
 API = f"{BASE_URL}/api"
 
 
 @pytest.fixture(scope="session")
 def admin_token():
-    r = requests.post(f"{API}/admin/login", json={"email": "admin@lokl.in", "password": "Admin@2026"}, timeout=20)
+    try:
+        r = requests.post(f"{API}/admin/login", json={"email": "admin@lokl.in", "password": "Admin@2026"}, timeout=5)
+    except requests.exceptions.ConnectionError:
+        pytest.skip(
+            f"No live backend reachable at {BASE_URL} — this is a live-HTTP integration "
+            "suite against a real running server, not exercised by this repo's disposable-"
+            "MongoDB pytest convention. Set REACT_APP_BACKEND_URL/NEXT_PUBLIC_API_URL to "
+            "target one explicitly, or run a local `uvicorn server:app` first."
+        )
     assert r.status_code == 200, r.text
     return r.json()["token"]
 
@@ -160,9 +177,22 @@ class TestCustomers:
 
 # ---------- STORE DELETE OTP (MOCKED) ----------
 class TestStoreDeleteOtpMocked:
-    """Verify the mocked OTP endpoint returns `otp_demo`, and DELETE wipes store + cascades.
-    Uses a disposable fresh merchant.
-    """
+    """Verify the delete-store OTP endpoint's contract, and DELETE wipes
+    store + cascades. Uses a disposable fresh merchant.
+
+    2026-09 security fix: `otp_demo` is no longer unconditionally present —
+    it's now returned ONLY when the TARGET DEPLOYMENT's own environment is
+    positively confirmed non-production (see backend/environment.py). This
+    live-HTTP suite has no ability to set env vars on whatever remote
+    server BASE_URL points to, so it can't force one outcome or the other
+    — test_request_delete_otp_contract below accepts either, and verifies
+    whichever one this deployment's own configuration actually produces is
+    internally consistent. The deterministic, environment-controlled
+    guarantee (production genuinely never leaks it, a confirmed-dev
+    environment genuinely does) is proven in-process instead, in
+    tests/test_image_deletion_safety.py's test_otp_* tests — that's the
+    real security test; this one is a live-deployment contract sanity
+    check."""
 
     @pytest.fixture(scope="class")
     def fresh_merchant(self, hdr):
@@ -194,8 +224,12 @@ class TestStoreDeleteOtpMocked:
         requests.post(f"{API}/admin/merchants/{mid}/approve", headers=hdr, timeout=15)
         return {"email": email, "token": token, "mid": mid}
 
-    def test_request_delete_otp_returns_demo(self, hdr, fresh_merchant):
-        # Non-destructive: just verify the mocked endpoint contract on ANY store.
+    def test_request_delete_otp_contract(self, hdr, fresh_merchant):
+        """Non-destructive: verify the endpoint's contract on ANY store,
+        tolerant of EITHER valid environment outcome (see class docstring)
+        — never assumes `otp_demo` must be present, and never accepts a
+        response that leaks the real OTP through some other field when
+        it's supposed to be hidden."""
         rs = requests.get(f"{API}/admin/stores", headers=hdr, timeout=15)
         assert rs.status_code == 200
         stores = rs.json()
@@ -205,8 +239,18 @@ class TestStoreDeleteOtpMocked:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body.get("ok") is True
-        otp = body.get("otp_demo")
-        assert isinstance(otp, str) and len(otp) == 6 and otp.isdigit(), f"otp_demo missing/wrong: {body}"
+        assert "message" in body and "OTP sent to" in body["message"]
+        if "otp_demo" in body:
+            # This deployment's environment is confirmed non-production.
+            otp = body["otp_demo"]
+            assert isinstance(otp, str) and len(otp) == 6 and otp.isdigit(), f"otp_demo present but malformed: {body}"
+        else:
+            # Production (or an environment this deployment didn't
+            # explicitly confirm as safe) — the real OTP must not leak
+            # through any other field, and the response must not still
+            # carry dev-only language implying it's shown somewhere.
+            assert "otp" not in body, f"OTP leaked through an unexpected field: {body}"
+            assert "demo" not in body["message"].lower(), f"dev-only messaging present without otp_demo: {body}"
 
     def test_full_delete_cascade(self, hdr, fresh_merchant):
         """If a storefront exists for the disposable merchant, exercise full delete + cascade."""
@@ -218,6 +262,20 @@ class TestStoreDeleteOtpMocked:
                         f"Cascade-delete is implicitly covered by Iter5/admin flow tests.")
         sid = store["id"]
         otp_r = requests.post(f"{API}/admin/stores/{sid}/request-delete-otp", headers=hdr, timeout=15).json()
+        # 2026-09 security fix: otp_demo is only present when this
+        # deployment's own environment is confirmed non-production (see
+        # TestStoreDeleteOtpMocked's class docstring). This particular test
+        # needs the real code to actually drive the delete flow — there is
+        # no other way to obtain it, by design — so skip rather than fail
+        # with a confusing KeyError when it's correctly hidden.
+        if "otp_demo" not in otp_r:
+            pytest.skip(
+                "otp_demo not present — this deployment's environment isn't confirmed "
+                "non-production, so the real OTP is correctly unavailable to this test. "
+                "Point REACT_APP_BACKEND_URL at a deployment with ENVIRONMENT/"
+                "RAILWAY_ENVIRONMENT_NAME explicitly set to a non-production value to "
+                "exercise this cascade-delete flow."
+            )
         otp = otp_r["otp_demo"]
         rd = requests.delete(f"{API}/admin/stores/{sid}", headers=hdr, json={"otp": otp}, timeout=15)
         assert rd.status_code in (200, 204), rd.text

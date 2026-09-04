@@ -8,13 +8,24 @@ categories, _migrations).
 Idempotent: re-running is a no-op once the DB is already empty.
 """
 import os
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import environment  # noqa: E402
 
 VERSION = "005_delete_test_data"
 
 
 def _is_production() -> bool:
-    return (os.environ.get("ENVIRONMENT") or "").strip().lower() == "production"
+    """Kept for backward compatibility with existing call sites/tests that
+    ask specifically "is this production" — delegates to the shared
+    environment.py helper (2026-09 incident fix) rather than reading
+    `ENVIRONMENT` directly. NOT what the guard below actually checks — see
+    `up()`'s own comment for why "not production" isn't a strict enough
+    condition for a migration this destructive."""
+    return environment.is_production()
 
 
 async def up(db) -> dict:
@@ -44,13 +55,32 @@ async def up(db) -> dict:
     # silently re-evaluated on a later run. `migrations/run.py`'s `_run()`
     # also now isolates any migration's exception per-item as a second,
     # independent layer of defense — see its own comment.
-    if _is_production():
+    #
+    # 2026-09 incident fix: this used to gate on `_is_production()` alone
+    # (bare `ENVIRONMENT == "production"`, which real Railway production
+    # never sets — this migration is auto-discovered by migrations/run.py,
+    # so had its `_migrations` "applied" record ever been lost, THIS is
+    # what would have silently wiped every products/stores/merchants/
+    # orders/customers document plus the same Cloudinary folders the
+    # incident already destroyed once). It now refuses to proceed unless
+    # `environment.is_confirmed_non_production()` — a POSITIVE identification
+    # of a real non-production environment — is true. An unrecognized or
+    # missing environment is treated exactly like production: refuse. Only
+    # an environment explicitly known to be safe (e.g. "staging",
+    # "development", "test") unlocks the destructive path below, matching
+    # this migration's actual intended use (a deliberate pre-launch/
+    # staging reset), never an ambiguous default.
+    if not environment.is_confirmed_non_production():
+        env_name = environment.get_environment_name() or "unknown"
         return {"summary": [
-            "SKIPPED: ENVIRONMENT=production. This migration performs a destructive "
-            "pre-launch test-data + Cloudinary wipe (products/stores/merchants/orders/"
-            "customers plus lokl/products, lokl/stores, lokl/banners) and must never run "
-            "against a live environment. Recorded as applied with this no-op outcome so "
-            "migration sequencing is never blocked and this decision is never re-evaluated.",
+            f"SKIPPED: environment is 'production' or could not be positively "
+            f"confirmed as non-production (detected: '{env_name}'). This migration "
+            "performs a destructive pre-launch test-data + Cloudinary wipe "
+            "(products/stores/merchants/orders/customers plus lokl/products, "
+            "lokl/stores, lokl/banners) and must never run unless the environment "
+            "is explicitly known to be safe. Recorded as applied with this no-op "
+            "outcome so migration sequencing is never blocked and this decision "
+            "is never silently re-evaluated.",
         ]}
     summary: dict = {}
 
