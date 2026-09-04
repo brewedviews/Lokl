@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
-  Banknote, MapPin, Plus, CheckCircle2, Truck, Loader2, Store, CreditCard,
+  Banknote, MapPin, Plus, CheckCircle2, Truck, Loader2, Store,
   Trash2, ShoppingBag, AlertTriangle, Bike, Sparkles, ChevronRight, ChevronDown, ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -457,7 +457,17 @@ export default function CheckoutPage() {
   // pickup orders (no delivery estimate is ever fetched for these), OR
   // when the delivery estimate succeeded with deliverable=true. Estimates
   // that 4xx (non-deliverable address) disable the button with a reason.
-  const canPay = allStoresCanOrder && items.length > 0 && (
+  // 2026-09 — a real, customer-confirmed map pin is required for every
+  // delivery order (Store Pickup has no delivery address at all, so it's
+  // exempt). This does NOT geocode or infer anything — it only requires
+  // that AddressPinPicker's onChange has actually fired with a real
+  // lat/lng, via GPS or the customer explicitly confirming the shown
+  // point. An existing saved address with a null pin from before this
+  // requirement existed is left untouched in the database; the customer
+  // is simply required to complete the pin step here before it can be
+  // used for a NEW order.
+  const hasValidPin = orderType !== "delivery" || (addr.lat != null && addr.lng != null);
+  const canPay = allStoresCanOrder && items.length > 0 && hasValidPin && (
     orderType === "pickup"
     || !cartStoreId  // multi-store carts skip the estimate
     || (estimate ? estimate.deliverable : !estimating)
@@ -481,6 +491,9 @@ export default function CheckoutPage() {
       }
       if (!isServiceablePincode(addr.pincode.trim())) {
         return toast.error("This pincode isn't serviceable on Lokl yet. Please check your pincode.");
+      }
+      if (addr.lat == null || addr.lng == null) {
+        return toast.error("Please confirm your delivery location on the map before placing your order.");
       }
     }
     if (items.length === 0) return toast.error("Bag is empty");
@@ -854,27 +867,41 @@ export default function CheckoutPage() {
           </div>
         ) : (
           !addressExpanded && addr.line1 ? (
-            <button
-              type="button"
-              onClick={() => setAddressExpanded(true)}
-              data-testid="deliver-to-summary"
-              className="w-full bg-white rounded-2xl p-4 border border-[#E5E2DC] flex items-start gap-3 text-left hover:border-[#0A1F5C]/40 transition"
-            >
-              <div className="w-9 h-9 rounded-xl bg-[#0A1F5C]/8 text-[#0A1F5C] grid place-items-center shrink-0">
-                <MapPin size={16} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-[#64748B]">Deliver to</div>
-                <div className="text-sm font-semibold text-[#0A1F5C] mt-0.5 truncate">
-                  {addr.label || "Home"} · {addr.name}
+            <>
+              <button
+                type="button"
+                onClick={() => setAddressExpanded(true)}
+                data-testid="deliver-to-summary"
+                className="w-full bg-white rounded-2xl p-4 border border-[#E5E2DC] flex items-start gap-3 text-left hover:border-[#0A1F5C]/40 transition"
+              >
+                <div className="w-9 h-9 rounded-xl bg-[#0A1F5C]/8 text-[#0A1F5C] grid place-items-center shrink-0">
+                  <MapPin size={16} />
                 </div>
-                <div className="text-xs text-[#595959] truncate">{addr.line1}</div>
-                <div className="text-[11px] text-[#595959]">{addr.city || "Bhilai"} · {addr.pincode}</div>
-              </div>
-              <span className="shrink-0 inline-flex items-center gap-0.5 text-xs font-bold text-[#E68910] mt-1">
-                Change <ChevronRight size={13} />
-              </span>
-            </button>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-[#64748B]">Deliver to</div>
+                  <div className="text-sm font-semibold text-[#0A1F5C] mt-0.5 truncate">
+                    {addr.label || "Home"} · {addr.name}
+                  </div>
+                  <div className="text-xs text-[#595959] truncate">{addr.line1}</div>
+                  <div className="text-[11px] text-[#595959]">{addr.city || "Bhilai"} · {addr.pincode}</div>
+                </div>
+                <span className="shrink-0 inline-flex items-center gap-0.5 text-xs font-bold text-[#E68910] mt-1">
+                  Change <ChevronRight size={13} />
+                </span>
+              </button>
+              {/* 2026-09 — a saved address from before pin-confirmation was
+                  required has no lat/lng yet; require it here rather than
+                  silently placing the order without one. Same
+                  AddressPinPicker used everywhere else — GPS or an explicit
+                  confirm of the shown point, never inferred automatically. */}
+              {!hasValidPin && (
+                <div className="bg-white rounded-2xl p-4 border-2 border-[#E68910]/40" data-testid="required-pin-prompt">
+                  <h3 className="font-display font-medium text-base text-[#0A1F5C] mb-1">Confirm your delivery location</h3>
+                  <p className="text-xs text-[#595959] mb-3">This saved address doesn&apos;t have an exact map pin yet — we need one so your rider can find you.</p>
+                  <AddressPinPicker lat={addr.lat} lng={addr.lng} pincode={addr.pincode} onChange={(lat, lng) => setAddr({ ...addr, lat, lng })} />
+                </div>
+              )}
+            </>
           ) : (
             <>
               {savedAddresses.length > 0 && (
@@ -915,7 +942,9 @@ export default function CheckoutPage() {
                     <input data-testid="addr-city" value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} placeholder="City (Bhilai only)" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
                     <input data-testid="addr-pin" value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="Pincode" className="px-3.5 py-2.5 rounded-xl border border-[#E5E2DC] outline-none focus:border-[#0A1F5C]" />
                     <div className="md:col-span-2">
+                      <p className="text-xs font-semibold text-[#0A1F5C] mb-1.5">Confirm your delivery location</p>
                       <AddressPinPicker lat={addr.lat} lng={addr.lng} pincode={addr.pincode} onChange={(lat, lng) => setAddr({ ...addr, lat, lng })} />
+                      {!hasValidPin && <p className="text-[11px] text-[#94A3B8] mt-1.5">Required before you can place this order.</p>}
                     </div>
                   </div>
                   {savedAddresses.length > 0 && (
@@ -1022,30 +1051,30 @@ export default function CheckoutPage() {
 
         {/* 6. PAYMENT — identity-gated like address; guest browsing (items,
             ETA, Try&Buy, coupon) still needs no auth. */}
+        {/* 2026-09 — Pay at Delivery is the only payment option while Lokl
+            launches (PAY_ONLINE_ENABLED=false server-side; see create_order
+            and razorpay_create_payment_order). The "Pay online" selector
+            button is removed here rather than shown disabled, per product
+            decision, to avoid a confusing unusable option — `payment` state
+            (still typed "COD" | "RAZORPAY") is simply never set to anything
+            but its "COD" default now, so the Razorpay submission branch
+            below stays intact and dormant for a future re-enable, it's just
+            unreachable from this UI. */}
         {hasAuth ? (
           <div className="bg-white rounded-2xl p-4 border border-[#E5E2DC]" data-testid="payment-section">
             <h2 className="font-display font-medium text-lg text-[#0A1F5C] mb-2">Payment</h2>
-            <div className="grid grid-cols-2 gap-2.5">
-              <button type="button" data-testid="pay-online" disabled={anyTryAndBuySelected} onClick={() => setPayment("RAZORPAY")}
-                className={`flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 transition ${payment === "RAZORPAY" ? "border-[#E68910] bg-[#E68910]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"} ${anyTryAndBuySelected ? "opacity-40 cursor-not-allowed hover:border-[#E5E2DC]" : ""}`}>
-                <CreditCard size={18} className="text-[#0A1F5C]" />
-                <span className="font-semibold text-sm">Pay online</span>
-              </button>
-              <button type="button" data-testid="pay-cod" onClick={() => setPayment("COD")}
-                className={`flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 transition ${payment === "COD" ? "border-[#E68910] bg-[#E68910]/5" : "border-[#E5E2DC] hover:border-[#0A1F5C]/40"}`}>
-                <Banknote size={18} className="text-[#0A1F5C]" />
-                <span className="font-semibold text-sm">{orderType === "pickup" ? "Pay at Pickup" : "Pay at Delivery"}</span>
-              </button>
+            <div className="flex items-center gap-2.5 py-2.5 px-3 rounded-xl border-2 border-[#E68910] bg-[#E68910]/5" data-testid="pay-cod">
+              <Banknote size={18} className="text-[#0A1F5C]" />
+              <span className="font-semibold text-sm">{orderType === "pickup" ? "Pay at Pickup" : "Pay at Delivery"}</span>
             </div>
-            {payment === "RAZORPAY" && (
-              <p className="text-[11px] text-[#595959] mt-2">UPI, cards and netbanking via Razorpay.</p>
-            )}
-            {anyTryAndBuySelected && (
-              <p className="text-[11px] text-[#595959] mt-2">Try &amp; Buy orders are Pay at Delivery only — you decide what to keep at the door.</p>
-            )}
+            <p className="text-[11px] text-[#595959] mt-2">
+              {orderType === "pickup"
+                ? "Pay the store in cash or UPI when you collect your order."
+                : "Pay the rider in cash or UPI when your order arrives."}
+            </p>
           </div>
         ) : (
-          <p className="text-xs text-[#94A3B8] text-center">Sign in above to choose a payment method.</p>
+          <p className="text-xs text-[#94A3B8] text-center">Sign in above to place your order.</p>
         )}
 
         {/* Store availability context (multi-store per-store status, delivery

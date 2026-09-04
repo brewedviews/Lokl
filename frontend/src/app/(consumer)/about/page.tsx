@@ -39,7 +39,7 @@ export default function AboutPage() {
               <li>Fast delivery — 45 minutes, because the store is already in your city</li>
               <li>Try &amp; Buy — try it on at your door where the store offers it, pay only for what you keep</li>
               <li>Zero commission for merchants, so local shops keep what they earn</li>
-              <li>Pay online or Pay at Delivery — whichever&apos;s available for your order</li>
+              <li>Pay at Delivery — cash or UPI, when your order arrives</li>
             </ul>
           </section>
 

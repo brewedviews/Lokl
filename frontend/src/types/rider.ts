@@ -138,7 +138,13 @@ export interface RiderOrderLegDetail {
   /** The customer's DELIVERY OTP — ask the customer for this at drop-off. */
   otp: string;
   otp_note: string;
-  payment: { method: string; upi_qr_url: string; note: string };
+  /** `method` is stored/returned as "COD" (uppercase) or "razorpay"
+   *  (lowercase) — see server.py's order-creation payment branch. Compare
+   *  against "COD" exactly, not "cod". `label`/`note` are pre-computed
+   *  server-side (_rider_payment_view) so the UI never needs its own
+   *  payment_method branching; `upi_qr_url` is only ever non-empty for a
+   *  COD leg with a store QR on file — never for an already-paid order. */
+  payment: { method: string; label: string; amount: number; upi_qr_url: string; note: string };
   rider_assignment: RiderLegAssignment;
 }
 

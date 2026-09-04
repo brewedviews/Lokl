@@ -323,7 +323,11 @@ export default function RiderOrderDetailPage() {
             {detail.payment.upi_qr_url ? <QrCode size={16} className="text-brand-accent" /> : <Wallet size={16} className="text-brand-accent" />}
             <div className="text-xs font-bold uppercase tracking-wide text-text-muted">Payment</div>
           </div>
-          <p className="text-sm text-text-secondary">{detail.payment.note}</p>
+          <p className="font-bold text-brand-primary" data-testid="rider-payment-label">
+            {detail.payment.label}
+            {detail.payment.method === "COD" && ` — ₹${detail.payment.amount.toFixed(0)}`}
+          </p>
+          <p className="text-sm text-text-secondary mt-0.5">{detail.payment.note}</p>
           {detail.payment.upi_qr_url && (
             <button
               type="button" onClick={() => setShowQrModal(true)} data-testid="rider-qr-expand-trigger"
@@ -370,7 +374,7 @@ export default function RiderOrderDetailPage() {
               className="w-full px-4 py-3 rounded-card border border-card-border text-center text-2xl tracking-[0.5em] font-bold text-brand-primary focus:border-brand-accent outline-none"
             />
             {otpError && <p className="text-sm text-red-600" data-testid="rider-otp-error">{otpError}</p>}
-            {detail.payment.method === "cod" && (
+            {detail.payment.method === "COD" && (
               <label className="flex items-center gap-2 text-sm text-text-secondary">
                 <input
                   type="checkbox" checked={cashCollected} onChange={(e) => setCashCollected(e.target.checked)}

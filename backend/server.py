@@ -130,6 +130,20 @@ _IS_PRODUCTION = os.environ.get("ENVIRONMENT", "").strip().lower() == "productio
 # Buy: that feature uses order_type=="delivery" with a per-item
 # fulfillment_type flag, never this flag, never order_type=="pickup".
 STORE_PICKUP_ENABLED = (os.environ.get("STORE_PICKUP_ENABLED", "") or "").strip().lower() in ("1", "true", "yes")
+
+# 2026-09 product decision — Pay at Delivery is the ONLY payment option for
+# new orders while Lokl reduces payment/refund/escalation complexity at
+# launch. Same on/off-flag shape as STORE_PICKUP_ENABLED above, default
+# False. Deliberately NOT `services.payment_service.is_enabled()` — that
+# checks only whether Razorpay CREDENTIALS are configured (infra), which is
+# a different question from whether online payment is currently a business
+# option; conflating the two would make a future "re-enable online payment"
+# depend on nobody having also unset the Razorpay keys in the meantime.
+# Razorpay integration code, webhooks, and refund logic are NOT touched by
+# this flag — only the two order-creation entry points check it (see
+# razorpay_create_payment_order and the payment-method branch inside
+# create_order), so re-enabling later is a pure env-var flip.
+PAY_ONLINE_ENABLED = (os.environ.get("PAY_ONLINE_ENABLED", "") or "").strip().lower() in ("1", "true", "yes")
 app = FastAPI(
     title="Lokl",
     docs_url=None if _IS_PRODUCTION else "/docs",
@@ -5615,6 +5629,8 @@ async def razorpay_create_payment_order(
     """Create a Razorpay order (payment intent only). Does NOT create a Lokl order in DB.
     The frontend uses the returned razorpay_order_id to open the Razorpay modal.
     Once payment succeeds, POST /api/orders is called with the payment proof."""
+    if not PAY_ONLINE_ENABLED:
+        raise HTTPException(503, "Online payment is unavailable right now. Please use Pay at Delivery.")
     if not razorpay_enabled():
         raise HTTPException(503, "Online payment unavailable. Try COD.")
     if payload.amount <= 0:
@@ -6040,6 +6056,16 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         # line is selected, but that alone is trivially bypassable).
         if pm in ("razorpay", "online") and any(it.get("fulfillment_type") == "try_and_buy" for it in items_snap):
             raise HTTPException(400, "Try & Buy orders are Pay at Delivery only")
+        # 2026-09 — Pay at Delivery only (PAY_ONLINE_ENABLED). Checked here,
+        # not just at /payments/razorpay/create-order, so a client that
+        # somehow already holds a genuine Razorpay payment proof (e.g. a
+        # stale frontend build, or a direct API call) still can't turn it
+        # into a Lokl order while the flag is off — the same "never trust
+        # the client alone" posture the amount-reconciliation check below
+        # already uses. Historical orders are entirely unaffected: this
+        # only runs at NEW order creation, never touches existing rows.
+        if pm in ("razorpay", "online") and not PAY_ONLINE_ENABLED:
+            raise HTTPException(400, "Online payment is unavailable right now. Please use Pay at Delivery.")
         if pm in ("razorpay", "online"):
             # Payment-first flow: frontend verifies payment then calls POST /orders.
             # Signature proves the payment_id/order_id PAIRING is genuinely
@@ -6761,15 +6787,15 @@ async def rider_order_detail(oid: str, user: dict = Depends(rider_user)):
             # ["customer_lng"] — the customer's GPS at the MOMENT THEY PLACED
             # THE ORDER, which has no necessary relationship to the delivery
             # address they typed/selected (could be their office while
-            # ordering for home, a friend's place, anywhere). CustomerAddress
-            # (frontend type) carries no lat/lng at all today, so addr.get
-            # ("lat"/"lng") is always None for now — deliberately left as the
-            # lookup anyway (not hardcoded to 0) so this starts working
-            # automatically once a future group lets customers pin exact
-            # delivery coordinates, with no further backend change needed.
-            # Until then this is 0/0 and the frontend's mapsUrl() helper
-            # falls back to a text-based Maps search on `address` above,
-            # which IS the correct delivery address.
+            # ordering for home, a friend's place, anywhere). 2026-09: a real
+            # map pin is now REQUIRED at checkout for new delivery orders
+            # (AddressPinPicker, gated client-side in checkout/page.tsx), so
+            # addr.get("lat"/"lng") is populated for every new order — this
+            # lookup needed no backend change to start working. Historical
+            # orders from before that requirement existed still have
+            # addr.lat/lng null, in which case this is 0/0 and the
+            # frontend's mapsUrl() helper correctly falls back to a
+            # text-based Maps search on `address` above.
             "lat": addr.get("lat") or 0,
             "lng": addr.get("lng") or 0,
         },
@@ -6778,14 +6804,47 @@ async def rider_order_detail(oid: str, user: dict = Depends(rider_user)):
         "handoff_otp_note": "Tell the store this code when you arrive to collect the order",
         "otp": (o.get("merchant_otps") or {}).get(my_mid, ""),
         "otp_note": "Ask the customer for this code at drop-off to confirm delivery",
-        "payment": {
-            "method": o.get("payment_method"),
-            "upi_qr_url": store.get("upi_qr_url") or "",
-            "note": ("Show the store's UPI QR" if store.get("upi_qr_url")
-                     else "Collect cash on delivery" if o.get("payment_method") == "cod"
-                     else "Already paid online"),
-        },
+        "payment": _rider_payment_view(o.get("payment_method"), items, store),
         "rider_assignment": assignments.get(my_mid),
+    }
+
+
+def _rider_payment_view(payment_method: Optional[str], leg_items: list, store: dict) -> dict:
+    """Mutually-exclusive rider-facing payment view, gated on payment_method
+    (stored as "COD" for every Pay-at-Delivery order — see the order-creation
+    branch above — never lowercased there, so this compares against the same
+    casing rather than migrating any stored data).
+
+    COD: label "Pay at Delivery", the amount THIS rider's leg should collect
+    (this merchant's items only — a multi-merchant order has one rider per
+    leg, each collecting only their own store's portion), and the store's
+    UPI QR IF the store has one configured — QR is never surfaced for any
+    other payment_method, since it would misrepresent an already-settled
+    payment as something still needing collection.
+
+    Anything else (razorpay, or any historical/unknown value) is treated as
+    already paid — no collection instruction, no QR, regardless of whether
+    the store happens to have a QR on file. This keeps a historical
+    razorpay-paid order rendering correctly forever without depending on
+    exhaustively enumerating every possible non-COD value."""
+    is_cod = payment_method == "COD"
+    amount = round(sum(float(it.get("price") or 0) * int(it.get("qty") or 1) for it in leg_items), 2)
+    if is_cod:
+        qr = store.get("upi_qr_url") or ""
+        return {
+            "method": payment_method,
+            "label": "Pay at Delivery",
+            "amount": amount,
+            "upi_qr_url": qr,
+            "note": ("Collect ₹{:.0f} — cash or scan the store's UPI QR".format(amount) if qr
+                     else "Collect ₹{:.0f} cash on delivery".format(amount)),
+        }
+    return {
+        "method": payment_method,
+        "label": "Paid online",
+        "amount": amount,
+        "upi_qr_url": "",
+        "note": "Already paid online — no payment to collect",
     }
 
 
@@ -7013,10 +7072,14 @@ async def merchant_accept_order(oid: str, user: dict = Depends(merchant_user)):
                 # Live-testing fix (same bug as rider_order_detail's drop
                 # lat/lng, see the comment there): must NOT fall back to
                 # o["customer_lat"]/["customer_lng"] (order-time GPS, unrelated
-                # to the delivery address). addr has no lat/lng today either —
-                # this WhatsApp message still carries the correct
-                # `customer_address` text regardless; notify_rider_pickup
-                # simply omits the Maps link when lat/lng are 0.
+                # to the delivery address). 2026-09: addr.lat/lng are now
+                # required at checkout for new orders (AddressPinPicker), so
+                # this starts carrying real coordinates automatically — no
+                # change needed here. Historical orders predating that
+                # requirement still have addr.lat/lng null; notify_rider_pickup's
+                # own _map_link (commit 1958f0b) falls back to an address-text
+                # Google Maps search in that case, same as it already does for
+                # a missing store pin.
                 customer_lat=addr.get("lat") or 0,
                 customer_lng=addr.get("lng") or 0,
             )
