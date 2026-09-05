@@ -126,6 +126,33 @@ def test_merchant_launch_nudge_returns_send_with_fallback_result():
     assert result == "whatsapp"
 
 
+def test_merchant_launch_nudge_shares_order_placed_support_phone_source():
+    """One canonical support-phone configuration, not one per template:
+    order_placed's {{4}} and merchant_launch_nudge's {{3}} must both come
+    from the exact same notif.SUPPORT_PHONE module constant (notifications.py,
+    `SUPPORT_PHONE = os.environ.get("SUPPORT_PHONE", "+917719052107")`) — not
+    two independently-configured values that merely happen to match today."""
+    env = _gupshup_env(GUPSHUP_TEMPLATE_ORDER_PLACED="tpl-order-placed")
+    order_placed_captured = []
+    launch_nudge_captured = []
+    notif._provider_instances.clear()
+    try:
+        with patch.dict(os.environ, env, clear=False), \
+             patch("requests.post", side_effect=_mock_post(order_placed_captured)):
+            notif.notify_order_placed("9876543210", "o-lokltest-orderABC123", 999.0)
+        notif._provider_instances.clear()
+        with patch.dict(os.environ, env, clear=False), \
+             patch("requests.post", side_effect=_mock_post(launch_nudge_captured)):
+            notif.notify_merchant_launch_nudge("9876543210", "Ramesh Sahoo")
+    finally:
+        notif._provider_instances.clear()
+
+    order_placed_support_phone = order_placed_captured[0]["params"][3]
+    launch_nudge_support_phone = launch_nudge_captured[0]["params"][2]
+    assert order_placed_support_phone == launch_nudge_support_phone == notif.SUPPORT_PHONE, \
+        "both templates must display the identical support phone, sourced from the same config"
+
+
 def test_merchant_launch_nudge_missing_template_id_fails_loudly_not_silently():
     """If GUPSHUP_TEMPLATE_MERCHANT_LAUNCH_NUDGE is unset, the send must
     fail (never silently succeed or fall back to a freeform message)."""
