@@ -1,4 +1,5 @@
 import { CategoryTileRow } from "@/components/consumer/CategoryTileRow";
+import { ServiceabilityGate } from "@/components/consumer/ServiceabilityGate";
 
 /**
  * Shop route group — wraps Home (page.tsx) and every /c/[slug] category
@@ -48,8 +49,16 @@ import { CategoryTileRow } from "@/components/consumer/CategoryTileRow";
 export default function ShopLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex-1">
-      <CategoryTileRow />
-      {children}
+      {/* Phase 9C — ServiceabilityGate wraps BOTH the tile strip and
+          {children} (not just {children} alone): there's no point showing
+          category navigation the customer can't actually shop from once
+          we know their location is outside the delivery footprint. See
+          ServiceabilityGate's own doc comment for why this is scoped to
+          just Home + category pages, not the whole consumer layout. */}
+      <ServiceabilityGate>
+        <CategoryTileRow />
+        {children}
+      </ServiceabilityGate>
     </div>
   );
 }

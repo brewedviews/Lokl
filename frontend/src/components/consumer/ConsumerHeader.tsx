@@ -356,7 +356,33 @@ function SuggestPanel({
  *   location" is hidden (already auto-detected); denied/prompt → it stays
  *   so the user can opt in.
  */
-function LocationChip({ phone }: { phone: string | null }) {
+/** Exported (Phase 9C) so UnserviceableArea.tsx can reuse this exact
+ *  component — same current-location display AND the same tap-to-open
+ *  saved-address/detect picker — as its "Change location" control,
+ *  instead of a second location-picker implementation. Nothing about
+ *  ConsumerHeader's own usage below changes.
+ *
+ *  `variant="block"` (Phase 9C, UnserviceableArea.tsx) swaps ONLY the
+ *  trigger button's visual presentation — a larger, full-width card
+ *  instead of the compact header pill — for prominent standalone
+ *  placement. Every other line of this component (address fetching,
+ *  detect, the sheet/dropdown it opens, label resolution) is 100%
+ *  shared/untouched; `variant` defaults to "chip" so ConsumerHeader's own
+ *  usage below is unaffected.
+ *
+ *  `label` (Phase 9C review pass) optionally OVERRIDES the displayed text
+ *  only — every other behavior (fetch, detect, the picker it opens) is
+ *  identical either way. UnserviceableArea.tsx passes this because this
+ *  component's own default resolution (below: saved address → cluster →
+ *  "Bhilai") can land on "Bhilai" for a location that is confirmed OUTSIDE
+ *  Bhilai — useLocationStore.setLocation() hardcodes cluster to the
+ *  literal string "Bhilai" regardless of where the point actually is (a
+ *  pre-existing bug, out of scope to fix at its source here). Undefined
+ *  (every other caller, including ConsumerHeader's own usage below) keeps
+ *  the exact original resolution — zero behavior change for them. */
+export function LocationChip(
+  { phone, variant = "chip", label }: { phone: string | null; variant?: "chip" | "block"; label?: string },
+) {
   const mounted = useMounted();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -429,16 +455,68 @@ function LocationChip({ phone }: { phone: string | null }) {
   //   3. City fallback           →  "Bhilai"
   const defaultAddr = addresses.find((a) => a.is_default) || addresses[0];
   const addrPreview = defaultAddr ? clipAddress(defaultAddr) : null;
+  // `label`, when passed, wins outright — see this function's own doc
+  // comment for why (Phase 9C review pass: this component's own default
+  // resolution below can be wrong for a confirmed-outside-Bhilai point).
   // Mobile value can be longer because the chip flexes to fill the row.
-  const mobileValue = mounted ? (
+  const mobileValue = label ?? (mounted ? (
     addrPreview ? `${addrPreview.label} · ${addrPreview.preview}` : "Bhilai"
-  ) : "Bhilai";
+  ) : "Bhilai");
   // Desktop chip is fixed-ish width — keep it short.
-  const desktopValue = mounted ? (
+  const desktopValue = label ?? (mounted ? (
     addrPreview ? addrPreview.label : "Bhilai"
-  ) : "Bhilai";
+  ) : "Bhilai");
 
   const showDetect = permission !== "granted";
+
+  if (variant === "block") {
+    return (
+      <div className="relative w-full">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          data-testid="city-display-block"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className="flex items-center gap-3 w-full px-4 py-3.5 rounded-2xl bg-white border border-card-border hover:border-brand-primary transition min-w-0 text-left"
+        >
+          <div className="w-10 h-10 rounded-full bg-brand-accent/12 flex items-center justify-center shrink-0">
+            <MapPin size={18} className="text-brand-accent" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-text-secondary">Delivering to</div>
+            <div className="text-sm font-bold text-brand-primary truncate" suppressHydrationWarning>{mobileValue}</div>
+          </div>
+          <span className="shrink-0 text-xs font-bold text-brand-accent">Change</span>
+        </button>
+
+        {open && (
+          <LocationSheet
+            phone={phone}
+            addresses={addresses}
+            selectedId={defaultAddr?.address_id}
+            busy={busy}
+            showDetect={showDetect}
+            onDetect={detect}
+            onPick={pickAddress}
+            onClose={() => setOpen(false)}
+          />
+        )}
+        {open && (
+          <LocationDropdown
+            phone={phone}
+            addresses={addresses}
+            selectedId={defaultAddr?.address_id}
+            busy={busy}
+            showDetect={showDetect}
+            onDetect={detect}
+            onPick={pickAddress}
+            onClose={() => setOpen(false)}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="relative w-full lg:w-auto">

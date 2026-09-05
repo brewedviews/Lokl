@@ -54,12 +54,22 @@ export const siteApi = {
    *  same backend the current static coming-soon.html already posts to;
    *  this is just its first typed frontend consumer. Dedupes server-side
    *  on (phone, type) and returns ok:true with "Already registered"
-   *  rather than erroring on a repeat submission. */
+   *  rather than erroring on a repeat submission.
+   *
+   *  Phase 9C — `area`/`lat`/`lng`/`source` are optional, additive fields
+   *  (UnserviceableArea.tsx's "Request Lokl in your area" CTA is their
+   *  first caller) so a submission can carry WHERE the demand is from;
+   *  every existing caller (ComingSoonGetStarted) omits them and is
+   *  unaffected. */
   joinWaitlist: async (payload: {
     phone: string;
     type: "customer" | "merchant";
     store_name?: string;
     category?: string;
+    area?: string;
+    lat?: number | null;
+    lng?: number | null;
+    source?: string;
   }): Promise<{ ok: boolean; message: string }> => {
     const r = await apiClient.post<{ ok: boolean; message: string }>("/api/waitlist", payload);
     return r.data;

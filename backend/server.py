@@ -499,6 +499,15 @@ class WaitlistEntry(BaseModel):
     type: str  # "customer" or "merchant"
     store_name: Optional[str] = None
     category: Optional[str] = None
+    # Phase 9C — optional context for entries created from the "Request
+    # Lokl in your area" CTA on the unserviceable-area screen, so
+    # expansion planning can see WHERE demand is coming from, not just
+    # that it exists. Fully optional/backward-compatible: the pre-existing
+    # /coming-soon landing page flow never sends these and is unaffected.
+    area: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    source: Optional[str] = None
 
 
 # ===== Auth =====
@@ -5311,9 +5320,32 @@ def _to_optional_float(v) -> Optional[float]:
         return None
 
 
+def _valid_lat_lng(lat_raw, lng_raw) -> Optional[tuple]:
+    """Strict coordinate-pair validation (Phase 9B). Returns (lat, lng) as
+    floats only if BOTH are present and resolve to finite numbers inside
+    valid geographic ranges; otherwise None. Deliberately stricter than a
+    bare `if lat and lng` truthiness check (which silently treated lat/lng
+    of exactly 0 as "missing"), and deliberately does not coerce
+    NaN/Infinity/one-sided/malformed input into "no pin supplied" — see
+    _address_is_serviceable's docstring for why a caller must never read
+    None here as "fall back to pincode" without also rejecting first."""
+    if lat_raw in (None, "") or lng_raw in (None, ""):
+        return None
+    try:
+        lat, lng = float(lat_raw), float(lng_raw)
+    except (TypeError, ValueError):
+        return None
+    # NaN/Infinity fail every bound comparison below (any comparison
+    # against NaN is False; +-inf can never satisfy a +-90/+-180 bound),
+    # so no separate isfinite check is needed.
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+        return None
+    return (lat, lng)
+
+
 def _address_is_serviceable(address: dict) -> bool:
     """THE serviceability check for a DELIVERY ADDRESS — polygon-with-
-    pincode-fallback (Group C1).
+    pincode-fallback (Group C1), hardened fail-closed (Phase 9B).
 
     Takes the address's OWN pin coordinates (`address["lat"]`/`["lng"]` —
     the point the customer dropped on a map for THIS address) and/or its
@@ -5326,25 +5358,35 @@ def _address_is_serviceable(address: dict) -> bool:
     this order deliver to." Those are different questions with different
     correct answers, and only the second one determines serviceability.
 
-    - Pin coordinates present (both lat AND lng truthy) -> polygon check
-      (_is_in_bhilai_delivery_zone). More precise than a pincode, so a pin
-      that falls outside the polygon is NOT serviceable even if the
-      address's own pincode is in BHILAI_PINCODES — the pin wins.
-    - No pin coordinates -> fall back to the pincode whitelist
-      (BHILAI_PINCODES), i.e. the pre-C1 behavior, unchanged.
-    - No pin AND no pincode -> serviceable (fail-open). Matches the exact
-      pre-C1 behavior in create_order, which only rejected when a pincode
-      was actually PROVIDED and didn't match — a request with no pincode
-      at all was never blocked by this gate. Preserved here rather than
-      "fixed" so this refactor stays a pure behavior-preserving move for
-      every address that doesn't have a pin yet.
+    - Either lat or lng attempted (present/non-empty) -> both MUST validate
+      via _valid_lat_lng (present, numeric, finite, in-range) or this
+      returns False outright — a one-sided or malformed pin is a REJECT,
+      never a silent fall-through to the pincode branch below (Phase 9B
+      Rule 4: a malformed pin must never be reinterpreted as "no pin was
+      supplied, try the pincode instead" — that reinterpretation is exactly
+      how a garbage/partial coordinate could otherwise slip past this gate
+      on a technicality).
+    - A validated pin -> polygon check (_is_in_bhilai_delivery_zone). More
+      precise than a pincode, so a pin that falls outside the polygon is
+      NOT serviceable even if the address's own pincode is in
+      BHILAI_PINCODES — the pin wins.
+    - No pin attempted at all -> fall back to the pincode whitelist
+      (BHILAI_PINCODES) — the intentional, still-supported no-GPS path.
+    - No pin AND no (non-empty) pincode -> NOT serviceable (Phase 9B fixes
+      the prior fail-open here — a request carrying no verifiable location
+      information at all must never be treated as "serviceable by
+      default"; see the P0 finding this closes).
     """
-    lat, lng = address.get("lat"), address.get("lng")
-    if lat and lng:
-        return _is_in_bhilai_delivery_zone(lat, lng)
+    lat_raw, lng_raw = address.get("lat"), address.get("lng")
+    pin_attempted = lat_raw not in (None, "") or lng_raw not in (None, "")
+    if pin_attempted:
+        valid = _valid_lat_lng(lat_raw, lng_raw)
+        if valid is None:
+            return False
+        return _is_in_bhilai_delivery_zone(valid[0], valid[1])
     pincode = str(address.get("pincode") or "").strip()
     if not pincode:
-        return True
+        return False
     return pincode in BHILAI_PINCODES
 
 
@@ -5773,8 +5815,15 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         addr_city = (payload.address.get("city") or "").strip().lower()
         if addr_city not in SERVICEABLE_CITIES:
             raise HTTPException(400, "We're only serving Bhilai right now — please update your delivery city.")
+        # Phase 9B — a delivery order must identify an actual street
+        # address, not just a city. checkout/page.tsx already required
+        # this client-side (`!addr.line1`) before ever calling this
+        # endpoint; a direct API caller bypassing the frontend previously
+        # had no server-side reason to include it at all.
+        if not str(payload.address.get("line1") or "").strip():
+            raise HTTPException(400, "Please provide your delivery address.")
         if not _address_is_serviceable(payload.address):
-            raise HTTPException(400, "We only deliver to Bhilai pincodes (490xxx). Please check your pincode.")
+            raise HTTPException(400, "We only deliver to Bhilai pincodes (490xxx). Please provide a valid delivery pincode or confirm your location on the map.")
         # NOTE: _address_is_serviceable checks the DELIVERY ADDRESS — its own
         # pin coordinates if the customer dropped one for this address, else
         # its pincode (see that function's docstring) — deliberately NEVER
@@ -6047,7 +6096,7 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                         coupon_discount = min(Decimal(str(cpn["discount_value"])), server_total)
                     applied_coupon = coupon_code
 
-        # ===== Delivery fee — server-authoritative =====
+        # ===== Delivery reachability + fee — server-authoritative =====
         # Same DeliveryService.calculate_delivery_fee() call, with the same
         # inputs (BHILAI_LAT/BHILAI_LNG centroid, not the shopper's device
         # GPS — matching checkout/page.tsx's own delivery-estimate call, see
@@ -6056,19 +6105,31 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
         # drift from what checkout displayed. payload.total and
         # payload.delivery_fee are accepted on the schema but never read.
         #
+        # What this "deliverable" flag actually means (Phase 9B): it is a
+        # STORE-reachability check — distance from each store to the Bhilai
+        # city centroid vs. delivery_config.max_delivery_radius_km — NOT a
+        # re-check of the customer's own delivery address (that's the
+        # separate, mandatory _address_is_serviceable gate above). It's a
+        # real eligibility decision (it 400s the order), not merely a price
+        # calculation, so — Phase 9B Rule 6 — it now runs for EVERY store in
+        # the cart, not only when the cart happens to have exactly one.
+        #
         # Pickup orders are never charged delivery. Multi-store delivery
-        # carts get FREE delivery (fee=0) — this mirrors checkout/page.tsx's
-        # "Single-store rule" comment (uniqueStores.length===1 ? that store :
-        # null; multi-store skips the estimate and displays FREE) exactly,
-        # not a new policy invented here.
+        # carts still get FREE delivery (fee=0) — this mirrors checkout/
+        # page.tsx's "Single-store rule" comment (uniqueStores.length===1 ?
+        # that store : null; multi-store skips the estimate and displays
+        # FREE) exactly, unchanged by Phase 9B: only the reachability GATE
+        # is now applied per-store; the free-delivery fee POLICY for
+        # multi-store carts is untouched.
         delivery_fee = Decimal("0.00")
         if order_type != "pickup":
             item_store_ids = list({it.get("store_id") for it in items_snap if it.get("store_id")})
-            if len(item_store_ids) == 1:
-                sid = item_store_ids[0]
+            store_fee_results: dict = {}
+            unreachable_stores = []
+            for sid in item_store_ids:
                 fee_store_doc = store_geo.get(sid)
                 if fee_store_doc is None:
-                    fee_store_doc = await db.stores.find_one({"id": sid}, {"_id": 0, "lat": 1, "lng": 1, "location": 1})
+                    fee_store_doc = await db.stores.find_one({"id": sid}, {"_id": 0, "lat": 1, "lng": 1, "location": 1, "name": 1})
                 store_latlng = _store_lat_lng(fee_store_doc) if fee_store_doc else None
                 if store_latlng is None:
                     raise HTTPException(400, "Store location not set")
@@ -6081,8 +6142,14 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                 except ValueError as e:
                     raise HTTPException(400, str(e))
                 if not fee_result["deliverable"]:
-                    raise HTTPException(400, fee_result["reason"])
-                delivery_fee = Decimal(str(fee_result["fee"]))
+                    store_name = (fee_store_doc or {}).get("name") or sid
+                    unreachable_stores.append(f"{store_name}: {fee_result['reason']}")
+                    continue
+                store_fee_results[sid] = fee_result
+            if unreachable_stores:
+                raise HTTPException(400, "; ".join(unreachable_stores))
+            if len(item_store_ids) == 1:
+                delivery_fee = Decimal(str(store_fee_results[item_store_ids[0]]["fee"]))
 
         server_total = max(Decimal("0.00"), items_subtotal - coupon_discount + delivery_fee)
 
@@ -10631,8 +10698,11 @@ async def join_waitlist(payload: WaitlistEntry):
         "type": payload.type,
         "store_name": payload.store_name,
         "category": payload.category,
+        "area": payload.area,
+        "lat": payload.lat,
+        "lng": payload.lng,
         "created_at": now,
-        "source": "landing_page",
+        "source": payload.source or "landing_page",
     })
     return {"ok": True, "message": "Registered successfully"}
 
