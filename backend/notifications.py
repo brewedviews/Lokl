@@ -1593,6 +1593,39 @@ def notify_order_rejected(phone: str, order_id: str, refund_initiated: bool = Fa
                         order_id=order_id)
 
 
+def send_rider_notification(notify_fn, primary_phone: str, *args, **kwargs) -> None:
+    """Sends a rider operational notification (notify_rider_pickup/
+    notify_rider_cancelled/notify_rider_return_pickup) to the primary
+    RIDER_PHONE recipient, then — if RIDER_NOTIFICATION_CC_PHONE is
+    configured — also sends the identical notification to that CC number
+    as a read-only observer. Not a replacement for RIDER_PHONE, not a
+    broadcast to db.riders; a single fixed additional operational number.
+
+    The primary call happens first, with NO exception handling added here
+    — it raises through exactly as a direct `notify_fn(primary_phone, ...)`
+    call would have, so every existing call site's own try/except (e.g.
+    order creation's `rider_notified` DB write only happening on primary
+    success) is completely unaffected by this wrapper. The CC send is
+    always attempted separately, in its own try/except, specifically so a
+    CC-side failure can never suppress or affect the primary notification's
+    success signal.
+
+    Skips the CC send entirely if unset, or if it normalizes to the same
+    phone as the primary (avoids sending the identical message twice to
+    one number)."""
+    notify_fn(primary_phone, *args, **kwargs)
+
+    cc_phone = (os.environ.get("RIDER_NOTIFICATION_CC_PHONE") or "").strip()
+    if not cc_phone:
+        return
+    if _to_gupshup_mobile(cc_phone) == _to_gupshup_mobile(primary_phone):
+        return
+    try:
+        notify_fn(cc_phone, *args, **kwargs)
+    except Exception as e:
+        log.warning("[rider-cc] CC notification failed (primary already sent, unaffected): %s", e)
+
+
 def notify_rider_pickup(rider_phone: str, *, order_id: str, otp: str, customer_name: str,
                         store_name: str, store_address: str, customer_address: str,
                         items_summary: str = "", upi_qr_url: str = "",

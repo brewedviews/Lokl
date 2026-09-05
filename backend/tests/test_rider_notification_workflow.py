@@ -118,7 +118,7 @@ def test_rider_cancellation_has_exactly_one_call_site():
     import subprocess
     backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out = subprocess.run(
-        ["grep", "-rn", "notify_rider_cancelled(rider_phone,", backend_dir,
+        ["grep", "-rn", "send_rider_notification(notify_rider_cancelled, rider_phone,", backend_dir,
          "--include=*.py", "--exclude-dir=tests", "--exclude-dir=__pycache__"],
         capture_output=True, text=True,
     ).stdout
@@ -162,7 +162,7 @@ def test_rider_activation_gated_on_non_pickup_order_type():
     fn_start = src.index("async def create_order")
     fn_end = src.index("\n@api.", fn_start)
     fn_src = src[fn_start:fn_end]
-    idx = fn_src.index("notify_rider_pickup(")
+    idx = fn_src.index("notify_rider_pickup,")
     guard_window = fn_src[max(0, idx - 900):idx]
     assert 'order_type != "pickup" and rider_phone' in guard_window
 

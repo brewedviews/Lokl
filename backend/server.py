@@ -31,7 +31,7 @@ from notifications import (
     notify_order_placed, notify_merchant_new_order,
     notify_order_rejected, notify_order_delivered,
     notify_order_on_the_way, notify_order_cancelled, notify_merchant_order_cancelled, notify_rider_pickup,
-    notify_rider_cancelled,
+    notify_rider_cancelled, send_rider_notification,
     notify_rider_return_pickup, notify_return_status, RETURN_STATUS_NOTIFY_TYPES, notify_customer_otp,
     notify_merchant_otp, notify_rider_otp, send_with_fallback, APP_URL,
     notify_pickup_reserved, notify_merchant_pickup_reserved,
@@ -5599,7 +5599,7 @@ async def _notify_rider_leg_cancelled(o: dict, mid: str) -> None:
         return
     try:
         m = await db.merchants.find_one({"id": mid}, {"_id": 0, "store_name": 1})
-        notify_rider_cancelled(rider_phone, order_id=o["id"], store_name=(m or {}).get("store_name", "Store"))
+        send_rider_notification(notify_rider_cancelled, rider_phone, order_id=o["id"], store_name=(m or {}).get("store_name", "Store"))
     except Exception as e:
         log.error("[rider-cancel] failed order=%s mid=%s error=%s", o.get("id"), mid, e)
 
@@ -6414,7 +6414,8 @@ async def create_order(payload: OrderCreate, user: dict = Depends(customer_user)
                         f"  • {it.get('qty', 1)}x {it.get('name', 'Item')}" + (f" ({it['size']})" if it.get("size") else "")
                         for it in my_items
                     )
-                    notify_rider_pickup(
+                    send_rider_notification(
+                        notify_rider_pickup,
                         rider_phone, order_id=order_id, otp=merchant_otps.get(mid, otp),
                         customer_name=(payload.customer or {}).get("name") or addr.get("name", "Customer"),
                         store_name=(m or {}).get("store_name", "Store"),
@@ -11983,7 +11984,8 @@ async def admin_return_action(rid: str, action: str, admin: dict = Depends(requi
                 return_mid = (r.get("merchant_ids") or [None])[0]
                 rm = (await db.merchants.find_one({"id": return_mid}, {"_id": 0, "store_name": 1, "business_address": 1})) if return_mid else None
                 rstore_doc = (await db.stores.find_one({"id": f"store-m-{return_mid}"}, {"_id": 0, "lat": 1, "lng": 1})) if return_mid else None
-                notify_rider_return_pickup(
+                send_rider_notification(
+                    notify_rider_return_pickup,
                     rider_phone,
                     return_id=rid, order_id=r["order_id"], otp=r.get("otp", ""),
                     customer_name=(o.get("customer") or {}).get("name") or addr.get("name", "Customer"),

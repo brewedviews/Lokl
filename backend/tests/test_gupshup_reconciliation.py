@@ -731,13 +731,13 @@ def test_rider_pickup_recipient_and_trigger_preserved():
     fn_start = src.index("async def create_order")
     fn_end = src.index("\n@api.", fn_start)
     fn_src = src[fn_start:fn_end]
-    assert fn_src.count("notify_rider_pickup(") == 1, \
-        "notify_rider_pickup must be called exactly once, inside create_order()"
+    assert fn_src.count("notify_rider_pickup,") == 1, \
+        "notify_rider_pickup must be called exactly once (via send_rider_notification), inside create_order()"
 
     accept_start = src.index("async def merchant_accept_order")
     accept_end = src.index("\n@api.", accept_start)
     accept_src = src[accept_start:accept_end]
-    assert "notify_rider_pickup(" not in accept_src, \
+    assert "notify_rider_pickup" not in accept_src, \
         "merchant_accept_order must NOT call notify_rider_pickup — that would duplicate the order-creation activation"
 
 
@@ -746,12 +746,12 @@ def test_rider_pickup_has_exactly_one_call_site_no_duplicate_path():
     the application backend."""
     backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out = subprocess.run(
-        ["grep", "-rn", "notify_rider_pickup(", backend_dir,
+        ["grep", "-rnE", r"^\s*notify_rider_pickup,\s*$", backend_dir,
          "--include=*.py", "--exclude-dir=tests", "--exclude-dir=__pycache__"],
         capture_output=True, text=True,
     ).stdout
-    call_lines = [l for l in out.splitlines() if "def notify_rider_pickup" not in l]
-    assert len(call_lines) == 1, f"expected exactly one call site, found {len(call_lines)}: {call_lines}"
+    call_lines = out.splitlines()
+    assert len(call_lines) == 1, f"expected exactly one call site (via send_rider_notification), found {len(call_lines)}: {call_lines}"
     assert "server.py" in call_lines[0]
 
 
@@ -899,18 +899,18 @@ def test_rider_return_pickup_recipient_and_trigger_preserved():
     fn_src = src[fn_start:fn_end]
     assert 'rider_phone = os.environ.get("RIDER_PHONE", "").strip()' in fn_src
     assert 'if status == "pickup_assigned":' in fn_src
-    assert fn_src.count("notify_rider_return_pickup(") == 1
+    assert fn_src.count("notify_rider_return_pickup,") == 1
 
 
 def test_rider_return_pickup_has_exactly_one_call_site_no_duplicate_path():
     backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out = subprocess.run(
-        ["grep", "-rn", "notify_rider_return_pickup(", backend_dir,
+        ["grep", "-rnE", r"^\s*notify_rider_return_pickup,\s*$", backend_dir,
          "--include=*.py", "--exclude-dir=tests", "--exclude-dir=__pycache__"],
         capture_output=True, text=True,
     ).stdout
-    call_lines = [l for l in out.splitlines() if "def notify_rider_return_pickup" not in l]
-    assert len(call_lines) == 1, f"expected exactly one call site, found {len(call_lines)}: {call_lines}"
+    call_lines = out.splitlines()
+    assert len(call_lines) == 1, f"expected exactly one call site (via send_rider_notification), found {len(call_lines)}: {call_lines}"
     assert "server.py" in call_lines[0]
 
 
