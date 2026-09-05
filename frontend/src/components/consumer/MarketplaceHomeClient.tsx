@@ -297,7 +297,7 @@ export function MarketplaceHomeClient() {
       // narrative.
       <div key="merchant-cta" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         <a
-          href="https://lokl.up.railway.app/merchant/register"
+          href="https://merchant.shoplokl.in/merchant/register"
           target="_blank"
           rel="noopener noreferrer"
           onClick={() => { try { trackMerchantCTAClick("homepage"); } catch {} }}
