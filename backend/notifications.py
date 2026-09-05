@@ -1007,6 +1007,13 @@ class GupshupProvider(NotificationProvider):
         "payment_failed": "GUPSHUP_TEMPLATE_PAYMENT_FAILED",
         "merchant_kyc_rejected": "GUPSHUP_TEMPLATE_MERCHANT_KYC_REJECTED",
         "merchant_kyc_on_hold": "GUPSHUP_TEMPLATE_MERCHANT_KYC_ON_HOLD",
+        # merchant_launch_nudge: one-off Marketing-category campaign
+        # (2026-09), sent only via backend/scripts/send_merchant_launch_nudge.py
+        # to an explicit admin-selected merchant list — never from an
+        # order/KYC lifecycle event like every other entry above. Approved
+        # template id cebe40ee-c726-402f-849e-872c8b974fa1, exactly 3
+        # variables: merchant/owner name, the fixed site URL, support phone.
+        "merchant_launch_nudge": "GUPSHUP_TEMPLATE_MERCHANT_LAUNCH_NUDGE",
     }
 
     # message_type values whose approved template is Authentication-
@@ -2053,6 +2060,35 @@ def notify_merchant_approved(merchant_phone: str, store_name: str) -> None:
     # function ever had, and it's the one confirmed to survive.
     send_with_fallback(merchant_phone, body, message_type="merchant_approved",
                         template_params={"1": store_name})
+
+
+def notify_merchant_launch_nudge(merchant_phone: str, owner_name: str) -> str:
+    """One-off Merchant Launch Nudge campaign (2026-09) — called only from
+    backend/scripts/send_merchant_launch_nudge.py against an explicit,
+    admin-supplied list of merchant ids, never automatically from an
+    order/KYC lifecycle event like every other notify_* in this file.
+
+    Approved Gupshup template (Marketing category, id
+    cebe40ee-c726-402f-849e-872c8b974fa1) has exactly 3 variables, in
+    order: merchant/owner name, the site URL, support phone. {{2}} is the
+    approved template's own fixed "https://lokl.in" copy — deliberately
+    NOT APP_URL (which points at www.shoplokl.in), since the template text
+    itself was approved with this exact URL.
+
+    Unlike the fire-and-forget notify_* functions above, this one returns
+    send_with_fallback()'s "whatsapp"/"sms"/"none" result so the calling
+    script can report per-merchant success/failure."""
+    body = (
+        f"Hi {owner_name}, your store is now LIVE on Lokl! \n\n"
+        f"Website: https://lokl.in\n\n"
+        f"From tomorrow, our marketing starts which means customers will start "
+        f"discovering and shopping from your store. Once your shop opens, please:\n\n"
+        f"Check all products and update In Stock / Out of Stock\n"
+        f"Add more products so customers have more to explore.\n\n"
+        f"Need help? Contact Lokl Support: {SUPPORT_PHONE}"
+    )
+    return send_with_fallback(merchant_phone, body, message_type="merchant_launch_nudge",
+                               template_params={"1": owner_name, "2": "https://lokl.in", "3": SUPPORT_PHONE})
 
 
 def notify_merchant_kyc_rejected(merchant_phone: str, store_name: str) -> None:
