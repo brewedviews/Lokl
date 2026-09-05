@@ -3,7 +3,8 @@
 Same convention as test_gupshup_reconciliation.py PART 1: monkeypatches
 requests.post and asserts the EXACT `params` array notify_merchant_launch_nudge
 sends to Gupshup for the approved template (id
-cebe40ee-c726-402f-849e-872c8b974fa1, Marketing category, 3 variables).
+3ba590d2-8be9-4c57-8838-ea1a30c18790, Marketing category, 1 variable —
+merchant/owner name; everything else in the template body is fixed copy).
 
 Run with: cd backend && python3 -m pytest tests/test_merchant_launch_nudge.py -v
 """
@@ -37,7 +38,7 @@ def _gupshup_env(**extra):
         "GUPSHUP_WHATSAPP_NUMBER": "919999999999",
         "GUPSHUP_APP_NAME": "LoklTest",
         "NOTIFICATION_PROVIDER": "gupshup",
-        "GUPSHUP_TEMPLATE_MERCHANT_LAUNCH_NUDGE": "cebe40ee-c726-402f-849e-872c8b974fa1",
+        "GUPSHUP_TEMPLATE_MERCHANT_LAUNCH_NUDGE": "3ba590d2-8be9-4c57-8838-ea1a30c18790",
     }
     base.update(extra)
     return base
@@ -47,7 +48,11 @@ def test_merchant_launch_nudge_template_env_mapping():
     assert notif.GupshupProvider._TEMPLATE_ENV.get("merchant_launch_nudge") == "GUPSHUP_TEMPLATE_MERCHANT_LAUNCH_NUDGE"
 
 
-def test_merchant_launch_nudge_sends_exactly_3_params_in_approved_order():
+def test_merchant_launch_nudge_sends_exactly_1_param():
+    """2026-09 re-approval: the template now has exactly ONE variable
+    (merchant/owner name) — everything else in the approved body is fixed
+    copy. The prior template's {{2}} site-URL and {{3}} support-phone
+    variables no longer exist and must not be sent."""
     captured = []
     notif._provider_instances.clear()
     try:
@@ -60,33 +65,28 @@ def test_merchant_launch_nudge_sends_exactly_3_params_in_approved_order():
     assert result == "whatsapp"
     assert len(captured) == 1
     params = captured[0]["params"]
-    assert len(params) == 3, "must be exactly 3 Gupshup template parameters"
-    assert params == ["Ramesh Sahoo", "https://www.shoplokl.in", notif.SUPPORT_PHONE]
+    assert len(params) == 1, "must be exactly 1 Gupshup template parameter"
+    assert params == ["Ramesh Sahoo"]
     assert params[0] == "Ramesh Sahoo", "{{1}} must be the merchant/owner name"
-    assert params[1] == "https://www.shoplokl.in", "{{2}} must be the approved template's fixed site URL"
-    assert params[2] == notif.SUPPORT_PHONE, "{{3}} must be the existing configured support phone"
 
 
-def test_merchant_launch_nudge_url_is_independent_of_app_url_variable():
-    """{{2}} (https://www.shoplokl.in, 2026-09 correction) happens to equal
-    APP_URL's own default today, but must be a fixed literal INDEPENDENT of
-    the APP_URL variable — not read from it — so this Marketing template's
-    approved copy can never silently drift if APP_URL is changed for an
-    unrelated (e.g. tracking-link) reason. Proven by monkeypatching APP_URL
-    to a different value and confirming {{2}} is unaffected."""
+def test_merchant_launch_nudge_sends_no_website_or_support_phone_params():
+    """Explicit negative check: neither the old site-URL nor the support
+    phone appear anywhere in the params array sent to Gupshup for the
+    re-approved template."""
     captured = []
     notif._provider_instances.clear()
-    orig_app_url = notif.APP_URL
-    notif.APP_URL = "https://some-other-domain.example"
     try:
         with patch.dict(os.environ, _gupshup_env(), clear=False), \
              patch("requests.post", side_effect=_mock_post(captured)):
             notif.notify_merchant_launch_nudge("9876543210", "Ramesh Sahoo")
     finally:
-        notif.APP_URL = orig_app_url
         notif._provider_instances.clear()
-    assert captured[0]["params"][1] == "https://www.shoplokl.in", \
-        "{{2}} must stay the fixed approved-template literal even when APP_URL changes"
+    params = captured[0]["params"]
+    assert notif.SUPPORT_PHONE not in params
+    assert "https://www.shoplokl.in" not in params
+    assert "https://lokl.in" not in params
+    assert not any(notif.APP_URL in p for p in params if isinstance(p, str))
 
 
 def test_merchant_launch_nudge_uses_correct_template_id():
@@ -98,7 +98,7 @@ def test_merchant_launch_nudge_uses_correct_template_id():
             notif.notify_merchant_launch_nudge("9876543210", "Ramesh Sahoo")
     finally:
         notif._provider_instances.clear()
-    assert captured[0]["id"] == "cebe40ee-c726-402f-849e-872c8b974fa1"
+    assert captured[0]["id"] == "3ba590d2-8be9-4c57-8838-ea1a30c18790"
 
 
 def test_merchant_launch_nudge_message_type_is_correct():
@@ -131,33 +131,6 @@ def test_merchant_launch_nudge_returns_send_with_fallback_result():
     finally:
         notif._provider_instances.clear()
     assert result == "whatsapp"
-
-
-def test_merchant_launch_nudge_shares_order_placed_support_phone_source():
-    """One canonical support-phone configuration, not one per template:
-    order_placed's {{4}} and merchant_launch_nudge's {{3}} must both come
-    from the exact same notif.SUPPORT_PHONE module constant (notifications.py,
-    `SUPPORT_PHONE = os.environ.get("SUPPORT_PHONE", "+917719052107")`) — not
-    two independently-configured values that merely happen to match today."""
-    env = _gupshup_env(GUPSHUP_TEMPLATE_ORDER_PLACED="tpl-order-placed")
-    order_placed_captured = []
-    launch_nudge_captured = []
-    notif._provider_instances.clear()
-    try:
-        with patch.dict(os.environ, env, clear=False), \
-             patch("requests.post", side_effect=_mock_post(order_placed_captured)):
-            notif.notify_order_placed("9876543210", "o-lokltest-orderABC123", 999.0)
-        notif._provider_instances.clear()
-        with patch.dict(os.environ, env, clear=False), \
-             patch("requests.post", side_effect=_mock_post(launch_nudge_captured)):
-            notif.notify_merchant_launch_nudge("9876543210", "Ramesh Sahoo")
-    finally:
-        notif._provider_instances.clear()
-
-    order_placed_support_phone = order_placed_captured[0]["params"][3]
-    launch_nudge_support_phone = launch_nudge_captured[0]["params"][2]
-    assert order_placed_support_phone == launch_nudge_support_phone == notif.SUPPORT_PHONE, \
-        "both templates must display the identical support phone, sourced from the same config"
 
 
 def test_merchant_launch_nudge_missing_template_id_fails_loudly_not_silently():

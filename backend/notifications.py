@@ -1011,8 +1011,10 @@ class GupshupProvider(NotificationProvider):
         # (2026-09), sent only via backend/scripts/send_merchant_launch_nudge.py
         # to an explicit admin-selected merchant list — never from an
         # order/KYC lifecycle event like every other entry above. Approved
-        # template id cebe40ee-c726-402f-849e-872c8b974fa1, exactly 3
-        # variables: merchant/owner name, the fixed site URL, support phone.
+        # template id 3ba590d2-8be9-4c57-8838-ea1a30c18790 (2026-09
+        # re-approval, replacing cebe40ee-c726-402f-849e-872c8b974fa1),
+        # exactly ONE variable: merchant/owner name. Everything else in the
+        # template body is now fixed copy.
         "merchant_launch_nudge": "GUPSHUP_TEMPLATE_MERCHANT_LAUNCH_NUDGE",
     }
 
@@ -2069,13 +2071,13 @@ def notify_merchant_launch_nudge(merchant_phone: str, owner_name: str) -> str:
     order/KYC lifecycle event like every other notify_* in this file.
 
     Approved Gupshup template (Marketing category, id
-    cebe40ee-c726-402f-849e-872c8b974fa1) has exactly 3 variables, in
-    order: merchant/owner name, the site URL, support phone. {{2}} is
-    "https://www.shoplokl.in" (2026-09 correction: the merchant-facing site
-    is www.shoplokl.in, not lokl.in) — a fixed literal independent of
-    APP_URL on purpose, so this Marketing template's approved copy can
-    never silently drift if APP_URL is ever changed for an unrelated
-    (e.g. tracking-link) reason.
+    3ba590d2-8be9-4c57-8838-ea1a30c18790, 2026-09 re-approval) has exactly
+    ONE variable — merchant/owner name. Everything else in the approved
+    template body is fixed copy; the old {{2}} site-URL and {{3}}
+    support-phone variables from the prior template id
+    (cebe40ee-c726-402f-849e-872c8b974fa1) no longer exist and must not be
+    sent — Gupshup would reject a params array of the wrong length for the
+    now-active template.
 
     Unlike the fire-and-forget notify_* functions above, this one returns
     send_with_fallback()'s "whatsapp"/"sms"/"none" result so the calling
@@ -2090,7 +2092,7 @@ def notify_merchant_launch_nudge(merchant_phone: str, owner_name: str) -> str:
         f"Need help? Contact Lokl Support: {SUPPORT_PHONE}"
     )
     return send_with_fallback(merchant_phone, body, message_type="merchant_launch_nudge",
-                               template_params={"1": owner_name, "2": "https://www.shoplokl.in", "3": SUPPORT_PHONE})
+                               template_params={"1": owner_name})
 
 
 def notify_merchant_kyc_rejected(merchant_phone: str, store_name: str) -> None:
