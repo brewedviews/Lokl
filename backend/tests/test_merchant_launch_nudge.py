@@ -61,25 +61,32 @@ def test_merchant_launch_nudge_sends_exactly_3_params_in_approved_order():
     assert len(captured) == 1
     params = captured[0]["params"]
     assert len(params) == 3, "must be exactly 3 Gupshup template parameters"
-    assert params == ["Ramesh Sahoo", "https://lokl.in", notif.SUPPORT_PHONE]
+    assert params == ["Ramesh Sahoo", "https://www.shoplokl.in", notif.SUPPORT_PHONE]
     assert params[0] == "Ramesh Sahoo", "{{1}} must be the merchant/owner name"
-    assert params[1] == "https://lokl.in", "{{2}} must be the approved template's fixed site URL"
+    assert params[1] == "https://www.shoplokl.in", "{{2}} must be the approved template's fixed site URL"
     assert params[2] == notif.SUPPORT_PHONE, "{{3}} must be the existing configured support phone"
 
 
-def test_merchant_launch_nudge_url_is_not_app_url():
-    """The approved template copy is https://lokl.in, a different domain
-    from APP_URL (www.shoplokl.in) — must never silently drift to APP_URL."""
+def test_merchant_launch_nudge_url_is_independent_of_app_url_variable():
+    """{{2}} (https://www.shoplokl.in, 2026-09 correction) happens to equal
+    APP_URL's own default today, but must be a fixed literal INDEPENDENT of
+    the APP_URL variable — not read from it — so this Marketing template's
+    approved copy can never silently drift if APP_URL is changed for an
+    unrelated (e.g. tracking-link) reason. Proven by monkeypatching APP_URL
+    to a different value and confirming {{2}} is unaffected."""
     captured = []
     notif._provider_instances.clear()
+    orig_app_url = notif.APP_URL
+    notif.APP_URL = "https://some-other-domain.example"
     try:
         with patch.dict(os.environ, _gupshup_env(), clear=False), \
              patch("requests.post", side_effect=_mock_post(captured)):
             notif.notify_merchant_launch_nudge("9876543210", "Ramesh Sahoo")
     finally:
+        notif.APP_URL = orig_app_url
         notif._provider_instances.clear()
-    assert captured[0]["params"][1] == "https://lokl.in"
-    assert notif.APP_URL not in captured[0]["params"][1]
+    assert captured[0]["params"][1] == "https://www.shoplokl.in", \
+        "{{2}} must stay the fixed approved-template literal even when APP_URL changes"
 
 
 def test_merchant_launch_nudge_uses_correct_template_id():

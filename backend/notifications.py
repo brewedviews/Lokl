@@ -2070,17 +2070,19 @@ def notify_merchant_launch_nudge(merchant_phone: str, owner_name: str) -> str:
 
     Approved Gupshup template (Marketing category, id
     cebe40ee-c726-402f-849e-872c8b974fa1) has exactly 3 variables, in
-    order: merchant/owner name, the site URL, support phone. {{2}} is the
-    approved template's own fixed "https://lokl.in" copy — deliberately
-    NOT APP_URL (which points at www.shoplokl.in), since the template text
-    itself was approved with this exact URL.
+    order: merchant/owner name, the site URL, support phone. {{2}} is
+    "https://www.shoplokl.in" (2026-09 correction: the merchant-facing site
+    is www.shoplokl.in, not lokl.in) — a fixed literal independent of
+    APP_URL on purpose, so this Marketing template's approved copy can
+    never silently drift if APP_URL is ever changed for an unrelated
+    (e.g. tracking-link) reason.
 
     Unlike the fire-and-forget notify_* functions above, this one returns
     send_with_fallback()'s "whatsapp"/"sms"/"none" result so the calling
     script can report per-merchant success/failure."""
     body = (
         f"Hi {owner_name}, your store is now LIVE on Lokl! \n\n"
-        f"Website: https://lokl.in\n\n"
+        f"Website: https://www.shoplokl.in\n\n"
         f"From tomorrow, our marketing starts which means customers will start "
         f"discovering and shopping from your store. Once your shop opens, please:\n\n"
         f"Check all products and update In Stock / Out of Stock\n"
@@ -2088,7 +2090,7 @@ def notify_merchant_launch_nudge(merchant_phone: str, owner_name: str) -> str:
         f"Need help? Contact Lokl Support: {SUPPORT_PHONE}"
     )
     return send_with_fallback(merchant_phone, body, message_type="merchant_launch_nudge",
-                               template_params={"1": owner_name, "2": "https://lokl.in", "3": SUPPORT_PHONE})
+                               template_params={"1": owner_name, "2": "https://www.shoplokl.in", "3": SUPPORT_PHONE})
 
 
 def notify_merchant_kyc_rejected(merchant_phone: str, store_name: str) -> None:
