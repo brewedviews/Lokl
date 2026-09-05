@@ -363,80 +363,98 @@ def _clear_env_signals(monkeypatch):
     monkeypatch.delenv("ENVIRONMENT", raising=False)
 
 
+# ===================================================================
+# 2026-09 incident remediation, Phase 9: 006's bulk prefix-delete body
+# (and the `_refuse_if_production`/`_require_explicit_destructive_
+# confirmation`/`DESTRUCTIVE_CONFIRM_*` guard functions that used to gate
+# it) has been removed OUTRIGHT rather than re-guarded — see that module's
+# own docstring. The tests below used to exercise that guard matrix
+# directly; they now prove the strictly STRONGER replacement property —
+# there is no environment/confirmation combination, past or hypothetical,
+# under which 006 performs a delete, because the delete capability itself
+# no longer exists in the module at all.
+# ===================================================================
+
 def test_006_cleanup_script_refuses_in_production(monkeypatch):
     import importlib
     mod = importlib.import_module("migrations.006_cloudinary_cleanup")
     _clear_env_signals(monkeypatch)
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
-    with pytest.raises(SystemExit):
-        mod._refuse_if_production()
+    with pytest.raises(SystemExit, match="RETIRED"):
+        mod.main()
 
 
 def test_006_cleanup_script_refuses_on_missing_environment(monkeypatch):
-    """The core fix: previously this would NOT raise when the environment
-    was simply unset — exactly the real Railway production condition that
-    made this guard ineffective for the actual incident."""
+    """The original core fix (ee6f478): previously the old guard would NOT
+    raise when the environment was simply unset — exactly the real Railway
+    production condition that made it ineffective for the actual incident.
+    Now there is no environment value, set or unset, that matters at all —
+    main() refuses unconditionally regardless."""
     import importlib
     mod = importlib.import_module("migrations.006_cloudinary_cleanup")
     _clear_env_signals(monkeypatch)
-    with pytest.raises(SystemExit):
-        mod._refuse_if_production()
+    with pytest.raises(SystemExit, match="RETIRED"):
+        mod.main()
 
 
-def test_006_cleanup_script_permits_confirmed_staging(monkeypatch):
+def test_006_cleanup_script_refuses_even_in_confirmed_staging(monkeypatch):
+    """Unlike the pre-Phase-9 guard (which permitted a confirmed-safe
+    non-production environment through), there is no longer ANY
+    environment — including a positively-confirmed staging/dev — that
+    unlocks a delete, because there is no delete left to unlock."""
     import importlib
     mod = importlib.import_module("migrations.006_cloudinary_cleanup")
     _clear_env_signals(monkeypatch)
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
-    mod._refuse_if_production()  # must not raise — positively confirmed non-production
+    with pytest.raises(SystemExit, match="RETIRED"):
+        mod.main()
 
 
-def test_006_cleanup_script_second_confirmation_required_beyond_force(monkeypatch):
-    """--force alone must never be sufficient — a second, explicit,
-    impossible-to-accidentally-inherit confirmation value is required for
-    an actual (non-dry-run) delete."""
+def test_006_cleanup_script_refuses_even_with_the_old_confirm_value_and_force(monkeypatch):
+    """The exact combination that used to be sufficient for a real delete
+    (--force + CLOUDINARY_CLEANUP_CONFIRM=<the old exact value> + a
+    confirmed non-production environment) must now still refuse — there is
+    no flag or env var of any kind that reactivates the old behavior."""
     import importlib
     mod = importlib.import_module("migrations.006_cloudinary_cleanup")
-    monkeypatch.delenv(mod.DESTRUCTIVE_CONFIRM_ENV_VAR, raising=False)
-    with pytest.raises(SystemExit):
-        mod._require_explicit_destructive_confirmation()
-    monkeypatch.setenv(mod.DESTRUCTIVE_CONFIRM_ENV_VAR, "close-but-not-exact")
-    with pytest.raises(SystemExit):
-        mod._require_explicit_destructive_confirmation()
-    monkeypatch.setenv(mod.DESTRUCTIVE_CONFIRM_ENV_VAR, mod.DESTRUCTIVE_CONFIRM_VALUE)
-    mod._require_explicit_destructive_confirmation()  # must not raise — exact match
+    _clear_env_signals(monkeypatch)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
+    monkeypatch.setenv("CLOUDINARY_CLEANUP_CONFIRM", "I-UNDERSTAND-THIS-PERMANENTLY-DELETES-CLOUDINARY-ASSETS")
+    monkeypatch.setattr(sys, "argv", ["migrations.006_cloudinary_cleanup", "--force"])
+    with pytest.raises(SystemExit, match="RETIRED"):
+        mod.main()
 
 
 def test_006_full_safety_model_matrix(monkeypatch):
-    """The exact combinations from the incident-containment spec. Only
-    checks the guard FUNCTIONS directly — never calls main() or touches
-    Cloudinary, so no deletion is ever attempted here."""
+    """The exact combinations from the original incident-containment spec,
+    now proven against main() directly (the guard functions they used to
+    call no longer exist) — every one of the four combinations refuses,
+    including the one that used to be the sole "permitted" case."""
     import importlib
     mod = importlib.import_module("migrations.006_cloudinary_cleanup")
 
-    def _guards_pass(env_value, confirm_value):
+    def _refuses(env_value, confirm_value):
         _clear_env_signals(monkeypatch)
         if env_value is not None:
             monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", env_value)
         if confirm_value is not None:
-            monkeypatch.setenv(mod.DESTRUCTIVE_CONFIRM_ENV_VAR, confirm_value)
+            monkeypatch.setenv("CLOUDINARY_CLEANUP_CONFIRM", confirm_value)
         else:
-            monkeypatch.delenv(mod.DESTRUCTIVE_CONFIRM_ENV_VAR, raising=False)
+            monkeypatch.delenv("CLOUDINARY_CLEANUP_CONFIRM", raising=False)
+        monkeypatch.setattr(sys, "argv", ["migrations.006_cloudinary_cleanup", "--force"])
         try:
-            mod._refuse_if_production()
-            mod._require_explicit_destructive_confirmation()
-            return True
-        except SystemExit:
+            mod.main()
             return False
+        except SystemExit:
+            return True
 
-    # production + confirm value present -> still refuses (env check runs first)
-    assert _guards_pass("production", mod.DESTRUCTIVE_CONFIRM_VALUE) is False
-    # unknown/missing environment + confirm value present -> still refuses
-    assert _guards_pass(None, mod.DESTRUCTIVE_CONFIRM_VALUE) is False
-    # confirmed-safe environment, no confirm value -> refuses (force-alone case)
-    assert _guards_pass("staging", None) is False
-    # confirmed-safe environment + exact confirm value -> both guards pass
-    assert _guards_pass("staging", mod.DESTRUCTIVE_CONFIRM_VALUE) is True
+    old_confirm_value = "I-UNDERSTAND-THIS-PERMANENTLY-DELETES-CLOUDINARY-ASSETS"
+    assert _refuses("production", old_confirm_value) is True
+    assert _refuses(None, old_confirm_value) is True
+    assert _refuses("staging", None) is True
+    # This used to be the one combination that passed both old guards —
+    # it must now refuse too, since the deletion capability is gone.
+    assert _refuses("staging", old_confirm_value) is True
 
 
 def test_005_delete_test_data_is_a_safe_noop_in_production(monkeypatch):
@@ -694,3 +712,170 @@ def test_otp_success_message_shape_unchanged_in_production(monkeypatch):
         assert resp["message"] == f"OTP sent to {server.ADMIN_EMAIL}"
 
     _run(_with_store(body))
+
+
+# ===================================================================
+# Phase 9 (2026-09 incident remediation) — bulk-deletion capability
+# permanently retired from 005/006, not merely re-guarded.
+# ===================================================================
+
+def test_006_main_refuses_unconditionally_regardless_of_argv(monkeypatch):
+    """006's bulk prefix-delete body no longer exists at all — main() must
+    raise SystemExit no matter what argv/env look like, including the
+    exact combination that used to unlock a real delete."""
+    import importlib
+    mod = importlib.import_module("migrations.006_cloudinary_cleanup")
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
+    monkeypatch.setenv("CLOUDINARY_CLEANUP_CONFIRM", "I-UNDERSTAND-THIS-PERMANENTLY-DELETES-CLOUDINARY-ASSETS")
+    monkeypatch.setattr(sys, "argv", ["migrations.006_cloudinary_cleanup", "--force"])
+    with pytest.raises(SystemExit, match="RETIRED"):
+        mod.main()
+
+
+def test_006_module_no_longer_exposes_any_prefix_deletion_function():
+    import importlib
+    mod = importlib.import_module("migrations.006_cloudinary_cleanup")
+    assert not hasattr(mod, "_list_prefix")
+    assert not hasattr(mod, "PREFIXES_TO_DELETE")
+
+
+def test_005_no_longer_calls_any_cloudinary_deletion_function(monkeypatch):
+    """005's own Step 7 (delete_resources_by_prefix) is retired — proven by
+    running up() in a confirmed-safe environment against a real (empty)
+    local db and asserting the Cloudinary SDK's deletion entrypoints are
+    never even imported/called."""
+    import importlib
+    mod = importlib.import_module("migrations.005_delete_test_data")
+    _clear_env_signals(monkeypatch)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "staging")
+    monkeypatch.setenv("ADMIN_EMAIL", "admin@lokl.in")
+    monkeypatch.setenv("ADMIN_PASSWORD_HASH", "x")
+
+    with patch("cloudinary.api.delete_resources_by_prefix") as mock_prefix_del, \
+         patch("cloudinary.uploader.destroy") as mock_destroy:
+        report = _run(mod.up(server.db))
+    assert report["summary"]["cloudinary"]["status"].startswith("retired")
+    mock_prefix_del.assert_not_called()
+    mock_destroy.assert_not_called()
+
+
+def test_startup_migration_runner_cannot_reach_any_bulk_cloudinary_delete():
+    """End-to-end proof for 'a server restart must never be capable of
+    triggering a broad Cloudinary deletion': the exact function server.py's
+    startup hook calls (migrations.run._run) must not be able to invoke
+    006 at all (excluded from discovery, no up()) and must invoke 005 only
+    in its now-retired, Cloudinary-free form."""
+    import importlib
+    run_mod = importlib.import_module("migrations.run")
+    assert "006_cloudinary_cleanup" not in run_mod._discover()
+    six_mod = importlib.import_module("migrations.006_cloudinary_cleanup")
+    assert not hasattr(six_mod, "up")
+
+
+def test_admin_delete_product_never_calls_cloudinary():
+    """Regression guard for the forensic report's own finding: hard-
+    deleting a product must never reach Cloudinary at all (orphans the
+    asset harmlessly — a separate, already-accepted tradeoff — rather than
+    attempting any delete)."""
+    async def body():
+        pid = f"test-prod-{uuid.uuid4().hex[:8]}"
+        sid = f"store-test-{uuid.uuid4().hex[:8]}"
+        await server.db.products.insert_one({
+            "id": pid, "store_id": sid, "image_public_id": "lokl/products/x/y", "paused": False,
+        })
+        await server.db.stores.insert_one({"id": sid, "product_count": 1})
+        try:
+            with patch("server.cloudinary_service.delete_image", new_callable=AsyncMock) as mock_del:
+                await server.admin_delete_product(pid, admin={"id": "test-admin"})
+            mock_del.assert_not_called()
+        finally:
+            await server.db.products.delete_one({"id": pid})
+            await server.db.stores.delete_one({"id": sid})
+
+    _run(body())
+
+
+def test_removing_one_image_does_not_delete_the_remaining_current_image():
+    """Scenario 17 — replacing/updating a product image must not
+    accidentally delete the newly uploaded/current image. Removes ONE of
+    two images via the explicit remove_image_public_ids path and confirms
+    the other (current, still-referenced) image is untouched in Cloudinary
+    and still present in the product doc afterward."""
+    async def body(doc):
+        keep_pid = doc["image_public_ids"][1]
+        remove_pid = doc["image_public_ids"][0]
+        with patch("server.cloudinary_service.delete_image", new_callable=AsyncMock, return_value=True) as mock_del:
+            await server._apply_product_update(doc["id"], doc, {"remove_image_public_ids": [remove_pid]})
+        mock_del.assert_called_once_with(remove_pid)
+        updated = await server.db.products.find_one({"id": doc["id"]}, {"_id": 0})
+        assert keep_pid in updated["image_public_ids"]
+        assert remove_pid not in updated["image_public_ids"]
+        # An audit record for the removed asset must exist.
+        audit_rows = [r async for r in server.db.cloudinary_deletion_log.find(
+            {"public_id": remove_pid}, {"_id": 0})]
+        assert len(audit_rows) >= 1
+        assert any(r["state"] == "DELETED" for r in audit_rows)
+        await server.db.cloudinary_deletion_log.delete_many({"public_id": remove_pid})
+
+    _run(_with_product(body))
+
+
+def test_admin_removing_image_is_audited_as_admin_not_as_the_product_merchant():
+    """2026-09 final security review finding, fixed in-review: the audit
+    record's `actor` field used to fall back to the PRODUCT's own
+    merchant_id whenever an admin (not the owning merchant) performed the
+    removal — misattributing an admin action to the merchant in the audit
+    trail, exactly the kind of "who did this" ambiguity this whole
+    incident's remediation exists to prevent. `actor` must now reflect the
+    real caller identity, threaded through from admin_update_product's own
+    `admin.get('id')` — the product's merchant_id is preserved separately
+    on the same record for context, not as a substitute for actor."""
+    async def body(doc):
+        remove_pid = doc["image_public_ids"][0]
+        with patch("server.cloudinary_service.delete_image", new_callable=AsyncMock, return_value=True):
+            await server._apply_product_update(
+                doc["id"], doc, {"remove_image_public_ids": [remove_pid]}, actor="test-admin-id",
+            )
+        audit_rows = [r async for r in server.db.cloudinary_deletion_log.find(
+            {"public_id": remove_pid}, {"_id": 0})]
+        assert len(audit_rows) >= 1
+        for r in audit_rows:
+            assert r["actor"] == "test-admin-id"
+            assert r["actor"] != doc["merchant_id"]
+            assert r["merchant_id"] == doc["merchant_id"]  # product ownership still recorded separately
+        await server.db.cloudinary_deletion_log.delete_many({"public_id": remove_pid})
+
+    _run(_with_product(body))
+
+
+def test_admin_update_product_route_passes_its_own_admin_id_as_actor():
+    """End-to-end proof that the real HTTP route (not just _apply_product_
+    update called directly) threads the admin's own id through, not the
+    product's merchant_id."""
+    async def body(doc):
+        remove_pid = doc["image_public_ids"][0]
+        with patch("server.cloudinary_service.delete_image", new_callable=AsyncMock, return_value=True):
+            await server.admin_update_product(
+                doc["id"], {"remove_image_public_ids": [remove_pid]}, admin={"id": "admin-xyz"},
+            )
+        audit_rows = [r async for r in server.db.cloudinary_deletion_log.find(
+            {"public_id": remove_pid}, {"_id": 0})]
+        assert any(r["actor"] == "admin-xyz" for r in audit_rows)
+        await server.db.cloudinary_deletion_log.delete_many({"public_id": remove_pid})
+
+    _run(_with_product(body))
+
+
+def test_merchant_update_product_route_passes_its_own_user_id_as_actor():
+    async def body(doc):
+        remove_pid = doc["image_public_ids"][0]
+        with patch("server.cloudinary_service.delete_image", new_callable=AsyncMock, return_value=True):
+            await server.update_merchant_product(
+                doc["id"], {"remove_image_public_ids": [remove_pid]}, user={"sub": doc["merchant_id"], "role": "merchant"},
+            )
+        audit_rows = [r async for r in server.db.cloudinary_deletion_log.find(
+            {"public_id": remove_pid}, {"_id": 0})]
+        assert any(r["actor"] == doc["merchant_id"] for r in audit_rows)
+        await server.db.cloudinary_deletion_log.delete_many({"public_id": remove_pid})
+
+    _run(_with_product(body))

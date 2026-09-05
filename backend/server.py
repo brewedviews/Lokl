@@ -45,6 +45,7 @@ import rider_push
 from observability import init_sentry
 import environment
 from services import cloudinary_service
+from services import cloudinary_safety
 from services import encryption_service
 from services import vasyerp_client
 from services.vasyerp_client import VasyERPAuthError, VasyERPClientError
@@ -2688,7 +2689,11 @@ async def merchant_upload_image(
     """
     if user.get("role") not in ("merchant", "admin"):
         raise HTTPException(403, "Merchant access required")
-    return await cloudinary_service.upload_image(file, asset_type, user["sub"])
+    result = await cloudinary_service.upload_image(file, asset_type, user["sub"])
+    await cloudinary_safety.record_pending_upload(
+        db, public_id=result.get("public_id", ""), owner_id=user["sub"], asset_type=asset_type,
+    )
+    return result
 
 
 async def _merchant_owns_cloudinary_asset(merchant_id: str, public_id: str) -> bool:
@@ -2744,6 +2749,10 @@ async def merchant_delete_image(public_id: str, user: dict = Depends(merchant_us
     if user.get("role") == "merchant" and not await _merchant_owns_cloudinary_asset(user["sub"], public_id):
         raise HTTPException(403, "You do not have permission to delete this image")
     ok = await cloudinary_service.delete_image(public_id)
+    await cloudinary_safety.audit_owner_scoped_deletion(
+        db, public_id=public_id, actor=user["sub"], reason="merchant_delete_image", cloudinary_ok=ok,
+        merchant_id=user["sub"] if user.get("role") == "merchant" else None,
+    )
     return {"ok": ok}
 
 
@@ -3343,7 +3352,12 @@ async def admin_cms_upload(
     piling into lokl/cms."""
     if asset_type not in ("cms", "brand_logo"):
         raise HTTPException(400, "Invalid asset_type for admin upload")
-    return await cloudinary_service.upload_image(file, asset_type, admin.get("id", "admin"))
+    owner_id = admin.get("id", "admin")
+    result = await cloudinary_service.upload_image(file, asset_type, owner_id)
+    await cloudinary_safety.record_pending_upload(
+        db, public_id=result.get("public_id", ""), owner_id=owner_id, asset_type=asset_type,
+    )
+    return result
 
 
 class CmsUploadFromUrlPayload(BaseModel):
@@ -3377,7 +3391,12 @@ async def admin_cms_upload_from_url(payload: CmsUploadFromUrlPayload, admin: dic
     url = (payload.url or "").strip()
     if not url:
         raise HTTPException(400, "url is required")
-    return await cloudinary_service.upload_image_from_url(url, payload.asset_type, admin.get("id", "admin"))
+    owner_id = admin.get("id", "admin")
+    result = await cloudinary_service.upload_image_from_url(url, payload.asset_type, owner_id)
+    await cloudinary_safety.record_pending_upload(
+        db, public_id=result.get("public_id", ""), owner_id=owner_id, asset_type=payload.asset_type,
+    )
+    return result
 
 
 @api.get("/admin/cms/search-destinations")
@@ -8261,7 +8280,7 @@ ALLOWED_PRODUCT_UPDATE_FIELDS = {
 }
 
 
-async def _remove_product_images(pid: str, p: dict, remove_ids) -> tuple[dict, dict]:
+async def _remove_product_images(pid: str, p: dict, remove_ids, *, actor: str = "unknown") -> tuple[dict, dict]:
     """Explicit, per-product-validated Cloudinary deletion — the ONLY path
     through which updating a product can ever delete an image asset (see
     the incident write-up on `_apply_product_update` below for what this
@@ -8303,9 +8322,15 @@ async def _remove_product_images(pid: str, p: dict, remove_ids) -> tuple[dict, d
             raise HTTPException(400, f"'{rid}' is not an image on this product")
 
     aligned = len(images) == len(public_ids)
+    merchant_id = p.get("merchant_id")
     deleted, failed = [], []
     for rid in remove_ids:
-        if not await cloudinary_service.delete_image(rid):
+        cloudinary_ok = await cloudinary_service.delete_image(rid)
+        await cloudinary_safety.audit_owner_scoped_deletion(
+            db, public_id=rid, actor=actor, reason="remove_image_public_ids",
+            cloudinary_ok=cloudinary_ok, product_id=pid, merchant_id=merchant_id,
+        )
+        if not cloudinary_ok:
             log.warning("[product-image-removal] Cloudinary delete failed for %s on product %s — left in place", rid, pid)
             failed.append(rid)
             continue
@@ -8329,12 +8354,20 @@ async def _remove_product_images(pid: str, p: dict, remove_ids) -> tuple[dict, d
     return fields, {"deleted": deleted, "failed": failed}
 
 
-async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
+async def _apply_product_update(pid: str, p: dict, payload: dict, *, actor: str = "unknown") -> dict:
     """Shared product-content-update logic — the caller has already
     fetched the existing product doc `p` and confirmed the caller is
     allowed to edit it (merchant ownership check, or admin). G25 reuses
     this exact function for the new PUT /admin/products/{pid} instead of
     building a second, parallel product-update implementation.
+
+    `actor` (Phase 9 audit fix) — the id of whoever is actually making this
+    call (merchant's own user["sub"], or the admin's own id), passed
+    through to `_remove_product_images` so a Cloudinary-deletion audit
+    record correctly attributes WHO performed the deletion. Before this
+    fix, the audit record fell back to the PRODUCT's own merchant_id
+    unconditionally — so an admin editing a merchant's product would be
+    misattributed in the audit trail as that merchant.
 
     Incident fix: this used to also implicitly delete from Cloudinary
     whenever a submitted `image_public_id`/`image_public_ids` differed from
@@ -8366,7 +8399,7 @@ async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
         await _validate_l1_l2(effective_l1, effective_l2, effective_gender)
     image_removal_result = None
     if remove_ids:
-        image_fields, image_removal_result = await _remove_product_images(pid, p, remove_ids)
+        image_fields, image_removal_result = await _remove_product_images(pid, p, remove_ids, actor=actor)
         payload.update(image_fields)
     if "return_window_hours" in payload and payload["return_window_hours"] is not None:
         try:
@@ -8430,7 +8463,7 @@ async def _apply_product_update(pid: str, p: dict, payload: dict) -> dict:
 async def update_merchant_product(pid: str, payload: dict, user: dict = Depends(merchant_user)):
     p = await db.products.find_one({"id": pid, "merchant_id": user["sub"]}, {"_id": 0})
     if not p: raise HTTPException(404, "Product not found")
-    return await _apply_product_update(pid, p, payload)
+    return await _apply_product_update(pid, p, payload, actor=user["sub"])
 
 @api.patch("/merchant/products/{pid}")
 async def quick_update_product(pid: str, payload: dict, user: dict = Depends(merchant_user)):
@@ -9787,6 +9820,9 @@ async def _publish_staged_import(row: dict, merchant_id: str) -> dict:
     if not image_public_id:
         uploaded = await cloudinary_service.upload_image_from_url(image_url, "product", merchant_id)
         image_url, image_public_id = uploaded["image_url"], uploaded["public_id"]
+        await cloudinary_safety.record_pending_upload(
+            db, public_id=image_public_id, owner_id=merchant_id, asset_type="product",
+        )
 
     payload = ProductCreate(
         name=row["name"], price=row.get("price") or 0, mrp=row.get("mrp"),
@@ -11194,7 +11230,7 @@ async def admin_update_product(pid: str, payload: dict, admin: dict = Depends(re
     second implementation."""
     p = await db.products.find_one({"id": pid}, {"_id": 0})
     if not p: raise HTTPException(404, "Product not found")
-    return await _apply_product_update(pid, p, payload)
+    return await _apply_product_update(pid, p, payload, actor=admin.get("id", "admin"))
 
 
 @api.post("/admin/products/{pid}/pause")

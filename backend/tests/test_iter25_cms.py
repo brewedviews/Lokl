@@ -182,22 +182,28 @@ class TestSeedIdempotency:
             f"Second seed run did not report idempotency. stdout={r2.stdout}"
 
 
-# ---------- Cloudinary cleanup dry-run ----------
-class TestCloudinaryCleanupDryRun:
-    def test_dry_run_lists_only_safe_prefixes(self):
+# ---------- Cloudinary cleanup — RETIRED (2026-09 incident, Phase 9) ----------
+# migration 006's bulk prefix-delete capability (what --dry-run used to preview)
+# has been removed outright, not merely re-guarded — see
+# migrations/006_cloudinary_cleanup.py's own docstring. This class now proves
+# the retirement instead of the old dry-run behavior it used to exercise.
+class TestCloudinaryCleanupRetired:
+    def test_dry_run_no_longer_exists_and_script_refuses_unconditionally(self):
         r = subprocess.run(
             ["python", "-m", "migrations.006_cloudinary_cleanup", "--dry-run"],
             cwd="/app/backend", capture_output=True, text=True, timeout=60,
         )
-        assert r.returncode == 0, f"dry-run failed:\nSTDOUT:{r.stdout}\nSTDERR:{r.stderr}"
-        out = r.stdout
-        # No kyc reference in any "would delete" line
-        for line in out.splitlines():
-            if line.strip().startswith("would delete:"):
-                assert "lokl/kyc" not in line, f"kyc resource referenced in dry-run output: {line}"
-        # Banner header must mention each safe prefix
-        for p in ("lokl/products", "lokl/stores", "lokl/banners"):
-            assert p in out, f"Expected prefix {p} in dry-run output"
+        assert r.returncode != 0, "006_cloudinary_cleanup must refuse to run under any arguments, including --dry-run"
+        assert "RETIRED" in r.stderr, f"Expected a RETIRED refusal message on stderr, got:\nSTDOUT:{r.stdout}\nSTDERR:{r.stderr}"
+
+    def test_no_arguments_reactivate_the_old_behavior(self):
+        for args in (["--force"], ["--force", "--yes"], []):
+            r = subprocess.run(
+                ["python", "-m", "migrations.006_cloudinary_cleanup", *args],
+                cwd="/app/backend", capture_output=True, text=True, timeout=60,
+            )
+            assert r.returncode != 0, f"006_cloudinary_cleanup must refuse regardless of args, got exit 0 for {args}"
+            assert "RETIRED" in r.stderr
 
 
 # ---------- DB cleanup state ----------

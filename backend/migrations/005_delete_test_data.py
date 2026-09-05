@@ -144,34 +144,29 @@ async def up(db) -> dict:
         raise RuntimeError("ADMIN_EMAIL/ADMIN_PASSWORD_HASH missing from env — aborting")
     summary["admin_intact"] = True
 
-    # ── STEP 7: Cloudinary asset prefix purge (best-effort, optional) ─
-    cloudinary_summary: dict = {"status": "skipped"}
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-        if all(os.environ.get(k) for k in (
-            "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET")):
-            import cloudinary
-            from cloudinary import api as cloudinary_api
-            cloudinary.config(
-                cloud_name=os.environ["CLOUDINARY_CLOUD_NAME"],
-                api_key=os.environ["CLOUDINARY_API_KEY"],
-                api_secret=os.environ["CLOUDINARY_API_SECRET"],
-            )
-            wiped = {}
-            for prefix in ("lokl/products", "lokl/stores", "lokl/banners",
-                           "products", "stores", "banners", "lokl-test"):
-                try:
-                    res = cloudinary_api.delete_resources_by_prefix(prefix)
-                    wiped[prefix] = len((res.get("deleted") or {}))
-                except Exception as e:
-                    wiped[prefix] = f"error: {e}"
-            cloudinary_summary = {"status": "ok", "deleted_by_prefix": wiped}
-        else:
-            cloudinary_summary = {"status": "skipped — env not set"}
-    except Exception as e:
-        cloudinary_summary = {"status": f"error: {e}"}
-    summary["cloudinary"] = cloudinary_summary
+    # ── STEP 7: RETIRED (2026-09 incident remediation, Phase 9) ────────
+    # This step used to call `cloudinary_api.delete_resources_by_prefix()`
+    # against lokl/products, lokl/stores, lokl/banners (plus legacy
+    # unprefixed names) — a bulk, whole-folder Cloudinary delete living
+    # inside a migration that IS auto-discovered and auto-run by
+    # migrations/run.py on every server startup (see that module's own
+    # comment). It was gated only by the SAME single `up()`-level
+    # production guard as the Mongo wipe above, which is correct for the
+    # Mongo side but was never an acceptable guard for a bulk Cloudinary
+    # delete on its own — see migrations/006_cloudinary_cleanup.py's
+    # docstring for why this exact operation class (a callable path from a
+    # bare folder name to `delete_resources_by_prefix`) is the leading
+    # hypothesis for the 2026-09 production Cloudinary asset-loss incident.
+    # This migration's own two executions (2026-06-14, both pre-launch)
+    # only ever deleted 5 trivial leftover test assets via this step — it
+    # is not implicated in the incident itself — but the capability stayed
+    # live in application code for three months afterward regardless.
+    # Removed outright rather than re-guarded: `lokl/products`,
+    # `lokl/stores`, and `lokl/banners` hold live production data now and
+    # always will going forward, so "delete everything under this folder"
+    # is no longer a legitimate migration step. The Mongo-side wipe above
+    # is unaffected and keeps its own existing guard.
+    summary["cloudinary"] = {"status": "retired — see migrations/006_cloudinary_cleanup.py's docstring"}
 
     # ── STEP 8: final counts ──────────────────────────────────────────
     after: dict = {}
