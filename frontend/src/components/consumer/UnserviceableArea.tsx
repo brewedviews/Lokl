@@ -34,6 +34,15 @@
  *     9C) rather than a new endpoint. Dedup is free: the backend's
  *     existing phone+type unique key already prevents a repeat request
  *     from creating a second row.
+ *
+ * `previewMode` (Phase 9C — /unserviceable QA preview route) — when true,
+ * "Request Lokl in your area" simulates its success state WITHOUT ever
+ * calling api.site.joinWaitlist()/POST /api/waitlist, so opening or
+ * clicking through the preview route can never create a real waitlist
+ * row. It changes NOTHING else — same markup, same styles, same
+ * LocationChip/picker behavior. Always omitted (defaults to false) by the
+ * real ServiceabilityGate render, so a genuinely unserviceable customer's
+ * experience is byte-for-byte unchanged.
  */
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
@@ -43,11 +52,12 @@ import { LocationChip } from "./ConsumerHeader";
 import { UnserviceableAreaArt } from "./UnserviceableAreaArt";
 
 export function UnserviceableArea({
-  lat, lng, area,
+  lat, lng, area, previewMode = false,
 }: {
   lat: number | null;
   lng: number | null;
   area: string | null;
+  previewMode?: boolean;
 }) {
   const phone = useCustomerAuthStore((s) => s.phone);
   const displayLabel = area || "your area";
@@ -75,7 +85,7 @@ export function UnserviceableArea({
         </p>
 
         <div className="w-full mt-7">
-          <RequestAreaCTA lat={lat} lng={lng} area={area} />
+          <RequestAreaCTA lat={lat} lng={lng} area={area} previewMode={previewMode} />
         </div>
 
         <p className="mt-4 text-[12.5px] text-text-secondary/80">
@@ -95,11 +105,12 @@ export function UnserviceableArea({
 // established Lokl pattern for this exact kind of one-field demand capture,
 // but skips the phone field entirely for an already-logged-in customer.
 function RequestAreaCTA({
-  lat, lng, area,
+  lat, lng, area, previewMode = false,
 }: {
   lat: number | null;
   lng: number | null;
   area: string | null;
+  previewMode?: boolean;
 }) {
   const phone = useCustomerAuthStore((s) => s.phone);
 
@@ -111,6 +122,15 @@ function RequestAreaCTA({
   const submit = async (targetPhone: string) => {
     setStatus("submitting");
     setError("");
+    if (previewMode) {
+      // Never touches the real backend — see UnserviceableArea's own doc
+      // comment on this prop. The short delay still demonstrates the real
+      // loading state a genuine submission goes through, without writing
+      // any data anywhere.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      setStatus("done");
+      return;
+    }
     try {
       await api.site.joinWaitlist({
         phone: targetPhone,

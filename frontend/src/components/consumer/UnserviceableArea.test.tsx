@@ -183,4 +183,36 @@ describe("UnserviceableArea", () => {
     expect(await screen.findByTestId("request-area-error")).toBeInTheDocument();
     expect(screen.queryByTestId("request-area-success")).not.toBeInTheDocument();
   });
+
+  it("previewMode: the CTA shows the real success state WITHOUT ever calling the real waitlist API (the /unserviceable preview route's core safety guarantee)", async () => {
+    mockPhone = "919876543210";
+    const user = userEvent.setup();
+    render(<UnserviceableArea lat={12.9716} lng={77.5946} area="your area" previewMode />);
+    await user.click(screen.getByTestId("request-area-cta"));
+
+    expect(await screen.findByTestId("request-area-success")).toBeInTheDocument();
+    expect(joinWaitlist).not.toHaveBeenCalled();
+  });
+
+  it("previewMode: a guest submitting a phone number also never calls the real waitlist API", async () => {
+    const user = userEvent.setup();
+    render(<UnserviceableArea lat={12.9716} lng={77.5946} area="your area" previewMode />);
+    await user.click(screen.getByTestId("request-area-cta"));
+    const input = await screen.findByTestId("request-area-phone-input");
+    await user.type(input, "9876543210");
+    await user.click(screen.getByTestId("request-area-submit"));
+
+    expect(await screen.findByTestId("request-area-success")).toBeInTheDocument();
+    expect(joinWaitlist).not.toHaveBeenCalled();
+  });
+
+  it("previewMode omitted (real ServiceabilityGate usage) behaves exactly as before — still calls the real API", async () => {
+    mockPhone = "919876543210";
+    const user = userEvent.setup();
+    render(<UnserviceableArea lat={12.9716} lng={77.5946} area="Bengaluru" />);
+    await user.click(screen.getByTestId("request-area-cta"));
+
+    await waitFor(() => expect(joinWaitlist).toHaveBeenCalledTimes(1));
+    expect(await screen.findByTestId("request-area-success")).toBeInTheDocument();
+  });
 });
