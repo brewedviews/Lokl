@@ -38,11 +38,12 @@
  * "unknown" bucket, which silently let the marketplace render even when a
  * check had genuinely been attempted and errored):
  *
- *   "no-location"   — nothing to check at all: no location-store pin AND
- *                      no confirmed saved address. There's no signal a
- *                      check could even run against. The gate preserves
- *                      today's existing behavior here — normal browsing —
- *                      exactly as it did before any of this existed.
+ *   "no-location"   — nothing to check at all: no location-store pin, no
+ *                      confirmed saved address, and no manually-entered
+ *                      pincode. There's no signal a check could even run
+ *                      against. The gate preserves today's existing
+ *                      behavior here — normal browsing — exactly as it
+ *                      did before any of this existed.
  *   "checking"       — a check is genuinely in flight for a real pin. The
  *                      gate shows a lightweight loading state; it must
  *                      NEVER present the marketplace as if serviceability
@@ -66,6 +67,17 @@
  * a real, awaited network call from THIS hook) gets the "checking"/"error"
  * treatment — deliberately scoped this way rather than reaching into
  * useServiceability.ts, which is shared by other, unrelated call sites.
+ *
+ * PRIORITY (Phase 10 adds the third tier): a location-store PIN > a
+ * logged-in customer's confirmed SAVED ADDRESS > a manually-entered
+ * PINCODE (useLocationStore.pincode, set by LocationRequiredState's
+ * fallback input when GPS isn't available/granted) > "no-location". The
+ * manual pincode gets its own "checking"/"error" treatment for the same
+ * reason the pin does — it performs a real, awaited network call
+ * (deliveryApi.checkServiceability({ pincode }), the SAME endpoint and
+ * SAME backend decision as every other tier — no second serviceability
+ * algorithm), so a failed request must surface as "error", never as
+ * "no-location" or "serviceable".
  *
  * `area` — a best-effort, DISPLAY-ONLY human label for the current
  * location (e.g. "Sector 6", "Bengaluru") — never used for any
@@ -123,12 +135,22 @@ export interface LocationServiceabilityResult {
 export function useLocationServiceability(): LocationServiceabilityResult {
   const lat = useLocationStore((s) => s.lat);
   const lng = useLocationStore((s) => s.lng);
+  const pincode = useLocationStore((s) => s.pincode);
   const savedAddress = useServiceability(); // { hasConfirmedAddress, serviceable, area }
 
   const [pinStatus, setPinStatus] = useState<"checking" | "serviceable" | "unserviceable" | "error">("checking");
   const [pinMessage, setPinMessage] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
   const retry = useCallback(() => setRetryToken((t) => t + 1), []);
+
+  // Manual-pincode tier (Phase 10) — only relevant once there's no pin and
+  // no confirmed saved address (see priority note above); its own effect
+  // so it doesn't race the pin-based one.
+  const hasNoPinOrAddress = lat == null && lng == null && !savedAddress.hasConfirmedAddress;
+  const [pincodeStatus, setPincodeStatus] = useState<"checking" | "serviceable" | "unserviceable" | "error">("checking");
+  const [pincodeMessage, setPincodeMessage] = useState<string | null>(null);
+  const [pincodeRetryToken, setPincodeRetryToken] = useState(0);
+  const retryPincode = useCallback(() => setPincodeRetryToken((t) => t + 1), []);
 
   useEffect(() => {
     if (lat == null || lng == null) return; // nothing to check — the no-pin branch below governs
@@ -178,6 +200,40 @@ export function useLocationServiceability(): LocationServiceabilityResult {
     };
   }, [pinStatus, lat, lng]);
 
+  useEffect(() => {
+    if (!hasNoPinOrAddress || !pincode) {
+      return; // nothing to check — either a stronger tier already answers this, or no pincode was entered
+    }
+    let alive = true;
+    setPincodeStatus("checking");
+    setPincodeMessage(null);
+    deliveryApi
+      .checkServiceability({ pincode })
+      .then((r) => {
+        if (!alive) return;
+        setPincodeStatus(r.serviceable ? "serviceable" : "unserviceable");
+        setPincodeMessage(r.message || null);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setPincodeStatus("error");
+        setPincodeMessage(null);
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasNoPinOrAddress, pincode, pincodeRetryToken]);
+
+  // A single retry() re-runs whichever tier is actually active — bumping
+  // the OTHER tier's token is inert (its effect's own guard clause keeps
+  // it from running when that tier isn't the one in use), so callers never
+  // need to know which tier they're retrying.
+  const combinedRetry = useCallback(() => {
+    retry();
+    retryPincode();
+  }, [retry, retryPincode]);
+
   // A location-store pin (present or in flight) always takes priority over
   // the saved-address fallback — it's the more precise, more current
   // signal. Only fall back when there's genuinely no pin to check at all,
@@ -190,7 +246,7 @@ export function useLocationServiceability(): LocationServiceabilityResult {
       lat,
       lng,
       area: pinArea,
-      retry,
+      retry: combinedRetry,
     };
   }
 
@@ -203,9 +259,21 @@ export function useLocationServiceability(): LocationServiceabilityResult {
       lat: null,
       lng: null,
       area: savedAddress.area,
-      retry,
+      retry: combinedRetry,
     };
   }
 
-  return { status: "no-location", isUnserviceable: false, message: null, lat: null, lng: null, area: null, retry };
+  if (pincode) {
+    return {
+      status: pincodeStatus,
+      isUnserviceable: pincodeStatus === "unserviceable",
+      message: pincodeMessage,
+      lat: null,
+      lng: null,
+      area: pincode,
+      retry: combinedRetry,
+    };
+  }
+
+  return { status: "no-location", isUnserviceable: false, message: null, lat: null, lng: null, area: null, retry: combinedRetry };
 }

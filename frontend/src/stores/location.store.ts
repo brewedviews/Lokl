@@ -25,6 +25,15 @@ interface LocationState {
   radiusKm: number;
   permission: Permission;
   hasAsked: boolean;
+  /** Phase 10 — a guest/customer's manually-entered pincode, for when GPS
+   *  isn't available/granted. Deliberately separate from lat/lng (never
+   *  geocoded to coordinates here) — useLocationServiceability checks it
+   *  directly via the SAME backend check-serviceability endpoint's
+   *  existing pincode parameter, exactly mirroring how the saved-address
+   *  fallback already works. Set alongside lat/lng being left null; a pin
+   *  (lat/lng) still takes priority over this when both are present, same
+   *  as the existing pin-over-saved-address priority. */
+  pincode: string | null;
 }
 
 interface LocationActions {
@@ -38,6 +47,9 @@ interface LocationActions {
    *  auto-fetch the position without prompting. No-op when permission is
    *  prompt/denied/unknown so first-time visitors still see the dialog. */
   autoDetectIfGranted: () => Promise<void>;
+  /** Phase 10 — manual-pincode fallback for when GPS is unavailable/denied.
+   *  Pass null to clear it (e.g. once a pin is later confirmed instead). */
+  setPincode: (pincode: string | null) => void;
 }
 
 type LocationStore = LocationState & LocationActions;
@@ -51,6 +63,7 @@ const INITIAL: LocationState = {
   radiusKm: 5,
   permission: "unknown",
   hasAsked: false,
+  pincode: null,
 };
 
 export const useLocationStore = create<LocationStore>()(
@@ -69,6 +82,13 @@ export const useLocationStore = create<LocationStore>()(
       setCluster: (cluster) => set({ cluster }),
       setRadius: (radiusKm) => set({ radiusKm }),
       setPermission: (permission) => set({ permission }),
+
+      setPincode: (pincode) => {
+        set({ pincode });
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event(LOCATION_EVENT));
+        }
+      },
 
       requestLocation: async () => {
         if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -127,6 +147,7 @@ export const useLocationStore = create<LocationStore>()(
         cluster: state.cluster,
         radiusKm: state.radiusKm,
         hasAsked: state.hasAsked,
+        pincode: state.pincode,
       }),
     },
   ),

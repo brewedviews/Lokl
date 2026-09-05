@@ -28,6 +28,21 @@
  * to /merchant/register (same onboarding-with-login-option page as
  * lokl.up.railway.app/merchant/register), everything else under it passes
  * through untouched so /merchant/* and its assets work normally.
+ *
+ * /admin host restriction (Phase 10): the admin console must only be
+ * reachable on the Railway hostname (lokl.up.railway.app), never on any
+ * customer/merchant-facing custom domain. A request for /admin* on
+ * shoplokl.in, www.shoplokl.in, or merchant.shoplokl.in is rewritten to a
+ * guaranteed-nonexistent path so src/app/not-found.tsx renders exactly as
+ * it already does for any genuinely missing route — the SAME technique
+ * already used for the retired /coming-soon and /unserviceable routes.
+ * Deliberately a rewrite, never a redirect to the Railway URL (that would
+ * just relocate the exposure, not remove it) and never a substitute for
+ * real authorization — the backend's `require_admin` JWT check is
+ * completely untouched and remains the actual security boundary; this is
+ * exposure reduction only, checked BEFORE the merchant.shoplokl.in
+ * bare-root branch so /admin can never fall into that branch's default
+ * pass-through.
  */
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
@@ -35,6 +50,14 @@ import type { NextRequest } from 'next/server'
 export function middleware(request: NextRequest) {
   const host = request.headers.get('host') || ''
   const { pathname } = request.nextUrl
+
+  const isPublicCustomDomain =
+    host === 'shoplokl.in' || host === 'www.shoplokl.in' || host === 'merchant.shoplokl.in'
+  if (isPublicCustomDomain && pathname.startsWith('/admin')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/__lokl-admin-unavailable'
+    return NextResponse.rewrite(url)
+  }
 
   if (host === 'merchant.shoplokl.in') {
     if (pathname === '/') {

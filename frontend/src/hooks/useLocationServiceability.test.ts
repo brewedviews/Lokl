@@ -22,7 +22,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
 import { useLocationServiceability } from "./useLocationServiceability";
 
-const mockLocationState = { lat: null as number | null, lng: null as number | null };
+const mockLocationState = {
+  lat: null as number | null,
+  lng: null as number | null,
+  pincode: null as string | null,
+};
 vi.mock("@/stores/location.store", () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   useLocationStore: (selector: (s: typeof mockLocationState) => any) => selector(mockLocationState),
@@ -46,6 +50,7 @@ vi.mock("@/lib/api-client", () => ({
 beforeEach(() => {
   mockLocationState.lat = null;
   mockLocationState.lng = null;
+  mockLocationState.pincode = null;
   mockSavedAddress = { area: null, hasConfirmedAddress: false, serviceable: true };
   checkServiceability.mockReset();
   apiGet.mockReset();
@@ -184,5 +189,80 @@ describe("useLocationServiceability — area label resolution", () => {
     await waitFor(() => expect(result.current.status).toBe("unserviceable"));
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     expect(result.current.area).toBeNull();
+  });
+});
+
+describe("useLocationServiceability — manual pincode tier (Phase 10)", () => {
+  it("no pin, no saved address, a pincode is entered → checks it via the SAME backend endpoint (no second serviceability algorithm)", async () => {
+    mockLocationState.pincode = "490020";
+    checkServiceability.mockResolvedValue({ serviceable: true, message: "We deliver here!", zone: "Bhilai" });
+    const { result } = renderHook(() => useLocationServiceability());
+    await waitFor(() => expect(result.current.status).toBe("serviceable"));
+    expect(checkServiceability).toHaveBeenCalledWith({ pincode: "490020" });
+  });
+
+  it("an unserviceable pincode → status unserviceable, area is the pincode itself", async () => {
+    mockLocationState.pincode = "560001";
+    checkServiceability.mockResolvedValue({ serviceable: false, message: "Sorry, we don't deliver here yet.", zone: null });
+    const { result } = renderHook(() => useLocationServiceability());
+    await waitFor(() => expect(result.current.status).toBe("unserviceable"));
+    expect(result.current.isUnserviceable).toBe(true);
+    expect(result.current.area).toBe("560001");
+  });
+
+  it("a pincode check in flight → status checking, never a false serviceable", () => {
+    mockLocationState.pincode = "490020";
+    checkServiceability.mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useLocationServiceability());
+    expect(result.current.status).toBe("checking");
+    expect(result.current.isUnserviceable).toBe(false);
+  });
+
+  it("the pincode request itself failing → status error, never no-location or serviceable", async () => {
+    mockLocationState.pincode = "490020";
+    checkServiceability.mockRejectedValue(new Error("network down"));
+    const { result } = renderHook(() => useLocationServiceability());
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    expect(result.current.status).not.toBe("no-location");
+    expect(result.current.status).not.toBe("serviceable");
+  });
+
+  it("retry() re-runs the pincode check after an error", async () => {
+    mockLocationState.pincode = "490020";
+    checkServiceability.mockRejectedValueOnce(new Error("network down"));
+    const { result } = renderHook(() => useLocationServiceability());
+    await waitFor(() => expect(result.current.status).toBe("error"));
+
+    checkServiceability.mockResolvedValueOnce({ serviceable: true, message: "ok", zone: "Bhilai" });
+    act(() => result.current.retry());
+    await waitFor(() => expect(result.current.status).toBe("serviceable"));
+    expect(checkServiceability).toHaveBeenCalledTimes(2);
+  });
+
+  it("priority — a pin always wins over a stored pincode, even mid-check", () => {
+    mockLocationState.lat = 21.19;
+    mockLocationState.lng = 81.33;
+    mockLocationState.pincode = "560001"; // a different, unserviceable pincode — must be ignored
+    checkServiceability.mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useLocationServiceability());
+    expect(result.current.status).toBe("checking");
+    // Only the pin check should have been attempted, never the pincode one.
+    expect(checkServiceability).toHaveBeenCalledWith({ lat: 21.19, lng: 81.33 });
+    expect(checkServiceability).not.toHaveBeenCalledWith({ pincode: "560001" });
+  });
+
+  it("priority — a confirmed saved address always wins over a stored pincode", () => {
+    mockSavedAddress = { area: "Sector 6", hasConfirmedAddress: true, serviceable: true };
+    mockLocationState.pincode = "560001";
+    const { result } = renderHook(() => useLocationServiceability());
+    expect(result.current.status).toBe("serviceable");
+    expect(result.current.area).toBe("Sector 6");
+    expect(checkServiceability).not.toHaveBeenCalled();
+  });
+
+  it("no pin, no saved address, no pincode → still no-location (unchanged baseline)", () => {
+    const { result } = renderHook(() => useLocationServiceability());
+    expect(result.current.status).toBe("no-location");
+    expect(checkServiceability).not.toHaveBeenCalled();
   });
 });

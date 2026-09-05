@@ -1,5 +1,6 @@
 import { CategoryTileRow } from "@/components/consumer/CategoryTileRow";
 import { ServiceabilityGate } from "@/components/consumer/ServiceabilityGate";
+import { LocationOnboardingGate } from "@/components/consumer/LocationOnboardingGate";
 
 /**
  * Shop route group — wraps Home (page.tsx) and every /c/[slug] category
@@ -49,16 +50,27 @@ import { ServiceabilityGate } from "@/components/consumer/ServiceabilityGate";
 export default function ShopLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex-1">
-      {/* Phase 9C — ServiceabilityGate wraps BOTH the tile strip and
-          {children} (not just {children} alone): there's no point showing
-          category navigation the customer can't actually shop from once
-          we know their location is outside the delivery footprint. See
-          ServiceabilityGate's own doc comment for why this is scoped to
-          just Home + category pages, not the whole consumer layout. */}
-      <ServiceabilityGate>
-        <CategoryTileRow />
-        {children}
-      </ServiceabilityGate>
+      {/* Phase 10 — LocationOnboardingGate sits OUTSIDE ServiceabilityGate:
+          it answers "do we have a location signal to check AT ALL" (first-
+          load interstitial + Allow-location/pincode), then hands off to
+          the unchanged ServiceabilityGate, which still answers "is that
+          location serviceable." Same (shop)-only scoping rationale as
+          Phase 9C's own comment below — account/orders/checkout/search/
+          PDP/stores all stay reachable without first completing location
+          onboarding. See LocationOnboardingGate's own doc comment for its
+          full state machine. */}
+      <LocationOnboardingGate>
+        {/* Phase 9C — ServiceabilityGate wraps BOTH the tile strip and
+            {children} (not just {children} alone): there's no point showing
+            category navigation the customer can't actually shop from once
+            we know their location is outside the delivery footprint. See
+            ServiceabilityGate's own doc comment for why this is scoped to
+            just Home + category pages, not the whole consumer layout. */}
+        <ServiceabilityGate>
+          <CategoryTileRow />
+          {children}
+        </ServiceabilityGate>
+      </LocationOnboardingGate>
     </div>
   );
 }
