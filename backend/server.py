@@ -662,27 +662,24 @@ async def logout(request: Request, response: Response):
     """Properly terminates the session:
       1. Revokes the current refresh token (adds its JTI to the revocation set).
       2. Clears the refresh cookie so the browser stops sending it.
-      3. For merchants, flips their store offline as a courtesy so customers
-         don't continue to see an open store after the merchant signs out.
     Access tokens remain valid until their natural 15-min expiry — this is
-    accepted by design (short TTL keeps the blast radius small)."""
+    accepted by design (short TTL keeps the blast radius small).
+
+    Store-availability redesign (2026-09) REMOVED the "flip merchant store
+    offline on logout" side-effect this used to have. Under the old
+    always-manual model that was a reasonable courtesy (nobody was watching
+    the shop if the merchant wasn't logged in); under the new SCHEDULE-is-
+    the-source-of-truth model it was actively harmful — it applied a
+    persistent manual-closure override every time a merchant's session
+    ended, including an ordinary access-token expiry forcing a silent
+    re-login. A merchant would then need to remember to manually clear
+    that override the next morning, resurrecting exactly the "must press
+    Go Live every day" problem this redesign exists to remove. The
+    schedule (opens_at/closes_at/weekly_off) already hides the store
+    outside its own hours with no help needed from auth state."""
     refresh_cookie = request.cookies.get("refresh_token")
     await _revoke_refresh_token(refresh_cookie)
     _clear_refresh_cookie(response)
-
-    # Best-effort merchant-store-offline side-effect — only runs if the caller
-    # presented a valid bearer token. Anonymous logout (just cookie present)
-    # still works for the cookie-clearing purpose.
-    auth_hdr = request.headers.get("authorization", "")
-    if auth_hdr.startswith("Bearer "):
-        try:
-            user = decode_token(auth_hdr.split(" ", 1)[1])
-            if user.get("type") != "refresh" and user.get("role") == "merchant":
-                store_id = f"store-m-{user['sub']}"
-                await db.stores.update_one({"id": store_id}, {"$set": {"online": False}})
-                await db.merchants.update_one({"id": user["sub"]}, {"$set": {"storefront.online": False}})
-        except Exception:
-            pass
     return {"ok": True}
 
 @api.get("/auth/me")
@@ -4217,7 +4214,7 @@ async def _store_offer_rollup(store_ids: list) -> dict:
     return result
 
 
-# DEPRECATED — replaced by _store_availability(). Do not use.
+# DEPRECATED — replaced by _effective_store_open()/_store_availability(). Do not use.
 def _is_store_open_now(store: dict) -> tuple[bool, str | None]:
     """Returns (is_open, next_open_label). 30-min buffer after opens_at and before closes_at.
 
@@ -4246,166 +4243,180 @@ def _is_store_open_now(store: dict) -> tuple[bool, str | None]:
         return True, None
 
 
-def _store_availability(store: dict) -> dict:
-    """Return full availability descriptor for a store.
+def _ist_now() -> datetime:
+    """Single source of the IST-no-DST assumption every store-hours check in
+    this file relies on (Bhilai-only pilot) — centralized here (2026-09
+    store-availability redesign) so it's one place, not four independent
+    `+ timedelta(hours=5, minutes=30)` copies."""
+    return datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
 
-    State matrix (rank 1=best):
-      Toggle OFF                                      → rank 4, Store Offline, can_order=False
-      Toggle ON + outside hours                       → rank 3, Closed,        can_order=False
-      Toggle ON + in hours + last_seen < 60 min       → rank 1, LIVE,          can_order=True
-      Toggle ON + in hours + last_seen 60–180 min     → rank 2, Away,          can_order=False
-      Toggle ON + in hours + last_seen > 180 min      → rank 4, Store Offline, can_order=False
-      Toggle ON + in hours + no last_seen (new store) → rank 1, LIVE,          can_order=True
 
-    UX consistency pass — `can_order=True` for the outside-hours "Closed"
-    state used to be deliberate (an old pre-order-style flow let a closed
-    store still accept an order to fulfill later). That flow no longer
-    exists on the frontend, and leaving `can_order=True` here made it the
-    ONE state where `can_order`/`is_open` alone lies about real
-    orderability — any caller reading that flag directly (several store-
-    card surfaces did) rendered "Open now" for a store that was actually
-    outside its hours. `can_order` is now False for every non-LIVE badge,
-    so it's trustworthy on its own everywhere it's read; browsing/adding
-    to bag were never gated on this flag (see ProductCard/PdpCtaRow, which
-    gate on the `badge` string instead) and stay unaffected.
+def _fmt_hhmm_ampm(t: str) -> str:
+    try:
+        oh, om = [int(x) for x in t.split(":")[:2]]
+        h = oh % 12 or 12
+        return f"{h}:{om:02d} {'AM' if oh < 12 else 'PM'}"
+    except Exception:
+        return t
+
+
+def _effective_store_open(store: dict) -> dict:
+    """THE single source of truth for "is this store open right now" —
+    store-availability redesign (2026-09). SCHEDULE (weekly_off + opens_at/
+    closes_at) is the source of truth; `online` is ONLY an explicit,
+    temporary manual-closure override, never a way to force a store open
+    outside its configured hours:
+
+        effective_open =
+            not weekly_off
+            AND within today's configured opening-hours window
+            AND online is not False
+
+    (Callers layer their own "otherwise eligible" checks — kyc/published/
+    paused/is_deleted — via _visible_store_filter()/_maybe_autopublish_store
+    etc.; this function only ever answers the schedule+override question.)
+
+    Precedence matters for the REASON reported, not just the boolean: a
+    weekly off-day or being outside hours is reported as such even if the
+    merchant separately toggled `online=False` — "manual" is only the
+    reason when the store would otherwise genuinely be open. This matches
+    online=False being a closure override: there's nothing for it to
+    override on a day/hour the schedule already says is closed.
+
+    No time-based decay of any kind (no 12h cap, no last_seen_at recency)
+    — a merchant does not need to touch anything for the store to be LIVE
+    every day during its own configured hours. `last_seen_at` is READ
+    nowhere in this function; it remains purely an operational/admin
+    signal (see GET /admin/... surfaces), never a factor in customer-
+    facing status or order acceptance.
+
+    Handles overnight windows (closes_at <= opens_at, e.g. 18:00–02:00) by
+    treating the configured range as spanning midnight.
+
+    Returns: {"open": bool, "reason": None|"weekly_off"|"closed"|"manual",
+              "eta_message": str, "opens_at_label": str|None}
+    `reason` is None iff `open` is True.
     """
-    def _fmt_time(t: str) -> str:
-        try:
-            oh, om = [int(x) for x in t.split(":")[:2]]
-            h = oh % 12 or 12
-            ampm = "AM" if oh < 12 else "PM"
-            return f"{h}:{om:02d} {ampm}"
-        except Exception:
-            return t
-
-    if store.get("online") is False:
-        return {"rank": 4, "badge": "Store Offline", "badge_color": "red",
-                "can_order": False, "eta_message": "Store offline", "opens_at_label": None}
-
-    # Check weekly off
     weekly_off = store.get("weekly_off") or []
-    if weekly_off:
-        ist_now = datetime.now(timezone.utc) + timedelta(minutes=330)
-        ist_day = ist_now.strftime("%A")
-        if ist_day in weekly_off:
-            days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            today_idx = days.index(ist_day)
-            opens_raw = store.get("opens_at", "10:00")
-            try:
-                h, mn = map(int, opens_raw.split(":")[:2])
-                opens_fmt = f"{h if h <= 12 else h - 12}:{mn:02d} {'AM' if h < 12 else 'PM'}"
-            except Exception:
-                opens_fmt = opens_raw
-            for i in range(1, 8):
-                next_day = days[(today_idx + i) % 7]
-                if next_day not in weekly_off:
-                    return {"rank": 3, "badge": "Closed", "badge_color": "gray",
-                            "can_order": False,
-                            "eta_message": f"Weekly off · Opens {next_day} at {opens_fmt}",
-                            "opens_at_label": f"Opens {next_day} at {opens_fmt}"}
+    opens = store.get("opens_at") or "10:00"
+    closes = store.get("closes_at") or "18:00"
 
-    opens = store.get("opens_at")
-    closes = store.get("closes_at")
+    ist_now = _ist_now()
+    ist_day = ist_now.strftime("%A")
+
+    # 1) Weekly off-day — closed all day, regardless of hours or the manual override.
+    if ist_day in weekly_off:
+        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        today_idx = days.index(ist_day)
+        opens_fmt = _fmt_hhmm_ampm(opens)
+        next_open_label = None
+        for i in range(1, 8):
+            next_day = days[(today_idx + i) % 7]
+            if next_day not in weekly_off:
+                next_open_label = f"Opens {next_day} at {opens_fmt}"
+                break
+        return {"open": False, "reason": "weekly_off",
+                "eta_message": f"Weekly off · {next_open_label}" if next_open_label else "Weekly off",
+                "opens_at_label": next_open_label}
+
+    # 2) Within today's configured hours, with overnight-wraparound support.
     in_hours = True
     cur_min = None
-    closes_raw_min = None
-
-    if opens and closes:
+    open_min_raw = None
+    if store.get("opens_at") and store.get("closes_at"):
         try:
-            ist = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
-            cur_min = ist.hour * 60 + ist.minute
+            cur_min = ist_now.hour * 60 + ist_now.minute
             oh, om = [int(x) for x in opens.split(":")[:2]]
             ch, cm = [int(x) for x in closes.split(":")[:2]]
-            open_min = oh * 60 + om + 30   # 30-min grace after opens
-            close_min = ch * 60 + cm - 30  # 30-min grace before closes
-            closes_raw_min = ch * 60 + cm
-            in_hours = open_min <= cur_min < close_min
+            open_min_raw = oh * 60 + om
+            close_min_raw = ch * 60 + cm
+            if close_min_raw == open_min_raw:
+                # opens_at == closes_at is explicitly a 24-hour schedule —
+                # NOT the degenerate overnight case below (which would
+                # otherwise read this as "closed" for a 60-min dead zone
+                # around the equal time, once the open/close grace periods
+                # are applied). Always in hours, no grace window at all.
+                in_hours = True
+            else:
+                open_min = open_min_raw + 30   # 30-min grace after opens (existing convention)
+                close_min = close_min_raw - 30  # 30-min grace before closes
+                if close_min_raw < open_min_raw:
+                    # Overnight window (e.g. 18:00–02:00): the open interval
+                    # wraps past midnight, so "in hours" is everything from
+                    # opening tonight through closing the following morning.
+                    in_hours = cur_min >= open_min or cur_min < close_min
+                else:
+                    in_hours = open_min <= cur_min < close_min
         except Exception:
             in_hours = True
 
     if not in_hours:
-        try:
-            time_str = _fmt_time(opens)
-            if cur_min is not None and closes_raw_min is not None and cur_min < closes_raw_min:
-                eta_msg = f"Opens today at {time_str}"
-                opens_lbl = f"Opens at {time_str}"
-            else:
-                eta_msg = f"Opens tomorrow at {time_str}"
-                opens_lbl = f"Opens tomorrow at {time_str}"
-        except Exception:
-            eta_msg, opens_lbl = "Store closed", None
-        return {"rank": 3, "badge": "Closed", "badge_color": "gray",
-                "can_order": False, "eta_message": eta_msg, "opens_at_label": opens_lbl}
+        time_str = _fmt_hhmm_ampm(opens)
+        # "Opens today" iff today's window hasn't started yet at all — true
+        # for both a normal store waiting for its morning open, and an
+        # overnight store waiting for tonight's open (the whole daytime gap
+        # for an overnight schedule always satisfies cur_min < open_min_raw,
+        # since the gap sits entirely before tonight's opening minute).
+        if cur_min is not None and open_min_raw is not None and cur_min < open_min_raw:
+            eta_msg = f"Opens today at {time_str}"
+            opens_lbl = f"Opens at {time_str}"
+        else:
+            eta_msg = f"Opens tomorrow at {time_str}"
+            opens_lbl = f"Opens tomorrow at {time_str}"
+        return {"open": False, "reason": "closed", "eta_message": eta_msg, "opens_at_label": opens_lbl}
 
-    last_seen = store.get("last_seen_at")
-    if not last_seen:
+    # 3) Explicit manual closure override — only reachable once schedule
+    # already says "would be open".
+    if store.get("online") is False:
+        return {"open": False, "reason": "manual", "eta_message": "Store offline", "opens_at_label": None}
+
+    return {"open": True, "reason": None, "eta_message": "Delivery in ~45 mins", "opens_at_label": None}
+
+
+def _store_availability(store: dict) -> dict:
+    """Customer-facing availability descriptor — thin adapter from
+    _effective_store_open()'s open/reason verdict onto the existing
+    rank/badge/can_order/eta_message contract every caller already expects.
+    See _effective_store_open() for the actual formula; this function does
+    no independent computation of its own.
+
+    rank 1=LIVE (open), 3=Closed (schedule: hours or weekly off), 4=Store
+    Offline (explicit manual closure). The old last_seen_at-based "Away"
+    rank (2) no longer exists — see the 2026-09 store-availability redesign:
+    a store is not required to keep pinging the backend to stay LIVE.
+    `can_order` is False for every non-open state, matching the existing
+    "trustworthy on its own" contract callers already rely on."""
+    eff = _effective_store_open(store)
+    if eff["open"]:
         return {"rank": 1, "badge": "LIVE", "badge_color": "green",
-                "can_order": True, "eta_message": "Delivery in ~45 mins", "opens_at_label": None}
-
-    try:
-        last_dt = datetime.fromisoformat(last_seen.replace("Z", "+00:00"))
-        elapsed_min = (datetime.now(timezone.utc) - last_dt).total_seconds() / 60
-        if elapsed_min < 60:
-            return {"rank": 1, "badge": "LIVE", "badge_color": "green",
-                    "can_order": True, "eta_message": "Delivery in ~45 mins", "opens_at_label": None}
-        if elapsed_min < 180:
-            return {"rank": 2, "badge": "Away", "badge_color": "yellow",
-                    "can_order": False, "eta_message": "Store is away · Try again later", "opens_at_label": None}
+                "can_order": True, "eta_message": eff["eta_message"], "opens_at_label": eff["opens_at_label"]}
+    if eff["reason"] == "manual":
         return {"rank": 4, "badge": "Store Offline", "badge_color": "red",
-                "can_order": False, "eta_message": "Store offline · Try other stores", "opens_at_label": None}
-    except Exception:
-        return {"rank": 1, "badge": "LIVE", "badge_color": "green",
-                "can_order": True, "eta_message": "Delivery in ~45 mins", "opens_at_label": None}
+                "can_order": False, "eta_message": eff["eta_message"], "opens_at_label": eff["opens_at_label"]}
+    # "weekly_off" or "closed" — both are schedule-driven, same badge.
+    return {"rank": 3, "badge": "Closed", "badge_color": "gray",
+            "can_order": False, "eta_message": eff["eta_message"], "opens_at_label": eff["opens_at_label"]}
 
 
 def _merchant_live_status(store: dict) -> dict:
-    """Merchant-facing LIVE/offline computation (G12 P0-5) — layered ON TOP
-    of the manual `online` toggle, not a replacement for it. LIVE is a
-    business state independent of auth/session; this only asks two questions
-    once `online` is True: has the store been continuously LIVE for more
-    than 12h (`live_since`), or has the store's own closing time (reusing
-    `_store_availability`'s existing opens_at/closes_at/weekly_off math) since
-    passed? Either one auto-expires LIVE. Callers are expected to self-heal
-    the DB (`online: False`) when `needs_persist` is True — same "compute on
-    read" pattern `_store_availability` already uses, no background job.
+    """Merchant-facing open/closed computation — thin adapter from
+    _effective_store_open() onto the shape GET /merchant/store/state
+    returns. SCHEDULE is the source of truth; `online` is purely an
+    explicit manual-closure override (see _effective_store_open's own
+    docstring for the exact precedence) — this NEVER auto-expires LIVE
+    anymore (no 12h cap, no last_seen_at recency): a merchant's store is
+    open every day during its own configured hours with no action required.
+
+    Pure computation — no DB writes, nothing to self-heal. The previous
+    12h-cap design needed `needs_persist` because time itself could silently
+    invalidate a stored `online: True`; that no longer happens, since the
+    only thing that can now make an open-by-schedule store show closed is
+    the schedule itself changing (weekly_off/opens_at/closes_at, both
+    merchant-edited) or the merchant explicitly toggling `online: False` —
+    neither needs a background write on a GET.
     """
-    if store.get("online") is False:
-        return {
-            "online": False,
-            "offline_reason": store.get("offline_reason") or "manual",
-            "live_since": store.get("live_since"),
-            "needs_persist": False,
-        }
-
-    live_since_raw = store.get("live_since")
-    now = datetime.now(timezone.utc)
-    if not live_since_raw:
-        # Pre-existing online store from before this field existed (or a
-        # toggle call that raced the write) — start the clock now rather
-        # than retroactively expiring a store whose LIVE start was never
-        # tracked.
-        return {
-            "online": True, "offline_reason": None,
-            "live_since": now.isoformat(), "needs_persist": True,
-        }
-
-    try:
-        live_since = datetime.fromisoformat(live_since_raw.replace("Z", "+00:00"))
-        elapsed_hours = (now - live_since).total_seconds() / 3600
-    except Exception:
-        elapsed_hours = 0
-
-    if elapsed_hours >= 12:
-        return {"online": False, "offline_reason": "12h", "live_since": live_since_raw, "needs_persist": True}
-
-    # Force online=True on the probe copy so `_store_availability` gives the
-    # pure opens/closes/weekly_off verdict rather than short-circuiting on
-    # the (already-True) online flag.
-    probe = {**store, "online": True}
-    if _store_availability(probe).get("badge") == "Closed":
-        return {"online": False, "offline_reason": "closed", "live_since": live_since_raw, "needs_persist": True}
-
-    return {"online": True, "offline_reason": None, "live_since": live_since_raw, "needs_persist": False}
+    eff = _effective_store_open(store)
+    return {"online": eff["open"], "offline_reason": eff["reason"], "live_since": store.get("live_since")}
 
 
 async def _availability_map() -> dict[str, dict]:
@@ -4587,42 +4598,34 @@ async def feed_popular_stores(limit: int = 10, lat: Optional[float] = None, lng:
 
 @api.get("/feed/delivery-status")
 async def feed_delivery_status():
-    """Returns delivery status with reason: LIVE / AWAY (in-hours but offline) / CLOSED (outside hours)."""
-    from datetime import datetime, timezone, timedelta
+    """Returns aggregate delivery status across all visible stores: LIVE
+    (at least one store is open right now) / AWAY (at least one store
+    would be open by schedule right now but has an explicit manual closure
+    override) / CLOSED (no store's configured hours cover right now).
+    Reuses _effective_store_open() for every per-store verdict — no
+    independent weekly_off/hours computation left in this endpoint
+    (2026-09 store-availability redesign; this used to re-derive the same
+    math a third time)."""
     stores = await db.stores.find(
         _visible_store_filter(),
-        {"_id": 0, "online": 1, "last_seen_at": 1, "opens_at": 1, "closes_at": 1, "weekly_off": 1}
+        {"_id": 0, "online": 1, "opens_at": 1, "closes_at": 1, "weekly_off": 1}
     ).to_list(1000)
     if not stores:
         return {"status": "closed", "label": "CLOSED", "eta_label": "tomorrow", "message": "No stores yet"}
 
-    live_stores = [s for s in stores if _store_availability(s).get("rank", 4) <= 2]
-    if live_stores:
+    verdicts = [_effective_store_open(s) for s in stores]
+    if any(v["open"] for v in verdicts):
         return {"status": "live", "label": "LIVE", "eta_label": "45 minutes", "message": "Fast delivery"}
 
-    ist_now = datetime.now(timezone.utc) + timedelta(minutes=330)
-    current_minutes = ist_now.hour * 60 + ist_now.minute
-    ist_day = ist_now.strftime("%A")
-
-    in_hours_but_offline = []
-    for s in stores:
-        weekly_off = s.get("weekly_off") or []
-        if ist_day in weekly_off:
-            continue
-        opens = s.get("opens_at", "10:00")
-        closes = s.get("closes_at", "21:00")
-        try:
-            oh, om = map(int, opens.split(":"))
-            ch, cm = map(int, closes.split(":"))
-            if oh * 60 + om <= current_minutes <= ch * 60 + cm:
-                in_hours_but_offline.append(s)
-        except Exception:
-            pass
-
-    if in_hours_but_offline:
+    if any(v["reason"] == "manual" for v in verdicts):
         return {"status": "closed", "label": "AWAY", "eta_label": "back soon", "message": "Stores away"}
 
-    # Outside hours — find earliest opening time
+    # Outside hours everywhere — find earliest opening time across
+    # non-weekly-off stores (a plain aggregate over opens_at, not a
+    # per-store open/closed verdict, so it stays outside _effective_store_open).
+    ist_now = _ist_now()
+    current_minutes = ist_now.hour * 60 + ist_now.minute
+    ist_day = ist_now.strftime("%A")
     earliest_min = None
     earliest_opens = None
     opens_today = False
@@ -7901,34 +7904,28 @@ async def merchant_publish(user: dict = Depends(merchant_user)):
 
 @api.get("/merchant/store/state")
 async def merchant_store_state(user: dict = Depends(merchant_user)):
-    """Returns just what the sidebar needs: is the merchant fully launched + their online toggle.
+    """Returns just what the sidebar needs: is the merchant fully launched + their current open/closed state.
 
-    `online` here is the LIVE-with-12h-cap-and-closing-time-aware computed
-    value (see `_merchant_live_status`), not the raw DB flag — a store past
-    its 12h window or closing time self-heals to offline on this read so the
-    merchant's own dashboard never shows a stale "Live" that the consumer
-    side has already stopped honoring. `offline_reason` lets the UI explain
-    *why* ("manual" | "closed" | "12h") per G12's explicit requirement that
-    a merchant never appears offline without a clear cause.
+    `online` here is the SCHEDULE-derived open/closed value (see
+    `_merchant_live_status`/`_effective_store_open`), not merely the raw DB
+    flag — a store is open every day during its own configured hours with
+    no daily action required; `online: False` in the DB is read only as an
+    explicit temporary closure override, never as "must re-open manually
+    each day". `offline_reason` lets the UI explain why
+    ("weekly_off" | "closed" | "manual" | None-when-open). Pure read, no
+    DB write — there is nothing left to self-heal (no time-based decay of
+    any kind), unlike the old 12h-cap design this replaced.
     """
     sid = f"store-m-{user['sub']}"
     s = await db.stores.find_one(
         {"id": sid},
         {"_id": 0, "published": 1, "online": 1, "paused": 1, "product_count": 1,
-         "live_since": 1, "offline_reason": 1, "opens_at": 1, "closes_at": 1, "weekly_off": 1},
+         "live_since": 1, "opens_at": 1, "closes_at": 1, "weekly_off": 1},
     )
     if not s:
         return {"published": False, "online": True, "can_toggle": False, "product_count": 0, "offline_reason": None}
     pc = await db.products.count_documents({"store_id": sid, "paused": {"$ne": True}})
     live = _merchant_live_status(s)
-    if live["needs_persist"]:
-        await db.stores.update_one(
-            {"id": sid},
-            {"$set": {"online": live["online"], "offline_reason": live["offline_reason"], "live_since": live["live_since"]}},
-        )
-        if not live["online"]:
-            try: await cache_service.invalidate_geo()
-            except Exception: pass
     return {
         "published": bool(s.get("published")),
         "online": live["online"],
@@ -7943,18 +7940,30 @@ async def merchant_store_state(user: dict = Depends(merchant_user)):
 
 @api.post("/merchant/store/online")
 async def merchant_store_online(payload: dict, user: dict = Depends(merchant_user)):
-    """Merchant self-service availability toggle. Body: {online: bool}.
-    When `online=False`: store stays visible on the listing but is marked
-    "Offline — back soon" and all products from this store are hidden from the
-    public products listing.
+    """Merchant self-service TEMPORARY CLOSURE override. Body: {online: bool}.
+
+    Store-availability redesign (2026-09): SCHEDULE (opens_at/closes_at/
+    weekly_off) is the source of truth for whether the store is open.
+    `online=False` here means "close early / temporarily, overriding the
+    schedule" — it is NOT a daily "go live" action a merchant must repeat;
+    the store is already open automatically during its own configured
+    hours with no call to this endpoint at all. `online=True` merely
+    CLEARS that override — it does not force the store open outside its
+    configured hours (see `_effective_store_open`, which still gates on
+    weekly_off/hours after this). When effectively closed (by override,
+    schedule, or weekly-off): store stays visible on the listing but is
+    marked accordingly and all products from this store are hidden from
+    the public products listing.
 
     `live_since` is stamped ONLY on an actual False→True transition (never
-    reset on a redundant True→True call) so a page refresh or a repeat
-    "go live" click never restarts — or silently extends — the 12h LIVE
-    window (G12 P0-5)."""
+    reset on a redundant True→True call) — kept as an informational "last
+    time the override was cleared" marker; nothing computes an expiry from
+    it anymore (no more 12h cap)."""
     online = bool(payload.get("online"))
     sid = f"store-m-{user['sub']}"
-    s = await db.stores.find_one({"id": sid}, {"_id": 0, "published": 1, "online": 1})
+    s = await db.stores.find_one(
+        {"id": sid}, {"_id": 0, "published": 1, "online": 1, "opens_at": 1, "closes_at": 1, "weekly_off": 1},
+    )
     if not s:
         raise HTTPException(400, "Set up your storefront first")
     if not s.get("published"):
@@ -7973,7 +7982,11 @@ async def merchant_store_online(payload: dict, user: dict = Depends(merchant_use
     # Bust geo cache so the new online/offline state surfaces immediately
     try: await cache_service.invalidate_geo()
     except Exception: pass
-    if online:
+    # Notify "notify me" subscribers only if clearing the override actually
+    # made the store effectively open right now — clearing the override
+    # during a weekly-off day or outside configured hours must not claim
+    # "we're back" when the store is still genuinely closed by schedule.
+    if online and _effective_store_open({**s, "online": True}).get("open"):
         asyncio.create_task(_send_notify_me_messages(sid))
     return {"ok": True, "online": online}
 
