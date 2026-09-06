@@ -60,7 +60,8 @@ def send_to_subscription(subscription: dict, title: str, body: str, *,
     if not is_configured():
         log.warning("[push] VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY not configured — skipping send to …%s", short)
         return {"ok": False, "expired": False, "error": "VAPID not configured"}
-    if not endpoint or not (subscription or {}).get("keys", {}).get("p256dh"):
+    keys = (subscription or {}).get("keys", {})
+    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
         log.warning("[push] malformed subscription (missing endpoint/keys) — skipping")
         return {"ok": False, "expired": False, "error": "invalid subscription"}
 

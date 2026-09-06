@@ -26,15 +26,32 @@
 import { useEffect, useState } from "react";
 import { Bell, BellOff, X } from "lucide-react";
 import { toast } from "sonner";
-import { ensurePushSubscription, isPushSupported, type PushPermissionState } from "@/lib/push";
+import {
+  ensurePushSubscription,
+  isPushSupported,
+  type PushPermissionState,
+  type PushSubscribeStatus,
+} from "@/lib/push";
 
 const DISMISS_KEY = "lokl_rider_push_prompt_dismissed";
+
+/** User-facing copy for every non-success outcome. "denied" is handled by
+ *  its own dedicated view (below), never through this map/toast. */
+const FAILURE_MESSAGES: Partial<Record<PushSubscribeStatus, string>> = {
+  unsupported: "This device or browser doesn't support notifications.",
+  "not-configured": "Notifications aren't set up yet — let support know.",
+  dismissed: "Permission wasn't granted — tap Enable notifications to try again.",
+  "sw-unavailable": "Couldn't set up notifications on this device. Try reloading the app.",
+  "subscribe-failed": "Couldn't turn on notifications — try again in a moment.",
+  "save-failed": "Notifications were allowed, but we couldn't save it. Try again.",
+};
 
 export function RiderNotificationPrompt() {
   const [permission, setPermission] = useState<PushPermissionState>("default");
   const [dismissed, setDismissed] = useState(true); // default true until checked, to avoid a flash
   const [requesting, setRequesting] = useState(false);
   const [ready, setReady] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isPushSupported()) { setReady(true); return; }
@@ -42,17 +59,35 @@ export function RiderNotificationPrompt() {
     try { setDismissed(sessionStorage.getItem(DISMISS_KEY) === "1"); } catch { setDismissed(false); }
     setReady(true);
     if (Notification.permission === "granted") {
-      void ensurePushSubscription(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY);
+      void ensurePushSubscription(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY).then((result) => {
+        if (result.status !== "subscribed") {
+          console.warn("[push] background resubscribe did not complete", result);
+        }
+      });
     }
   }, []);
 
   const enable = async () => {
     setRequesting(true);
+    setErrorMessage(null);
     try {
       const result = await ensurePushSubscription(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY);
-      setPermission(result);
-      if (result === "granted") toast.success("Notifications on — you'll get pinged for new orders");
-      else if (result === "denied") toast.error("Notifications blocked — you can turn them on in browser settings");
+      if (result.status === "subscribed") {
+        setPermission("granted");
+        toast.success("Notifications on — you'll get pinged for new orders");
+        return;
+      }
+      if (result.status === "denied") {
+        setPermission("denied");
+        toast.error("Notifications blocked — you can turn them on in browser settings");
+        return;
+      }
+      // Every other status is a genuine failure — permission wasn't
+      // durably granted-and-subscribed, so the banner stays up and the
+      // rider gets a specific, visible reason instead of nothing at all.
+      const message = FAILURE_MESSAGES[result.status] ?? "Couldn't turn on notifications — please try again.";
+      setErrorMessage(message);
+      toast.error(message);
     } finally {
       setRequesting(false);
     }
@@ -109,6 +144,11 @@ export function RiderNotificationPrompt() {
       >
         {requesting ? "Enabling…" : "Enable notifications"}
       </button>
+      {errorMessage && (
+        <p data-testid="rider-push-error" className="mt-2 text-xs font-medium text-red-600">
+          {errorMessage}
+        </p>
+      )}
     </div>
   );
 }

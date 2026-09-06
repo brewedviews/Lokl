@@ -10,6 +10,9 @@ name: Deploy Staging
 #   STAGING_SSH_KEY        — private key (PEM) granted to STAGING_HOST
 #   STAGING_DEPLOY_PATH    — abs path on host (e.g. /opt/lokl)
 #   STAGING_SMOKE_URL      — public URL for smoke test (e.g. https://api.staging.lokl.in)
+#   STAGING_VAPID_PUBLIC_KEY — rider web push VAPID public key, same value as
+#                              the staging backend's VAPID_PUBLIC_KEY env var
+#                              (see backend/scripts/generate_vapid_keys.py)
 
 on:
   push:
@@ -80,6 +83,7 @@ jobs:
             NEXT_PUBLIC_SENTRY_DSN=${{ secrets.STAGING_REACT_SENTRY_DSN }}
             NEXT_PUBLIC_SENTRY_ENVIRONMENT=staging
             NEXT_PUBLIC_APP_ENV=staging
+            NEXT_PUBLIC_VAPID_PUBLIC_KEY=${{ secrets.STAGING_VAPID_PUBLIC_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

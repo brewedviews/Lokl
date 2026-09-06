@@ -24,12 +24,19 @@ ARG NEXT_PUBLIC_RAZORPAY_KEY_ID
 ARG NEXT_PUBLIC_APP_ENV
 ARG NEXT_PUBLIC_SENTRY_DSN
 ARG NEXT_PUBLIC_SENTRY_ENVIRONMENT
+# Rider web push (Group D2 fix, 2026-09) — same VAPID public key as the
+# backend's VAPID_PUBLIC_KEY (see backend/scripts/generate_vapid_keys.py).
+# Public by design (that's what "public key" means here), but it must be
+# present at `npm run build` time or the rider Enable-notifications button
+# silently no-ops (see frontend/src/lib/push.ts).
+ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_STORAGE_HOST=$NEXT_PUBLIC_STORAGE_HOST \
     NEXT_PUBLIC_RAZORPAY_KEY_ID=$NEXT_PUBLIC_RAZORPAY_KEY_ID \
     NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV \
     NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN \
     NEXT_PUBLIC_SENTRY_ENVIRONMENT=$NEXT_PUBLIC_SENTRY_ENVIRONMENT \
+    NEXT_PUBLIC_VAPID_PUBLIC_KEY=$NEXT_PUBLIC_VAPID_PUBLIC_KEY \
     NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build

@@ -33,6 +33,45 @@ export function getPushPermission(): PushPermissionState {
   return Notification.permission;
 }
 
+/**
+ * Discriminated outcome of `ensurePushSubscription()`. Deliberately NOT
+ * collapsed into `PushPermissionState` — a rider needs to know WHY it
+ * didn't work (misconfigured deploy vs. a one-off network blip vs. an
+ * explicit "no") to get a useful message instead of a silently-stuck
+ * button, and the caller must never treat anything other than
+ * "subscribed" as success (see the false-"granted" bug this replaces).
+ *   - "unsupported"      — no Push API in this browser (iOS Safari, etc.)
+ *   - "not-configured"   — NEXT_PUBLIC_VAPID_PUBLIC_KEY missing at build
+ *                          time; requestPermission() was never even called
+ *   - "denied"           — the rider (or a prior session) said no
+ *   - "dismissed"        — requestPermission() resolved without "granted"
+ *                          or "denied" (native dialog closed with no
+ *                          choice made — rare, but Chrome allows it)
+ *   - "sw-unavailable"   — permission granted, but the service worker
+ *                          couldn't be registered
+ *   - "subscribe-failed" — permission granted, SW registered, but
+ *                          pushManager.subscribe()/getSubscription() threw
+ *   - "save-failed"      — a real PushSubscription exists locally, but the
+ *                          backend POST failed, so the server can't send to
+ *                          it yet
+ *   - "subscribed"       — all three conditions met: granted AND a real
+ *                          PushSubscription AND the backend confirmed it
+ */
+export type PushSubscribeStatus =
+  | "unsupported"
+  | "not-configured"
+  | "denied"
+  | "dismissed"
+  | "sw-unavailable"
+  | "subscribe-failed"
+  | "save-failed"
+  | "subscribed";
+
+export interface PushSubscribeResult {
+  status: PushSubscribeStatus;
+  error?: unknown;
+}
+
 /** Registers the rider service worker if not already registered. Safe to
  *  call multiple times (register() is idempotent for the same script
  *  URL/scope). No-op when unsupported. */
@@ -76,40 +115,55 @@ function subscriptionToJSON(sub: PushSubscription): { endpoint: string; keys: { 
  * subscription rather than prompting again) and re-POSTs it — cheap
  * idempotent housekeeping, safe to call on every authenticated page load.
  *
- * Returns the resulting permission state so the caller can update its UI.
+ * Returns a `PushSubscribeResult` — the caller MUST treat only
+ * `{status: "subscribed"}` as success. Every other status is a distinct,
+ * named failure so the UI can say something useful instead of quietly
+ * doing nothing (the bug this replaces: a missing VAPID key used to
+ * return `Notification.permission` — "default" — with no signal that
+ * requestPermission() was never even called; a subscribe()/save failure
+ * used to be swallowed and reported back as "granted", a false success).
  */
-export async function ensurePushSubscription(vapidPublicKey: string | undefined): Promise<PushPermissionState> {
-  if (!isPushSupported()) return "unsupported";
+export async function ensurePushSubscription(vapidPublicKey: string | undefined): Promise<PushSubscribeResult> {
+  if (!isPushSupported()) return { status: "unsupported" };
   if (!vapidPublicKey) {
     console.warn("[push] NEXT_PUBLIC_VAPID_PUBLIC_KEY is not set — push disabled");
-    return Notification.permission;
+    return { status: "not-configured" };
   }
 
   let permission = Notification.permission;
   if (permission === "default") {
     permission = await Notification.requestPermission();
   }
-  if (permission !== "granted") return permission;
+  if (permission === "denied") return { status: "denied" };
+  if (permission !== "granted") return { status: "dismissed" };
 
   const registration = await registerRiderServiceWorker();
-  if (!registration) return permission;
+  if (!registration) return { status: "sw-unavailable" };
 
+  let subscription: PushSubscription;
   try {
-    let subscription = await registration.pushManager.getSubscription();
-    if (!subscription) {
-      subscription = await registration.pushManager.subscribe({
+    subscription =
+      (await registration.pushManager.getSubscription()) ??
+      (await registration.pushManager.subscribe({
         userVisibleOnly: true,
         // TS's BufferSource typing wants a plain ArrayBuffer-backed view;
         // Uint8Array's type param is ArrayBufferLike (broader) as of recent
         // lib.dom typings — the runtime value is fine, this is a type-only cast.
         applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
-      });
-    }
-    await api.rider.pushSubscribe(subscriptionToJSON(subscription));
+      }));
   } catch (e) {
     console.warn("[push] subscribe failed", e);
+    return { status: "subscribe-failed", error: e };
   }
-  return permission;
+
+  try {
+    await api.rider.pushSubscribe(subscriptionToJSON(subscription));
+  } catch (e) {
+    console.warn("[push] failed to save subscription to backend", e);
+    return { status: "save-failed", error: e };
+  }
+
+  return { status: "subscribed" };
 }
 
 /** Unsubscribes locally (browser) and tells the backend to forget this
